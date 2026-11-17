@@ -15,20 +15,24 @@
 // each value is the fold's number in the face's printer.
 
 import { describe, expect, it } from 'vitest';
-import { CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
-import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
+import { HM_UNIT, hmText } from '../util/hmText.js';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, SHIP_CLASS_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
+import { CARD_STAT_ROWS, cardHoverRows, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
+import { hullPercent } from '../util/hullPercent.js';
 
 
-/** A torpedo boat with nothing fitted — the hull every value below is read on. */
-const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
+/** The default hull with nothing fitted — the hull every value below is read on. */
+const TB = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
 
 /** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
-const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+/** A distance as a card prints it (Story 11.2): the one client printer, hm. */
+const rangeTxt = (u: number): string => hmText(u);
+const hm = (u: number): string => `${hmText(u)}${HM_UNIT}`;
 /** A reload in the face's printer: seconds, one decimal, unit on both sides. */
 const secs = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 
-/** The fold of `n` copies of `line` on the bare torpedo boat. */
-const foldOf = (line: string, n: number) => effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill(line));
+/** The fold of `n` copies of `line` on the bare default hull (TB's). */
+const foldOf = (line: string, n: number) => effectiveStats(CONFIG.shipClasses[TB.cls], Array<string>(n).fill(line));
 
 /** A row list as `[cur, next]` pairs — label-blind (the labels are copy). */
 const pairs = (rows: readonly { cur: string | null; next: string }[]): (string | null)[][] =>
@@ -46,7 +50,7 @@ function rangePair(
   k: number,
 ): [string, string] {
   const at = (n: number): number => foldOf(line, n).equipment[w].rangeU;
-  return [rangeTxt(at(k)), `${rangeTxt(at(k + 1))} u`];
+  return [rangeTxt(at(k)), hm(at(k + 1))];
 }
 /**
  * A gun's DAMAGE before and after the card at `k` copies held, read off the
@@ -60,33 +64,12 @@ function dmgPair(line: string, w: 'gun' | 'flak' | 'lightTorpedo' | 'heavyTorped
 }
 
 function held(id: string, n: number): typeof TB {
-  return { cls: 'torpedoBoat', cards: Array<string>(n).fill(id) };
+  return { cls: TB.cls, cards: Array<string>(n).fill(id) };
 }
 
 describe('cardStatRows — LADDER lines print the one number they move', () => {
-  it('prints HULL as one row of whole numbers, the fold before and after the card', () => {
-    // Two copies held: the card reads the 2-copy fold → the 3-copy fold, whole
-    // numbers on both sides (amendment 39).
-    expect(pairs(cardStatRows(CATALOG.hullPoints, 2, held('hullPoints', 2)))).toEqual([
-      [String(foldOf('hullPoints', 2).maxHp), String(foldOf('hullPoints', 3).maxHp)],
-    ]);
-  });
-
-  it('reads the FIRST copy against a bare hull', () => {
-    expect(pairs(cardStatRows(CATALOG.hullPoints, 0, TB))).toEqual([
-      [String(foldOf('hullPoints', 0).maxHp), String(foldOf('hullPoints', 1).maxHp)],
-    ]);
-  });
-
-  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendment 95): ONE row,
-  // the rate as a share of missing hull per second — the wait the card also
-  // shortens is not a row. The values are read through effectiveStats, off the
-  // SHIP panel's own HEAL printer (its last row).
-  it('prints PASSIVE HEALING as one row, the SHIP panel\'s folded heal rate before and after', () => {
-    const heal = (n: number): string | undefined => shipStatRows(foldOf('passiveHealing', n)).at(-1)?.next;
-    expect(pairs(cardStatRows(CATALOG.passiveHealing, 0, TB))).toEqual([[heal(0), heal(1)]]);
-    expect(pairs(cardStatRows(CATALOG.passiveHealing, 4, held('passiveHealing', 4)))).toEqual([[heal(4), heal(5)]]);
-  });
+  // The HULL (maxHp) and PASSIVE HEALING (heal rate) row tests lived here
+  // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 8).
 
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 110–117): ONE row,
   // the whole-number Armor read through effectiveStats — no unit, no decimal.
@@ -96,17 +79,36 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(pairs(cardStatRows(CATALOG.armor, 4, held('armor', 4)))).toEqual([[armorAt(4), armorAt(5)]]);
   });
 
+  // THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5): `you.ib` is folded
+  // beside the cards, so the face reads the hull's REAL index.
+  it('folds the own bonus points (`ib`) into both sides of the row', () => {
+    const ib = { armor: 3 };
+    const armorAt = (n: number): string =>
+      String(effectiveStats(CONFIG.shipClasses[TB.cls], Array<string>(n).fill('armor'), undefined, ib).armor);
+    expect(pairs(cardStatRows(CATALOG.armor, 0, { ...TB, ib }))).toEqual([[armorAt(0), armorAt(1)]]);
+    expect(armorAt(0)).not.toBe(String(foldOf('armor', 0).armor));
+  });
+
+  it('a null or absent `ib` never throws and reads as no points — face and hover alike (review gate P2)', () => {
+    for (const ib of [null, undefined]) {
+      for (const line of [CATALOG.armor, CATALOG.intel, CATALOG.deckGun]) {
+        expect(cardStatRows(line, 0, { ...TB, ib }), String(ib)).toEqual(cardStatRows(line, 0, TB));
+        expect(cardHoverRows(line, 0, { ...TB, ib }), String(ib)).toEqual(cardHoverRows(line, 0, TB));
+      }
+    }
+  });
+
   // ARMOR PIERCING (Story 9.9, epic-9 amendments 145, 159 — mirrors ARMOR): ONE
   // row, the whole-number piercing off the fold.
   it('prints ARMOR PIERCING as one row, whole numbers off the fold', () => {
-    const apAt = (n: number): string => String(foldOf('armorPiercing', n).armorPiercing);
-    expect(pairs(cardStatRows(CATALOG.armorPiercing, 0, TB))).toEqual([[apAt(0), apAt(1)]]);
-    expect(pairs(cardStatRows(CATALOG.armorPiercing, 2, held('armorPiercing', 2)))).toEqual([[apAt(2), apAt(3)]]);
-    expect(cardTierLabel(CATALOG.armorPiercing, 2)).toBe('II → III');
+    const apAt = (n: number): string => String(foldOf('power', n).power);
+    expect(pairs(cardStatRows(CATALOG.power, 0, TB))).toEqual([[apAt(0), apAt(1)]]);
+    expect(pairs(cardStatRows(CATALOG.power, 2, held('power', 2)))).toEqual([[apAt(2), apAt(3)]]);
+    expect(cardTierLabel(CATALOG.power, 2)).toBe('II → III');
   });
 
   it('prints ONE row for each ship ladder, and the CANNON\'s damage step plus its reach', () => {
-    for (const id of ['speed', 'turning', 'radarSweep', 'reload'] as const) {
+    for (const id of ['engines', 'intel', 'reload'] as const) {
       expect(cardStatRows(CATALOG[id], 0, TB), id).toHaveLength(1);
     }
     // rung to II: the damage step (the barrels are FIXED since Story 9.12) and
@@ -114,23 +116,19 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(pairs(cardStatRows(CATALOG.deckGun, 0, TB))).toEqual([dmgPair('deckGun', 'gun', 0), rangePair('deckGun', 'gun', 0)]);
   });
 
-  it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30), and every rung moves the number', () => {
-    const deg = (n: number): string => `${Math.round((foldOf('turning', n).kinematics.turnRate * 180) / Math.PI)}°/s`;
-    expect(pairs(cardStatRows(CATALOG.turning, 0, TB))).toEqual([[deg(0), deg(1)]]);
-    const ladder = [0, 1, 2, 3].map((k) => cardStatRows(CATALOG.turning, k, held('turning', k))[0].next);
-    expect(ladder).toEqual([1, 2, 3, 4].map(deg));
-    expect(new Set(ladder).size).toBe(ladder.length);
-  });
-
-  it('keeps the RPM and PERCENTAGE printers the hover panel already uses', () => {
-    const sweep = cardStatRows(CATALOG.radarSweep, 0, TB)[0];
-    expect(sweep.cur).toMatch(/ RPM$/);
-    expect(sweep.next).toMatch(/ RPM$/);
-    const cooldowns = cardStatRows(CATALOG.reload, 0, TB)[0];
-    expect(cooldowns.cur).toMatch(/^\d+%$/);
-    expect(cooldowns.next).toMatch(/^\d+%$/);
-    // A RELOAD card cuts every cooldown.
-    expect(Number.parseFloat(cooldowns.next)).toBeLessThan(Number.parseFloat(cooldowns.cur!));
+  // Story 10.3 (Eric's ruling 4): the index ladders (five since Story 11.2
+  // retired RANGE) are index cards — each
+  // prints its OWN INDEX bare, before → after (`ARMOR 100 → 120`), every rung
+  // moves the number, and the row reads the line's own index path (never a
+  // derived speed / turn / RPM / cooldown).
+  it('every ship ladder prints its own index, before → after, at every rung', () => {
+    for (const id of INDEX_IDS) {
+      const at = (n: number): string => String(foldOf(id, n)[id]);
+      for (let k = 0; k < 4; k += 1) {
+        expect(pairs(cardStatRows(CATALOG[id], k, held(id, k))), `${id}@${k}`).toEqual([[at(k), at(k + 1)]]);
+      }
+      expect(Number(at(1))).toBeGreaterThan(Number(at(0)));
+    }
   });
 
   it('prints the DECK GUN ladder in whole hit points (amendment 39)', () => {
@@ -152,7 +150,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   /** A torpedo's whole first-copy table, off its tier-I fold. */
   const torpTable = (id: 'heavyTorpedo' | 'lightTorpedo'): (string | null)[][] => {
     const t = foldOf(id, 1).equipment[id];
-    return [[null, secs(t.reloadMs)], [null, String(t.maxAmmo)], [null, String(t.speed)], [null, String(t.damage)], [null, `${t.homingTurnRate} rad/s`]];
+    return [[null, secs(t.reloadMs)], [null, String(t.maxAmmo)], [null, String(t.speed)], [null, String(t.damage)], [null, `${t.homingTurnRate} rad/s`], [null, hm(t.runU)]];
   };
 
   it('prints HEAVY TORPEDO absolutely, in EQUIPMENT_STAT_FIELDS order', () => {
@@ -181,7 +179,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       [null, secs(m.reloadMs)],
       [null, String(m.maxAmmo)],
       [null, String(m.damage)],
-      [null, String(m.triggerRadius)],
+      [null, hm(m.triggerRadius)],
       [null, `${m.homingTurnRate} rad/s`],
     ]);
   });
@@ -195,8 +193,8 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(pairs(cardStatRows(CATALOG.foulingMines, 0, TB))).toEqual([
       [null, String(m.maxAmmo)],
       [null, String(m.damage)],
-      [null, String(m.blastRadius)],
-      [null, String(m.triggerRadius)],
+      [null, hm(m.blastRadius)],
+      [null, hm(m.triggerRadius)],
       [null, `${Math.round(m.slowFactor * 100)}%`],
     ]);
   });
@@ -209,8 +207,8 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       [null, secs(m.reloadMs)],
       [null, String(m.maxAmmo)],
       [null, String(m.damage)],
-      [null, String(m.blastRadius)],
-      [null, String(m.triggerRadius)],
+      [null, hm(m.blastRadius)],
+      [null, hm(m.triggerRadius)],
     ]);
   });
 
@@ -225,13 +223,17 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   // STAR SHELLS and PHOSPHOR SHELLS cards to III and to V author SIX printed
   // steps once the reach step joins them — the fullest faces in the catalog —
   // and the grid holds every one of them, RANGE last, nothing cut.
-  it('STAR SHELLS and PHOSPHOR SHELLS to III and V print all six rows, RANGE last', () => {
+  // Since Story 10.6 (R4: "Special shells are ONE shot for good") STAR
+  // SHELLS' tiers author no flare step, so the face is the reload row plus one
+  // row per AUTHORED stat step — generated from the catalog, never counted.
+  it('STAR SHELLS and PHOSPHOR SHELLS to III and V print reload + every authored step, RANGE last', () => {
     for (const [id, w] of [['starShells', 'starShells'], ['phosphorShells', 'phosphorShells']] as const) {
       for (const k of [2, 4]) {
         const rows = cardStatRows(CATALOG[id], k, held(id, k));
-        expect(rows, `${id}@${k}`).toHaveLength(6);
-        expect(rows.length, `${id}@${k}`).toBeLessThanOrEqual(CARD_STAT_ROWS);
-        expect([rows[5]!.cur, rows[5]!.next], `${id}@${k}`).toEqual(rangePair(id, w, k));
+        const steps = CATALOG[id].tiers[k]!.filter((e) => e.kind === 'stat').length;
+        expect(rows, `${id}@${k}`).toHaveLength(Math.min(CARD_STAT_ROWS, 1 + steps));
+        const last = rows.at(-1)!;
+        expect([last.cur, last.next], `${id}@${k}`).toEqual(rangePair(id, w, k));
       }
     }
   });
@@ -250,7 +252,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   // RANGE row is absolute (no `before` on a first copy), LAST, whole units.
   it('prints RANGE last, absolute, once, on every gun fit face', () => {
     for (const id of ['broadside', 'starShells', 'phosphorShells'] as const) {
-      const fit = `${rangeTxt(foldOf(id, 1).equipment[id].rangeU)} u`;
+      const fit = hm(foldOf(id, 1).equipment[id].rangeU);
       const rows = cardStatRows(CATALOG[id], 0, TB);
       expect(rows.at(-1)?.cur, id).toBeNull();
       expect(rows.at(-1)?.next, id).toBe(fit);
@@ -300,7 +302,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
    *  number they address — folded straight through `effectiveStats`, never read
    *  off the rows under test, so the law is an independent statement. */
   function changedSteps(line: CatalogLine, k: number): number {
-    const cls = CONFIG.shipClasses.torpedoBoat;
+    const cls = CONFIG.shipClasses[TB.cls];
     const before = effectiveStats(cls, Array<string>(k).fill(line.id));
     const after = effectiveStats(cls, Array<string>(k + 1).fill(line.id));
     let moved = 0;
@@ -352,58 +354,61 @@ describe('cardStatRows — the CANNON rungs that carry a turret or a barrel', ()
   });
 });
 
-// --- THE FIRST LIVE CONSUMABLE (Story 8.8) -------------------------------------
+// --- THE THREE STORY 10.5 SLOT WEAPONS -----------------------------------------
 //
-// HULL REPAIR is the one consumable with a mechanism behind it, and a consumable
-// fits nothing: there is no preview diff to read, so both its rows are ABSOLUTE
-// (`cur` null, no arrow) exactly like a weapon's first copy. The numbers come
-// out of CONFIG and are NEVER hardcoded on the face — this suite writes the real
-// catalog numbers out so a retune of the ruling becomes visible HERE.
+// SUPERCAV TORPEDO, FLASH SHELLS and the FOULING SHELL left the consumable kit
+// (2026-11-05, epic-10 amendment 11) for the slot families: their card face is
+// the ordinary WEAPON grammar now — copy 1 prints the weapon's whole table,
+// every later copy its RELOAD step and its authored tier step (R7: the shells'
+// burst radius; 8(e): the supercav's damage). Every number off the fold.
 
-describe('cardStatRows — HULL REPAIR, the first live consumable', () => {
-  it('prints the two rows the card face carries, in order, with no arrow', () => {
-    const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
-    expect(rows).toHaveLength(2);
-    // Epic-8 amendment 51: the shipped pool pays its hp over a time. It is
-    // printed as the AMOUNT over its TIME, never as a rate — the "5 hp/s" in
-    // R13/FR47 is a stale figure, and pools ADD rather than accelerate.
-    expect(rows[1].next).not.toContain('/S');
-    for (const r of rows) expect(r.cur, r.label).toBeNull();
+describe('cardStatRows — the three slot weapons Story 10.5 moved off the kit', () => {
+  const spec = CONFIG.shipClasses[TB.cls];
+  const fold = (id: string, n: number) => effectiveStats(spec, Array<string>(n).fill(id));
+
+  it('copy 1 prints the weapon\'s whole table, every row absolute', () => {
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
+      const rows = cardStatRows(CATALOG[id], 0, TB);
+      expect(rows.length, id).toBeGreaterThan(0);
+      expect(rows.length, id).toBeLessThanOrEqual(CARD_STAT_ROWS);
+      for (const r of rows) expect(r.cur, `${id} ${r.label}`).toBeNull();
+    }
+    const radius = (id: 'dazzleShells' | 'foulingShell') =>
+      cardStatRows(CATALOG[id], 0, TB).map((r) => r.next).includes(hm(fold(id, 1).equipment[id].radius));
+    expect(radius('dazzleShells')).toBe(true);
+    expect(radius('foulingShell')).toBe(true);
+    const supercav = cardStatRows(CATALOG.supercavTorpedo, 0, TB).map((r) => r.next);
+    expect(supercav).toContain(String(fold('supercavTorpedo', 1).equipment.supercavTorpedo.damage));
   });
 
-
-  it('reads every number off CONFIG.hullRepair, never a literal', () => {
-    const h = CONFIG.hullRepair;
-    const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
-    expect(rows[0].next).toContain(String(h.instantHp));
-    expect(rows[1].next).toContain(String(h.regenHp));
-    expect(rows[1].next).toContain(String(h.regenMs / 1000));
-  });
-
-  it('prints the SAME two rows on every hull and at every copy held', () => {
-    const base = cardStatRows(CATALOG.hullRepair, 0, TB);
-    for (const cls of Object.keys(CONFIG.shipClasses)) {
-      for (let k = 0; k < CATALOG.hullRepair.cap; k += 1) {
-        const rows = cardStatRows(CATALOG.hullRepair, k, {
-          cls: cls as never,
-          cards: Array<string>(k).fill('hullRepair'),
-        });
-        expect(rows, `${cls}@${k}`).toEqual(base);
-      }
+  it('a tier card steps the shell\'s burst radius by the ruled step (R7)', () => {
+    for (const [id, step] of [
+      ['dazzleShells', CONFIG.flashShells.radiusStepPerTier],
+      ['foulingShell', CONFIG.foulingShell.radiusStepPerTier],
+    ] as const) {
+      const before = fold(id, 1).equipment[id].radius;
+      const after = fold(id, 2).equipment[id].radius;
+      expect(after - before, id).toBe(step);
+      const rows = cardStatRows(CATALOG[id], 1, { ...TB, cards: [id] });
+      expect(rows.some((r) => r.cur === hmText(before) && r.next === `${hmText(after)}${HM_UNIT}`), id).toBe(true);
     }
   });
 
-  it('fits the five-row grid with room to spare', () => {
-    expect(cardStatRows(CATALOG.hullRepair, 0, TB).length).toBeLessThanOrEqual(CARD_STAT_ROWS);
+  it('every moved weapon\'s tier card prints its reload step', () => {
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
+      const tier = cardStatRows(CATALOG[id], 1, { ...TB, cards: [id] });
+      expect(tier[0].cur, id).not.toBeNull(); // the reload step leads, as on every weapon line
+      expect(tier[0].cur, id).not.toBe(tier[0].next);
+    }
   });
 });
 
 describe('cardStatRows — the lines that legitimately print NOTHING', () => {
-  it('gives an ADD-ON no rows: a verb moves no number', () => {
-    // NO add-on survives in the catalog since Story 8.17 (amendment 134): the
-    // last two became an equipment line and the FLASH SHELLS consumable, and
-    // both print real rows (pinned above and below). The `addon` kind stays in
-    // place, unused, so the claim is made on an INJECTED add-on line.
+  it('gives an ADD-ON whose tier steps no mount no rows: a verb moves no number', () => {
+    // The live add-ons since Story 10.6 (the four one-off cards) each step a
+    // MOUNT count and print it (catalogUnderIndexCards.test.ts). An add-on
+    // that bolts on a pure VERB still prints nothing — claimed on an INJECTED
+    // line.
     const addon: CatalogLine = {
       id: 'injectedAddon' as CatalogLine['id'],
       kind: 'addon',
@@ -414,71 +419,9 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(cardStatRows(addon, 0, TB)).toEqual([]);
   });
 
-  // THE FOULING SHELL (Story 9.4, epic-9 amendment 66): absolute rows whose
-  // numbers are read off CONFIG.foulingShell (the contract: a re-tuned dial
-  // reaches the card), in the 8.16 belt register's uppercase units.
-  it('prints the FOULING SHELL rows from CONFIG.foulingShell (radius, life, speed factor)', () => {
-    const f = CONFIG.foulingShell;
-    expect(pairs(cardStatRows(CATALOG.foulingShell, 0, TB))).toEqual([
-      [null, `${f.radius} U`],
-      [null, `${f.durationMs / 1000} S`],
-      [null, `×${f.slowFactor}`],
-    ]);
-  });
-
-
-  it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE)', () => {
-    // TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY BUOY; ONE since
-    // Story 8.18 flipped SMOKE SCREEN (CHAFF left the catalog in Story 9.2).
+  it('gives the STUB line no rows (DEPTH CHARGE)', () => {
     expect(cardStatRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
   });
-
-  // MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric ruling 2026-10-11, epic-9
-  // amendment 45): LASTS / CLOUD, every number off CONFIG.countermeasure, in the
-  // 8.16 belt register's uppercase units.
-  it('gives the COUNTERMEASURE its life and spread, off CONFIG', () => {
-    const k = CONFIG.countermeasure;
-    expect(pairs(cardStatRows(CATALOG.countermeasure, 0, TB))).toEqual([
-      [null, `${k.lifeMs / 1000} S`],
-      [null, `${k.r0} → ${k.r1} U`],
-    ]);
-  });
-
-  // THE 8.16 CONSUMABLES (catalog-v3 R36/R37; CHAFF retired in 9.2): absolute rows in the
-  // hullRepair shape, every number read off CONFIG — never a literal.
-  it('gives SHIELD BLOCK what it absorbs and how long it lasts, off CONFIG', () => {
-    expect(pairs(cardStatRows(CATALOG.shieldBlock, 0, TB))).toEqual([
-      [null, `${CONFIG.shieldBlock.hp} HP`],
-      [null, `${CONFIG.shieldBlock.durationMs / 1000} S`],
-    ]);
-  });
-
-  it('gives DECOY BUOY its hull, off CONFIG, and a drop row', () => {
-    const rows = cardStatRows(CATALOG.decoyBuoy, 0, TB);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ cur: null, next: `${CONFIG.decoyBuoy.hp} HP` });
-    expect(rows[1].cur).toBeNull();
-  });
-
-
-  it('the 8.16 rows are the same on every hull and at every copy count', () => {
-    for (const id of ['shieldBlock', 'decoyBuoy'] as const) {
-      const base = cardStatRows(CATALOG[id], 0, TB);
-      expect(base.length, id).toBeGreaterThan(0);
-      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['hullPoints'] }), id).toEqual(base);
-    }
-  });
-
-  // THE SECOND LIVE CONSUMABLE (Story 8.13, epic-8 amendment 74) — and the
-  // first that is a weapon. Two absolute rows, both straight off CONFIG, and no
-  // reload row because a consumable never reloads.
-  it('gives SUPERCAV TORPEDO its two CONFIG rows and no reload', () => {
-    expect(pairs(cardStatRows(CATALOG.supercavTorpedo, 0, TB))).toEqual([
-      [null, String(CONFIG.supercavTorpedo.speed)],
-      [null, String(CONFIG.supercavTorpedo.damage)],
-    ]);
-  });
-
 
   it('gives a STUB line no rows — there is no built module to read', () => {
     for (const id of LINE_IDS) {
@@ -505,10 +448,11 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
     expect(over).toEqual([]);
   });
 
-  it('gives every LADDER and every WEAPON at least one row, at every rung', () => {
+  // Since Story 10.6 the four one-off add-ons print their mount row too, so
+  // no live line is silent.
+  it('gives every LADDER, every WEAPON and every live ADD-ON at least one row, at every rung', () => {
     const silent: string[] = [];
     for (const line of NON_STUB) {
-      if (line.kind === 'addon' || line.kind === 'consumable') continue;
       for (let k = 0; k < line.cap; k += 1) {
         const rows = cardStatRows(line, k, held(line.id, k));
         if (rows.length === 0) silent.push(`${line.id}@${k}`);
@@ -530,10 +474,14 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
   });
 
   it('reads every value through effectiveStats — a class change moves the numbers', () => {
-    const tb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'torpedoBoat', cards: [] })[0];
-    const bb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'battleship', cards: [] })[0];
+    // ENGINES (top speed) since Story 10.3 deleted HULL, the old example here.
+    const engines = (cls: typeof TB.cls): number => CONFIG.shipClasses[cls].index.engines;
+    const other = SHIP_CLASS_IDS.find((cls) => engines(cls) !== engines(TB.cls));
+    if (other === undefined) throw new Error('fixture: every hull shares one ENGINES index');
+    const tb = cardStatRows(CATALOG.engines, 0, TB)[0];
+    const bb = cardStatRows(CATALOG.engines, 0, { cls: other, cards: [] })[0];
     expect(bb.cur).not.toBe(tb.cur);
-    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).maxHp);
+    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses[other], []).engines);
   });
 });
 
@@ -561,8 +509,9 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
       expect(mgAt(k + 1, 'maxAmmo')).toBeGreaterThan(mgAt(k, 'maxAmmo'));
       expect(mgAt(k + 1, 'rateMs')).toBeLessThan(mgAt(k, 'rateMs'));
     }
-    // the tier-I reload is the CONFIG dial
-    expect(cardStatRows(CATALOG.machineGun, 0, TB)[0].cur).toBe(secs(CONFIG.machineGun.reloadMs));
+    // the tier-I reload is the CONFIG dial, scaled by the hull's RELOAD index
+    // (Story 10.4: no shipped hull sits at the base index)
+    expect(cardStatRows(CATALOG.machineGun, 0, TB)[0].cur).toBe(secs(CONFIG.machineGun.reloadMs * foldOf('machineGun', 0).cooldownScale));
   });
 
   it('FLAK ladder: DAMAGE climbs every rung and the pool step sits on the rung to II ONLY — the blast never moves', () => {

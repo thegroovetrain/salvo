@@ -3,7 +3,7 @@
 // ship-vs-island overlap predicate in sim/collision.ts.
 //
 // WHY (fix 2026-10-14, Eric on staging: "performance is completely tanked").
-// After the fleet wave a room holds 112 hulls; every hull inside an island's
+// After the (retired, Story 10.8) PvE fleet wave a room held 112 hulls; every hull inside an island's
 // BOUNDING CIRCLE ran the exact hull-vs-coastline test against EVERY coastline
 // edge (segPolygonHit: a pointInPolygon sweep plus one allocating
 // segSegClosest per coastline edge, per hull edge, twice per tick) — 16 ms of

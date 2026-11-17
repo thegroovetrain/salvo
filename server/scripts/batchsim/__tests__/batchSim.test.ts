@@ -12,9 +12,13 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  GUN_IDS,
+  DEFAULT_CLASS_ID,
+  DEFAULT_SHIFT,
   LIFECYCLE_ALIVE,
+  SHIFT_IDS,
   SHIP_CLASS_IDS,
+  SLOT_BOOST,
+  SLOT_GUN,
   angleDiff,
   effectiveStats,
   hullEnvelope,
@@ -23,6 +27,7 @@ import {
   sunkAt,
   zoneEndgameAtMs,
   type HullId,
+  type ShiftId,
 } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
@@ -33,8 +38,8 @@ import { mixSeed, percentile, summarize } from '../stats.js';
 import { CONTROL_REGISTRY } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
-import { MatchCollector, botGunDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
-import { buildAggregate, renderBatchReport } from '../report.js';
+import { BOON_N_MAX, MatchCollector, botShiftDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
+import { buildAggregate, indexSpread, renderBatchReport } from '../report.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
 /** The message a refusal throws (fails the test if nothing is thrown). */
@@ -202,8 +207,8 @@ describe('args — value hygiene (review gate 2026-07-31)', () => {
 describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
   it('rejects non-positive offer.size / xp.levelMs at parse time AND at apply time', () => {
     expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(/'offer\.size'.*>= 1/);
-    expect(() => parseArgs(['--sweep', 'offer.size=3,0'])).toThrow(/'offer\.size'.*>= 1/);
+    expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(/'offer\.size'.*>= 2/);
+    expect(() => parseArgs(['--sweep', 'offer.size=3,0'])).toThrow(/'offer\.size'.*>= 2/);
     expect(() => parseArgs(['--set', 'xp.levelMs=0'])).toThrow(/'xp\.levelMs'.*>= 1/);
     expect(() => parseArgs(['--set', 'zone.stormDps=-1'])).toThrow(/'zone\.stormDps'.*>= 0/);
     // Phased-timeline floors (Story 3.1): a 0-beat rhythm and a 0-radius board
@@ -211,6 +216,18 @@ describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
     expect(() => parseArgs(['--set', 'zone.beatMs=0'])).toThrow(/'zone\.beatMs'.*>= 1/);
     expect(() => parseArgs(['--set', 'map.baseRadius=0'])).toThrow(/'map\.baseRadius'.*>= 1/);
     expect(() => applyOverrides({ 'offer.size': 0 })).toThrow(TunableError);
+  });
+
+  it('refuses offer.size 1 — the four-slot plan has NO Equipment slot below 2 (Story 10.7 review gate)', () => {
+    // Slot 0 is the Ship card and slot 1 the Equipment card, so a size of 1
+    // would never offer a bare hull a weapon. 2 is the smallest legal arm.
+    expect(() => parseArgs(['--set', 'offer.size=1'])).toThrow(/'offer\.size'.*>= 2/);
+    expect(() => parseArgs(['--sweep', 'offer.size=4,1'])).toThrow(/'offer\.size'.*>= 2/);
+    expect(() => applyOverrides({ 'offer.size': 1 })).toThrow(TunableError);
+    expect(parseArgs(['--set', 'offer.size=2']).set).toEqual({ 'offer.size': 2 });
+    const restore = applyOverrides({ 'offer.size': 2 });
+    expect(CONFIG.offer.size).toBe(2);
+    restore();
   });
 
   it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
@@ -233,12 +250,12 @@ describe('overrides — tunable CONFIG dials', () => {
     expect(CONFIG.xp.levelMs).toBe(before);
   });
 
-  it('applies and restores a nested dial (xp.droneTierLevels.droneSmall)', () => {
-    const before = CONFIG.xp.droneTierLevels.droneSmall;
-    const restore = applyOverrides({ 'xp.droneTierLevels.droneSmall': 0.5 });
-    expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(0.5);
+  it('applies and restores a nested dial (zone.stormDps.0)', () => {
+    const before = CONFIG.zone.stormDps[0];
+    const restore = applyOverrides({ 'zone.stormDps.0': 7 });
+    expect(CONFIG.zone.stormDps[0]).toBe(7);
     restore();
-    expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(before);
+    expect(CONFIG.zone.stormDps[0]).toBe(before);
   });
 
   it('addresses the phased-timeline shape: beatMs, ringRadii by index, offsetCap, map.baseRadius', () => {
@@ -275,7 +292,7 @@ describe('overrides — tunable CONFIG dials', () => {
   it('rejects non-tunable keys, unknown paths, and non-numeric leaves', () => {
     expect(() => validateTunableKey('gun.damage')).toThrow(TunableError); // real CONFIG, not a dial
     expect(() => validateTunableKey('xp.nope')).toThrow(TunableError); // dial family, no such leaf
-    expect(() => validateTunableKey('xp.droneTierLevels')).toThrow(TunableError); // object, not a number
+    expect(() => validateTunableKey('zone.ringRadii.x')).toThrow(TunableError); // a non-index into an array leaf
     expect(() => applyOverrides({ 'match.countdown': 1 })).toThrow(TunableError); // match.* is NOT open — only fillTo
   });
 });
@@ -295,11 +312,11 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
   });
 
   it('reaches a nested equipment dial (shipClasses.*)', () => {
-    const before = CONFIG.shipClasses.battleship.hp;
-    const restore = applyOverrides({}, { 'shipClasses.battleship.hp': 200 });
-    expect(CONFIG.shipClasses.battleship.hp).toBe(200);
+    const before = CONFIG.shipClasses.bismarck.hp;
+    const restore = applyOverrides({}, { 'shipClasses.bismarck.hp': 200 });
+    expect(CONFIG.shipClasses.bismarck.hp).toBe(200);
     restore();
-    expect(CONFIG.shipClasses.battleship.hp).toBe(before);
+    expect(CONFIG.shipClasses.bismarck.hp).toBe(before);
   });
 
   it('parses --tune key=value and rejects a malformed pair', () => {
@@ -417,27 +434,31 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
   it('floors the leaves the SIM DIVIDES BY: a 0 there NaNs or inerts the campaign', () => {
     // steerageSpeed: shared/src/sim/ship.ts computes speed/steerageSpeed, so 0
     // is 0/0 = NaN straight into heading and position.
-    expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
-    // turnRate: the AI divides by it; the resulting Infinity/NaN steer fails
-    // the finite check in game/inputs.ts and is SILENTLY DROPPED — the harness
-    // would print an ordinary report of a campaign whose bots were inert.
-    // ITS FLOOR IS 0.05, NOT 1: every hull ships 0.4-0.8, so a floor of 1 made
-    // the leaf untunable at its own shipped values (see TUNE_SUB_ONE_FLOORS and
-    // tuneFloor.test.ts). The hazard being guarded is a divide by ZERO, and 0
-    // is still refused here — only the floor's MAGNITUDE changed.
-    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(/>= 0\.05/);
+    expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
+    // THE INDICES the fold derives from (Story 10.3; RUDDER left in Story
+    // 10.6, RANGE in Story 11.2): clampStats floors reload / engines / intel
+    // at 1 — so a 0 arm would print as moved while the sim ran 1.
+    for (const id of ['reload', 'engines', 'intel']) {
+      expect(() => parseArgs(['--tune', `shipClasses.bismarck.index.${id}=0`])).toThrow(/>= 1/);
+    }
+    // The retired RANGE index is no CONFIG entry at all (Story 11.2, R9).
+    expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.range=100'])).toThrow(/not a numeric CONFIG entry/);
+    // ...while ARMOR / POWER keep floor 0 (the fold floors them at 0).
+    expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.armor=0'])).not.toThrow();
+    expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.power=0'])).not.toThrow();
     // shellSpeed / torpedo.speed: the lead solve divides by the ordnance speed.
     expect(() => parseArgs(['--tune', 'gun.shellSpeed=0'])).toThrow(/>= 1/);
     expect(() => parseArgs(['--tune', 'torpedo.speed=0'])).toThrow(/>= 1/);
     // hp seeds EffectiveStats.maxHp, which world.ts divides by unguarded.
-    expect(() => parseArgs(['--tune', 'shipClasses.mineLayer.hp=0'])).toThrow(/>= 1/);
+    expect(() => parseArgs(['--tune', 'shipClasses.iowa.hp=0'])).toThrow(/>= 1/);
     // Apply-time too, and a legitimate low value still passes.
-    expect(() => applyOverrides({}, { 'shipClasses.battleship.kinematics.turnRate': 0 })).toThrow(TunableError);
-    const restore = applyOverrides({}, { 'shipClasses.battleship.kinematics.turnRate': 1 });
-    expect(CONFIG.shipClasses.battleship.kinematics.turnRate).toBe(1);
+    expect(() => applyOverrides({}, { 'shipClasses.bismarck.index.engines': 0 })).toThrow(TunableError);
+    const shipped = CONFIG.shipClasses.bismarck.index.engines;
+    const restore = applyOverrides({}, { 'shipClasses.bismarck.index.engines': shipped + 1 });
+    expect(CONFIG.shipClasses.bismarck.index.engines).toBe(shipped + 1);
     restore();
+    expect(CONFIG.shipClasses.bismarck.index.engines).toBe(shipped);
   });
 
   it('refuses a DERIVED path that the stats firewall re-pins post-fold', () => {
@@ -481,7 +502,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // Both weighting numbers are `[DRAFT]` and Eric expects the harness to
     // move them, so they sit on the --tune surface (a combat-shape dial, like
     // hullRepair) with the family prefix `offer.weighting.` — which leaves
-    // `offer.size` on the --set whitelist with its floor of 1.
+    // `offer.size` on the --set whitelist with its floor of 2 (Story 10.7).
     for (const key of ['offer.weighting.factor', 'offer.weighting.floor']) {
       expect(isTunableKey(key), key).toBe(false); // NOT on the --set surface...
       expect(() => parseArgs(['--tune', `${key}=0.5`]), key).not.toThrow(); // ...and IS on --tune
@@ -505,26 +526,19 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
   // validation cannot catch it: each leaf is legal alone and only the PAIR is
   // illegal, so the check runs once on the finished CONFIG.
   // -------------------------------------------------------------------------
-  /** The boost reload a maxed RELOAD ladder folds the SHIPPED raw reload to,
-   *  over the raw reload — the scale the cross-key check judges through. */
-  const reloadCapScale = (): number =>
-    effectiveStats(CONFIG.shipClasses.torpedoBoat, Array.from({ length: CATALOG.reload.cap }, () => 'reload'))
-      .equipment.boost.reloadMs / CONFIG.boost.reloadMs;
-
   it('REFUSES boost.reloadMs < boost.durationMs from EITHER direction, after every key is written', () => {
     const reload = CONFIG.boost.reloadMs;
     const duration = CONFIG.boost.durationMs;
-    const scale = reloadCapScale();
-    expect(reload * scale).toBeGreaterThanOrEqual(duration); // the shipped pair is legal through the fold
+    expect(reload).toBeGreaterThanOrEqual(duration); // the shipped pair is legal
 
     // Direction 1: shorten the reload under the window. 1 ms clears the
     // per-leaf reload floor (1), so ONLY the cross-key check can catch it.
     expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(TunableError);
     expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(/must stay >= 'boost\.durationMs'/);
 
-    // Direction 2: lengthen the window past the folded reload. Same relation,
-    // the other leaf — which is exactly why the check is on the pair.
-    const longWindow = Math.ceil(reload * scale) + 1;
+    // Direction 2: lengthen the window past the reload. Same relation, the
+    // other leaf — which is exactly why the check is on the pair.
+    const longWindow = reload + 1;
     expect(() => applyOverrides({}, { 'boost.durationMs': longWindow })).toThrow(TunableError);
     expect(() => applyOverrides({}, { 'boost.durationMs': longWindow })).toThrow(/must stay >= 'boost\.durationMs'/);
 
@@ -540,43 +554,15 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(CONFIG.boost.reloadMs).toBe(reload);
 
     // A LEGAL pair still applies and still restores — the invariant refuses a
-    // relation, not the family. The reload is sized so its FOLDED value still
-    // covers the window: legal through the real fold, not merely raw-legal.
-    const legalReload = Math.ceil(3000 / scale) + 1;
+    // relation, not the family. RELOAD scales no Shift (Story 10.5, R10), so
+    // the raw pair is the live pair.
+    const legalReload = 3000 + 1;
     const restore = applyOverrides({}, { 'boost.durationMs': 3000, 'boost.reloadMs': legalReload });
     expect(CONFIG.boost.durationMs).toBe(3000);
     expect(CONFIG.boost.reloadMs).toBe(legalReload);
     restore();
     expect(CONFIG.boost.durationMs).toBe(duration);
     expect(CONFIG.boost.reloadMs).toBe(reload);
-  });
-
-  // -------------------------------------------------------------------------
-  // Story 8.9 REVIEW (Edge Case Hunter): the invariant above compares the RAW
-  // reloadMs/durationMs pair, but the LIVE reload is scaled by the RELOAD
-  // ladder's cooldownScale (cap 5 copies -> 0.75, floored at 0.1 in
-  // clampStats). `--tune boost.reloadMs=12000` clears the raw pair
-  // (12000 >= 10000) but a five-RELOAD deck folds it to 9000ms < the 10000ms
-  // window — a permanently re-tappable boost the raw-only check missed.
-  // -------------------------------------------------------------------------
-  it('REFUSES boost.reloadMs that is raw-legal but live-illegal at a maxed RELOAD ladder', () => {
-    const reload = CONFIG.boost.reloadMs;
-    const duration = CONFIG.boost.durationMs;
-    const scale = reloadCapScale();
-    expect(scale).toBeLessThan(1); // the RELOAD ladder shortens the reload
-
-    // reload === duration is raw-legal, but the maxed ladder folds it under the window.
-    expect(() => applyOverrides({}, { 'boost.reloadMs': duration })).toThrow(TunableError);
-    expect(() => applyOverrides({}, { 'boost.reloadMs': duration })).toThrow(/must stay >= 'boost\.durationMs'/);
-    expect(CONFIG.boost.reloadMs).toBe(reload);
-
-    // Just past duration / scale folds to >= the window: legal at the cap, so it must pass.
-    const legalAtCap = Math.ceil(duration / scale) + 1;
-    const restore = applyOverrides({}, { 'boost.reloadMs': legalAtCap });
-    expect(CONFIG.boost.reloadMs).toBe(legalAtCap);
-    restore();
-    expect(CONFIG.boost.reloadMs).toBe(reload);
-    expect(CONFIG.boost.durationMs).toBe(duration);
   });
 
   // -------------------------------------------------------------------------
@@ -670,9 +656,11 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
     expect(Math.max(...total) - Math.min(...total)).toBeLessThanOrEqual(1);
   });
 
-  it('is EXACTLY even when the match count is a multiple of 3', () => {
-    // 20 bots x 3 matches = 60 = 20 per class, thanks to the `+ index` offset.
-    expect(totals(campaign('even', 3))).toEqual([20, 20, 20]);
+  it('is EXACTLY even when the match count is a multiple of the class count', () => {
+    // One full rotation of the `+ index` offset: bots x N matches over N
+    // classes is exactly `bots` per class, whatever the lobby size.
+    const n = SHIP_CLASS_IDS.length;
+    expect(totals(campaign('even', n))).toEqual(Array(n).fill(20));
   });
 
   it('the pin discriminates: the DEFAULT rolled roster is measurably SKEWED', () => {
@@ -694,10 +682,11 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
     try {
       const even = runBatch({ seed: 5, matches: 3, captains: 2, bots: 0, roster: 'even' });
       const cls = even.matches.map((m) => m.captains.map((c) => c.cls));
+      const at = (k: number) => SHIP_CLASS_IDS[k % SHIP_CLASS_IDS.length];
       expect(cls).toEqual([
-        [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[1]],
-        [SHIP_CLASS_IDS[1], SHIP_CLASS_IDS[2]],
-        [SHIP_CLASS_IDS[2], SHIP_CLASS_IDS[0]],
+        [at(0), at(1)],
+        [at(1), at(2)],
+        [at(2), at(3)],
       ]);
       // ...and the DEFAULT captain deal is byte-identical to the shipped one
       // (`i % 3`, no offset), which is what preserves every existing run key.
@@ -770,7 +759,7 @@ describe('--json contract pin (the shape /balance-sim reads)', () => {
     // which is what a pacifist / cap-out campaign hands /balance-sim.
     const base: MatchSample = {
       index: 0, seed: 1, durationS: 100, endedBy: 'unresolved', winnerClass: null,
-      stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [],
+      stormDeaths: 0, captains: [], departedCaptains: [],
     };
     const agg = buildAggregate({ matches: [base, { ...base, index: 1 }], failures: [] }, 0);
     expect(agg.winnerClass).toEqual({ none: 2 });
@@ -804,7 +793,7 @@ describe('controls — determinism', () => {
    *  gunner this block used to drive is deleted). */
   function inputStream(worldSeed: number, controlSeed: number, ticks: number): string {
     const w = new World(worldSeed, CONFIG.match.fillTo);
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
     const control = CONTROL_REGISTRY.pacifist('cap-1', controlSeed);
     const lines: string[] = [];
     for (let t = 0; t < ticks; t += 1) {
@@ -841,7 +830,7 @@ describe('controls — determinism', () => {
     // the rest are ladders. The v2 ids this pin used to carry are not in
     // catalog v3 at all, and since the 8.14 review (F4) the policy skips any
     // card `World.spendCard` would refuse — an unknown id among them.
-    const offer = ['speed', 'heavyTorpedo', 'radarSweep', 'hullPoints'];
+    const offer = ['engines', 'heavyTorpedo', 'intel', 'armor'];
     const picks = new Set<number | null>();
     for (let i = 0; i < 50; i += 1) picks.add(pickSpendChoice(offer, mulberry32(i), []));
     expect(picks.has(1)).toBe(true); // the weapon gets picked
@@ -853,15 +842,16 @@ describe('controls — determinism', () => {
   // --- THE REFUSED CARD (Story 8.14 review, F4) -----------------------------
 
   it('NEVER names a card the server would refuse, and answers null for an all-refused hand', () => {
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
-    // A capped consumable and a bare weapon with no slot are both out; only
-    // the ladder is takeable, so every seed names it.
-    const offer = ['hullRepair', 'broadside', 'hullPoints'];
-    for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), five, rowFull)).toBe(2);
+    const capped = new Array<string>(CATALOG.armor.cap).fill('armor');
+    // The torpedo family slot already holds a LIGHT TORPEDO (Story 10.5: one
+    // kind per family slot).
+    const rowFull = [null, null, 'lightTorpedo', null, null] as const;
+    // A capped ladder and a second torpedo kind are both out; only the
+    // uncapped ladder is takeable, so every seed names it.
+    const offer = ['armor', 'heavyTorpedo', 'engines'];
+    for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), capped, rowFull)).toBe(2);
     // ...and with nothing takeable at all the instrument holds the level.
-    const capped = [...five, ...new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')];
-    expect(pickSpendChoice(['hullRepair', 'hullPoints'], mulberry32(1), capped, rowFull)).toBeNull();
+    expect(pickSpendChoice(['armor', 'heavyTorpedo'], mulberry32(1), capped, rowFull)).toBeNull();
   });
 });
 
@@ -953,11 +943,11 @@ describe('controls — the pacifist posture is the SCRIPT, not a deck (Story 8.1
     expect(Object.hasOwn(control, 'deck')).toBe(false);
   });
 
-  it('a harness captain draws from the COMMON POOL on the default gun', () => {
+  it('a harness captain draws from the COMMON POOL on the default Shift', () => {
     const w = new World(1, CONFIG.map.playerCap, CONFIG.zone);
     w.map.islands.length = 0;
-    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
-    expect(rec.gun).toBe('deckGun');
+    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
+    expect(rec.shift).toBe(DEFAULT_SHIFT);
     expect(rec.cards).toEqual([]);
     // ...and a level really does materialize a hand out of the pool.
     w.grantXp(rec, 1);
@@ -970,7 +960,7 @@ describe('controls — the pacifist posture is the SCRIPT, not a deck (Story 8.1
     w.map.islands.length = 0;
     const rec = w.addBot(undefined, undefined);
     expect(SHIP_CLASS_IDS).toContain(rec.hullId as (typeof SHIP_CLASS_IDS)[number]);
-    expect(rec.gun).toBe('deckGun');
+    expect(SHIFT_IDS).toContain(rec.shift); // the enrolled, personality-weighted Shift (Story 10.12)
     expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     w.grantXp(rec, 1);
     expect(rec.offer).toHaveLength(CONFIG.offer.size);
@@ -990,8 +980,8 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // comes from BOTS (--bots), which are pinned in server/src/__tests__.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
-    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
+    const target = w.addShip('tgt-1', 'TGT-01', 'captain', 'bismarck', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     // Park a live target right inside comfortable gun range.
     target.state.x = cap.state.x + 150;
@@ -1022,7 +1012,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // would pass or fail on the seed rather than on the spend. With the hull's
     // default deck the control's spend has a hand to take from, which is what
     // this pin is actually about.
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
     w.grantXp(cap, 3);
@@ -1036,7 +1026,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
   it('is deterministic per seed', () => {
     const run = (): string => {
       const w = new World(9, CONFIG.match.fillTo);
-      w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
+      w.addShip('cap-1', 'CAP-01', 'captain', 'bismarck', undefined, undefined);
       const control = CONTROL_REGISTRY.pacifist('cap-1', 5);
       const lines: string[] = [];
       for (let t = 0; t < 150; t += 1) {
@@ -1066,6 +1056,12 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
    *  seed that happens to beach a ship. `island` optionally places a rock the
    *  control's turn-sign logic can see, at the given bearing offset from the
    *  hull's heading. */
+  /** The slowest of the four hulls by its folded top speed (derived, never named). */
+  const slowestHull = (): HullId =>
+    [...SHIP_CLASS_IDS].sort(
+      (p, q) => effectiveStats(hullEnvelope(p)).kinematics.maxSpeed - effectiveStats(hullEnvelope(q)).kinematics.maxSpeed,
+    )[0];
+
   function beachTrace(
     factory: (typeof CONTROL_REGISTRY)['pacifist'],
     ticks: number,
@@ -1073,7 +1069,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
   ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? 'battleship', undefined, undefined); // slowest hull by default
+    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? slowestHull(), undefined, undefined); // slowest hull by default
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     if (opts.islandOffsetRad !== undefined) {
@@ -1168,7 +1164,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // read the rudder the control answers with.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'bismarck', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -1218,7 +1214,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'bismarck', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -1287,22 +1283,22 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
 describe('botMetrics — endCause reads the contact kind, not only the killer (Story 9.5 review gate)', () => {
   it('a death by wreck contact is sunkByContact (hull contact, nobody credited); the coast is ranAground; the bleed is contact too', () => {
     const w = new World(1, CONFIG.map.playerCap, CONFIG.zone);
-    const v = w.addShip('v', 'V', 'captain', 'torpedoBoat', undefined, undefined);
+    const v = w.addShip('v', 'V', 'captain', 'warspite', undefined, undefined);
     v.lastDamageSrc = 'contact';
     v.lastContactWasLand = false;
-    expect(endCause(w, undefined, v)).toBe('sunkByContact'); // a sinking wreck: no killer, still a hull
-    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    expect(endCause(undefined, v)).toBe('sunkByContact'); // a sinking wreck: no killer, still a hull
+    expect(endCause('k', v)).toBe('sunkByContact');
     v.lastContactWasLand = true;
-    expect(endCause(w, undefined, v)).toBe('ranAground');
+    expect(endCause(undefined, v)).toBe('ranAground');
     v.lastDamageSrc = 'grind'; // the bleed classifies exactly as the strike
-    expect(endCause(w, undefined, v)).toBe('ranAground');
+    expect(endCause(undefined, v)).toBe('ranAground');
     v.lastContactWasLand = false;
-    expect(endCause(w, undefined, v)).toBe('sunkByContact');
-    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    expect(endCause(undefined, v)).toBe('sunkByContact');
+    expect(endCause('k', v)).toBe('sunkByContact');
     v.lastDamageSrc = 'storm';
-    expect(endCause(w, undefined, v)).toBe('sunkByStorm');
+    expect(endCause(undefined, v)).toBe('sunkByStorm');
     v.lastDamageSrc = 'shell';
-    expect(endCause(w, 'k', v)).toBe('sunkByShip');
+    expect(endCause('k', v)).toBe('sunkByShip');
   });
 });
 
@@ -1340,14 +1336,14 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
   // the two, and this evidence line is about the Story 3.4 endgame.
   const closureS = zoneEndgameAtMs(CONFIG.zone) / 1000;
   const sample = (over: Partial<MatchSample>): MatchSample => ({
-    index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat',
-    stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [], ...over,
+    index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'warspite',
+    stormDeaths: 0, captains: [], departedCaptains: [], ...over,
   });
 
   it('excludes cap-outs from resolvedDurationS and from the past-closure rate', () => {
     const matches = [
       sample({ index: 0, durationS: closureS + 60 }),
-      sample({ index: 1, durationS: closureS - 60, winnerClass: 'battleship' }),
+      sample({ index: 1, durationS: closureS - 60, winnerClass: 'bismarck' }),
       // The cap-out sits WAY past closure — if it leaked into either stat it
       // would inflate both (2/3 past-closure, a max at the budget edge).
       sample({ index: 2, durationS: closureS + 600, endedBy: 'unresolved', winnerClass: null }),
@@ -1357,7 +1353,7 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
     expect(agg.resolvedDurationS.n).toBe(2);
     expect(agg.resolvedDurationS.max).toBe(closureS + 60);
     expect(agg.pastEndgameRate).toBe(0.5);
-    expect(agg.winnerClass).toEqual({ torpedoBoat: 1, battleship: 1, none: 1 });
+    expect(agg.winnerClass).toEqual({ warspite: 1, bismarck: 1, none: 1 });
   });
 
   it('an all-unresolved batch renders n=0 rather than crashing or faking percentiles', () => {
@@ -1409,7 +1405,7 @@ describe('runner — at-cap classification keeps a real conclusion (review FIX 5
     const world = new World(21, 4);
     const hooks = { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, requeue: () => {}, disconnect: () => {} };
     const match = new Match(world, { countdownMs: 100, resultsMs: 1000, joinWindowMs: 0, minHumans: 1 }, hooks);
-    world.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    world.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
     match.notifyRosterChanged();
     for (let t = 0; t < 100 && match.phase !== 'finished'; t += 1) {
       world.step();
@@ -1465,14 +1461,15 @@ describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', (
 describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () => {
   it('aggregates a 200k-captain batch without an argument-spread RangeError', () => {
     const captain: CaptainSample = {
-      id: 'cap-1', cls: 'torpedoBoat', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
+      id: 'cap-1', cls: 'warspite', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
       boonsFitted: 2, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
-      firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2],
+      firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2], beaconXpLevels: 0,
+      dropsTaken: 0, indexBonus: {}, indexBonusTotal: 0,
     };
     const match: MatchSample = {
-      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat', stormDeaths: 0,
-      killsByVictimTier: {}, captains: new Array<CaptainSample>(200000).fill(captain),
+      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'warspite', stormDeaths: 0,
+      captains: new Array<CaptainSample>(200000).fill(captain),
       departedCaptains: [],
     };
     // FAIL-PROOF: `Math.max(0, ...captains.map(...))` over 200k entries throws
@@ -1492,57 +1489,68 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
 // pins that the two flags are UNKNOWN ARGUMENTS now, which is the strongest
 // statement that they are gone.
 
-describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
-  it('accepts each of the three guns with --bots, and stores the forced id', () => {
-    for (const gun of GUN_IDS) {
-      expect(parseArgs(['--bots', '4', '--gun', gun]).botGun).toBe(gun);
+describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune families', () => {
+  it('accepts every Shift with --bots, and stores the forced id', () => {
+    for (const shift of SHIFT_IDS) {
+      expect(parseArgs(['--bots', '4', '--shift', shift]).botShift).toBe(shift);
     }
-    expect(parseArgs(['--bots', '4']).botGun).toBeNull();
+    expect(parseArgs(['--bots', '4']).botShift).toBeNull();
   });
 
-  it('refuses an unknown gun (naming the legal set) and a --gun with no bots', () => {
-    expect(() => parseArgs(['--bots', '4', '--gun', 'missile'])).toThrow(UsageError);
-    expect(new Set(listIn(thrown(() => parseArgs(['--bots', '4', '--gun', 'missile'])), 'available'))).toEqual(new Set(GUN_IDS));
-    // The ENGINE id `gun` is not a seat gun id: the pick is deckGun.
-    expect(() => parseArgs(['--bots', '4', '--gun', 'gun'])).toThrow(UsageError);
-    expect(() => parseArgs(['--gun', 'flak'])).toThrow(/--gun needs --bots/);
+  it('refuses an unknown Shift (naming the legal set), the retired --gun, and a --shift with no bots', () => {
+    expect(() => parseArgs(['--bots', '4', '--shift', 'missile'])).toThrow(UsageError);
+    expect(new Set(listIn(thrown(() => parseArgs(['--bots', '4', '--shift', 'missile'])), 'available'))).toEqual(new Set(SHIFT_IDS));
+    expect(() => parseArgs(['--bots', '4', '--gun', 'flak'])).toThrow(UsageError);
+    expect(() => parseArgs(['--shift', SHIFT_IDS[0]])).toThrow(/--shift needs --bots/);
   });
 
-  it('forced: every bot mounts the one gun', () => {
-    const deal = botGunDealer({ botGun: 'machineGun' }, 1234);
-    for (let i = 0; i < 20; i += 1) expect(deal()).toBe('machineGun');
+  it('forced: every bot takes the one Shift', () => {
+    const forced = SHIFT_IDS[SHIFT_IDS.length - 1];
+    const deal = botShiftDealer({ botShift: forced });
+    for (let i = 0; i < 20; i += 1) expect(deal()).toBe(forced);
   });
 
-  it('unforced: a SEEDED uniform mix — deterministic per match seed, all three guns reached', () => {
-    const draw = (seed: number): string[] => {
-      const deal = botGunDealer({}, seed);
-      return Array.from({ length: 19 }, () => deal());
-    };
-    expect(draw(mixSeed(7, 0))).toEqual(draw(mixSeed(7, 0)));
-    expect(draw(mixSeed(7, 0))).not.toEqual(draw(mixSeed(7, 1)));
-    const seen = new Set<string>();
-    for (let m = 0; m < 5; m += 1) for (const g of draw(mixSeed(7, m))) seen.add(g);
-    expect([...seen].sort()).toEqual([...GUN_IDS].sort());
+  it('unforced: the dealer passes NO Shift, so the controller\'s weighted roll at enrollment stands (Story 10.12, R5)', () => {
+    const deal = botShiftDealer({});
+    for (let i = 0; i < 20; i += 1) expect(deal()).toBeUndefined();
   });
 
-  it('the harness lobby mounts the dealt gun in slot 0 — forced, and the seeded mix', () => {
-    const mounted = (spec: { botGun?: 'deckGun' | 'machineGun' | 'flak' }, matchSeed: number): string[] => {
+  it('the harness lobby seats the dealt Shift in slot 1 and the main battery in slot 0 — forced, and the enrolled roll', () => {
+    const seated = (spec: { botShift?: ShiftId }, matchSeed: number): { slot0: string[]; shift: string[] } => {
       const world = new World(matchSeed, 20);
-      const ids = buildBotLobby(world, { seed: 1, matches: 1, captains: 0, ...spec }, 12, matchSeed, 0);
-      return ids.map((id) => String(world.ships.get(id)!.loadout[0].equipmentId));
+      const ids = buildBotLobby(world, { seed: 1, matches: 1, captains: 0, ...spec }, 12, 0);
+      const ships = ids.map((id) => world.ships.get(id)!);
+      for (const ship of ships) expect(ship.loadout[SLOT_BOOST].equipmentId).toBe(ship.shift);
+      return { slot0: ships.map((sh) => String(sh.loadout[SLOT_GUN].equipmentId)), shift: ships.map((sh) => sh.shift) };
     };
-    expect(mounted({ botGun: 'flak' }, 99)).toEqual(Array(12).fill('flak'));
-    // Unforced: the seat gun deckGun mounts the engine id `gun`; the mix is the
-    // dealer's sequence, byte-identical for the same match seed.
+    const forced = SHIFT_IDS[SHIFT_IDS.length - 1];
+    const f = seated({ botShift: forced }, 99);
+    expect(f.shift).toEqual(Array(12).fill(forced));
+    // No bot ever mounts a deck gun: slot 0 is the main battery on every captain hull.
+    expect(new Set(f.slot0)).toEqual(new Set(['mainBattery']));
+    // Unforced: each bot sails the Shift its own enrollment dealt — the same
+    // World built bare through addBot with no Shift seats the same sequence,
+    // byte-identical for the same match seed.
     const expected = (() => {
-      const deal = botGunDealer({}, 99);
-      return Array.from({ length: 12 }, () => {
-        const g = deal();
-        return g === 'deckGun' ? 'gun' : g;
-      });
+      const world = new World(99, 20);
+      return Array.from({ length: 12 }, () => world.addBot(undefined, undefined).shift);
     })();
-    expect(mounted({}, 99)).toEqual(expected);
-    expect(mounted({}, 99)).toEqual(mounted({}, 99));
+    expect(seated({}, 99).shift).toEqual(expected);
+    expect(seated({}, 99)).toEqual(seated({}, 99));
+  });
+
+  it('--tune mainBattery.* and secondaries.* are live dials (and restore)', () => {
+    const before = CONFIG.mainBattery.reloadMs;
+    const restore = applyOverrides({}, { 'mainBattery.reloadMs': before + 1, 'secondaries.damage': CONFIG.secondaries.damage + 1 });
+    expect(CONFIG.mainBattery.reloadMs).toBe(before + 1);
+    restore();
+    expect(CONFIG.mainBattery.reloadMs).toBe(before);
+    // The divide-or-spin floors: a turret reload, the main reach, the round's
+    // speed, the two secondaries rates and its two heat clocks are floored at 1.
+    for (const key of ['mainBattery.reloadMs', 'mainBattery.rangeU', 'mainBattery.shellSpeed', 'secondaries.coldRatePerS', 'secondaries.hotRatePerS', 'secondaries.overheatMs', 'secondaries.coolMs']) {
+      expect(() => parseArgs(['--tune', `${key}=0`]), key).toThrow(/>= 1/);
+      expect(() => parseArgs(['--tune', `${key}=1`]), key).not.toThrow();
+    }
   });
 
   it('--tune machineGun.damage is a live dial (and restores); every new family passes the gate', () => {
@@ -1561,9 +1569,9 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
 
   // STORY 9.8 (epic-9 ruling 125): every weapon's reach is its OWN tiered
   // dial, read live by the fold — so `<w>.rangeU` LEFT the derived-refusal
-  // map and is a real --tune dial (floor 1), while `<w>.rangeUAtV`, which
-  // authors the per-card step once at module load, is REFUSED (the
-  // amendment-110 pattern: tuning it would change nothing).
+  // map and is a real --tune dial (floor 1). `<w>.rangeUAtV` was REFUSED until
+  // 2026-11-15 (the per-card step is read once at module load); the run's
+  // tuned catalog now re-derives that step, so it is a dial too.
   const REACH_ROWS = ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells'] as const;
 
   it('--tune <weapon>.rangeU is a real dial: accepted, floored at 1, and it moves the fold\'s Tier I base', () => {
@@ -1572,144 +1580,171 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
       expect(() => parseArgs(['--tune', `${row}.rangeU=0`]), row).toThrow(/>= 1/);
     }
     const before = CONFIG.gun.rangeU;
+    // The fold's reach at the shipped base, then at the tuned base: the dial
+    // moves the folded reach in proportion (whatever the fold multiplies the
+    // base by — the RANGE index that once scaled it left in Story 11.2).
+    const folded = effectiveStats(hullEnvelope(DEFAULT_CLASS_ID)).equipment.gun.rangeU;
     const restore = applyOverrides({}, { 'gun.rangeU': before - 100 });
     try {
-      expect(effectiveStats(hullEnvelope('battleship')).equipment.gun.rangeU).toBe(before - 100);
+      expect(effectiveStats(hullEnvelope(DEFAULT_CLASS_ID)).equipment.gun.rangeU).toBeCloseTo((folded * (before - 100)) / before, 9);
     } finally {
       restore();
     }
     expect(CONFIG.gun.rangeU).toBe(before);
   });
 
-  it('--tune <weapon>.rangeUAtV is REFUSED: the Tier V reach authors the per-card step at module load', () => {
+  it('--tune <weapon>.rangeUAtV is a real dial, floored at 1', () => {
     for (const row of REACH_ROWS) {
-      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(TunableError);
-      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(/tune rangeU for the base/);
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).not.toThrow();
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=0`]), row).toThrow(/>= 1/);
     }
   });
 
-  it('--tune vision.dropout.* is reachable (distances floored at 1, probabilities in [0, 1]); the rest of vision.* is not', () => {
-    for (const key of ['vision.dropout.startU=900', 'vision.dropout.kneeU=1200', 'vision.dropout.kneeP=0', 'vision.dropout.rimP=1']) {
-      expect(() => parseArgs(['--tune', key]), key).not.toThrow();
-    }
-    for (const key of ['vision.dropout.startU=0', 'vision.dropout.kneeU=0.5']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
-    }
-    for (const key of ['vision.dropout.kneeP=1.1', 'vision.dropout.rimP=-0.1']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/probability in \[0, 1\]/);
-    }
-    for (const key of ['vision.radar=2000', 'vision.sight=600']) {
+  // RE-CUT 2026-11-12 (Story 11.2, R8 — the radar dropout is removed): this
+  // was "--tune vision.dropout.* is reachable (distances floored at 1,
+  // probabilities in [0, 1]); the rest of vision.* is not". The dropout
+  // family, its two floors and its probability clamp left the --tune surface;
+  // what stands is the second half, now the whole of it.
+  it('--tune reaches NO vision.* leaf: the sensor reaches are facts the shared fold and the client both read, and the retired dropout block is no dial', () => {
+    const numeric = Object.entries(CONFIG.vision).filter(([, v]) => typeof v === 'number');
+    expect(numeric.length).toBeGreaterThan(0);
+    for (const [leaf, v] of numeric) {
+      const key = `vision.${leaf}=${String(v)}`;
+      expect(() => parseArgs(['--tune', key]), key).toThrow(TunableError);
       expect(() => parseArgs(['--tune', key]), key).toThrow(/not an equipment dial/);
     }
-    const before = CONFIG.vision.dropout.rimP;
-    const restore = applyOverrides({}, { 'vision.dropout.rimP': 0.5 });
-    try {
-      expect(CONFIG.vision.dropout.rimP).toBe(0.5);
-    } finally {
-      restore();
+    for (const key of ['vision.dropout.startU=900', 'vision.dropout.kneeU=1200', 'vision.dropout.kneeP=0.5', 'vision.dropout.rimP=0.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/not an equipment dial/);
     }
-    expect(CONFIG.vision.dropout.rimP).toBe(before);
   });
 
-  it('--tune vision.dropout.* must leave a CURVE (Story 9.8 review, F3): start < knee < radar and rim <= knee, judged on the final resolved values', () => {
-    const START = CONFIG.vision.dropout.startU;
-    const KNEE = CONFIG.vision.dropout.kneeU;
-    const RADAR = CONFIG.vision.radar;
-    const snapshot = JSON.stringify(CONFIG.vision.dropout);
-    const refused: Array<[Record<string, number>, RegExp]> = [
-      [{ 'vision.dropout.kneeU': RADAR }, /kneeU.*must stay < 'vision\.radar'/],
-      [{ 'vision.dropout.kneeU': RADAR + 500 }, /kneeU.*must stay < 'vision\.radar'/],
-      [{ 'vision.dropout.startU': KNEE }, /startU.*must stay < 'vision\.dropout\.kneeU'/],
-      [{ 'vision.dropout.startU': 1200, 'vision.dropout.kneeU': 1100 }, /startU.*must stay </],
-      [{ 'vision.dropout.rimP': 0.95 }, /rimP.*must stay <= 'vision\.dropout\.kneeP'/],
-      [{ 'vision.dropout.kneeP': 0.05, 'vision.dropout.rimP': 0.1 }, /rimP.*must stay <=/],
-    ];
-    for (const [tune, re] of refused) {
-      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
-      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
-      expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot); // rolled back
-    }
-    const accepted: Record<string, number>[] = [
-      {},
-      { 'vision.dropout.startU': START - 100 },
-      { 'vision.dropout.kneeU': RADAR - 1 },
-      // Several leaves at once: each would be refused against the shipped
-      // others, but the FINAL curve is legal.
-      { 'vision.dropout.startU': KNEE + 50, 'vision.dropout.kneeU': KNEE + 100 },
-      { 'vision.dropout.kneeP': 0.3, 'vision.dropout.rimP': 0.3 },
-      { 'vision.dropout.kneeP': 1, 'vision.dropout.rimP': 0.95 },
-    ];
-    for (const tune of accepted) {
-      const restore = applyOverrides({}, tune);
-      restore();
-    }
-    expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot);
-  });
+  // (DELETED 2026-11-12 — Story 11.2, a ruling recorded in the epic-11 amendments: "--tune vision.dropout.* must leave a CURVE (Story 9.8 review, F3): start < knee < radar and rim <= knee, judged on the final resolved values" — it pinned `validateDropoutCurve`, which left overrides.ts with the dropout; the generic mechanism (cross-key validation on the final values, rolled back) stays pinned by the boost and fog cases.)
 
-  it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
+  it('--tune fog.* is reachable (Story 11.6, the rain field): every numeric leaf, the two per-ring tables by index, with floors on the lengths/clocks/counts, gain on (0, 1] and the shares in [0, 1]', () => {
+    // EVERY numeric leaf of CONFIG.fog parses at its shipped value, and every
+    // entry of an array leaf parses by index — so a new dial is reachable (or
+    // this fails) without anyone editing a list here.
+    for (const [leaf, v] of Object.entries(CONFIG.fog)) {
+      const keys = Array.isArray(v) ? v.map((e, i) => `fog.${leaf}.${i}=${String(e)}`) : [`fog.${leaf}=${String(v)}`];
+      for (const key of keys) expect(() => parseArgs(['--tune', key]), key).not.toThrow();
+    }
     for (const key of [
-      'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0', 'fog.spinRimU=0', 'fog.spinShear=0',
-      'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=8',
-      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.targetPeriodMs=1', 'fog.quantileLattice=256',
+      'fog.edgeBand=0', 'fog.extinctionPerU=0', 'fog.edgeSpeedU=0', 'fog.centerTurnFrac=0', 'fog.spiralWindRad=0', 'fog.edgeSoftFrac=0',
+      'fog.outsideCoverage=0', 'fog.outsideCoverage=1', 'fog.sightCutoffV=0', 'fog.sightCutoffV=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1',
+      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.hullGridCols=1', 'fog.hullGridRows=1', 'fog.spinRadiusFloorU=1',
+      'fog.eyeRadiusFracByRing.0=0', 'fog.eyeRadiusFracByRing.0=1', 'fog.edgeCoverageByRing.0=0', 'fog.edgeCoverageByRing.0=1',
     ]) {
       expect(() => parseArgs(['--tune', key]), key).not.toThrow();
     }
     for (const key of [
-      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.targetPeriodMs=0',
+      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.hullGridCols=0', 'fog.hullGridRows=0', 'fog.spinRadiusFloorU=0',
     ]) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
     }
     // Floors that keep the SERVER up (review gate): the memo lattice is sized
-    // from marchStepU (1 u = 100 M cells) and refreshMs is the quantile cadence.
+    // from marchStepU (1 u = 100 M cells) and refreshMs is the epoch cadence.
     for (const key of ['fog.marchStepU=0', 'fog.marchStepU=1', 'fog.marchStepU=4.9']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 5/);
     }
     for (const key of ['fog.refreshMs=0', 'fog.refreshMs=50', 'fog.refreshMs=249']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 250/);
     }
-    // The coverage lattice's floor is 8 a side (review gate): under ~1/target
-    // points the quantile lands on the lattice maximum and the share reads 0.
-    for (const key of ['fog.quantileLattice=0', 'fog.quantileLattice=4', 'fog.quantileLattice=7']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 8/);
-    }
-    for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1', 'fog.spinShear=-0.1']) {
+    for (const key of ['fog.edgeBand=-0.1', 'fog.extinctionPerU=-1', 'fog.edgeSpeedU=-1', 'fog.centerTurnFrac=-0.1', 'fog.spiralWindRad=-1', 'fog.edgeSoftFrac=-0.1']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
     }
-    for (const key of ['fog.spinRimU=-1']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
-    }
-    for (const key of ['fog.coverageMin=-0.1', 'fog.coverageMax=1.5']) {
-      expect(() => parseArgs(['--tune', key]), key).toThrow(/share of water in \[0, 1\]/);
+    for (const key of [
+      'fog.outsideCoverage=-0.1', 'fog.outsideCoverage=1.5', 'fog.sightCutoffV=-0.1', 'fog.sightCutoffV=1.5',
+      'fog.eyeRadiusFracByRing.1=-0.1', 'fog.eyeRadiusFracByRing.1=1.5', 'fog.edgeCoverageByRing.1=-0.1', 'fog.edgeCoverageByRing.1=1.5',
+    ]) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/share in \[0, 1\]/);
     }
     for (const key of ['fog.gain=0', 'fog.gain=1.5', 'fog.gain=-0.5']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/gain in \(0, 1\]/);
     }
+    // A per-ring table is addressable ONLY by an existing index: an arm can
+    // move an entry, never grow or truncate the table (the array rule).
+    const past = CONFIG.fog.edgeCoverageByRing.length;
+    for (const key of [`fog.edgeCoverageByRing.${past}=0.5`, 'fog.edgeCoverageByRing.length=2', 'fog.eyeRadiusFracByRing=0.4']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(TunableError);
+    }
+    // The retired Story 9.10 leaves are no dials any more.
+    for (const key of ['fog.sightCostPerU=1', 'fog.windU=1', 'fog.cutRatePerS=0.04', 'fog.coverageMin=0.1', 'fog.coverageMax=0.2', 'fog.quantileLattice=48', 'fog.targetPeriodMs=1000', 'fog.spinRimU=1', 'fog.spinShear=1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(TunableError);
+    }
   });
 
-  it('--tune fog.* must describe a field: coverageMin <= coverageMax, integer octaves and lattice side (judged on the final values, rolled back)', () => {
+  it('--tune fog.* must describe a field: integer octaves and hull grid sides under the ceiling (judged on the final values, rolled back)', () => {
     const snapshot = JSON.stringify(CONFIG.fog);
-    const { coverageMax } = CONFIG.fog;
     const refused: Array<[Record<string, number>, RegExp]> = [
-      [{ 'fog.coverageMin': 0.1, 'fog.coverageMax': 0.05 }, /'fog\.coverageMin'.*must stay <= 'fog\.coverageMax'/],
-      [{ 'fog.coverageMin': coverageMax + 0.01 }, /'fog\.coverageMin'.*must stay <=/],
       [{ 'fog.wavelengthU': 0 }, />= 1/],
       [{ 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/],
-      [{ 'fog.quantileLattice': 12.5 }, /'fog\.quantileLattice' must be an integer/],
-      [{ 'fog.quantileLattice': 4 }, />= 8/],
-      [{ 'fog.quantileLattice': 257 }, /'fog\.quantileLattice'.*must stay <= 256/],
+      [{ 'fog.hullGridCols': 2.5 }, /'fog\.hullGridCols' must be an integer/],
+      [{ 'fog.hullGridRows': 1.5 }, /'fog\.hullGridRows' must be an integer/],
+      [{ 'fog.hullGridCols': 1000 }, /'fog\.hullGridCols' x 'fog\.hullGridRows' must be <= 16 grid points/],
+      // THE PRODUCT, never a per-side cap: 16 points is the client shader's whole uniform.
+      [{ 'fog.hullGridCols': 16, 'fog.hullGridRows': 2 }, /must be <= 16 grid points/],
+      [{ 'fog.hullGridCols': 5, 'fog.hullGridRows': 4 }, /must be <= 16 grid points/],
+      [{ 'fog.hullGridCols': 9 }, /must be <= 16 grid points/], // 9 x the shipped rows
+      [{ 'fog.edgeCoverageByRing.0': 0.2, 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/], // a legal leaf beside a refused one: both rolled back
     ];
     for (const [tune, re] of refused) {
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
       expect(JSON.stringify(CONFIG.fog)).toBe(snapshot); // rolled back
     }
-    // Both leaves at once: each alone would break the pair, the final set is legal.
-    const restore = applyOverrides({}, { 'fog.coverageMin': coverageMax + 0.05, 'fog.coverageMax': coverageMax + 0.1 });
+    // ...and every grid of exactly 16 points or fewer is an arm, whatever its shape.
+    for (const [cols, rows] of [[16, 1], [8, 2], [4, 4], [1, 16]]) {
+      const undo = applyOverrides({}, { 'fog.hullGridCols': cols, 'fog.hullGridRows': rows });
+      undo();
+      expect(JSON.stringify(CONFIG.fog)).toBe(snapshot);
+    }
+    // A per-ring entry moves by index and restores: the table keeps its length.
+    const entry = CONFIG.fog.edgeCoverageByRing[1];
+    const moved = entry > 0.5 ? entry - 0.25 : entry + 0.25;
+    const restore = applyOverrides({}, { 'fog.edgeCoverageByRing.1': moved });
     try {
-      expect(CONFIG.fog.coverageMin).toBeCloseTo(coverageMax + 0.05, 12);
+      expect(CONFIG.fog.edgeCoverageByRing[1]).toBe(moved);
+      expect(JSON.parse(snapshot).edgeCoverageByRing).toHaveLength(CONFIG.fog.edgeCoverageByRing.length);
     } finally {
       restore();
     }
     expect(JSON.stringify(CONFIG.fog)).toBe(snapshot);
+  });
+});
+
+describe('report — AIRDROPS (Story 10.9)', () => {
+  const stats = CONFIG.drops.indices;
+  function cap(id: string, cls: string, dropsTaken: number, perStat: (i: number) => number): CaptainSample {
+    const indexBonus: Record<string, number> = {};
+    stats.forEach((s, i) => (indexBonus[s] = perStat(i)));
+    return {
+      id, cls, finalLevel: 1, kills: 0, deaths: 0, picks: 0, boonsFitted: 0, cappedLines: 0,
+      boonTimesS: new Array<number | null>(BOON_N_MAX).fill(null), firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1], beaconXpLevels: 0,
+      dropsTaken, indexBonus, indexBonusTotal: Object.values(indexBonus).reduce((a, n) => a + n, 0),
+    };
+  }
+  const match: MatchSample = {
+    index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'yamato', stormDeaths: 0,
+    captains: [cap('cap-1', 'yamato', 3, (i) => i), cap('cap-2', 'yamato', 1, () => 2), cap('cap-3', 'bismarck', 4, (i) => i % 2)],
+    departedCaptains: [],
+  };
+
+  it('aggregates drops taken per captain by class and the per-stat index spread over captains', () => {
+    const agg = buildAggregate({ matches: [match], failures: [] }, 3);
+    expect(agg.dropsByClass.yamato.mean).toBe(2);
+    expect(agg.dropsByClass.bismarck.mean).toBe(4);
+    expect(Object.keys(agg.indexSpread)).toEqual([...stats]);
+    stats.forEach((s, i) => expect(agg.indexSpread[s]).toBe(i + 2 + (i % 2)));
+    expect(indexSpread([])).toEqual(Object.fromEntries(stats.map((s) => [s, 0])));
+  });
+
+  it('prints the drops line and one spread line per stat, deterministically', () => {
+    const agg = buildAggregate({ matches: [match], failures: [] }, 3);
+    const lines = renderBatchReport('x', agg);
+    expect(lines.some((l) => l.includes('bismarck=4.00') && l.includes('yamato=2.00') && /drops/.test(l))).toBe(true);
+    const at = lines.findIndex((l) => /index spread/.test(l));
+    expect(at).toBeGreaterThan(-1);
+    stats.forEach((s, i) => expect(lines[at + 1 + i].trim().split(/\s+/)).toEqual([s, String(i + 2 + (i % 2))]));
+    expect(renderBatchReport('x', buildAggregate({ matches: [match], failures: [] }, 3))).toEqual(lines);
   });
 });

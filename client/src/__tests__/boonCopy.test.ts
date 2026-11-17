@@ -2,7 +2,7 @@
 // sheet, §1, verbatim), the four KIND words, and the "name is flavor, rules text
 // is the contract" law. Three properties carry the whole module:
 //
-//   1. COVERAGE — every one of the 26 shipped lines has a real display name and
+//   1. COVERAGE — every shipped line has a real display name and
 //      a real kind label. A missing entry would print the humanized id
 //      mid-match, or an unlabelled meta row.
 //   2. THE MINIMAL FACE (R2.17) — a line that moves a NUMBER prints its live
@@ -22,30 +22,40 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
+import { HM_UNIT, hmText } from '../util/hmText.js';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, INDEX_IDS, LINE_IDS, abilityCooldownMs, effectiveStats, type CatalogLine, type HullIndex, type ShipClass } from '@salvo/shared';
 import {
   boonEffectLine,
   boonFitToastLine,
   boonKindLabel,
   boonName,
-  KIND_WORDS,
   cardHoverRows,
-  cardKind,
-  cardKindLabel,
+  cardColorTier,
+  cardTierSteps as tierStepsOf,
+  ONE_OFF_COLOR_TIER,
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
-  consumableStatRows,
+  abilityName,
+  abilityStatRows,
   equipmentStatRows,
   shipStatRows,
   statValueText,
-  type CardKind,
 } from '../ui/boonCopy.js';
 
-const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
+const TB = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
+/** Story 10.4: no shipped hull sits at the base on every index, and RELOAD /
+ *  RANGE fold into the equipment rows — so a pin that reads a CONFIG dial
+ *  verbatim folds this neutral envelope (the default hull, every index at
+ *  `CONFIG.index.base`). A fixture, never a ship. */
+const NEUTRAL_HULL: ShipClass = {
+  ...CONFIG.shipClasses[DEFAULT_CLASS_ID],
+  index: Object.fromEntries(INDEX_IDS.map((k) => [k, CONFIG.index.base])) as HullIndex,
+};
 
 /** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
-const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+/** A distance as the stat tables print it (Story 11.2): the one client printer. */
+const hm = (u: number): string => `${hmText(u)}${HM_UNIT}`;
 
 describe('coverage — every catalog line has a name and a kind word', () => {
   it('names every line (never the humanized fallback)', () => {
@@ -68,12 +78,12 @@ describe('coverage — every catalog line has a name and a kind word', () => {
   it('names the LINE, not the rung — the tier numerals carry the position', () => {
     // The v2 ladders (HULL I..IV) are gone with the v2 catalog: the sheet gives
     // one name per line, so `stack` no longer selects anything.
-    expect(boonName('hullPoints', 0)).toBe(boonName('hullPoints', 3));
+    expect(boonName('armor', 0)).toBe(boonName('armor', 3));
     // Story 8.7 retired `boonLineageLine`'s "II/V" handrail: the ratified face
     // DRAWS the ladder, so what the numerals say is the STEP this card buys.
-    // HULL reads 0 → V since Story 9.6 (epic-9 amendment 94).
-    expect(cardTierLabel(CATALOG.hullPoints, 0)).toBe('I');
-    expect(cardTierLabel(CATALOG.hullPoints, 3)).toBe('III → IV');
+    // ARMOR reads 0 → V (HULL, the old example here, was deleted by Story 10.3).
+    expect(cardTierLabel(CATALOG.armor, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.armor, 3)).toBe('III → IV');
   });
 
   it('fails OPEN on an unknown id/kind (a readable fallback, never an empty card)', () => {
@@ -119,11 +129,11 @@ describe('the card view renders a STUB fail-open (amendment 5)', () => {
 // stats/numbers. One per line."* The prose explanations are DELETED; the slot
 // tooltip, the SHIP panel and the refit card's hover print these rows.
 describe('the stat tables — one builder for the face and both hovers', () => {
-  const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const bare = effectiveStats(NEUTRAL_HULL);
   const text = (rows: readonly { label: string; cur: string | null; next: string }[]) => rows.map(statValueText);
 
   it('equipmentStatRows: the EQUIPMENT_STAT_FIELDS in order, ABSOLUTE, off the live fold', () => {
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['heavyTorpedo', 'heavyTorpedo']);
+    const s = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['heavyTorpedo', 'heavyTorpedo']);
     const rows = equipmentStatRows('heavyTorpedo', s);
     expect(rows.every((r) => r.cur === null)).toBe(true);
     expect(text(rows)).toEqual([
@@ -132,6 +142,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       `${s.equipment.heavyTorpedo.speed}`,
       `${s.equipment.heavyTorpedo.damage}`,
       `${s.equipment.heavyTorpedo.homingTurnRate} rad/s`,
+      hm(s.equipment.heavyTorpedo.runU), // Story 11.2: the fish's RUN, last
     ]);
   });
 
@@ -146,38 +157,31 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   });
 
   it('inserts the mine\'s derived TRIGGER RADIUS by the fit card\'s rule', () => {
-    const s = effectiveStats(CONFIG.shipClasses.mineLayer, ['navalMines']);
+    const s = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['navalMines']);
     const naval = text(equipmentStatRows('navalMines', s));
     // After the blast radius, the table's last row.
     expect(naval).toHaveLength(5);
-    expect(naval[3]).toBe(String(s.equipment.navalMines.blastRadius));
-    expect(naval[4]).toBe(String(s.equipment.navalMines.triggerRadius));
+    expect(naval[3]).toBe(hm(s.equipment.navalMines.blastRadius));
+    expect(naval[4]).toBe(hm(s.equipment.navalMines.triggerRadius));
     // The CAPTIVE mine has no blast field: the ring follows DAMAGE.
     const captive = text(equipmentStatRows('captiveMines', s));
     expect(captive).toHaveLength(5);
     expect(captive[2]).toBe(String(s.equipment.captiveMines.damage));
-    expect(captive[3]).toBe(String(s.equipment.captiveMines.triggerRadius));
+    expect(captive[3]).toBe(hm(s.equipment.captiveMines.triggerRadius));
   });
 
-  it('prints RANGE (the derived rangeU) LAST, in lowercase world units', () => {
-    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(`${rangeTxt(bare.equipment.gun.rangeU)} u`);
-    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`${rangeTxt(bare.equipment.flak.rangeU)} u`);
-    // A torpedo's row carries no rangeU, so it prints none.
-    expect(text(equipmentStatRows('heavyTorpedo', bare)).filter((v) => v.endsWith(' u'))).toEqual([]);
+  it('prints RANGE (the derived rangeU) LAST, in hectometers (Story 11.2)', () => {
+    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(hm(bare.equipment.gun.rangeU));
+    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(hm(bare.equipment.flak.rangeU));
     // ...and ONCE: since Story 9.8 `rangeU` is also a stat-table field (ruling
     // 125), and the table must not print it mid-row as well as last.
-    expect(text(equipmentStatRows('gun', bare)).filter((v) => v.endsWith(' u'))).toHaveLength(1);
+    const reach = hm(bare.equipment.gun.rangeU);
+    expect(text(equipmentStatRows('gun', bare)).filter((v) => v === reach)).toHaveLength(1);
   });
 
-  it('prints RANGE to ONE DECIMAL ONLY WHEN NEEDED — whole values whole, a +31.25 u card step to one decimal (Eric 2026-10-13)', () => {
-    // One flak card: Tier I + one (V − I) / 4 step, a quarter-unit value.
-    const one = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['flak']);
-    expect(Number.isInteger(one.equipment.flak.rangeU), 'the premise: a fractional reach').toBe(false);
-    expect(text(equipmentStatRows('flak', one)).at(-1)).toBe(`${one.equipment.flak.rangeU.toFixed(1)} u`);
-    // A whole reach prints whole — no trailing ".0".
-    expect(Number.isInteger(bare.equipment.flak.rangeU), 'the premise: a whole reach').toBe(true);
-    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`${bare.equipment.flak.rangeU} u`);
-  });
+  // The "one decimal only when needed" RANGE rule (Story 9.8) retired with
+  // world units (Story 11.2): every distance prints through util/hmText.ts,
+  // whose own contract (hmText.test.ts) holds the whole / one-decimal rule.
 
   it('the MACHINE GUN: its shells, and the fire rate to two decimals with the trailing zero kept', () => {
     expect(text(equipmentStatRows('machineGun', bare))).toEqual([
@@ -185,9 +189,9 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       `${CONFIG.machineGun.maxAmmo}`,
       `${CONFIG.machineGun.damage}`,
       `${(CONFIG.machineGun.rateMs / 1000).toFixed(2)} s`,
-      `${rangeTxt(bare.equipment.machineGun.rangeU)} u`,
+      hm(bare.equipment.machineGun.rangeU),
     ]);
-    const top = effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(4).fill('machineGun'));
+    const top = effectiveStats(NEUTRAL_HULL, Array<string>(4).fill('machineGun'));
     expect(text(equipmentStatRows('machineGun', top))).toContain(`${(top.equipment.machineGun.rateMs / 1000).toFixed(2)} s`);
   });
 
@@ -207,85 +211,105 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     ]);
   });
 
-  it('consumableStatRows is the face\'s CONSUMABLE_ROWS, and none for a stub or a junk id', () => {
-    expect(consumableStatRows('hullRepair')).toEqual(cardStatRows(CATALOG.hullRepair, 0, TB));
-    expect(consumableStatRows('depthCharge')).toEqual([]);
-    expect(consumableStatRows('constructor')).toEqual([]);
+  // Story 10.5: HULL REPAIR and SMOKE SCREEN are cooldown abilities; their
+  // former card rows print on the `C` / `V` tooltip. Since Story 10.6 (R8 /
+  // R9) every number is the SHIP'S OWN — `stats.repair` / `stats.smoke` —
+  // never CONFIG (the ladders move them; catalogUnderIndexCards.test.ts).
+  it('abilityStatRows reads the two abilities\' rows off the ship\'s own stats', () => {
+    expect(abilityStatRows('repair', bare)).toHaveLength(3);
+    // Eric 2026-11-05: the pool's window sits ONCE, in the row's label,
+    // generated off the ship's own `stats.repair.regenMs`.
+    const over = abilityStatRows('repair', bare)[1];
+    expect(over.label).toContain(String(bare.repair.regenMs / 1000));
+    expect(over.next).not.toContain(String(bare.repair.regenMs / 1000));
+    const longer = { ...bare, repair: { ...bare.repair, regenMs: 7_000 } };
+    expect(abilityStatRows('repair', longer)[1].label).toContain('7');
+    const k = bare.smoke;
+    expect(text(abilityStatRows('smoke', bare)).slice(0, 2)).toEqual([
+      `${k.lifeMs / 1000} S`,
+      `${hmText(k.r0)} → ${hmText(k.r1)}${HM_UNIT}`,
+    ]);
+    expect(abilityName('repair')).not.toBe(abilityName('smoke'));
   });
 
-  it('shipStatRows: the eight ladders in order, each line\'s own printer', () => {
-    expect(text(shipStatRows(bare))).toEqual([
-      `${bare.maxHp}`,
-      `${bare.armor}`, // Story 9.7: right after HULL (epic-9 amendments 110–117)
-      `${bare.armorPiercing}`, // Story 9.9: right after ARMOR (epic-9 amendment 159)
-      `${bare.kinematics.maxSpeed}`,
-      `${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`, // rad/s printed as whole degrees/s (P10)
-      `${bare.sweepRpm} RPM`,
-      '100%', // the bare cooldown multiplier
-      `${Math.round(bare.regen.missingPctPerS * 100)} %/S`, // Story 9.6, amendment 95
-    ]);
+  // Eric 2026-11-05: the `C` / `V` tooltip ends on a cooldown row in the Shift
+  // tooltip's reload-row grammar (same label, same printer), valued off shared
+  // `abilityCooldownMs`.
+  it('a non-finite distance row prints empty, never a bare unit (Story 11.2 gate C5)', () => {
+    const broken = { ...bare, smoke: { ...bare.smoke, r0: Number.NaN, r1: Number.NaN } };
+    const cloud = abilityStatRows('smoke', broken)[1];
+    expect(cloud.next).toBe('');
+  });
+
+  it('abilityStatRows ends on the cooldown row, valued off abilityCooldownMs, in the Shift reload grammar', () => {
+    const shiftReload = equipmentStatRows('instantReload', effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], [])).at(-1)!;
+    for (const id of ['repair', 'smoke'] as const) {
+      const row = abilityStatRows(id, bare).at(-1)!;
+      expect(row.label).toBe(shiftReload.label);
+      expect(row.cur).toBeNull();
+      expect(row.next).toContain((abilityCooldownMs(bare, id) / 1000).toFixed(1));
+    }
+  });
+
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): the SHIP panel is the
+  // indices in amendment 6(c)'s order (`INDEX_IDS`; RUDDER left in Story
+  // 10.6, R2), each printed bare off its own index path. The HULL (maxHp) and
+  // PASSIVE HEALING (regen) rows left with their lines.
+  it('shipStatRows: the indices in INDEX_IDS order, each its own index', () => {
+    expect(shipStatRows(bare)).toHaveLength(INDEX_IDS.length);
+    expect(text(shipStatRows(bare))).toEqual(INDEX_IDS.map((id) => String(bare[id])));
+    // A row reads ITS index: moving one index moves exactly one row.
+    const armored = effectiveStats(NEUTRAL_HULL, ['armor']);
+    const moved = text(shipStatRows(armored)).map((v, i) => v !== text(shipStatRows(bare))[i]);
+    expect(moved).toEqual(INDEX_IDS.map((id) => id === 'armor'));
+    // Every label is distinct (one word per row).
+    expect(new Set(shipStatRows(bare).map((r) => r.label)).size).toBe(INDEX_IDS.length);
   });
 
   it('cardHoverRows: the full table of what the card touches, valued AFTER the card', () => {
     // A weapon line: its weapon's table on the after fold.
-    const after = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['lightTorpedo']);
+    const after = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['lightTorpedo']);
     expect(cardHoverRows(CATALOG.lightTorpedo, 0, TB)).toEqual(equipmentStatRows('lightTorpedo', after));
-    // A ship ladder: the eight ship stats after the card (MAX HULL moved).
-    const hulled = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints']);
-    expect(cardHoverRows(CATALOG.hullPoints, 0, TB)).toEqual(shipStatRows(hulled));
+    // A ship ladder: the six ship stats after the card (ARMOR moved).
+    const armored = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['armor']);
+    expect(cardHoverRows(CATALOG.armor, 0, TB)).toEqual(shipStatRows(armored));
     // A gun ladder: the CANNON's table after the card (the CANNON ladder —
     // DECK GUN BARREL folded into it, amendment 197).
-    const cannon = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun']);
+    const cannon = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['deckGun']);
     expect(cardHoverRows(CATALOG.deckGun, 0, TB)).toEqual(equipmentStatRows('gun', cannon));
     // The two pickable guns' ladders climb their own gun.
-    const mg = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['machineGun']);
+    const mg = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['machineGun']);
     expect(cardHoverRows(CATALOG.machineGun, 0, TB)).toEqual(equipmentStatRows('machineGun', mg));
-    // A consumable: its CONFIG rows; a stub: none.
-    expect(cardHoverRows(CATALOG.countermeasure, 0, TB)).toEqual(consumableStatRows('countermeasure'));
+    // A stub: none.
     expect(cardHoverRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
   });
 });
 
-// --- THE CARD KIND (cycle 158, Eric ruling 2026-09-30, amendment 188) -----------
-describe('cardKind — what the card does for the player', () => {
-  it('has one distinct, non-empty kind word per card kind', () => {
-    const kinds: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'consumable', 'addon'];
-    expect(KIND_WORDS).toHaveLength(kinds.length);
-    expect(new Set(kinds.map(cardKindLabel))).toEqual(new Set(KIND_WORDS));
-    for (const w of KIND_WORDS) expect(w.trim()).not.toBe('');
-  });
-
-  it('copy 1 of an equipment line is a WEAPON; every later copy a WEAPON UPGRADE', () => {
-    for (const id of ['heavyTorpedo', 'lightTorpedo', 'navalMines', 'broadside', 'starShells', 'phosphorShells']) {
-      expect(cardKind(CATALOG[id], 0), id).toBe('weapon');
-      expect(cardKind(CATALOG[id], 1), id).toBe('weaponUpgrade');
-      expect(cardKind(CATALOG[id], 3), id).toBe('weaponUpgrade');
-    }
-    expect(cardKind(CATALOG.heavyTorpedo, Number.NaN)).toBe('weapon'); // fail-open to copy 1
-  });
-
-  it('every gun ladder is a WEAPON UPGRADE, every ship ladder a SHIP UPGRADE, whatever the copies', () => {
-    for (const n of [0, 1, 3]) {
-      for (const id of ['deckGun', 'machineGun', 'flak']) {
-        expect(cardKind(CATALOG[id], n), id).toBe('weaponUpgrade');
-      }
-      // ARMOR PIERCING joined in Story 9.9 (epic-9 amendment 159).
-      for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing']) {
-        expect(cardKind(CATALOG[id], n), id).toBe('shipUpgrade');
-      }
-    }
-  });
-
-  it('a consumable is a CONSUMABLE and an add-on an ADD-ON', () => {
-    for (const id of ['hullRepair', 'countermeasure', 'supercavTorpedo', 'foulingShell']) {
-      expect(cardKind(CATALOG[id], 0), id).toBe('consumable');
-    }
-    expect(cardKind({ ...CATALOG.hullPoints, kind: 'addon' } as CatalogLine, 0)).toBe('addon');
-  });
-
-  it('every shipped line resolves to a kind at every copy count', () => {
+// --- THE CARD COLOUR (Eric 2026-11-05, supersedes the kind colours of
+// amendment 188): "Tier I should be Green, Tier II should be Blue, Tier III
+// should be Purple, Tier IV should be Red, and Tier V should be Gold. The
+// Launcher/Mine Rack upgrades should be Gold. Otherwise it doesn't matter what
+// kind of card it is."
+describe('cardColorTier — the tier this card GRANTS, whatever the kind', () => {
+  it('copy k of any laddered line is the tier the line stands at after taking it', () => {
     for (const id of LINE_IDS) {
-      for (let n = 0; n <= CATALOG[id].cap; n += 1) expect(KIND_WORDS, id).toContain(cardKindLabel(cardKind(CATALOG[id], n)));
+      const line = CATALOG[id];
+      if (line.kind === 'addon') continue;
+      for (let n = 0; n < line.cap; n += 1) {
+        const step = tierStepsOf(line, n)!;
+        expect(cardColorTier(line, n), `${id}@${n}`).toBe(step.next ?? step.cur);
+      }
+    }
+  });
+
+  it('a five-card ladder walks I → V, and a weapon line and a ship ladder agree at every copy', () => {
+    expect([0, 1, 2, 3, 4].map((n) => cardColorTier(CATALOG.armor, n))).toEqual([1, 2, 3, 4, 5]);
+    for (let n = 0; n < 5; n += 1) expect(cardColorTier(CATALOG.heavyTorpedo, n)).toBe(cardColorTier(CATALOG.armor, n));
+  });
+
+  it('every add-on (the one-offs) is the top rung — gold', () => {
+    for (const id of LINE_IDS) {
+      if (CATALOG[id].kind === 'addon') expect(cardColorTier(CATALOG[id], 0), id).toBe(ONE_OFF_COLOR_TIER);
     }
   });
 });
@@ -306,13 +330,13 @@ describe('cardTierLabel — the step, not the position', () => {
     // amendment 94): five cards each, 0 → V, like PASSIVE HEALING — and ARMOR
     // (Story 9.7, epic-9 amendments 110–117) and ARMOR PIERCING (Story 9.9,
     // epic-9 amendment 159: out of the base-tier set, Tier 0 → V like ARMOR).
-    for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'passiveHealing']) {
+    for (const id of ['armor', 'power', 'engines', 'hullRepair', 'smokeScreen']) {
       expect(cardTierLabel(CATALOG[id], 0), id).toBe('I');
       expect(cardTierLabel(CATALOG[id], 1), id).toBe('I → II');
       expect(cardTierLabel(CATALOG[id], 4), id).toBe('IV → V'); // the fifth card
       expect(cardTierLabel(CATALOG[id], 5), id).toBe('V'); // at the cap
     }
-    expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.intel, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.reload, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.navalMines, 0)).toBe('I');
@@ -331,20 +355,18 @@ describe('cardTierLabel — the step, not the position', () => {
   it('and as a step from the copy held once there is one', () => {
     expect(cardTierLabel(CATALOG.heavyTorpedo, 1)).toBe('I → II');
     expect(cardTierLabel(CATALOG.reload, 1)).toBe('I → II');
-    expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
+    expect(cardTierLabel(CATALOG.intel, 4)).toBe('IV → V');
   });
 
-  it('shows NO ladder at all for a consumable or an add-on', () => {
-    expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.decoyBuoy, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.foulingShell, 0)).toBeNull();
+  it('shows NO ladder at all for an add-on', () => {
+    expect(cardTierLabel(CATALOG.depthCharge, 0)).toBeNull();
   });
 
   it('carries the same step as NUMBERS, so the DOM can tint each numeral', () => {
     expect(cardTierSteps(CATALOG.deckGun, 0)).toEqual({ cur: 1, next: 2 });
-    expect(cardTierSteps(CATALOG.radarSweep, 0)).toEqual({ cur: 1, next: null });
+    expect(cardTierSteps(CATALOG.intel, 0)).toEqual({ cur: 1, next: null });
     expect(cardTierSteps(CATALOG.heavyTorpedo, 2)).toEqual({ cur: 2, next: 3 });
-    expect(cardTierSteps(CATALOG.hullRepair, 0)).toBeNull();
+    expect(cardTierSteps(CATALOG.depthCharge, 0)).toBeNull();
   });
 
   // STORY 8.12 — THE CEILING. The ramp is five rungs (UX-DR51) and the caps are
@@ -355,17 +377,16 @@ describe('cardTierLabel — the step, not the position', () => {
   it('stops at the TOP RUNG — a card at the cap sells no step', () => {
     // HULL / SPEED / TURNING run five cards from nothing since Story 9.6
     // (epic-9 amendment 94), so they top out at the cap, as RADAR SWEEP does.
-    expect(cardTierLabel(CATALOG.hullPoints, 5)).toBe('V');
-    expect(cardTierLabel(CATALOG.speed, 5)).toBe('V');
-    expect(cardTierLabel(CATALOG.turning, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.armor, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.engines, 5)).toBe('V');
     expect(cardTierLabel(CATALOG.deckGun, 4)).toBe('V');
-    expect(cardTierLabel(CATALOG.radarSweep, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.intel, 5)).toBe('V');
     // An OVER-STACK of the CANNON ladder (more copies than its cap) still reads
     // the top rung. (This pinned the one-rung TURRET until it was deleted,
     // amendment 197; no one-rung ladder ships now.)
     expect(cardTierLabel(CATALOG.deckGun, 5)).toBe('V');
-    expect(cardTierSteps(CATALOG.hullPoints, 5)).toEqual({ cur: 5, next: null });
-    expect(cardTierSteps(CATALOG.radarSweep, 5)).toEqual({ cur: 5, next: null });
+    expect(cardTierSteps(CATALOG.armor, 5)).toEqual({ cur: 5, next: null });
+    expect(cardTierSteps(CATALOG.intel, 5)).toEqual({ cur: 5, next: null });
   });
 
   it('never prints a SIXTH rung — on any ladder, at any count the wire can carry', () => {
@@ -387,9 +408,9 @@ describe('cardTierLabel — the step, not the position', () => {
   it('moves NOTHING below the ceiling — every step is what it was', () => {
     expect(cardTierLabel(CATALOG.deckGun, 3)).toBe('IV → V');
     expect(cardTierLabel(CATALOG.deckGun, 2)).toBe('III → IV');
-    expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
+    expect(cardTierLabel(CATALOG.intel, 4)).toBe('IV → V');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 4)).toBe('IV → V');
-    expect(cardTierSteps(CATALOG.hullPoints, 2)).toEqual({ cur: 2, next: 3 });
+    expect(cardTierSteps(CATALOG.armor, 2)).toEqual({ cur: 2, next: 3 });
     expect(cardTierSteps(CATALOG.deckGun, 3)).toEqual({ cur: 4, next: 5 });
   });
 
@@ -429,42 +450,32 @@ describe('the fitted toast', () => {
     expect(boonFitToastLine('someFutureCard', 1)).toContain(boonName('someFutureCard'));
   });
 
-  // STORY 8.7, RULING 14 (UX-DR48's "consumable stocked"). Nothing about the
-  // hull changed when a consumable lands — a copy went onto the belt — so the
-  // verb has to say so or the toast claims a fit that never happened.
-  it('only the consumable kind switches the verb: ladder, equipment, add-on, an unknown kind and no kind all read the fitted default', () => {
-    const fitted = boonFitToastLine('hullRepair', 1);
-    expect(boonFitToastLine('hullRepair', 1, 'consumable')).not.toBe(fitted);
-    expect(boonFitToastLine('hullRepair', 1, 'consumable')).toContain(boonName('hullRepair'));
-    for (const kind of ['ladder', 'equipment', 'addon', 'someFutureKind']) {
-      expect(boonFitToastLine('hullRepair', 1, kind), kind).toBe(fitted);
-    }
-  });
+
 });
 
 describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pitch', () => {
-  const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const bare = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
   it('reports a stat line\'s LIVE value, with no current→next arrow', () => {
-    expect(boonEffectLine('hullPoints', bare)).toContain(`${bare.maxHp}`);
-    expect(boonEffectLine('hullPoints', bare)).not.toContain('→');
-    expect(boonEffectLine('radarSweep', bare)).toContain(`${bare.sweepRpm} RPM`);
-    expect(boonEffectLine('reload', bare)).toContain('100%');
-    // TURNING in whole degrees per second (Eric 2026-09-30).
-    expect(boonEffectLine('turning', bare)).toContain(`${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`);
+    expect(boonEffectLine('armor', bare)).toContain(`${bare.armor}`);
+    expect(boonEffectLine('armor', bare)).not.toContain('→');
+    // Story 10.3: every ship ladder reports its bare INDEX.
+    for (const id of ['power', 'reload', 'engines', 'intel'] as const) {
+      expect(boonEffectLine(id, bare), id).toContain(`${bare[id]}`);
+    }
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {
-    const stacked = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints', 'hullPoints']);
-    expect(boonEffectLine('hullPoints', stacked)).not.toBe(boonEffectLine('hullPoints', bare));
-    expect(boonEffectLine('hullPoints', stacked)).toContain(`${stacked.maxHp}`);
+    const stacked = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['armor', 'armor']);
+    expect(boonEffectLine('armor', stacked)).not.toBe(boonEffectLine('armor', bare));
+    expect(boonEffectLine('armor', stacked)).toContain(`${stacked.armor}`);
   });
 
   // A verb card's holding row was its own short table until STORY 8.17 emptied
   // it (amendment 134), and cycle 158 deleted the empty table: PHOSPHOR SHELLS
   // holds its own RELOAD like every weapon line.
   it('a former add-on holds a NUMBER now — PHOSPHOR SHELLS reports its reload', () => {
-    const phos = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['phosphorShells']);
+    const phos = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['phosphorShells']);
     const holding = boonEffectLine('phosphorShells', phos);
     expect(holding).toContain(`${(phos.equipment.phosphorShells.reloadMs / 1000).toFixed(1)} s`);
   });

@@ -28,13 +28,21 @@
 //     face, far face, and whatever stands behind it (amendment 140).
 
 import { describe, it, expect, vi } from 'vitest';
+// Story 11.2: the scope now marches to the 400 hm reach (~9,090 u, six times
+// the 1,500 u rim these suites were tuned on), so whole-revolution tests take
+// seconds alone and starve far longer under the suite's thread parallelism.
+// 120000ms absorbs that without hiding a hang.
+vi.setConfig({ testTimeout: 120000 });
 import { Container, Graphics, Texture } from 'pixi.js';
 import {
+  DEFAULT_CLASS_ID,
+  SHIP_CLASS_IDS,
   CONFIG,
   WAKE_AGE_BUCKETS,
   buildHeightRaster,
   coverageHas,
   effectiveSight,
+  FLASH_WINDOW_MS,
   paintCoverage,
   rasterizeSegmentCoverage,
   type HeightRaster,
@@ -44,7 +52,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Radar } from '../render/radar.js';
-import { fogHoleRadiusU } from '../render/fog.js';
+import { eyeHoleRadiusU } from '../render/fog.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { wakeLitFloor } from '../render/radarSources.js';
 
@@ -124,11 +132,11 @@ function wireEcho(cls: HullId, x: number, y: number, heading: number, t = 1000):
   return { e: { k: 'blip', t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y };
 }
 
-/** A battleship 500u due +y of the origin, heading +x (broadside to the
+/** A captain hull 500u due +y of the origin, heading +x (broadside to the
  *  observer): the true footprint is much WIDER (its 124u length, in x) than it
  *  is tall (its 48u beam, in y) — a fogged hull finally points the way it is
  *  headed, which is the complaint this cycle exists to fix. */
-const PAINT: TestEcho = wireEcho('battleship', 0, 500, 0);
+const PAINT: TestEcho = wireEcho(DEFAULT_CLASS_ID, 0, 500, 0);
 
 /** Extent of the lit region along one world axis through the paint centre. */
 function litSpan(radar: Radar, axis: 'x' | 'y', cross: number, at: number): number {
@@ -171,8 +179,8 @@ describe('`return` paints are posed from a real observer or not at all', () => {
       expect(span).toBeGreaterThanOrEqual(trueU - CELL);
       expect(span).toBeLessThanOrEqual(trueU + 5 * CELL);
     };
-    grown(across, CONFIG.shipClasses.battleship.hull.length);
-    grown(along, CONFIG.shipClasses.battleship.hull.beam);
+    grown(across, CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.length);
+    grown(along, CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam);
   });
 
   it('marches immediately when a pose is already known — deferral is the '
@@ -201,7 +209,7 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0);
     // A bearing the beam is nowhere near (it sits at −0.6 rad and advances).
-    const behind = wireEcho('battleship', 0, -500, 0, 10);
+    const behind = wireEcho(DEFAULT_CLASS_ID, 0, -500, 0, 10);
     radar.onBlip(behind.e);
     radar.render(OWN, 20); // the very next frame — the beam has moved 0.03 rad
     expect(radar.bandAt(behind.x, behind.y), 'painted on arrival')
@@ -220,7 +228,7 @@ describe('`return` paints are posed from a real observer or not at all', () => {
 describe('malformed wire payloads are dropped whole at the adapter', () => {
   /** A valid echo the malformed variants are derived from. */
   function base(): ReturnBlipEvent {
-    return wireEcho('battleship', 300, 0, 0, 1000).e;
+    return wireEcho(DEFAULT_CLASS_ID, 300, 0, 0, 1000).e;
   }
 
   it('a non-finite or far-future `t` paints nothing — a full-brightness mark that never decays is unrepresentable', () => {
@@ -258,7 +266,7 @@ describe('malformed wire payloads are dropped whole at the adapter', () => {
   it('the pending park is CAPPED while own pose is null — a join gap cannot grow it unboundedly', () => {
     const { radar } = makeRadar();
     // No render ever happens: own pose stays null and every echo parks.
-    for (let i = 0; i < 400; i++) radar.onBlip(wireEcho('torpedoBoat', 300 + i, 0, 0, 100 + i).e);
+    for (let i = 0; i < 400; i++) radar.onBlip(wireEcho(DEFAULT_CLASS_ID, 300 + i, 0, 0, 100 + i).e);
     // The park is bounded at the same ceiling as the live-blip backstop, so
     // resolving it cannot enroll more than that many slices either.
     radar.render(OWN, 1000);
@@ -293,7 +301,7 @@ describe('the slice list is the history and the buffer is derived (ruling R1)', 
     const perRev = Math.ceil((Math.PI * 2) / CLIENT_CONFIG.blip.heatmap.march.sliceRad);
     expect(peak, 'about three revolutions of slices').toBeLessThan(perRev * 4);
     expect(peak, 'and genuinely more than one').toBeGreaterThan(perRev);
-  });
+  }, 60_000); // whole revolutions marched to the 400 hm reach (Story 11.2)
 
   it('clearBlips drops every paint (entering spectate)', () => {
     const { radar } = makeRadar();
@@ -332,9 +340,9 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
     const { radar } = makeRadar();
     radar.setHeightRaster(ISLE);
     revolution(radar);
-    // 500 ± 140 in y is well clear of the 100 × 90 slab, inside radar range, and
-    // comfortably beyond the sight bubble — so nothing but the raster answers.
-    expect(Math.hypot(500, 140)).toBeGreaterThan(CONFIG.vision.sight);
+    // 500 ± 140 in y is well clear of the 100 × 90 slab and inside radar range.
+    // (The premise "beyond the sight bubble" — DELETED 2026-11-12, Story 11.2:
+    // sight is 200 hm now; nothing in the beam march reads sight.)
     expect(radar.bandAt(500, 140)).toBe(-1);
     expect(radar.bandAt(500, -140)).toBe(-1);
   });
@@ -369,7 +377,7 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
 
 describe('a wire echo fades in terrain shadow, and is floored so it cannot vanish', () => {
   /** The echo used here sits on bearing 0 at 500u, with the cover between. */
-  const ECHO = wireEcho('battleship', 500, 0, 0);
+  const ECHO = wireEcho(DEFAULT_CLASS_ID, 500, 0, 0);
 
   /** What the buffer reads at the echo's centre, over a given terrain. NO BEAM
    *  ADVANCE: the sweep sample and the two frames share one timestamp, so the
@@ -716,21 +724,38 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
   const BASE = { sightRange: SIGHT, radarRange: CONFIG.vision.radar };
   /** A SYNTHETIC narrower observer truesight (nothing shrinks sight at runtime
    *  since Story 9.4 retired the FLASH SHELLS dazzle, but `sightHoleU` must
-   *  follow whatever radius `fogHoleRadiusU` answers). */
+   *  follow whatever radius `eyeHoleRadiusU` answers). */
   const NARROW = SIGHT * 0.375;
   const SWEEP_MS = 60000 / CONFIG.vision.sweepRpm;
   /** Well inside the base sight bubble. */
   const MID = (SIGHT + NARROW) / 2;
 
-  it('sightHoleU IS fogHoleRadiusU, at base stats and narrowed', () => {
+  it('sightHoleU IS eyeHoleRadiusU, at base stats and narrowed', () => {
     const { radar } = makeRadar();
     // Called, not re-derived: it is also, by construction, the server's own
     // `sightOf` — and the dim mask, the cloud gate and the hull feather all
     // anchor on it.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU(BASE));
     radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }));
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU({ ...BASE, sightRange: NARROW }));
     expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
+  });
+
+  it('sightHoleU follows the FLASH SHELLS whiteout (epic-10 amendment 5) — the same radius the fog bakes', () => {
+    const { radar } = makeRadar();
+    const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
+    const hit = { until: FLASH_WINDOW_MS, now: 0 };
+    const mid = { until: FLASH_WINDOW_MS, now: rampMs + holdMs + clearMs / 2 };
+    expect(radar.isDazzled).toBe(false);
+    expect(radar.setDazzle(hit.until, hit.now)).toBe(true);
+    expect(radar.setDazzle(hit.until, rampMs)).toBe(false); // the changed-flag contract (0 through the hold)
+    expect(radar.sightHoleU).toBe(0);
+    expect(radar.setDazzle(mid.until, mid.now)).toBe(true);
+    // the hole grows back with the shared curve: half the sight at mid-clear
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU(BASE, mid));
+    expect(radar.sightHoleU).toBeCloseTo(SIGHT / 2, 6);
+    expect(radar.setDazzle(FLASH_WINDOW_MS, FLASH_WINDOW_MS)).toBe(true);
+    expect(radar.sightHoleU).toBe(eyeHoleRadiusU(BASE));
   });
 
   it('THE WIRE PATH IS RANGE-BLIND: a blip rect inside the sight circle and the same rect '
@@ -743,7 +768,7 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     const farX = MID + shift * CELL;
     expect(farX).toBeGreaterThan(near.sightHoleU);
     expect(farX).toBeLessThan(CONFIG.vision.radar);
-    const c = paintCoverage('battleship', MID, 0, 0, CELL, 0);
+    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0);
     for (const r of [near, far]) r.render(OWN, 900);
     near.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     far.onBlip({ k: 'blip', t: 1000, gx: c.gx + shift, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
@@ -773,7 +798,7 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     const { radar } = makeRadar();
     expect(MID).toBeLessThan(radar.sightHoleU);
     radar.render(OWN, 900);
-    const c = paintCoverage('battleship', MID, 0, 0, CELL, 0);
+    const c = paintCoverage(DEFAULT_CLASS_ID, MID, 0, 0, CELL, 0);
     radar.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     radar.render(OWN, 1000);
     expect(radar.bandAt(MID, 0), 'the in-bubble wire blip is on the scope').toBeGreaterThanOrEqual(0);

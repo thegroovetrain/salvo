@@ -6,8 +6,9 @@
 // Every row of the story's I/O matrix is a test here, plus the three rules that
 // are easy to break silently later: the ring readout's URGENCY OVERRIDE grammar,
 // the ONE shared pulse ceiling (no second rate literal anywhere in the client),
-// and the style register (numbers phosphor, labels dim-alpha phosphor — never
-// `textMuted` — ring segment storm violet, amber only in the urgency window).
+// and the style register (numbers phosphor, words text-primary since Story
+// 10.10 — never `textMuted` — ring segment storm violet, amber only in the
+// urgency window).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -29,7 +30,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled } from '../settings/store.js';
 import { KILL_LEADER_MARK } from '../ui/bounty.js';
-import { monoTextWidth } from '../ui/refitCardFit.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
 import { textSafe } from '../util/color.js';
 import { ellipsizeName } from '../util/text.js';
 
@@ -300,10 +301,10 @@ describe('chromeBarSegments — the STYLE register (amendments 17/21)', () => {
     }
   });
 
-  it('labels — INCLUDING the `T+` prefix — are dim-alpha phosphor, never grey', () => {
+  it('words — INCLUDING the `T+` prefix — are full-alpha text-primary, never grey (Story 10.10)', () => {
     for (const s of [afloatL, killsL, tPlus]) {
-      expect(s.color).toBe(C.phosphor);
-      expect(s.alpha).toBe(CB.labelAlpha);
+      expect(s.color).toBe(C.textPrimary);
+      expect(s.alpha).toBe(1);
     }
   });
 
@@ -312,12 +313,12 @@ describe('chromeBarSegments — the STYLE register (amendments 17/21)', () => {
     for (const s of segs) expect(s.color).not.toBe(C.textSecondary);
   });
 
-  it('separators are punctuation: dimmer than the labels, and identical to each other', () => {
+  it('separators are punctuation: dimmer than the words, and identical to each other', () => {
     for (const s of [sep1, sep2, sep3]) {
       expect(s.text).toBe(sep1.text);
       expect(s.alpha).toBe(CB.sepAlpha);
     }
-    expect(CB.sepAlpha).toBeLessThan(CB.labelAlpha);
+    expect(CB.sepAlpha).toBeLessThan(afloatL.alpha);
   });
 
   it('the ring segment wears the STORM register — violet, amber only when urgent', () => {
@@ -472,10 +473,6 @@ describe('chromeBarLayout — one contiguous row, centered', () => {
     const segs = chromeBarSegments(view());
     expect(chromeBarLayout(segs, 1920).xs[0]).toBeGreaterThan(chromeBarLayout(segs, 1366).xs[0]);
     expect(chromeBarLayout(segs, 100).xs[0]).toBe(0); // absurd viewport: clamped, not negative
-  });
-
-  it('sits in the retired zoneLine slot — the HUD\'s one edge margin', () => {
-    expect(CB.y).toBe(CLIENT_CONFIG.vitals.margin);
   });
 });
 

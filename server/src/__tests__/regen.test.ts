@@ -1,324 +1,157 @@
-// OUT-OF-COMBAT REGEN (epic-8 amendments 46-48; Eric ruling 2026-09-17) —
-// the channel that REPLACED the free per-level auto-heal in Story 8.8.
-//
-// The shape, in Eric's words: *"1 %/s of missing, after 30 s"* — the wait cut
-// to 15 s on 2026-09-30 (Eric: 30 s was "far too long given the current
-// deadliness of the game"; `CONFIG.regen.outOfCombatMs`). So healing is
-// paced by DISENGAGING rather than by the economy — a hull that breaks contact
-// and stays out of it comes back; a hull that keeps trading never does, because
-// every landed blow (storm bites and burn ticks included) resets the clock at
-// the one damage gate.
-//
-// STORY 9.6 (Eric 2026-10-13, epic-9 amendments 90–92): the base rate is 2 %/s
-// and BOTH numbers are now the hull's OWN `stats.regen` — the PASSIVE HEALING
-// ladder raises the rate and shortens the wait, folded in effectiveStats(). An
-// un-carded hull's `stats.regen` equals `CONFIG.regen`, which is why the base
-// cases below may read REGEN directly; the ladder cases read the hull.
-//
-// WHAT THIS FILE PINS, and why each one is load-bearing:
-//   * nothing at all before the window (the whole point — it is not a trickle
-//     you get while fighting);
-//   * the asymptotic 1 %-of-MISSING shape against the closed form, not a flat
-//     rate (a flat rate would need repricing every time hull HP moves);
-//   * the SNAP under 1 hp missing — without it the "full hull" HULL REPAIR
-//     refusal is unreachable after any regen and the globe reads 349.9 forever;
-//   * the clock reset from a DIRECT HIT and from a STORM BITE (the amendment-47
-//     consequence Eric accepted: nobody regens in the storm);
-//   * a blow fully eaten by a shield does NOT reset it (`dealt` 0);
-//   * a PvE fleet drone NEVER regens (amendment 48 — a drone is environment);
-//   * a sinking or sunk hull never regens (amendment 10's "no hp comes back");
-//   * NO `heal` event and no pending band — the cue belongs to HULL REPAIR
-//     alone, and a 20 Hz trickle would loop the tone.
+// THE PASSIVE REGEN on the server (Story 10.5, Eric 2026-11-05, epic-10
+// amendment 11, R8 — "add back in the 2% missing HP passive healing ...
+// Make it 15, 30 was too long."): a hull that has lost no hull hp for
+// `CONFIG.regen.outOfCombatMs` heals the shared `regenGain` of its MISSING hp
+// every tick (tickRepairs), until the next blow that removes hull hp — from
+// ANY source — restarts the wait. It runs BESIDE the HULL REPAIR pool. The law
+// itself is unit-tested in shared (sim/regen.ts); this file pins the World's
+// wiring. Every number is a relation against CONFIG / the shared law.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, type GameEvent, type HullId } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
-import { buildFrame } from '../game/frames.js';
+import { CONFIG, abilityCode, isSinking, regenGain } from '@salvo/shared';
+import { World, type DamageSource, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
-const REGEN = CONFIG.regen;
 const DT = CONFIG.tick.simDtMs;
-const TICKS_PER_S = 1000 / DT;
+const WAIT_TICKS = CONFIG.regen.outOfCombatMs / DT;
 
-function bareWorld(seed = 3): World {
+function bareWorld(seed = 9): World {
   const w = new World(seed);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
 }
 
-function place(w: World, id: string, hull: HullId = 'torpedoBoat', fleet = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), fleet ? 'fleet' : 'captain', hull, undefined, undefined);
-  rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
+function place(w: World, id: string, x = 0): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
+  rec.state = { x, y: 0, heading: 0, speed: 0 };
   return rec;
 }
 
-/** The gate, reached by name — private by design (damageGate.test.ts idiom). */
-interface Gate {
-  applyDamage(victim: ShipRecord, amount: number, src: 'shell' | 'storm', byId: string | undefined): void;
-}
-const gate = (w: World): Gate => w as unknown as Gate;
-const pend = (w: World): GameEvent[] => (w as unknown as { pending: GameEvent[] }).pending;
+const gate = (w: World) =>
+  w as unknown as { applyDamage(v: ShipRecord, n: number, s: DamageSource, by: string | undefined): void };
 
-/** Advance `ms` of world time in whole sim ticks. */
-function run(w: World, ms: number): void {
-  for (let i = 0; i < Math.round(ms / DT); i += 1) w.step();
+/** A hurt hull whose last blow landed NOW. */
+function hurt(w: World, a: ShipRecord): void {
+  a.hp = a.stats.maxHp / 2;
+  a.lastDamagedAt = w.now;
 }
 
-/** The closed form of N ticks of `hp += missing × pct × dt/1000`: each tick
- *  scales the MISSING amount by (1 − pct·dt/1000), so missing decays
- *  geometrically. Derived here rather than copied off the implementation, so
- *  the test would catch a rate written per-tick instead of per-second. */
-function missingAfter(missing0: number, ticks: number, pct: number = REGEN.missingPctPerS): number {
-  return missing0 * (1 - pct * (DT / 1000)) ** ticks;
-}
-
-/** Fit the PASSIVE HEALING ladder to its catalog cap through the real grant. */
-function maxHealing(w: World, rec: ShipRecord): void {
-  for (let i = 0; i < CATALOG.passiveHealing.cap; i += 1) w.applyCard(rec, 'passiveHealing');
-}
-
-describe('the 15 s wait', () => {
-  it('a hurt hull regens NOTHING until outOfCombatMs have passed', () => {
+describe('passive regen — the wait, then 2 % of missing per second', () => {
+  it('pays NOTHING while the wait runs, then exactly regenGain(hp, maxHp, dt) per tick once due', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    a.hp = a.stats.maxHp * 0.5;
-    const before = a.hp;
-    // One tick short of the window — `lastDamagedAt` was stamped at spawn.
-    run(w, REGEN.outOfCombatMs - DT);
-    expect(a.hp).toBe(before);
-  });
-
-  // THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT (review gate, 2026-09-17).
-  // A tick is a 50 ms SPAN, `now` its END: the tick that ends at exactly
-  // `lastDamagedAt + 15000` covers (14950, 15000], which is still inside the
-  // wait. Crediting it would pay a full tick's regen for time spent waiting —
-  // the whole tick has to lie past the window before any of it is regen time.
-  it('the tick that ENDS exactly on the 15 s mark credits NOTHING — its span is still inside the wait', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    a.hp = a.stats.maxHp * 0.5;
-    const before = a.hp;
-    run(w, REGEN.outOfCombatMs);
-    expect(a.hp).toBe(before);
-  });
-
-  it('...and the NEXT tick — the first lying WHOLLY past the wait — credits exactly one tick', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    a.hp = a.stats.maxHp * 0.5;
-    const missing0 = a.stats.maxHp - a.hp;
-    run(w, REGEN.outOfCombatMs + DT);
-    expect(a.stats.maxHp - a.hp).toBeCloseTo(missingAfter(missing0, 1), 6);
-  });
-
-  it('a hull spawns with its clock at `now`, not at 0 — a fresh life waits too', () => {
-    const w = bareWorld();
-    run(w, 5000); // world time is well past 0 before anyone joins
-    const a = place(w, 'a');
-    expect(a.lastDamagedAt).toBe(w.now);
-  });
-});
-
-describe('the shape — a fixed % of MISSING per second', () => {
-  it('matches the closed form after N ticks past the wait', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    const maxHp = a.stats.maxHp;
-    a.hp = maxHp * 0.4;
-    const missing0 = maxHp - a.hp;
-    run(w, REGEN.outOfCombatMs); // the boundary tick itself credits NOTHING
-    const ticks = 10 * TICKS_PER_S;
-    run(w, 10_000);
-    // Exactly the ten seconds of ticks that lie wholly past the wait, and no
-    // boundary freebie.
-    expect(maxHp - a.hp).toBeCloseTo(missingAfter(missing0, ticks), 6);
-  });
-
-  it('is a fraction of MISSING, not of MAX: the same hull heals FASTER when hurt worse', () => {
-    const rate = (hpFrac: number): number => {
-      const w = bareWorld();
-      const a = place(w, 'a');
-      a.hp = a.stats.maxHp * hpFrac;
+    hurt(w, a);
+    const start = a.hp;
+    // Every tick strictly inside the wait pays nothing.
+    while (w.now + DT - a.lastDamagedAt < CONFIG.regen.outOfCombatMs) w.step();
+    expect(a.hp).toBe(start);
+    // The first due tick pays the shared law, and so does the next.
+    for (let k = 0; k < 3; k += 1) {
       const before = a.hp;
-      run(w, REGEN.outOfCombatMs + DT); // the FIRST crediting tick
-      return a.hp - before;
-    };
-    expect(rate(0.2)).toBeGreaterThan(rate(0.8));
+      w.step();
+      expect(w.now - a.lastDamagedAt).toBeGreaterThanOrEqual(CONFIG.regen.outOfCombatMs);
+      expect(a.hp).toBeCloseTo(before + regenGain(before, a.stats.maxHp, DT / 1000), 9);
+      expect(a.hp).toBeGreaterThan(before);
+    }
   });
 
-  it('snaps to FULL once under 1 hp is missing — the asymptote is closed by hand', () => {
+  it('a FULL hull gains nothing; a regenerating hull never exceeds maxHp', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    a.hp = a.stats.maxHp - 0.5;
-    run(w, REGEN.outOfCombatMs + DT); // the first crediting tick snaps it
+    for (let i = 0; i < WAIT_TICKS + 5; i += 1) w.step();
+    expect(a.hp).toBe(a.stats.maxHp);
+    a.hp = a.stats.maxHp - 0.5; // under one hp missing: the snap to full
+    w.step();
     expect(a.hp).toBe(a.stats.maxHp);
   });
 
-  it('never overshoots maxHp', () => {
+  it('a due combat bot regenerates exactly as a captain does (every hull is a participant since Story 10.8)', () => {
+    const w = bareWorld();
+    const bot = w.addBot('bismarck', 'duelist');
+    bot.hp = bot.stats.maxHp / 2;
+    bot.lastDamagedAt = w.now - CONFIG.regen.outOfCombatMs * 2;
+    // HULL REPAIR is cooling, so the bot's own press (Story 10.12: an early
+    // repairer presses the moment the heal fits) adds nothing to the read.
+    bot.repairReadyAt = w.now + CONFIG.regen.outOfCombatMs;
+    const botBefore = bot.hp;
+    w.step();
+    expect(bot.hp).toBeCloseTo(botBefore + regenGain(botBefore, bot.stats.maxHp, DT / 1000), 9);
+  });
+
+  it('a SINKING hull never regenerates (no hp comes back in the window)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    a.hp = a.stats.maxHp - 0.5;
-    run(w, REGEN.outOfCombatMs + 10_000);
-    expect(a.hp).toBe(a.stats.maxHp);
+    w.respawnEnabled = false;
+    a.lastDamagedAt = w.now - CONFIG.regen.outOfCombatMs * 2;
+    w.sinkShip('a');
+    expect(isSinking(a.lifecycle)).toBe(true);
+    const hp = a.hp;
+    w.step();
+    expect(a.hp).toBe(hp);
   });
 });
 
-describe('the combat clock (amendment 47)', () => {
-  it('a landed SHELL resets it — the regen stops at once and waits the full window again', () => {
+describe('passive regen — every source that removes hull hp restarts the wait', () => {
+  const SOURCES: readonly DamageSource[] = ['shell', 'burst', 'torpedo', 'mine', 'contact', 'grind', 'burn', 'storm'];
+
+  it.each(SOURCES)('a %s blow on a regenerating hull stamps the clock and stops the regen', (src) => {
     const w = bareWorld();
     const a = place(w, 'a');
-    place(w, 'b');
-    a.hp = a.stats.maxHp * 0.5;
-    run(w, REGEN.outOfCombatMs + 2000);
-    const healed = a.hp;
-    expect(healed).toBeGreaterThan(a.stats.maxHp * 0.5);
-    gate(w).applyDamage(a, 10, 'shell', 'b');
-    expect(a.lastDamagedAt).toBe(w.now);
-    const afterHit = a.hp;
-    run(w, REGEN.outOfCombatMs - DT);
-    expect(a.hp).toBe(afterHit);
-  });
-
-  it('a STORM bite resets it too — nobody regens inside the storm', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    a.hp = a.stats.maxHp * 0.5;
-    run(w, REGEN.outOfCombatMs + 2000);
-    gate(w).applyDamage(a, 5, 'storm', undefined);
-    expect(a.lastDamagedAt).toBe(w.now);
-    const afterBite = a.hp;
-    run(w, REGEN.outOfCombatMs - DT);
-    expect(a.hp).toBe(afterBite);
-  });
-
-  it('a blow that lands NO hp does not reset it (`dealt` 0 — the shield case)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    place(w, 'b');
-    a.hp = a.stats.maxHp * 0.5;
-    run(w, REGEN.outOfCombatMs);
-    const stampBefore = a.lastDamagedAt;
-    // A SHIELD BLOCK that swallows the whole blow: the gate runs to the end,
-    // emits its report, and leaves `dealt` at 0. (Story 8.16 arms `shield` in
-    // play; the gate has always read it.)
-    a.shield = { hpLeft: 100, until: w.now + 10_000 };
-    const hpBefore = a.hp;
-    gate(w).applyDamage(a, 30, 'shell', 'b');
-    expect(a.hp).toBe(hpBefore); // fully absorbed
-    expect(a.lastDamagedAt).toBe(stampBefore); // ...and the clock did not move
-    run(w, DT);
-    expect(a.hp).toBeGreaterThan(hpBefore); // still regenerating
-  });
-
-  it('a blow that BREAKS THROUGH the shield resets it — only the hp that lands counts (amendment 92)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    place(w, 'b');
-    a.hp = a.stats.maxHp * 0.5;
-    run(w, REGEN.outOfCombatMs + 2000);
-    a.shield = { hpLeft: 10, until: w.now + 10_000 };
-    const hpBefore = a.hp;
-    gate(w).applyDamage(a, 30, 'shell', 'b');
-    expect(a.hp).toBe(hpBefore - 20); // the shield ate 10, 20 landed
-    expect(a.lastDamagedAt).toBe(w.now); // ...so the clock restarted
-    const afterHit = a.hp;
-    run(w, DT);
-    expect(a.hp).toBe(afterHit); // and the regen stopped at once
-  });
-
-  it('DEALING damage never resets the dealer\'s own clock', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    const b = place(w, 'b');
-    a.hp = a.stats.maxHp * 0.5;
-    run(w, REGEN.outOfCombatMs);
-    const stampBefore = a.lastDamagedAt;
-    gate(w).applyDamage(b, 30, 'shell', 'a');
-    expect(a.lastDamagedAt).toBe(stampBefore);
-  });
-});
-
-describe('the PASSIVE HEALING ladder — the wait and rate are PER HULL (Story 9.6)', () => {
-  it('a laddered hull and an un-carded hull idle the same time: only the laddered one has finished its wait', () => {
-    const w = bareWorld();
-    const plain = place(w, 'a');
-    const healer = place(w, 'b');
-    maxHealing(w, healer);
-    const waitPlain = plain.stats.regen.outOfCombatMs;
-    const waitHealer = healer.stats.regen.outOfCombatMs;
-    expect(waitHealer).toBeLessThan(waitPlain); // the ladder shortens the wait
-    plain.hp = plain.stats.maxHp * 0.5;
-    healer.hp = healer.stats.maxHp * 0.5;
-    const plainBefore = plain.hp;
-    const healerBefore = healer.hp;
-    // Idle to a point past the laddered wait but inside the base one.
-    run(w, Math.round((waitPlain + waitHealer) / 2 / DT) * DT);
-    expect(plain.hp).toBe(plainBefore);
-    expect(healer.hp).toBeGreaterThan(healerBefore);
-  });
-
-  it('a laddered hull heals at ITS OWN rate — missing × stats.regen.missingPctPerS × dt per tick', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    maxHealing(w, a);
-    const pct = a.stats.regen.missingPctPerS;
-    expect(pct).toBeGreaterThan(REGEN.missingPctPerS); // the ladder raises the rate
-    const maxHp = a.stats.maxHp;
-    a.hp = maxHp * 0.5;
-    const missing0 = maxHp - a.hp;
-    run(w, a.stats.regen.outOfCombatMs); // the boundary tick credits nothing
-    expect(a.hp).toBe(maxHp * 0.5);
-    run(w, DT);
-    expect(maxHp - a.hp).toBeCloseTo(missingAfter(missing0, 1, pct), 9);
-    run(w, 5000);
-    expect(maxHp - a.hp).toBeCloseTo(missingAfter(missing0, 1 + 5 * TICKS_PER_S, pct), 6);
-  });
-});
-
-describe('who regens', () => {
-  it('a PvE FLEET HULL never does (amendment 48) — a disengaged drone keeps its damage', () => {
-    const w = bareWorld();
-    const d = place(w, 'd', 'droneSmall', true);
-    d.hp = d.stats.maxHp * 0.5;
-    const before = d.hp;
-    run(w, REGEN.outOfCombatMs + 30_000);
-    expect(d.hp).toBe(before);
-  });
-
-  it('a SINKING (then SUNK) hull never does — no hp comes back in the window', () => {
-    const w = bareWorld();
-    w.respawnEnabled = false; // a respawn would refill the hull and hide the pin
-    const a = place(w, 'a');
-    place(w, 'b');
-    a.hp = 1;
-    gate(w).applyDamage(a, 999, 'shell', 'b');
-    a.hp = a.stats.maxHp * 0.5; // a directed pool a live sinkShip would have zeroed
+    place(w, 'b', 900);
+    hurt(w, a);
+    a.lastDamagedAt = w.now - CONFIG.regen.outOfCombatMs * 2; // long out of combat
     const before = a.hp;
-    run(w, REGEN.outOfCombatMs + 5000);
-    expect(a.hp).toBe(before);
+    w.step();
+    expect(a.hp).toBeGreaterThan(before); // premise: it was regenerating
+    gate(w).applyDamage(a, 10, src, src === 'storm' ? undefined : 'b');
+    expect(a.lastDamagedAt).toBe(w.now);
+    const hit = a.hp;
+    expect(hit).toBeLessThan(before + regenGain(before, a.stats.maxHp, DT / 1000));
+    w.step();
+    expect(a.hp).toBe(hit); // the wait restarted: nothing paid
+  });
+
+  it('a blow that removes NOTHING (weapons-safe room) does not restart the wait', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    place(w, 'b', 900);
+    hurt(w, a);
+    const stamp = w.now - CONFIG.regen.outOfCombatMs * 2;
+    a.lastDamagedAt = stamp;
+    w.damageEnabled = false;
+    gate(w).applyDamage(a, 10, 'shell', 'b');
+    expect(a.lastDamagedAt).toBe(stamp);
   });
 });
 
-describe('the regen is SILENT', () => {
-  it('emits no `heal` event and no repair pool of its own', () => {
+describe('passive regen BESIDE the HULL REPAIR pool (neither resets the other)', () => {
+  it('a due hull with an open pool takes the pool drain AND the regen on the same tick', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    a.hp = a.stats.maxHp * 0.5;
-    run(w, REGEN.outOfCombatMs + 5000);
-    expect(a.hp).toBeGreaterThan(a.stats.maxHp * 0.5);
-    expect(a.repairHp).toBe(0);
-    expect(w.tickEvents.some((e) => e.k === 'heal')).toBe(false);
-    expect(pend(w).some((e) => e.k === 'heal')).toBe(false);
+    hurt(w, a);
+    a.lastDamagedAt = w.now - CONFIG.regen.outOfCombatMs * 2;
+    // A directed open pool: the amount and the rate a press would stamp from
+    // the ship's own `stats.repair` (Story 10.6, R8 / R15).
+    a.repairHp = a.stats.repair.regenHp;
+    a.repairRate = a.stats.repair.regenHp / a.stats.repair.regenMs;
+    const before = a.hp;
+    const paid = (a.stats.repair.regenHp / a.stats.repair.regenMs) * DT;
+    w.step();
+    const afterPool = before + paid;
+    expect(a.hp).toBeCloseTo(afterPool + regenGain(afterPool, a.stats.maxHp, DT / 1000), 9);
+    expect(a.repairHp).toBeCloseTo(a.stats.repair.regenHp - paid, 9);
   });
 
-  it('...so the owner\'s wire pool stays 0 while the globe climbs', () => {
+  it('a HULL REPAIR press does not reset the regen clock', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    a.hp = a.stats.maxHp * 0.5;
-    run(w, REGEN.outOfCombatMs + 5000);
-    const f = buildFrame(w, 'a');
-    expect(f.you!.repairHp).toBe(0);
-    expect(f.you!.hp).toBe(a.hp);
+    hurt(w, a);
+    const stamp = w.now - CONFIG.regen.outOfCombatMs * 2;
+    a.lastDamagedAt = stamp;
+    a.input = { ...a.input, seq: a.input.seq + 1, actSeq: a.lastActSeq + 1, act: abilityCode('repair') };
+    w.step();
+    expect(a.repairReadyAt).toBeGreaterThan(w.now); // premise: the press fired
+    expect(a.lastDamagedAt).toBe(stamp);
   });
 });

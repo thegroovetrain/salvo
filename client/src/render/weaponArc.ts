@@ -11,42 +11,55 @@
 // arcFor descriptor (sim/arcs.ts — the single arc-shape source both sides
 // consume), so the rendered arc and the server's enforced arc can never
 // diverge: the gun FAMILY (gun / star shells) declares `full` (360° — always in
-// arc, never denied for bearing, aimed to the clicked point); the torpedo
-// declares its bow `sector` and — as of Story 2.8 (amendment 45) — the MINE and
-// (Story 8.16) the DECOY BUOY consumable declare their rear placement `sector`; the
+// arc, never denied for bearing, aimed to the clicked point); the three
+// torpedoes declare `launcher` (Story 10.6, R6 — the union of the deck
+// launchers the ship holds, `launcherSectors`); as of Story 2.8 (amendment 45) the MINE and
+// (Story 8.16) the old DECOY BUOY declared their rear placement `sector` (since
+// Story 10.9 the four BUOYS declare `full` — 360°, ruling 9 — on the same leash); the
 // BROADSIDE BARRAGE declares `twin-sector`, two mirrored beam sectors at
 // `heading ± 90°` each 60° wide; the boost aims nothing (`none`). Callers
 // derive the id from the own loadout (main.ts's slotIdsFor / shared loadoutFor).
 //
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` branch: the old decoy buoy was that
 // shape's only user, and every buoy since (the radar buoy, deleted in Story
-// 8.16, and the 8.16 DECOY BUOY consumable) is click-placed in the mine's rear
-// SECTOR. Nothing here may re-add a branch for it.
+// 8.16, the 8.16 DECOY BUOY and the 10.9 four buoys) is click-placed on the mine's
+// leash. Nothing here may re-add a branch for it.
 //
 // STORY 8.13 TOOK THE ID EQUALITIES OUT. Three mine LINES now share the rear
-// placement grammar (naval/captive/fouling), the LIGHT TORPEDO declares a
-// TWIN sector on both beams, and the SUPERCAV TORPEDO — a belt CONSUMABLE —
-// declares the bow ±15° sector, so every predicate below is keyed on the
-// shared `arcFor` descriptor or on an explicit, pinned id SET, never on
-// `id === 'navalMines'` / `id === 'heavyTorpedo'`. The signatures widened from
-// `EquipmentId` to `SlotItemId` for the same reason `arcFor` did.
+// placement grammar (naval/captive/fouling) and the torpedo lines share one
+// family (since Story 10.6 one `launcher` arc — the fixed beam / bow sectors
+// are retired), so every predicate below is keyed on the shared `arcFor` descriptor
+// or on an explicit, pinned id SET, never on `id === 'navalMines'` /
+// `id === 'heavyTorpedo'`. Since Story 10.5 (2026-11-05, epic-10 amendment 11)
+// every id is an `EquipmentId` again: the supercav, FLASH SHELLS and the
+// FOULING SHELL are slot weapons, and the buoys are gone.
 
 import {
   CONFIG,
   arcFor,
+  batteryAimPoint,
   gunReachU,
+  pickTurret,
+  turretSalvo,
   inArc,
-  isConsumableId,
   isMineEquipment,
-  isWeaponItem,
+  launcherArcHolds,
+  launcherSectors,
+  launcherStation,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
   type EffectiveStats,
   type LitCircle,
-  type SlotItemId,
+  type EquipmentId,
+  type HullId,
+  type AimPose,
+  type TurretPick,
+  type TurretSalvo,
+  type TurretState,
   type Vec2,
 } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 
 /**
  * THE THREE MINE LINES (Story 8.13) — RE-EXPORTED FROM `shared/sim/arcs.ts`,
@@ -71,28 +84,29 @@ export {
   type MineEquipmentId,
 } from '@salvo/shared';
 
-/** Pure: does this id share the mine's REAR PLACEMENT grammar — the three mine
- *  lines plus the click-placed DECOY BUOY consumable (Story 8.16 — it replaced
- *  the deleted radar buoy in this set)? The one predicate the placement leash,
- *  the true-radius wedge and the amber placement tint read. */
-export function isPlacedItem(id: SlotItemId | null): boolean {
-  return isMineEquipment(id) || id === 'decoyBuoy';
+/** Pure: is this id CLICK-PLACED on the mine's leash (`CONFIG.mine.placeRange`)
+ *  — the three mine lines (the buoys left with Story 10.5)? The one predicate
+ *  the placement leash (range denial), the true-radius placement shape and the
+ *  amber placement tint read. */
+export function isPlacedItem(id: EquipmentId | null): boolean {
+  return isMineEquipment(id);
 }
 
 /**
- * THE TORPEDO FAMILY — the two equipment LINES plus the belt's SUPERCAV
- * TORPEDO (a click-aimed consumable since epic-8 amendment 74). Every fish
- * shares the family's identity on screen: the cool-green arc, reticle and
- * preview tint, and the torpedo glyph.
+ * THE TORPEDO FAMILY — the three torpedo lines (the `Q` slot's family since
+ * Story 10.5). Since Story 11.1 R21 (Eric 2026-11-12: "Make it all amber.
+ * Everything gets AIM COLOR") the family no longer has its own aim tint — the
+ * old cool green is retired from the arc, reticle and preview; the family
+ * still differs in geometry (no range clamp, launcher wedges) and glyph.
  */
 export const TORPEDO_ITEM_IDS = ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const satisfies
-  readonly SlotItemId[];
+  readonly EquipmentId[];
 
-/** One of the three torpedo ids (two lines + the belt consumable). */
+/** One of the three torpedo ids. */
 export type TorpedoItemId = (typeof TORPEDO_ITEM_IDS)[number];
 
 /** Pure: is this slot content a TORPEDO of any line? */
-export function isTorpedoItem(id: SlotItemId | null): id is TorpedoItemId {
+export function isTorpedoItem(id: EquipmentId | null): id is TorpedoItemId {
   return id !== null && (TORPEDO_ITEM_IDS as readonly string[]).includes(id);
 }
 
@@ -108,25 +122,25 @@ export function isTorpedoItem(id: SlotItemId | null): id is TorpedoItemId {
  *   mirrored aim-gated wedges at `heading ± offset`. A click inside EITHER is
  *   legal and fires THAT side (R2.2); a click in neither — the bow and stern
  *   dead zones — is denied exactly like a `sector` miss.
+ * - `launcher` — a TORPEDO (Story 10.6, R6 / R28): the union of the firing
+ *   bands of the deck launchers the ship holds
+ *   (`launcherSectors(stats.torpedoLaunchers)`) — each launcher fires on both
+ *   sides from `CONFIG.launcher.deadDeg` to `trainDeg` off its own end.
  * - `none`    — the `none` descriptor (the speed boost) or an empty slot: not
  *   an aimed weapon, no marker, no reticle.
  */
-export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
+export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'launcher' | 'none';
 
 /** Pure: classify a fitted slot's content (or null empty slot) by firing-arc
- *  kind — a straight projection of the shared arcFor descriptor.
- *
- *  IT TAKES A `SlotItemId` SINCE STORY 8.13, because `arcFor` does: the
- *  SUPERCAV TORPEDO is a click-aimed BELT consumable (epic-8 amendment 74) and
- *  declares the bow ±15° sector, so it must classify as a `sector` weapon and
- *  draw its wedge like any other aimed launch. Every consumable that aims
- *  nothing still answers `none`, exactly as before. */
-export function fireArcKind(id: SlotItemId | null): FireArcKind {
+ *  kind — a straight projection of the shared arcFor descriptor (the SUPERCAV
+ *  TORPEDO's bow ±15° `sector`, FLASH SHELLS' and the FOULING SHELL's `full`). */
+export function fireArcKind(id: EquipmentId | null): FireArcKind {
   if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
-  if (arc.kind === 'full') return 'gunLike'; // the guns / starShells / phosphorShells / foulingShell
-  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + decoy rear arc
+  if (arc.kind === 'full') return 'gunLike'; // the guns / star, phosphor, fouling, flash shells
+  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / the mines' rear arc
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
+  if (arc.kind === 'launcher') return 'launcher'; // the torpedoes' deck launchers (Story 10.6)
   return 'none'; // none (boost)
 }
 
@@ -136,15 +150,19 @@ export function fireArcKind(id: SlotItemId | null): FireArcKind {
  * arc is always true; a `sector` checks heading + offset ± halfArc via shared
  * `inArc` (the exact server gate — the torpedo's bow sector, and the mine's and
  * decoy buoy's rear placement sector); a `twin-sector` is in arc when EITHER
- * mirrored beam contains the aim (the broadside, R2.1/R2.2). An instant ability
- * (`none`) or the empty slot is NOT a firing weapon, so it is never "in arc".
+ * mirrored beam contains the aim (the broadside, R2.1/R2.2); a `launcher` (a
+ * torpedo, Story 10.6) when ANY of the ship's `launchers` held launchers bears
+ * (`launcherArcHolds` — parallax-free, from the hull centre; the ENFORCED
+ * verdict is the shared `pickTube`, which main.ts asks for the click). An
+ * instant ability (`none`) or the empty slot is NOT a firing weapon, so it is
+ * never "in arc".
  *
  * NOTE: this is the BEARING gate only. The mine additionally requires the
  * clicked point to lie within CONFIG.mine.placeRange — an out-of-range click
  * is denied by the server exactly like an out-of-arc one (see weaponRangeU,
  * which supplies that ring to the firing UX).
  */
-export function weaponArcHit(heading: number, aim: number, id: SlotItemId | null): boolean {
+export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null, launchers = 1, hullId: HullId | null = null): boolean {
   if (id === null) return false;
   const arc = arcFor(id);
   if (arc.kind === 'full') return true; // 360° — never out of arc
@@ -152,6 +170,8 @@ export function weaponArcHit(heading: number, aim: number, id: SlotItemId | null
     return inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc);
   }
   if (arc.kind === 'twin-sector') return twinSectorSide(heading, aim, arc) !== null;
+  // R30: the bands are per hull — no hull named, no band to hold the aim.
+  if (arc.kind === 'launcher') return hullId !== null && launcherArcHolds(hullId, launchers, heading, aim);
   return false; // ability / empty slot: not a weapon, never in arc
 }
 
@@ -171,12 +191,11 @@ export { twinSectorSide };
 /**
  * The effective range (u) at which an AIMED weapon's shot lands / clamps. Since
  * Story 9.8 (ruling 125) EVERY weapon's reach is its own TIERED dial on the
- * twelfths ruler — `CONFIG.<weapon>.rangeU` is the Tier I value and each of the
+ * twelfths ruler [retired 2026-11-12, Story 11.2] — `CONFIG.<weapon>.rangeU` is the Tier I value and each of the
  * line's four cards adds its step through `effectiveStats()` — so each gun row
  * reads its OWN folded `stats.equipment.<w>.rangeU`, never radar and never the
- * cannon's by assumption. The FOULING SHELL consumable has no stats row and no
- * card: it reads its fixed dial `CONFIG.foulingShell.rangeU`. The MINE lines
- * and — since Story 8.16 — the DECOY BUOY read the ratified
+ * cannon's by assumption. FLASH SHELLS and the FOULING SHELL read their own
+ * rows too (slot weapons since Story 10.5). The MINE lines read the ratified
  * CONFIG.mine.placeRange: their placement reach is a fixed short leash and no
  * boon moves it.
  *
@@ -187,16 +206,18 @@ export { twinSectorSide };
  * NOT consult this for those ids; gate on the id first, as firing.ts's markers
  * do.
  */
-export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
+export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
   if (id === 'broadside') return stats.equipment.broadside.rangeU;
   if (id === 'starShells') return stats.equipment.starShells.rangeU;
-  // STORY 8.17: PHOSPHOR SHELLS reads its own row; the FOULING SHELL consumable
-  // (Story 9.4, FLASH SHELLS' successor) has no row — its fixed dial (ruling 125).
+  // STORY 8.17: PHOSPHOR SHELLS reads its own row; since Story 10.5 so do
+  // FLASH SHELLS and the FOULING SHELL (both rows carry the shared reach).
   if (id === 'phosphorShells') return stats.equipment.phosphorShells.rangeU;
-  if (id === 'foulingShell') return CONFIG.foulingShell.rangeU;
+  if (id === 'foulingShell' || id === 'dazzleShells') return stats.equipment[id].rangeU;
   // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row (ruling 125).
   if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
   if (id === 'flak') return stats.equipment.flak.rangeU;
+  // STORY 10.4: the MAIN BATTERY reads its own folded row (RANGE scales it).
+  if (id === 'mainBattery') return stats.equipment.mainBattery.rangeU;
   // ALL THREE MINE LINES share the ONE leash (Story 8.13) — the naval chassis
   // is shared, not duplicated (`CONFIG.captiveMines`/`CONFIG.foulingMines` restate
   // no placement field), so an id-equality test on `navalMines` would have given
@@ -224,12 +245,19 @@ export type { LitCircle };
 export { pointInLitZone };
 
 /**
- * THE DECK GUNS (amendment 114) — the three slot-0 gun rows that fire into the
- * shooter's own lit-up area: the cannon (`gun`), the MACHINE GUN and the FLAK
- * GUN. An explicit, pinned id SET (never an id equality), mirroring the server,
- * where exactly these three rows call `gunReachU`.
+ * THE DECK GUNS (amendment 114) — the slot-0 gun rows that fire into the
+ * shooter's own lit-up area AND measure their reach from the hull centre: the
+ * cannon (`gun`), the MACHINE GUN and the FLAK GUN. An explicit, pinned id SET
+ * (never an id equality), mirroring the server.
+ *
+ * THE MAIN BATTERY IS NOT HERE (Story 11.1 review F-A / R19): its server fire
+ * path calls `gunReachU` from the FIRING TURRET'S STATION along that turret's
+ * line of fire, so a centre-measured read here disagreed with it near the rim
+ * or a lit-zone edge. Its reach is `mainBatteryAim` below — the one helper the
+ * oval and the range-clamp marker both read — and this function hands it its
+ * plain row `rangeU`.
  */
-const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineGun', 'flak']);
+const DECK_GUNS: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak']);
 
 /**
  * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15; amendment 114): the reach
@@ -264,7 +292,7 @@ const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineG
  */
 export function weaponReachU(
   stats: EffectiveStats,
-  id: SlotItemId | null,
+  id: EquipmentId | null,
   ship: Vec2,
   aim: number,
   aimDist: number,
@@ -276,11 +304,83 @@ export function weaponReachU(
   return gunReachU(ship, aim, aimDist, base, mapRadius, ownLitZones);
 }
 
+/** Reused scratch for the main battery's "as if loaded" pick. */
+const LOADED_SCRATCH: TurretState[] = [];
+
+/** The turrets as they stand but every one loaded (into the reused scratch). */
+function asLoaded(turrets: readonly TurretState[]): readonly TurretState[] {
+  LOADED_SCRATCH.length = turrets.length;
+  for (let i = 0; i < turrets.length; i++) {
+    const t = LOADED_SCRATCH[i] ?? (LOADED_SCRATCH[i] = { a: 0, reloadMsLeft: 0 });
+    t.a = turrets[i].a;
+    t.reloadMsLeft = 0;
+  }
+  return LOADED_SCRATCH;
+}
+
+/** Everything the main battery's next salvo is resolved from. */
+export interface MainBatteryAimInput {
+  stats: EffectiveStats;
+  hullId: HullId;
+  /** The firing pose (the PREDICTED own hull). */
+  pose: AimPose;
+  aim: number;
+  /** u — cursor distance from the ship CENTRE (the InputMsg's `aimDist`). */
+  aimDist: number;
+  /** The predicted turrets the pick reads. */
+  turrets: readonly TurretState[];
+  mapRadius: number;
+  /** The own LIVE lit zones (render/litZones.ts `ownActiveZones`). */
+  ownLitZones: readonly LitCircle[];
+}
+
+/** The main battery's next salvo as the server will resolve it. */
+export interface MainBatteryAim {
+  pick: TurretPick;
+  /** u — the reach measured from `pick.station` (row rangeU, lifted by an own lit zone). */
+  reachU: number;
+  salvo: TurretSalvo;
+  /** True when the aim lies beyond the turret's reach — the salvo center is cut short. */
+  clamped: boolean;
+}
+
+/**
+ * PURE: THE MAIN BATTERY'S NEXT SALVO (Story 11.1, R16 / R19, review F-A) —
+ * exactly the server's fire path (server/src/game/equipment/mainBattery.ts):
+ * the shared `batteryAimPoint` → `pickTurret` → `gunReachU` FROM THE PICKED
+ * TURRET'S STATION along its line of fire → `turretSalvo`. One difference, the
+ * preview's own: with no READY turret bearing, the pick is taken as if every
+ * turret were loaded (the turret the player is waiting on), so the oval and
+ * the clamp marker do not vanish during a reload. Null: no aim, or no turret
+ * bears at all.
+ *
+ * THE ONE HELPER for everything that draws main-battery reach — the oval
+ * (render/aimPreview.ts) and the range-clamp marker (render/firing.ts) — so
+ * the two can never sit on different points.
+ */
+export function mainBatteryAim(inp: MainBatteryAimInput): MainBatteryAim | null {
+  const { hullId, pose, turrets, mapRadius } = inp;
+  const aimPoint = batteryAimPoint(pose, inp.aim, inp.aimDist);
+  if (aimPoint === null) return null;
+  const pick = pickTurret(turrets, hullId, pose, aimPoint) ?? pickTurret(asLoaded(turrets), hullId, pose, aimPoint);
+  if (pick === null) return null;
+  const base = inp.stats.equipment.mainBattery.rangeU;
+  const reachU = gunReachU(pick.station, pick.bearing, pick.aimDistU, base, mapRadius, inp.ownLitZones);
+  const salvo = turretSalvo(pick, hullId, pose, reachU, mapRadius);
+  return { pick, reachU, salvo, clamped: pick.aimDistU > reachU };
+}
+
+/** Where the range-clamp marker sits for the main battery (R19): the salvo
+ *  center — the oval's own center — when the shot is cut short, else null. */
+export function batteryClampMark(b: MainBatteryAim | null): { x: number; y: number; bearing: number } | null {
+  if (b === null || !b.clamped) return null;
+  return { x: b.salvo.center.x, y: b.salvo.center.y, bearing: b.salvo.bearing };
+}
 
 /**
  * Pure: is the CLICKED POINT within a hard range DENIAL gate? Only the CLICK-
- * PLACED ids have one (Story 2.8, amendment 45; the DECOY BUOY joined the mine
- * on it in Story 8.16): a click past CONFIG.mine.placeRange is refused
+ * PLACED ids have one (Story 2.8, amendment 45; the four BUOYS share the mine's
+ * since Story 10.9): a click past CONFIG.mine.placeRange is refused
  * outright, exactly like a click outside the rear arc — nothing is consumed and
  * the denial register fires. Every other id answers true, because none of them
  * denies on distance: the gun family CLAMPS the aim point to rangeU and fires
@@ -292,10 +392,10 @@ export function weaponReachU(
  * out-of-range click would silently consume the prime (reverting to the gun)
  * for a placement the server refused.
  */
-export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean {
-  // ONE leash for every click-placed id: the DECOY BUOY row reuses
-  // CONFIG.mine.placeRange verbatim (Story 8.16, catalog-v3 R36 — the mine's
-  // rear sector) and the captive/fouling rows read the naval chassis's
+export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean {
+  // ONE leash for every click-placed id: the four BUOY rows reuse
+  // CONFIG.mine.placeRange verbatim (Story 10.9, ruling 9 — the range is
+  // unchanged, only the arc opened) and the captive/fouling rows read the naval chassis's
   // `placeRange` too (Story 8.13), so the client must refuse at exactly the same
   // distance or a long placement click silently consumes the prime for a drop
   // the server will deny.
@@ -305,24 +405,14 @@ export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean 
 
 /**
  * THE CLICK GATE over a slot's CONTENT — the one predicate main.ts's click
- * prediction asks (review patch P8).
- *
- * Every click-aimed CONSUMABLE now DECLARES geometry and is gated exactly like
- * a fitted weapon: the SUPERCAV TORPEDO's bow ±15° sector (Story 8.13, epic-8
- * amendment 74) and — Story 8.16 — the DECOY BUOY, click-placed in the mine's
- * rear sector out to `CONFIG.mine.placeRange` (`isPlacedItem` gives it the
- * leash). The decoy was blind-trusted to the server while it had no arc; that
- * trust is gone with the arc's arrival. The test is the DESCRIPTOR, not the
- * id: anything that declares an arc is gated by it.
- *
- * What survives of the `none` branch is the KEY-FIRES consumables, which answer
- * false: a click on an ability square fires nothing on either side. (Should a
- * future click-aimed consumable ever land without an arc, `isWeaponItem` makes
- * it trust the server's verdict rather than paint a false denial.)
+ * prediction asks (review patch P8): the bearing gate and the range gate of
+ * the fitted weapon's own descriptor. (The consumable carve-outs left with the
+ * kit — Story 10.5.) `launchers` = the held torpedo launchers (Story 10.6) —
+ * main.ts asks the shared `pickTube` for a TORPEDO click instead, measured
+ * from each launcher's station; this parallax-free read is the fallback.
  */
-export function clickInArc(heading: number, aim: number, aimDist: number, id: SlotItemId | null): boolean {
-  if (id !== null && isConsumableId(id) && arcFor(id).kind === 'none') return isWeaponItem(id);
-  return weaponArcHit(heading, aim, id) && weaponRangeHit(aimDist, id);
+export function clickInArc(heading: number, aim: number, aimDist: number, id: EquipmentId | null, launchers = 1, hullId: HullId | null = null): boolean {
+  return weaponArcHit(heading, aim, id, launchers, hullId) && weaponRangeHit(aimDist, id);
 }
 
 
@@ -356,4 +446,110 @@ export function sectorOutline(offset: number, halfArc: number, radius: number): 
     ],
     arc: { from, to, r: radius },
   };
+}
+
+/**
+ * One torpedo firing wedge in the HULL-LOCAL frame (bow along +x): it springs
+ * from its launcher's `origin` (the shared `launcherStation` — the same point
+ * `pickTube` measures from), spans `offset ± halfArc` and runs `r` units.
+ */
+export interface LauncherWedge {
+  origin: Vec2;
+  offset: number;
+  halfArc: number;
+  r: number;
+}
+
+/**
+ * Pure: THE TORPEDO WEDGES (Story 10.6, R28 / R30) — one per firing band of
+ * each held launcher (two per launcher, fore first: the order of the shared
+ * `launcherSectors`), each from ITS launcher's station on `hullId`, at that
+ * launcher's own band angles, `lengthU` long.
+ */
+export function launcherWedges(hullId: HullId, launchers: number, lengthU: number): LauncherWedge[] {
+  return launcherSectors(hullId, launchers).map((s, k) => ({
+    origin: launcherStation(hullId, Math.floor(k / 2)),
+    offset: s.offset,
+    halfArc: s.halfArc,
+    r: lengthU,
+  }));
+}
+
+/** u — the wedge length: `CLIENT_CONFIG.launcherWedge.lengthMult` × the indicative radius (no torpedo run figure exists — Eric). */
+export function launcherWedgeLengthU(indicativeRadiusU: number): number {
+  return indicativeRadiusU * CLIENT_CONFIG.launcherWedge.lengthMult;
+}
+
+/** Pure: the wedge's alpha multiplier at `frac` of its length — 1 out to `fadeStartFrac`, then a smoothstep down to 0 at the end (and beyond). */
+export function wedgeFade(frac: number): number {
+  if (frac >= 1) return 0;
+  const start = CLIENT_CONFIG.launcherWedge.fadeStartFrac;
+  if (frac <= start) return 1;
+  const t = (frac - start) / (1 - start);
+  return 1 - t * t * (3 - 2 * t);
+}
+
+/** One wedge's alpha multiplier at a hull-local point (0 outside it). */
+function wedgeAlpha(w: LauncherWedge, x: number, y: number): number {
+  const dx = x - w.origin.x;
+  const dy = y - w.origin.y;
+  const d = Math.hypot(dx, dy);
+  if (d > w.r || Math.abs(wrapAngle(Math.atan2(dy, dx) - w.offset)) > w.halfArc) return 0;
+  return wedgeFade(d / w.r);
+}
+
+/**
+ * Pure: the COMPOSITE alpha multiplier of the wedges at a hull-local point,
+ * as the renderer stacks them — each wedge its own fill, normal
+ * over-compositing, so an overlap reads brighter (Eric: "they should overlap
+ * as a brighter patch").
+ */
+export function launcherWedgeAlphaAt(wedges: readonly LauncherWedge[], x: number, y: number): number {
+  let clear = 1;
+  for (const w of wedges) clear *= 1 - wedgeAlpha(w, x, y);
+  return 1 - clear;
+}
+
+/** One angular span of a wedge, hull-relative radians, `from < to`. */
+export interface ArcSpan {
+  from: number;
+  to: number;
+}
+
+const TAU = 2 * Math.PI;
+
+/**
+ * Pure: the UNION of hull-relative sectors (`offset ± halfArc`) as the fewest
+ * spans to fill — or `'full'` when together they cover every bearing. The
+ * torpedo wedge is drawn from this (Story 10.6, R6 / R28): each launcher is
+ * two side bands; the fore and the aft launcher's bands overlap on each beam
+ * and merge into ONE span per side, never two overlapping fills
+ * double-shading their overlap.
+ */
+export function arcUnion(sectors: readonly { offset: number; halfArc: number }[]): ArcSpan[] | 'full' {
+  const spans: ArcSpan[] = [];
+  for (const s of sectors) {
+    if (2 * s.halfArc >= TAU) return 'full';
+    const from = (((s.offset - s.halfArc) % TAU) + TAU) % TAU;
+    spans.push({ from, to: from + 2 * s.halfArc });
+  }
+  spans.sort((a, b) => a.from - b.from);
+  const out: ArcSpan[] = [];
+  for (const s of spans) {
+    const last = out[out.length - 1];
+    if (last !== undefined && s.from <= last.to) last.to = Math.max(last.to, s.to);
+    else out.push({ ...s });
+  }
+  return closeWrap(out);
+}
+
+/** Fold the first span into the last when the last runs past a full turn onto
+ *  it; a span a whole turn long is the full circle. */
+function closeWrap(out: ArcSpan[]): ArcSpan[] | 'full' {
+  if (out.length > 1 && out[out.length - 1].to - TAU >= out[0].from) {
+    const first = out.shift()!;
+    const last = out[out.length - 1];
+    last.to = Math.max(last.to, first.to + TAU);
+  }
+  return out.some((s) => s.to - s.from >= TAU) ? 'full' : out;
 }

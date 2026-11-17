@@ -11,17 +11,28 @@
 // NEVER import ../main.ts here — it runs the CLI (process.exit) at import time.
 
 import { beforeAll, describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, type Island } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_CLASS_ID,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  turretBears,
+  turretMounts,
+  type Island,
+} from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
-import { BotCollector, hullTouchesLand, lifeSamples, type BotSample } from '../botMetrics.js';
+import { BotCollector, hullTouchesLand, layoutOf, lifeSamples, repairStyleOf, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
+import { buildAggregate, histLine, renderBatchReport, sumHist } from '../report.js';
 import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
-import { TEST_PROFILE_IDS } from '../../../src/game/ai/profiles.js';
+import { TEST_PROFILE_IDS, profileOf } from '../../../src/game/ai/profiles.js';
 import { emptyBotReadouts, postureEdges } from '../botReadouts.js';
+import { RANGE_BANDS } from '../rangeBands.js';
 
 // --- args --------------------------------------------------------------------
 
@@ -65,7 +76,7 @@ describe('args — the --bots flag', () => {
 
 /** A ship record shaped just enough for hullTouchesLand (pose + hull id). */
 function poseShip(x: number, y: number, heading = 0) {
-  return { hullId: 'battleship' as const, state: { x, y, heading, speed: 0 } };
+  return { hullId: 'bismarck' as const, state: { x, y, heading, speed: 0 } };
 }
 
 describe('botMetrics — the land-contact proxy', () => {
@@ -108,19 +119,21 @@ function sample(over: Partial<BotSample> = {}): BotSample {
   return {
     id: 'bot-1',
     name: 'ALBATROSS',
-    cls: 'torpedoBoat',
+    cls: 'warspite',
     profile: 'raider',
     kills: 0,
-    pveKills: 0,
     end: 'sunkByShip',
     lifeS: 100,
     levelsEarned: 10,
     levelsUnspent: 0,
     boonsFitted: 10,
     shots: 20,
-    decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 200,
+    beaconXpLevels: 0,
+    dropsTaken: 0,
+    indexBonus: {},
+    indexBonusTotal: 0,
     contactDamageTaken: 0,
     landDamageTaken: 0,
     ticks: 2000,
@@ -133,9 +146,9 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     offersSeen: {},
     offerHands: 0,
     placement: null,
-    gun: 'deckGun',
-    gunTier: 1,
-    killsByTier: [0, 0, 0, 0, 0, 0],
+    shift: DEFAULT_SHIFT,
+    layout: layoutOf(DEFAULT_CLASS_ID),
+    repairStyle: 'early',
     ...emptyBotReadouts(),
     ...over,
   };
@@ -149,9 +162,8 @@ function result(bots: BotSample[][], over: Partial<MatchSample> = {}): BatchResu
       seed: index,
       durationS: 400,
       endedBy: 'fieldCleared' as const,
-      winnerClass: 'torpedoBoat',
+      winnerClass: 'warspite',
       stormDeaths: 0,
-      killsByVictimTier: {},
       captains: [],
       departedCaptains: [],
       bots: rows,
@@ -204,14 +216,14 @@ describe('botReport — the quality bars', () => {
       result([[
         sample({ ticks: 1000, draftTicks: 300 }),
         sample({ id: 'b2', ticks: 3000, draftTicks: 100 }),
-        sample({ id: 'b3', profile: 'siege', cls: 'battleship', ticks: 500, draftTicks: 0 }),
+        sample({ id: 'b3', profile: 'siege', cls: 'bismarck', ticks: 500, draftTicks: 0 }),
       ]]),
       3,
     );
     // 400 / 4000 = 10%, not the 16.7% a per-bot mean would report.
     expect(agg.byProfile.find((g) => g.key === 'raider')!.draftRate).toBeCloseTo(0.1, 6);
-    expect(agg.byClass.find((g) => g.key === 'torpedoBoat')!.draftRate).toBeCloseTo(0.1, 6);
-    expect(agg.byClass.find((g) => g.key === 'battleship')!.draftRate).toBe(0);
+    expect(agg.byClass.find((g) => g.key === 'warspite')!.draftRate).toBeCloseTo(0.1, 6);
+    expect(agg.byClass.find((g) => g.key === 'bismarck')!.draftRate).toBe(0);
     const text = renderBotReport('baseline', agg);
     expect(text.join('\n')).toContain('10.0%');
   });
@@ -258,20 +270,20 @@ describe('botReport — the quality bars', () => {
     const agg = buildBotAggregate(
       result([
         [
-          sample({ profile: 'trapper', cls: 'mineLayer' }),
-          sample({ id: 'b2', profile: 'raider', cls: 'torpedoBoat' }),
-          sample({ id: 'b3', profile: 'raider', cls: 'torpedoBoat' }),
+          sample({ profile: 'trapper', cls: 'iowa' }),
+          sample({ id: 'b2', profile: 'raider', cls: 'warspite' }),
+          sample({ id: 'b3', profile: 'raider', cls: 'warspite' }),
         ],
       ]),
       3,
     );
     expect(agg.byProfile.map((g) => g.key)).toEqual(['raider', 'trapper']);
     expect(agg.byProfile.find((g) => g.key === 'raider')!.n).toBe(2);
-    expect(agg.byClass.map((g) => g.key)).toEqual(['mineLayer', 'torpedoBoat']);
+    expect(agg.byClass.map((g) => g.key)).toEqual(['iowa', 'warspite']);
   });
 
   it('renders a deterministic body (same aggregate => byte-identical lines)', () => {
-    const r = result([[sample({ kills: 2 }), sample({ id: 'b2', profile: 'siege', cls: 'battleship' })]]);
+    const r = result([[sample({ kills: 2 }), sample({ id: 'b2', profile: 'siege', cls: 'bismarck' })]]);
     const a = renderBotReport('baseline', buildBotAggregate(r, 2));
     const b = renderBotReport('baseline', buildBotAggregate(r, 2));
     expect(a).toEqual(b);
@@ -284,15 +296,15 @@ describe('botReport — the quality bars', () => {
     const agg = buildBotAggregate(
       result([
         [
-          sample({ id: 'b1', cls: 'torpedoBoat', lifeS: 42.3 }),
-          sample({ id: 'b2', cls: 'torpedoBoat', lifeS: 10.5 }),
-          sample({ id: 'b3', cls: 'battleship', lifeS: 200 }),
+          sample({ id: 'b1', cls: 'warspite', lifeS: 42.3 }),
+          sample({ id: 'b2', cls: 'warspite', lifeS: 10.5 }),
+          sample({ id: 'b3', cls: 'bismarck', lifeS: 200 }),
         ],
       ]),
       3,
     );
-    const tb = agg.byClass.find((g) => g.key === 'torpedoBoat')!;
-    const bs = agg.byClass.find((g) => g.key === 'battleship')!;
+    const tb = agg.byClass.find((g) => g.key === 'warspite')!;
+    const bs = agg.byClass.find((g) => g.key === 'bismarck')!;
     // Present, an array of raw numbers, length === the group's n.
     expect(Array.isArray(tb.lifeSamples)).toBe(true);
     expect(tb.lifeSamples).toHaveLength(tb.n);
@@ -316,8 +328,8 @@ describe('botReport — the quality bars', () => {
     // wired to something else entirely — the expectation has to be independent
     // of the code under test to be able to fail at all.
     expect(lifeSamples(rows)).toEqual([1, 3, 5]);
-    const agg = buildBotAggregate(result([rows.map((r) => ({ ...r, cls: 'mineLayer' }))]), 3);
-    expect(agg.byClass.find((g) => g.key === 'mineLayer')!.lifeSamples).toEqual([1, 3, 5]);
+    const agg = buildBotAggregate(result([rows.map((r) => ({ ...r, cls: 'iowa' }))]), 3);
+    expect(agg.byClass.find((g) => g.key === 'iowa')!.lifeSamples).toEqual([1, 3, 5]);
   });
 });
 
@@ -402,39 +414,43 @@ describe('args — the --bot-profile and --bot-engage flags (wave 4)', () => {
 describe('runner — forced test profiles and the engage gate (wave 4)', () => {
   it('botProfileFor: a named id forces every bot; the scheme deals round-robin', () => {
     for (let i = 0; i < 6; i += 1) {
-      expect(botProfileFor({ botProfile: 'randomBattleship' }, i)).toBe('randomBattleship');
-      expect(botProfileFor({ botProfile: 'random' }, i)).toBe(TEST_PROFILE_IDS[i % 3]);
+      expect(botProfileFor({ botProfile: 'randomBismarck' }, i)).toBe('randomBismarck');
+      expect(botProfileFor({ botProfile: 'random' }, i)).toBe(TEST_PROFILE_IDS[i % TEST_PROFILE_IDS.length]);
       expect(botProfileFor({}, i)).toBeUndefined();
     }
   });
 
   it('the scheme deal is OFFSET BY MATCH INDEX, so no class is short in every match', () => {
-    // 20 bots over 3 classes is 7/7/6 — without the offset the SAME test row
-    // is short in every match (the rotate() representation artefact, on the
+    // A lobby that is not a multiple of the row count deals one row short —
+    // without the offset the SAME test row is short in every match (the rotate() representation artefact, on the
     // one path --roster even cannot reach because the forced profile governs
     // the hull). A named id stays offset-invariant.
     for (let i = 0; i < 6; i += 1) {
       for (let index = 0; index < 4; index += 1) {
-        expect(botProfileFor({ botProfile: 'random' }, i, index)).toBe(TEST_PROFILE_IDS[(i + index) % 3]);
-        expect(botProfileFor({ botProfile: 'randomMineLayer' }, i, index)).toBe('randomMineLayer');
+        expect(botProfileFor({ botProfile: 'random' }, i, index)).toBe(TEST_PROFILE_IDS[(i + index) % TEST_PROFILE_IDS.length]);
+        expect(botProfileFor({ botProfile: 'randomIowa' }, i, index)).toBe('randomIowa');
       }
     }
-    // Across 3 consecutive matches of 20, each row totals exactly 20.
+    // Across one full rotation of consecutive matches (as many as there are
+    // rows) of a lobby one bot over a multiple, every row totals the same.
+    const rows = TEST_PROFILE_IDS.length;
+    const lobby = rows * 4 + 1;
     const totals = new Map<string, number>();
-    for (let index = 0; index < 3; index += 1) {
-      for (let i = 0; i < 20; i += 1) {
+    for (let index = 0; index < rows; index += 1) {
+      for (let i = 0; i < lobby; i += 1) {
         const p = botProfileFor({ botProfile: 'random' }, i, index)!;
         totals.set(p, (totals.get(p) ?? 0) + 1);
       }
     }
-    expect([...totals.values()]).toEqual([20, 20, 20]);
+    expect([...totals.values()]).toEqual(Array(rows).fill(lobby));
   });
 
   it('a forced run carries ONLY test profiles in its bot rows, one hull per row', () => {
     const restore = applyOverrides({ 'zone.beatMs': 4000 });
     try {
-      const m = runMatch(0, { seed: 4242, matches: 1, captains: 0, bots: 3, botProfile: 'random' });
-      expect(m.bots).toHaveLength(3);
+      const n = TEST_PROFILE_IDS.length;
+      const m = runMatch(0, { seed: 4242, matches: 1, captains: 0, bots: n, botProfile: 'random' });
+      expect(m.bots).toHaveLength(n);
       const profiles = m.bots!.map((b) => b.profile).sort();
       expect(profiles).toEqual([...TEST_PROFILE_IDS].sort());
       for (const b of m.bots!) {
@@ -460,58 +476,53 @@ describe('runner — forced test profiles and the engage gate (wave 4)', () => {
   });
 });
 
-describe('botMetrics/botReport — gun and gun tier (balance campaign)', () => {
-  it('gunTier is the mounted gun module tier: 1 bare, +1 per copy of the gun line', () => {
+describe('botMetrics/botReport — hull layout and Shift (Story 10.4)', () => {
+  it('a bot row carries its seat\'s Shift and its hull\'s layout off the shared turret mounts', () => {
     const world = new World(31, 20);
-    const bot = world.addBot('torpedoBoat', undefined, 'deckGun');
-    const col = new BotCollector([bot.id]);
-    col.observe(world, 1);
-    expect(col.samples(world)[0]).toMatchObject({ gun: 'deckGun', gunTier: 1 });
-
-    bot.bankedLevels = 1;
-    bot.offer = ['deckGun', 'reload', 'radarSweep', 'speed'] as never;
-    expect(world.spendPoint(bot.id, 0)).toBe(true);
-    col.observe(world, 1);
-    const s = col.samples(world)[0];
-    expect(s.gunTier).toBe(2);
-    expect(s.gunTier).toBe(1 + bot.cards.filter((c) => c === 'deckGun').length);
+    for (const hull of SHIP_CLASS_IDS) {
+      for (const shift of SHIFT_IDS) {
+        const bot = world.addBot(hull, undefined, shift);
+        const col = new BotCollector([bot.id]);
+        col.observe(world, 1);
+        const mounts = turretMounts(hull);
+        expect(col.samples(world)[0]).toMatchObject({ shift, layout: `${mounts.length}x${mounts[0].guns}` });
+      }
+    }
   });
 
-  it('killsByTier stamps the killer\'s CURRENT tier; fleet kills stay out', () => {
-    const world = new World(32, 20);
-    const killer = world.addBot('torpedoBoat', undefined, 'flak');
-    const victim = world.addBot('torpedoBoat', undefined);
-    const col = new BotCollector([killer.id, victim.id]);
-    killer.stats = { ...killer.stats, equipment: { ...killer.stats.equipment, flak: { ...killer.stats.equipment.flak, tier: 3 } } };
-    const events: GameEvent[] = [{ k: 'sunk', id: victim.id, by: killer.id } as GameEvent];
-    Object.defineProperty(world, 'tickEvents', { value: events, configurable: true });
-    col.observe(world, 1);
-    const row = col.samples(world).find((r) => r.id === killer.id)!;
-    expect(row.kills).toBe(1);
-    expect(row.killsByTier).toEqual([0, 0, 0, 1, 0, 0]);
+  it('layoutOf is turrets x guns, and every hull has a uniform layout', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const mounts = turretMounts(hull);
+      expect(new Set(mounts.map((m) => m.guns)).size).toBe(1);
+      expect(layoutOf(hull)).toBe(`${mounts.length}x${mounts[0].guns}`);
+    }
   });
 
-  it('byGun / byGunTier group by gun and gun/Tn; a draw\'s placement 1 is not a win', () => {
+  it('byLayout / byShift group by their key; a draw\'s placement 1 is not a win', () => {
+    const [s0, s1] = SHIFT_IDS;
     const agg = buildBotAggregate(
       {
         ...result([
           [
-            sample({ gun: 'flak', gunTier: 3, placement: 1, end: 'alive', kills: 2, killsByTier: [0, 1, 0, 1, 0, 0] }),
-            sample({ id: 'b2', gun: 'deckGun', gunTier: 1, placement: 2 }),
+            sample({ shift: s1, layout: 'L2', placement: 1, end: 'alive', kills: 2 }),
+            sample({ id: 'b2', shift: s0, layout: 'L1', placement: 2 }),
           ],
         ]),
       },
       2,
     );
-    const draw = buildBotAggregate(result([[sample({ gun: 'flak', gunTier: 3, placement: 1 })]], { winnerClass: null }), 1);
-    expect(agg.byGunTier.map((g) => g.key)).toEqual(['deckGun/T1', 'flak/T3']);
-    expect(agg.byGun.map((g) => g.key)).toEqual(['deckGun', 'flak']);
-    const flak = agg.byGunTier.find((g) => g.key === 'flak/T3')!;
-    expect(flak).toMatchObject({ n: 1, wins: 1, winRate: 1, meanPlacement: 1 });
-    expect(flak.killsByTierTotal).toEqual([0, 1, 0, 1, 0, 0]);
-    expect(agg.byGun.find((g) => g.key === 'deckGun')!.wins).toBe(0);
-    expect(draw.byGunTier[0].wins).toBe(0);
-    expect(renderBotReport('x', agg).join('\n')).toContain('flak/T3');
+    const draw = buildBotAggregate(result([[sample({ shift: s1, layout: 'L2', placement: 1 })]], { winnerClass: null }), 1);
+    expect(agg.byLayout.map((g) => g.key)).toEqual(['L1', 'L2']);
+    expect(agg.byShift.map((g) => g.key)).toEqual([s0, s1].sort());
+    const won = agg.byLayout.find((g) => g.key === 'L2')!;
+    expect(won).toMatchObject({ n: 1, wins: 1, winRate: 1, meanPlacement: 1 });
+    expect(agg.byShift.find((g) => g.key === s1)!.wins).toBe(1);
+    expect(agg.byShift.find((g) => g.key === s0)!.wins).toBe(0);
+    expect(draw.byLayout[0].wins).toBe(0);
+    expect(draw.byShift[0].wins).toBe(0);
+    const text = renderBotReport('x', agg).join('\n');
+    expect(text).toContain('L2');
+    expect(text).toContain(s1);
   });
 });
 
@@ -561,13 +572,14 @@ function stageEvents(world: World, events: GameEvent[]): void {
 
 const NUMERIC_FIELDS = [
   'groundedTicks', 'stuckEpisodes', 'outsideRingTicks', 'stormDeathStuck', 'stormDeathAground',
-  'gunShells', 'shotsAtDecoy', 'shotsAtOwnDecoy', 'litShots', 'starShellsFired', 'fogTicks', 'actPresses',
+  'gunShells', 'mbClicks', 'starShellsFired', 'fogTicks', 'actPresses',
+  'gunsBearing', 'gunsInReach', 'minesSwept', 'repairPresses', 'repairHullFracSum',
 ] as const;
 const RECORD_FIELDS = [
-  'killsBySource', 'shotsBeyondRange', 'postureTicks', 'postureTransitions', 'tacticCounts',
-  'fogTicksByPosture', 'pressesByItem', 'activations',
+  'killsBySource', 'mbBandShells', 'mbBandHits', 'postureTicks', 'postureTransitions', 'tacticCounts',
+  'fogTicksByPosture', 'pressesByAbility', 'activations',
 ] as const;
-const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS', 'droneGroundedTicks', 'droneStormDeaths'] as const;
+const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS'] as const;
 
 const allNumbers = (rec: unknown): boolean =>
   typeof rec === 'object' && rec !== null && Object.values(rec).every((v) => typeof v === 'number' && Number.isFinite(v));
@@ -591,7 +603,8 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
     for (const b of first.bots!) {
       for (const f of NUMERIC_FIELDS) expect(typeof b[f], f).toBe('number');
       for (const f of RECORD_FIELDS) expect(allNumbers(b[f]), f).toBe(true);
-      expect(Object.keys(b.shotsBeyondRange).sort()).toEqual(['cannon', 'flak', 'mg']);
+      expect(b.mbBandShells).toHaveLength(RANGE_BANDS);
+      expect(b.mbBandHits).toHaveLength(RANGE_BANDS);
       expect(Object.keys(b.postureTransitions).sort()).toEqual(['brokenOff', 'held', 'hid', 'kited', 'opened', 'rammed']);
     }
     for (const f of MATCH_FIELDS) expect(typeof first[f], f).toBe('number');
@@ -602,6 +615,21 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
     for (const line of text.filter((l) => /^ {2}(PASS|FAIL) /.test(l))) {
       expect(line).not.toMatch(/posture|grounded|decoy|endgame|fog/i);
     }
+  });
+
+  it('Story 10.12: the posture-work readouts are internally consistent and reach the report', () => {
+    for (const b of first.bots!) {
+      expect(b.gunsBearing).toBeLessThanOrEqual(b.gunsInReach);
+      expect(b.repairPresses).toBe(b.activations.heal ?? 0);
+      expect(b.repairHullFracSum).toBeLessThanOrEqual(b.repairPresses);
+      expect(b.repairStyle).toBe(repairStyleOf(b.profile as never));
+    }
+    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
+    expect(agg.readouts.gunsInReach).toBe(first.bots!.reduce((a, b) => a + b.gunsInReach, 0));
+    const text = renderBotReport('x', agg).join('\n');
+    expect(text).toMatch(/guns bearing on the nearest hull in main reach: \d+ of \d+ gun-ticks/);
+    expect(text).toMatch(/hostile mines swept by bot shells: \d+/);
+    expect(text).toMatch(/HULL REPAIR press .*all n=\d+/);
   });
 
   it('the posture tally sums to the afloat bot ticks, bot by bot', () => {
@@ -615,50 +643,85 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
   it('is deterministic: the same seed gives identical readouts', () => {
     expect(run()).toEqual(first);
   });
+
+  it('Story 10.8: beacon levels per bot and the field-wide hulls-in-range hist ride the sample and the reports', () => {
+    for (const b of first.bots!) {
+      expect(Number.isFinite(b.beaconXpLevels)).toBe(true);
+      expect(b.beaconXpLevels).toBeGreaterThanOrEqual(0);
+    }
+    const hist = first.beaconInRangeHist!;
+    expect(Array.isArray(hist)).toBe(true);
+    for (const n of hist) expect(Number.isInteger(n) && n >= 0).toBe(true);
+    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
+    for (const g of agg.byClass) {
+      const rows = first.bots!.filter((b) => b.cls === g.key);
+      expect(g.beaconLevels.mean).toBeCloseTo(rows.reduce((a, b) => a + b.beaconXpLevels, 0) / rows.length, 9);
+    }
+    expect(sumHist([hist, hist])).toEqual(hist.map((n) => 2 * n));
+    const batch = buildAggregate({ matches: [first], failures: [] }, 0);
+    expect(batch.beaconInRangeHist).toEqual(hist);
+    expect(renderBatchReport('x', batch).some((l) => l.endsWith(histLine(hist)))).toBe(true);
+  });
+
+  it('Story 10.9: drops taken and the bonus index points per bot ride the sample and the by-class table', () => {
+    for (const b of first.bots!) {
+      expect(Number.isInteger(b.dropsTaken) && b.dropsTaken >= 0).toBe(true);
+      expect(Object.keys(b.indexBonus)).toEqual([...CONFIG.drops.indices]);
+      expect(b.indexBonusTotal).toBe(Object.values(b.indexBonus).reduce((a, n) => a + n, 0));
+    }
+    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
+    for (const g of agg.byClass) {
+      const rows = first.bots!.filter((b) => b.cls === g.key);
+      expect(g.drops.mean).toBeCloseTo(rows.reduce((a, b) => a + b.dropsTaken, 0) / rows.length, 9);
+      expect(g.indexBonus.mean).toBeCloseTo(rows.reduce((a, b) => a + b.indexBonusTotal, 0) / rows.length, 9);
+    }
+    const header = renderBotReport('x', agg).find((l) => /\bbcnLv\b/.test(l))!;
+    expect(header).toMatch(/\bdrops\b.*\bib\b/);
+  });
 });
 
 describe('Story 9.13 — the readout counters on a staged world', () => {
-  it('shotsAtOwnDecoy counts a shell aimed at the bot\'s own buoy and not one aimed at a hull', () => {
-    const world = new World(41, 20);
-    const bot = world.addBot(undefined, undefined);
-    const other = world.addBot(undefined, undefined);
-    const col = new BotCollector([bot.id, other.id]);
-    world.decoys.set('d1', { id: 'd1', ownerId: bot.id, x: 900, y: 900, hp: 10, poly: [] } as never);
-    world.decoys.set('d2', { id: 'd2', ownerId: other.id, x: -900, y: -900, hp: 10, poly: [] } as never);
-    world.shells.set('s1', stagedShell('s1', bot.id, { targetX: 903, targetY: 898 }));
-    world.shells.set('s2', stagedShell('s2', bot.id, { targetX: other.state.x, targetY: other.state.y }));
-    col.observe(world, 1);
-    col.observe(world, 1); // a live shell is credited ONCE, on first sighting
-    let row = col.samples(world).find((r) => r.id === bot.id)!;
-    expect(row.shotsAtOwnDecoy).toBe(1);
-    expect(row.shotsAtDecoy).toBe(0);
-    world.shells.set('s3', stagedShell('s3', bot.id, { targetX: -900, targetY: -905 }));
-    col.observe(world, 1);
-    row = col.samples(world).find((r) => r.id === bot.id)!;
-    expect(row.shotsAtDecoy).toBe(1);
-    expect(row.shotsAtOwnDecoy).toBe(1);
-  });
-
-  it('classifies deck-gun shells: own-light (no attenRangeU), beyond range per family, star shells; broadside and tagged shells stay out', () => {
+  it('classifies deck-gun shells and star shells; broadside, tagged shells and torpedoes stay out', () => {
     // The classifier keys the cannon row on its own `hits` — the broadside's must differ.
     expect(CONFIG.gun.hits).not.toBe(CONFIG.broadside.hits);
     const world = new World(42, 20);
     const bot = world.addBot(undefined, undefined);
     const col = new BotCollector([bot.id]);
-    const far = { originX: 0, originY: 0, targetX: 400, targetY: 0, attenRangeU: 300 };
-    world.shells.set('a', stagedShell('a', bot.id, {})); // cannon row, no attenRangeU = into own light
-    world.shells.set('b', stagedShell('b', bot.id, { hits: CONFIG.broadside.hits })); // broadside
+    world.shells.set('a', stagedShell('a', bot.id, {})); // cannon row
+    world.shells.set('b', stagedShell('b', bot.id, { hits: CONFIG.broadside.hits, damage: 5, contactDamage: 5 })); // broadside
     world.shells.set('c', stagedShell('c', bot.id, { lit: { radius: 1, durationMs: 1 } })); // star shell
     world.shells.set('d', stagedShell('d', bot.id, { burn: { radius: 1, durationMs: 1, dps: 1 } })); // phosphor
-    world.shells.set('e', stagedShell('e', bot.id, { family: 'mg', ...far })); // MG past full range
-    world.shells.set('f', stagedShell('f', bot.id, { family: 'flak', ...far, targetX: 200 })); // flak inside it
+    world.shells.set('e', stagedShell('e', bot.id, { family: 'mg' })); // MG / secondaries
+    world.shells.set('f', stagedShell('f', bot.id, { family: 'flak' })); // flak
     world.shells.set('g', stagedShell('g', bot.id, { kind: 'torp', family: null, targetX: null, targetY: null }));
+    // main battery — its server-private marker, with damage EQUAL to its contact damage (the case the old inference misfiled)
+    world.shells.set('h', stagedShell('h', bot.id, { hits: CONFIG.mainBattery.hits, damage: CONFIG.shipClasses.bismarck.battery.shellDamage, contactDamage: CONFIG.shipClasses.bismarck.battery.shellDamage, batteryShell: true }));
     col.observe(world, 1);
     const row = col.samples(world)[0];
-    expect(row.gunShells).toBe(3);
-    expect(row.litShots).toBe(1);
+    expect(row.gunShells).toBe(4);
     expect(row.starShellsFired).toBe(1);
-    expect(row.shotsBeyondRange).toEqual({ cannon: 0, mg: 1, flak: 0 });
+  });
+
+  it('MAIN-BATTERY HIT SHARE BY RANGE BAND (Story 11.1): a shell is filed by muzzle → target over the owner\'s reach, and counted a hit when its landing boom came with the owner\'s `hc` (direct hits only, epic-11 amendment 8)', () => {
+    const world = new World(44, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    const reach = bot.stats.equipment.mainBattery.rangeU;
+    const mb = { hits: CONFIG.mainBattery.hits, damage: CONFIG.shipClasses.bismarck.battery.shellDamage, contactDamage: 0, burstRadius: 0, arcs: 'ships' as const, batteryShell: true as const };
+    world.shells.set('near', stagedShell('near', bot.id, { ...mb, targetX: reach * 0.1 })); // band 0
+    world.shells.set('far', stagedShell('far', bot.id, { ...mb, targetX: reach * 0.9 })); // the last band
+    col.observe(world, 1);
+    world.shells.clear();
+    stageEvents(world, [
+      { k: 'boom', id: 'near', x: reach * 0.1, y: 0 }, // a hit-less landing boom WITH the owner's `hc` (a beacon struck)
+      { k: 'hc', id: bot.id, x: reach * 0.1, y: 0 },
+      { k: 'boom', id: 'far', x: reach * 0.9, y: 0 }, // no `hc` there: a miss
+    ]);
+    col.observe(world, 2);
+    const row = col.samples(world)[0];
+    expect(row.mbBandShells).toEqual([1, 0, 0, 1]);
+    expect(row.mbBandHits).toEqual([1, 0, 0, 0]);
+    expect(row.mbClicks).toBe(1); // Story 11.9: two shells of one owner first seen on one tick = one click
   });
 
   it('stuckEpisodes counts a staged 2 s landContact run once; groundedTicks counts every contact tick', () => {
@@ -753,7 +816,7 @@ describe('Story 9.13 — the --tune bots.* family', () => {
       '--tune', 'bots.gunBand.cannon.0=0.4',
       '--tune', 'bots.nav.avoidRays=7',
       '--tune', 'bots.nav.clearancePenalty=0',
-      '--tune', 'bots.cardPoints.carried=-2',
+      '--tune', 'bots.cardPoints.base=-2', // a card score takes any finite number, negatives included
     ]);
     expect(opts.tune['bots.gunBand.cannon.0']).toBe(0.4);
     const before = CONFIG.bots.gunBand.cannon[0];
@@ -769,7 +832,9 @@ describe('Story 9.13 — the --tune bots.* family', () => {
   it('refuses unknown keys, out-of-range values, an inverted band and the load-time snapshots', () => {
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nonsense=1'])).toThrow(/does not exist|not a numeric/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.profiles.0=1'])).toThrow(/not a numeric/);
-    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.decoyDemote=1.5'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.disengageHysteresis=1.5'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.secReleaseHeat=1.5'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.secRepressHeat=-0.1'])).toThrow(/\[0, 1\]/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.gunBand.flak.1=-0.1'])).toThrow(/\[0, 1\]/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nav.avoidRays=0'])).toThrow(/>= 1/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.stuckMs=-1'])).toThrow(/>= 0/);
@@ -778,5 +843,178 @@ describe('Story 9.13 — the --tune bots.* family', () => {
     const lo = CONFIG.bots.gunBand.cannon[0];
     expect(() => applyOverrides({}, { 'bots.gunBand.cannon.0': 0.95 })).toThrow(/min <= max/);
     expect(CONFIG.bots.gunBand.cannon[0]).toBe(lo); // rolled back
+  });
+});
+
+// --- Story 10.12: guns bearing, mines swept, repair at the press -------------
+
+type Hull = Parameters<typeof turretMounts>[0];
+
+/** Park a hull at a pose (the readouts read the record, nothing steps). */
+function park(ship: { state: { x: number; y: number; heading: number } }, x: number, y: number, heading = 0): void {
+  ship.state.x = x;
+  ship.state.y = y;
+  ship.state.heading = heading;
+}
+
+/** The guns the shared arc test says bear from `pose` on `at` — the
+ *  generating function, summed independently of the collector. */
+function bearingGuns(hull: Hull, pose: { x: number; y: number; heading: number }, at: { x: number; y: number }): number {
+  return turretMounts(hull).reduce((a, m, i) => a + (turretBears(hull, i, pose, at) ? m.guns : 0), 0);
+}
+
+const totalGuns = (hull: Hull): number => turretMounts(hull).reduce((a, m) => a + m.guns, 0);
+
+describe('Story 10.12 — GUNS BEARING on the nearest hull in main reach', () => {
+  it('counts, per tick in reach, every gun and the guns whose turret arc holds the target centre', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const world = new World(61, 20);
+      const bot = world.addBot(hull, undefined);
+      const foe = world.addBot(undefined, undefined);
+      const reach = bot.stats.equipment.mainBattery.rangeU;
+      const col = new BotCollector([bot.id]);
+      let want = 0;
+      // dead ahead, abeam, and on the quarter — three different arc answers.
+      for (const angle of [0, Math.PI / 2, (3 * Math.PI) / 4]) {
+        park(bot, 0, 0, 0);
+        park(foe, Math.cos(angle) * reach * 0.5, Math.sin(angle) * reach * 0.5);
+        want += bearingGuns(hull, { x: 0, y: 0, heading: 0 }, foe.state);
+        col.observe(world, 1);
+      }
+      const row = col.samples(world)[0];
+      expect(row.gunsInReach).toBe(3 * totalGuns(hull));
+      expect(row.gunsBearing).toBe(want);
+    }
+  });
+
+  it('counts nothing with no afloat hull in reach, and picks the NEAREST hull', () => {
+    const world = new World(62, 20);
+    const bot = world.addBot(undefined, undefined);
+    const far = world.addBot(undefined, undefined);
+    const reach = bot.stats.equipment.mainBattery.rangeU;
+    const col = new BotCollector([bot.id]);
+    park(bot, 0, 0, 0);
+    park(far, reach * 1.5, 0);
+    col.observe(world, 1);
+    expect(col.samples(world)[0].gunsInReach).toBe(0);
+    // A nearer hull abeam and a farther one dead ahead: the abeam one is read.
+    const near = world.addBot(undefined, undefined);
+    park(far, reach * 0.9, 0);
+    park(near, 0, reach * 0.3);
+    col.observe(world, 1);
+    const row = col.samples(world)[0];
+    expect(row.gunsInReach).toBe(totalGuns(bot.hullId));
+    expect(row.gunsBearing).toBe(bearingGuns(bot.hullId, { x: 0, y: 0, heading: 0 }, near.state));
+  });
+});
+
+describe('Story 10.12 — MINES SWEPT, attributed off a landing on the mine marker', () => {
+  /** One tick with a mine and a mine-hitting shell on the water, then the
+   *  next tick with both gone (unless kept) and the bot's landing event. */
+  function sweepScenario(o: {
+    mineOwner?: 'self' | 'other';
+    landAt?: number;
+    mineStays?: boolean;
+    shellStays?: boolean;
+    event?: 'sp' | 'hc';
+    burstRadius?: number;
+    direct?: boolean;
+  }): number {
+    const world = new World(63, 20);
+    const bot = world.addBot(undefined, undefined);
+    const layer = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id, layer.id]);
+    const ownerId = o.mineOwner === 'self' ? bot.id : layer.id;
+    world.mines.set('m1', { id: 'm1', x: 500, y: 0, ownerId } as never);
+    world.shells.set('s1', stagedShell('s1', bot.id, { hits: ['ship', 'mine'], burstRadius: o.burstRadius ?? 0, ...(o.direct === true ? { direct: true } : {}) }));
+    col.observe(world, 1);
+    if (o.mineStays !== true) world.mines.delete('m1');
+    if (o.shellStays !== true) world.shells.delete('s1');
+    stageEvents(world, [{ k: o.event ?? 'sp', id: bot.id, x: 500 + (o.landAt ?? 0), y: 0 } as GameEvent]);
+    col.observe(world, 1);
+    return col.samples(world).find((r) => r.id === bot.id)!.minesSwept;
+  }
+
+  it('credits a hostile mine gone on the tick the bot\'s shell landed on its marker', () => {
+    expect(sweepScenario({})).toBe(1);
+    expect(sweepScenario({ landAt: CONFIG.mine.hitRadiusU })).toBe(1);
+    // A BURST shell's landing that also caught a hull reports `hc`, and its
+    // blast widens the marker by its own radius.
+    expect(sweepScenario({ event: 'hc', burstRadius: 15, landAt: 15 + CONFIG.mine.hitRadiusU })).toBe(1);
+    // A blast-less round that LANDS (a secondary round, epic-11 amendment
+    // 11) inside a hull reports `hc` at its landing point — a landing.
+    expect(sweepScenario({ event: 'hc' })).toBe(1);
+  });
+
+  it('credits nothing for its own mine, a landing off the marker, a mine still afloat, or no shell landed', () => {
+    expect(sweepScenario({ mineOwner: 'self' })).toBe(0);
+    expect(sweepScenario({ landAt: CONFIG.mine.hitRadiusU + 1 })).toBe(0);
+    expect(sweepScenario({ mineStays: true })).toBe(0);
+    expect(sweepScenario({ shellStays: true })).toBe(0);
+    // A DIRECT shell that struck a hull (its `hc`) never landed on anything.
+    expect(sweepScenario({ event: 'hc', direct: true })).toBe(0);
+  });
+});
+
+describe('Story 10.12 — the hull at a HULL REPAIR press', () => {
+  it('records hp / maxHp from the last afloat tick before each accepted press (the heal event)', () => {
+    const world = new World(64, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    stageEvents(world, [{ k: 'heal', id: bot.id } as GameEvent]);
+    col.observe(world, 1); // no reading before it: a press this readout cannot place
+    stageEvents(world, []);
+    bot.hp = bot.stats.maxHp / 2;
+    col.observe(world, 1);
+    bot.hp = bot.stats.maxHp; // the instant heal already landed when the event is read
+    stageEvents(world, [{ k: 'heal', id: bot.id } as GameEvent]);
+    col.observe(world, 1);
+    const row = col.samples(world)[0];
+    expect(row.repairPresses).toBe(1);
+    expect(row.repairHullFracSum).toBeCloseTo(0.5, 9);
+    expect(row.activations.heal).toBe(2);
+  });
+
+  it('the row carries its profile\'s repair style, and the aggregate pools the mean by style', () => {
+    const world = new World(65, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    col.observe(world, 1);
+    expect(col.samples(world)[0].repairStyle).toBe(profileOf(world.bots.profileOf(bot.id)!).repairStyle);
+    const agg = buildBotAggregate(
+      result([[
+        sample({ id: 'a', repairStyle: 'early', repairPresses: 2, repairHullFracSum: 1.6 }),
+        sample({ id: 'b', repairStyle: 'late', repairPresses: 1, repairHullFracSum: 0.2 }),
+        sample({ id: 'c', repairStyle: 'late', repairPresses: 0, repairHullFracSum: 0 }),
+      ]]),
+      3,
+    ).readouts;
+    expect(Object.keys(agg.repairByStyle)).toEqual(['early', 'late']);
+    expect(agg.repairByStyle.early).toEqual({ presses: 2, meanHullFrac: 0.8 });
+    expect(agg.repairByStyle.late.presses).toBe(1);
+    expect(agg.repairByStyle.late.meanHullFrac).toBeCloseTo(0.2, 9);
+    expect(agg.repairAll.presses).toBe(3);
+    expect(agg.repairAll.meanHullFrac).toBeCloseTo(0.6, 9);
+  });
+});
+
+describe('Story 10.12 — the BY CLASS table carries placement, win share and guns bearing', () => {
+  it('byClass pools wins, mean placement and the guns-bearing share per hull; the text table shows them', () => {
+    const agg = buildBotAggregate(
+      result([[
+        sample({ id: 'a', cls: 'iowa', placement: 1, end: 'alive', gunsBearing: 30, gunsInReach: 40 }),
+        sample({ id: 'b', cls: 'iowa', placement: 3, gunsBearing: 10, gunsInReach: 40 }),
+        sample({ id: 'c', cls: 'yamato', placement: 2, gunsBearing: 0, gunsInReach: 0 }),
+      ]]),
+      3,
+    );
+    const iowa = agg.byClass.find((g) => g.key === 'iowa')!;
+    expect(iowa).toMatchObject({ wins: 1, winRate: 0.5, meanPlacement: 2, gunsBearingRate: 0.5 });
+    expect(iowa.lifeSamples).toHaveLength(2);
+    expect(agg.byClass.find((g) => g.key === 'yamato')).toMatchObject({ wins: 0, gunsBearingRate: 0 });
+    const lines = renderBotReport('x', agg);
+    const head = lines[lines.findIndex((l) => l.startsWith('BY CLASS')) + 1];
+    expect(head).toMatch(/\bbrg%.*\bplace\b.*\bwin%/);
+    expect(lines.find((l) => /^ {2}iowa\b/.test(l))).toMatch(/50\.0%\s*$/);
   });
 });

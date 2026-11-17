@@ -1,46 +1,67 @@
-// THE turnRate FLOOR — a leaf whose whole legitimate range sits below the
-// blanket min-one floor.
-//
-// `TUNE_MIN_ONE_LEAVES` exists to stop a divide-or-spin hazard: ai/tactics.ts
-// and ai/utility.ts both divide by `turnRate`, and a 0 there yields Infinity /
-// NaN steer that game/inputs.ts silently drops, leaving bots inert while every
-// report row still reads plausible. That hazard is real — but it is a divide by
-// ZERO, and the floor was set at 1 while all three hulls ship 0.4 / 0.6 / 0.8.
-// The leaf was therefore untunable at its own shipped values.
+// THE INDEX FLOORS (Story 10.3, 2026-11-04 — replaces the `turnRate` 0.05
+// floor, whose leaf left CONFIG when the turn rate became DERIVED from the
+// RUDDER index). Every `shipClasses.<cls>.index.<id>` is a --tune leaf; the
+// three indices the fold divides by or scales through (reload / engines /
+// intel — RANGE, the fourth, left the index with Story 11.2, R9) are floored at 1 — clampStats floors them there, so
+// a 0 arm would print as moved while the sim ran 1 — and ARMOR / POWER keep
+// floor 0.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, INDEX_IDS, SHIP_CLASS_IDS } from '@salvo/shared';
 import { applyOverrides, validateTuneKey, validateTuneValue, TunableError } from '../overrides.js';
 
-const TURN = 'shipClasses.battleship.kinematics.turnRate';
+const FLOOR_ONE = ['reload', 'engines', 'intel'] as const;
 
-describe('--tune floors — turnRate', () => {
-  it('accepts every SHIPPED hull turn rate (the regression that motivated this)', () => {
-    for (const hull of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
-      const shipped = CONFIG.shipClasses[hull].kinematics.turnRate;
-      expect(() => validateTuneValue(`shipClasses.${hull}.kinematics.turnRate`, shipped)).not.toThrow();
+describe('--tune floors — the class indices', () => {
+  it('every class index is a --tune key and accepts its SHIPPED value', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      for (const id of INDEX_IDS) {
+        const key = `shipClasses.${cls}.index.${id}`;
+        expect(() => validateTuneKey(key)).not.toThrow();
+        expect(() => validateTuneValue(key, CONFIG.shipClasses[cls].index[id])).not.toThrow();
+      }
     }
   });
 
-  it('accepts a plausible buffed value', () => {
-    expect(() => validateTuneValue(TURN, 0.48)).not.toThrow();
+  it('REFUSES zero (and anything under 1) on the derivation indices', () => {
+    for (const id of FLOOR_ONE) {
+      const key = `shipClasses.bismarck.index.${id}`;
+      expect(() => validateTuneValue(key, 0)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, 0.5)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, 1)).not.toThrow();
+    }
   });
 
-  it('still REFUSES zero — the divide hazard the floor exists for', () => {
-    expect(() => validateTuneValue(TURN, 0)).toThrow(TunableError);
+  it('ARMOR and POWER may be zero; nothing may be negative or non-finite', () => {
+    for (const id of ['armor', 'power']) {
+      const key = `shipClasses.bismarck.index.${id}`;
+      expect(() => validateTuneValue(key, 0)).not.toThrow();
+      expect(() => validateTuneValue(key, -1)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, Number.NaN)).toThrow(TunableError);
+    }
   });
 
-  it('still refuses a negative and a non-finite value', () => {
-    expect(() => validateTuneValue(TURN, -0.5)).toThrow(TunableError);
-    expect(() => validateTuneValue(TURN, Number.NaN)).toThrow(TunableError);
-    expect(() => validateTuneValue(TURN, Number.POSITIVE_INFINITY)).toThrow(TunableError);
+  it('the retired speed leaves are no --tune keys: the speed and turn rate are DERIVED', () => {
+    expect(() => validateTuneKey('shipClasses.bismarck.kinematics.maxSpeed')).toThrow(TunableError);
+    expect(() => validateTuneKey('shipClasses.bismarck.kinematics.turnRate')).toThrow(TunableError);
   });
 
-  it('leaves the OTHER min-one leaves at 1 — this corrects one magnitude, not the class', () => {
-    expect(() => validateTuneValue('shipClasses.battleship.hp', 0.5)).toThrow(TunableError);
-    expect(() => validateTuneValue('shipClasses.battleship.kinematics.steerageSpeed', 0.5)).toThrow(TunableError);
+  it('leaves the OTHER min-one leaves at 1', () => {
+    expect(() => validateTuneValue('shipClasses.bismarck.hp', 0.5)).toThrow(TunableError);
+    expect(() => validateTuneValue('shipClasses.bismarck.kinematics.steerageSpeed', 0.5)).toThrow(TunableError);
     expect(() => validateTuneValue('torpedo.speed', 0.5)).toThrow(TunableError);
     expect(() => validateTuneValue('gun.shellSpeed', 0.5)).toThrow(TunableError);
+  });
+
+  it('floors every torpedo run at 1, Tier I and Tier V (a 0 run expires the torpedo in its tube); `runUAtV` is a dial since the tuned catalog re-derives the step', () => {
+    for (const kind of ['torpedo', 'lightTorpedo', 'supercavTorpedo'] as const) {
+      expect(() => validateTuneValue(`${kind}.runU`, CONFIG[kind].runU), kind).not.toThrow();
+      for (const bad of [0, -CONFIG[kind].runU, Number.NaN]) {
+        expect(() => validateTuneValue(`${kind}.runU`, bad), `${kind} ${bad}`).toThrow(TunableError);
+      }
+      expect(() => validateTuneKey(`${kind}.runUAtV`), kind).not.toThrow();
+      expect(() => validateTuneValue(`${kind}.runUAtV`, 0), kind).toThrow(TunableError);
+    }
   });
 
   it('leaves the reload/cooldown suffix rule at 1', () => {
@@ -146,53 +167,24 @@ describe('--tune ranges — the weapon weighting', () => {
 });
 
 // ---------------------------------------------------------------------------
-// THE DECK-GUN BLOW FRACTIONS (Story 9.12, Eric 2026-10-16, epic-9 amendments
-// 184–185): the shared functions CLAMP an out-of-range dial, so an arm outside
+// THE DECK-GUN BLOW FRACTION (Story 9.12, Eric 2026-10-16, epic-9 amendments
+// 184–185): the shared function CLAMPS an out-of-range dial, so an arm outside
 // [0, 1] would print as moved while the sim ran the clamp — false evidence.
-// `fullFrac` at or past 1 collapses the attenuation curve to a step at range,
-// refused on the finished CONFIG like the dropout curve.
+// The range-attenuation dials (`gunAttenuation.*`) retired with the block
+// (2026-11-12, Story 11.1): the family itself is refused.
 // ---------------------------------------------------------------------------
 
-describe('--tune ranges — range attenuation and the flak rim', () => {
-  const KEYS = ['gunAttenuation.fullFrac', 'gunAttenuation.minFactor', 'flak.rimFactor'];
-
-  it('reaches all three leaves from 0, `minFactor` and `rimFactor` up to 1 inclusive, shipped values included', () => {
-    for (const key of KEYS) {
-      expect(() => validateTuneKey(key)).not.toThrow();
-      expect(() => validateTuneValue(key, 0)).not.toThrow();
-    }
-    expect(() => validateTuneValue('gunAttenuation.minFactor', 1)).not.toThrow(); // attenuation off, a real arm
-    expect(() => validateTuneValue('flak.rimFactor', 1)).not.toThrow();
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', CONFIG.gunAttenuation.fullFrac)).not.toThrow();
-    expect(() => validateTuneValue('gunAttenuation.minFactor', CONFIG.gunAttenuation.minFactor)).not.toThrow();
-    expect(() => validateTuneValue('flak.rimFactor', CONFIG.flak.rimFactor)).not.toThrow();
+describe('--tune ranges — the flak rim', () => {
+  it('reaches `flak.rimFactor` from 0 up to 1 inclusive, the shipped value included', () => {
+    expect(() => validateTuneKey('flak.rimFactor')).not.toThrow();
+    for (const v of [0, 1, CONFIG.flak.rimFactor]) expect(() => validateTuneValue('flak.rimFactor', v)).not.toThrow();
   });
 
   it('refuses anything outside [0, 1] and anything non-finite', () => {
-    for (const key of KEYS) {
-      expect(() => validateTuneValue(key, -0.1)).toThrow(TunableError);
-      expect(() => validateTuneValue(key, 1.2)).toThrow(TunableError);
-      expect(() => validateTuneValue(key, Number.NaN)).toThrow(TunableError);
-    }
+    for (const v of [-0.1, 1.2, Number.NaN]) expect(() => validateTuneValue('flak.rimFactor', v)).toThrow(TunableError);
   });
 
-  it('REFUSES `fullFrac` at 1 or more at the PARSE leaf (half-open [0, 1) — the curve would be a step)', () => {
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', 1)).toThrow(/\[0, 1\)/);
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', 1.2)).toThrow(TunableError);
-    expect(() => validateTuneValue('gunAttenuation.fullFrac', 0.999)).not.toThrow();
-  });
-
-  it('REFUSES `fullFrac = 1` at APPLY time (the curve would be a step) and rolls the apply back', () => {
-    const before = { ...CONFIG.gunAttenuation };
-    expect(() => applyOverrides({}, { 'gunAttenuation.fullFrac': 1 })).toThrow(/fullFrac/);
-    expect(CONFIG.gunAttenuation).toEqual(before); // all-or-nothing
-  });
-
-  it('a legal attenuation arm applies and restores', () => {
-    const before = { ...CONFIG.gunAttenuation };
-    const restore = applyOverrides({}, { 'gunAttenuation.fullFrac': 0.25, 'gunAttenuation.minFactor': 1 });
-    expect(CONFIG.gunAttenuation).toEqual({ fullFrac: 0.25, minFactor: 1 });
-    restore();
-    expect(CONFIG.gunAttenuation).toEqual(before);
+  it('the retired `gunAttenuation.*` family is refused by key (no dial is left to move)', () => {
+    for (const key of ['gunAttenuation.fullFrac', 'gunAttenuation.minFactor']) expect(() => validateTuneKey(key)).toThrow(TunableError);
   });
 });

@@ -24,10 +24,26 @@ const SQRT2 = 1.4142135623730951;
 
 // --- Ratified constants (re-exported by map.ts as MAP_RULES) -----------------
 
-/** Widest hull beam across ship classes AND drones (order-independent max). */
+/**
+ * u — the 35 u FLOOR under the navigability erosion's beam. The beam WAS the
+ * max over the ship classes AND the PvE drones, and the large drone's 35 u
+ * beam set it (every battleship is under 18 u). Kept as a floor when the
+ * drones retired (Story 10.8, 2026-11-06) so map generation stays
+ * byte-identical — re-deriving it from the battleships alone would regenerate
+ * every map: not a cleanup call.
+ */
+const RETIRED_DRONE_BEAM_FLOOR = 35;
+
+/**
+ * u — the beam the navigability erosion is sized for: the widest ship-class
+ * beam, never below the 35 u floor above. Byte-identical today (every class
+ * beam is under the floor); a wider hull tomorrow widens the erosion instead
+ * of beaching on it. Mirrored by `TERRAIN_PARAMS.navClear`
+ * (sim/heightField.ts) — the map test pins the two homes equal.
+ */
 const WIDEST_BEAM = Math.max(
+  RETIRED_DRONE_BEAM_FLOOR,
   ...Object.values(CONFIG.shipClasses).map((c) => c.hull.beam),
-  ...Object.values(CONFIG.drones).map((d) => d.hull.beam),
 );
 const NAV_CELL = 32; // u — ratified navigability raster cell size
 const NAV_MARGIN = 6; // u — hull half-beam slack in the navigability erosion

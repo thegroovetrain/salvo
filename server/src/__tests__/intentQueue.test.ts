@@ -9,7 +9,7 @@
 // never reset on death.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, SLOT_BOOST, type InputMsg } from '@salvo/shared';
+import { isAfloat, launcherAimPoint, launcherStationWorld, FAMILY_SLOT, SLOT_BOOST, abilityCode, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -32,7 +32,7 @@ function place(
   x: number,
   y: number,
   heading = 0,
-  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+  hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
@@ -55,7 +55,7 @@ const volleyOf = (a: ShipRecord): string[] => Array<string>(a.stats.equipment.gu
 function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
   return {
     seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
     ...extra,
   };
 }
@@ -96,7 +96,10 @@ describe('InputStore.drainIntents — every accepted input queues once, in seq o
     expect(drained.map((m) => m.seq)).toEqual(
       Array.from({ length: INPUT_RATE_CAP }, (_, i) => i + 1),
     );
-    expect(store.get('a')?.seq).toBe(INPUT_RATE_CAP);
+    // Story 11.2 follow-up: the shed message's helm still lands and the ack
+    // advances to it — but its click does not (the last ACCEPTED click stays).
+    expect(store.get('a')?.seq).toBe(INPUT_RATE_CAP + 1);
+    expect(store.get('a')?.fireSeq).toBe(INPUT_RATE_CAP);
   });
 
   it('remove() forgets the queue with the client', () => {
@@ -114,11 +117,12 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0);
     w.step(); // flush joins
+    for (const l of a.launchers) l.a = Math.PI / 2; // trained on the beam (R28: never dead ahead)
     // Two clicks race into the same tick: click 1 fires the gun (slot 0),
-    // click 2 fires the torpedo (slot 1, dead ahead). Pre-2.1 latest-wins
+    // click 2 fires the torpedo (slot 1, abeam). Pre-2.1 latest-wins
     // swallowed click 1 entirely — no shell, no denial.
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 200 }));
-    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: 0 }));
+    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: Math.PI / 2, aimDist: 300 }));
     w.step();
     const kinds = [...w.shells.values()].map((s) => s.kind).sort();
     expect(kinds).toEqual([...volleyOf(a), 'torp']); // BOTH pressed weapons launched this tick
@@ -128,20 +132,29 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
 
   it('each click keeps its OWN aim: two same-tick torpedo clicks launch on their own bearings', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0);
+    const a = place(w, 'a', 0, 0, 0);
     w.step();
-    const aim1 = 0.2; // both inside the ±30° bow arc
-    const aim2 = -0.3;
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: aim1 }));
-    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: aim2 }));
+    // Story 10.6 / R28: the FORE launcher is trained on the beam. aim1 is the
+    // beam (inside its firing band); aim2 is dead astern — outside it, so the
+    // latest input's aim cannot fire anything.
+    for (const l of a.launchers) l.a = Math.PI / 2;
+    const aim1 = Math.PI / 2;
+    const aim2 = Math.PI;
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: aim1, aimDist: 300 }));
+    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: aim2, aimDist: 300 }));
     w.step();
-    // Only ONE torpedo can launch (1-fish pool) — the FIRST click in seq order
-    // gets the round at ITS aim; the second gets a cooling denial.
+    // The FIRST click in seq order is judged at ITS aim and fires; the second
+    // is judged at its own aim and refused out-of-arc. Read with the latest
+    // input's aim, click 1 would have been refused too.
     const torps = [...w.shells.values()].filter((s) => s.kind === 'torp');
     expect(torps).toHaveLength(1);
     const dir = Math.atan2(torps[0].vy, torps[0].vx);
-    expect(dir).toBeCloseTo(aim1, 6); // the OLDER press's aim, not the latest input's
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'cooling', seq: 2 }]);
+    // The OLDER press's aim, not the latest input's: the bearing from the
+    // fore launcher's station to click 1's aim point (no traverse, Story 11.1).
+    const st = launcherStationWorld(a.hullId, 0, a.state);
+    const p1 = launcherAimPoint(a.state, a.hullId, aim1, 300)!;
+    expect(dir).toBeCloseTo(Math.atan2(p1.y - st.y, p1.x - st.x), 6);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 2 }]);
   });
 
   it('an older press that cannot fire gets its OWN wire denial while the newer press fires', () => {
@@ -187,11 +200,11 @@ describe('activationControl — two ability presses landing in ONE tick both eva
     // carrying a click AND a press evaluates BOTH channels — neither is
     // swallowed by latest-wins.
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // the mine rack; heading 0 ⇒ astern π
+    const a = place(w, 'a', 0, 0, 0, 'warspite'); // the mine rack; heading 0 ⇒ astern π
     w.step();
     const shiftCharges = a.loadout[SLOT_BOOST].state!.n;
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 40 }));
-    w.submitInput('a', input(2, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: FAMILY_SLOT.mine, aim: Math.PI, aimDist: 40 }));
+    w.submitInput('a', input(2, { actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step(); // ONE tick — pre-2.1 the earlier intent was swallowed by latest-wins
     expect(w.mines.size).toBe(1); // the CLICK landed
     expect('denied' in buildFrame(w, 'a')).toBe(false);
@@ -203,11 +216,11 @@ describe('activationControl — two ability presses landing in ONE tick both eva
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0); // TB: slot 1 = boost (1 charge) — Story 8.5 fixed roles
     w.step();
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', input(1, { actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false }));
+    w.submitInput('a', input(2, { actSeq: 2, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step();
     expect(a.boostUntil).toBeGreaterThan(0); // press 1 activated
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2, act: abilityCode('shift') }]);
     expect(a.lastActSeq).toBe(2);
   });
 });
@@ -222,7 +235,7 @@ describe('intent-queue lifecycle discipline', () => {
     // aimDist far enough that the shell is still IN FLIGHT over the extra ticks
     // below (at 500 u/s it covers 25u per tick from the ~60u bow spawn) — this
     // pin distinguishes "no phantom re-fire" from a legitimate burst removal.
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 400, actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 400, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step();
     expect(w.shells.size).toBe(volleyOf(a).length);
     expect(a.boostUntil).toBeGreaterThan(0);
@@ -284,7 +297,7 @@ describe('a burst of accepted inputs inside ONE tick: every press is evaluated',
     w.step();
     // Six valid inputs land between ticks (strictly increasing seq, actSeq
     // advancing on each) — well inside the 40/s rate cap, so ALL are accepted.
-    for (let i = 1; i <= 6; i++) w.submitInput('a', input(i, { actSeq: i, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    for (let i = 1; i <= 6; i++) w.submitInput('a', input(i, { actSeq: i, act: 0, hornSeq: 0, held: false, sec: false }));
     w.step(); // ONE tick drains them all
     expect(a.boostUntil).toBeGreaterThan(0); // press 1 activated
     const denied = buildFrame(w, 'a').denied ?? [];

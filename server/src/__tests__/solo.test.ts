@@ -11,7 +11,8 @@
 //                   identity surface (`n AFLOAT`, hull colour, nameplates, the
 //                   kill feed), while the results table would still be right.
 //                   Nothing throws; the player just meets nineteen amber-hollow
-//                   UNKNOWN VESSELs. So the rows, hues and names are pinned.
+//                   UNKNOWN VESSELs. So the rows and names are pinned (the
+//                   hue wheel is gone since Story 10.4, R6).
 //   THE TIMING    — bots MUST be in world.ships before the Match.update() that
 //                   activates: activate() snapshots participants and checkWin()
 //                   runs in that same update, so a roster holding only the human
@@ -31,11 +32,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState } from 'colyseus';
 import {
   CONFIG,
-  GUN_IDS,
-  MOUNTED_GUN,
+  DEFAULT_HORN_ID,
+  HORN_IDS,
+  mulberry32,
   PROTOCOL_VERSION,
-  REGATTA_HUES,
-  REGATTA_NO_HUE,
+  SHIFT_IDS,
   SHIP_CLASS_IDS,
   isAfloat,
   type ShipClassId,
@@ -162,12 +163,6 @@ function bots(r: SoloRoom): { id: string; name: string; hullId: string }[] {
   return [...r.world.ships.values()].filter((s) => s.role === 'bot');
 }
 
-function rosterColors(r: SoloRoom): number[] {
-  const out: number[] = [];
-  r.state.players.forEach((meta: PlayerMeta) => out.push(meta.color));
-  return out;
-}
-
 describe('the solo room — construction', () => {
   beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -206,16 +201,14 @@ describe('the solo room — construction', () => {
     expect(r.state.players.size).toBe(0);
   });
 
-  it('gives every bot a roster row with a REAL Regatta hue — never the drone-grey sentinel', () => {
+  it('gives every bot a roster row (and no hue — the wheel is gone, Story 10.4 R6)', () => {
     const r = soloRoom();
     expect(r.state.players.size).toBe(BOTS);
-    const colors = rosterColors(r);
-    for (const c of colors) {
-      expect(c).not.toBe(REGATTA_NO_HUE);
-      expect(c).toBeGreaterThanOrEqual(0);
-      expect(c).toBeLessThan(REGATTA_HUES.length);
+    for (const b of bots(r)) {
+      const meta = r.state.players.get(b.id)!;
+      expect(meta.name).toBe(b.name);
+      expect('color' in meta).toBe(false);
     }
-    expect(new Set(colors).size).toBe(BOTS); // distinct — no two bots share a hue
   });
 
   it('names every bot from the callsign pool, without repeat', () => {
@@ -238,29 +231,52 @@ describe('the solo room — construction', () => {
     expect([...counts.values()].sort()).toEqual(want);
   });
 
-  // Story 8.15 (amendment 109): every bot MOUNTS A RANDOM GUN, drawn
-  // uniformly off the room's seeded stream — the hue RNG every other room roll
-  // rides — so a pinned map seed seats a pinned fleet and staging fights all
-  // three guns from this cycle. Never Math.random.
-  it('seats every bot with a gun off the SEEDED stream: a pinned seed yields the same guns twice, and all three guns appear across a few seeds', () => {
+  // Story 10.4: every bot picks A RANDOM SHIFT (the seat pick that replaced
+  // the gun) — since Story 10.12 (R5) a roll weighted by its personality,
+  // dealt by the seeded bot controller at enrollment — so a pinned map seed
+  // seats a pinned fleet and staging fights every Shift. Slot 0 is the MAIN
+  // BATTERY on every bot (no bot mounts a deck gun) and slot 1 is the drawn
+  // Shift. Never Math.random.
+  it('seats every bot with a Shift off the SEEDED stream: a pinned seed yields the same Shifts twice, slot 1 mounts it, slot 0 is the main battery, and every Shift appears across a few seeds', () => {
     process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
-    const gunsOf = (r: SoloRoom): string[] => bots(r).map((b) => r.world.ships.get(b.id)!.gun);
-    const first = gunsOf(soloRoom({ mapSeed: 7 }));
+    const shiftsOf = (r: SoloRoom): string[] => bots(r).map((b) => r.world.ships.get(b.id)!.shift);
+    const first = shiftsOf(soloRoom({ mapSeed: 7 }));
     expect(first).toHaveLength(BOTS);
-    expect(gunsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same fleet
-    for (const g of first) expect(GUN_IDS).toContain(g);
-    // Slot 0 mounts the drawn gun's OWN module (MOUNTED_GUN), never the cannon
-    // for all three.
+    expect(shiftsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same fleet
+    for (const s of first) expect(SHIFT_IDS).toContain(s);
     const r = soloRoom({ mapSeed: 7 });
     for (const b of bots(r)) {
       const rec = r.world.ships.get(b.id)!;
-      expect(rec.loadout[0].equipmentId).toBe(MOUNTED_GUN[rec.gun]);
+      expect(rec.loadout[0].equipmentId).toBe('mainBattery');
+      expect(rec.loadout[1].equipmentId).toBe(rec.shift);
     }
     const seen = new Set<string>();
-    for (let seed = 1; seed <= 6 && seen.size < GUN_IDS.length; seed += 1) {
-      for (const g of gunsOf(soloRoom({ mapSeed: seed }))) seen.add(g);
+    for (let seed = 1; seed <= 6 && seen.size < SHIFT_IDS.length; seed += 1) {
+      for (const s of shiftsOf(soloRoom({ mapSeed: seed }))) seen.add(s);
     }
-    expect([...seen].sort()).toEqual([...GUN_IDS].sort());
+    expect([...seen].sort()).toEqual([...SHIFT_IDS].sort());
+  });
+
+  // The room's bot-fleet stream (born as the hue stream; the hues are gone
+  // since Story 10.4) alone decides every class of a pinned seed (the kit
+  // stream that sat beside it left with the kit, Story 10.5; the per-bot
+  // Shift draw left it for the controller's own stream, Story 10.12). The
+  // relation: replaying the fleet stream ALONE (the class shuffle) reproduces
+  // the deal.
+  it('the bot-fleet stream alone deals the classes: a replay of the class shuffle reproduces every class', () => {
+    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
+    for (const mapSeed of [7, 12345]) {
+      const r = soloRoom({ mapSeed });
+      const rng = mulberry32((mapSeed ^ 0xc2b2ae35) >>> 0);
+      const order = [...SHIP_CLASS_IDS];
+      for (let i = order.length - 1; i > 0; i -= 1) {
+        const j = rng.int(0, i);
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      bots(r).forEach((b, i) => {
+        expect(b.hullId, `seed ${mapSeed} ${b.id}`).toBe(order[i % order.length]);
+      });
+    }
   });
 
   it('varies the class DEAL ORDER across rooms (the order is rolled, not fixed)', () => {
@@ -286,6 +302,20 @@ describe('the solo room — the human joins', () => {
     delete process.env.HC_DEV_OPTIONS;
   });
 
+  // Story 10.13 (Eric 2026-11-11: selectable horns): the join path already
+  // carries `horn`; this pins that a NON-DEFAULT catalog id is sanitized
+  // through onto the captain's record (the id every `fh` is stamped with),
+  // and junk still folds to the default.
+  it('a non-default horn id joins and is stamped on the record; junk folds to the default', () => {
+    const r = soloRoom();
+    const picked = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID) as string;
+    join(r, 'alice', { horn: picked });
+    expect(r.world.ships.get('alice')?.horn).toBe(picked);
+    const r2 = soloRoom();
+    join(r2, 'bob', { horn: 'not-a-horn' });
+    expect(r2.world.ships.get('bob')?.horn).toBe(DEFAULT_HORN_ID);
+  });
+
   it('arms the countdown with ONE human aboard (expectedCaptains 1, minHumans 1)', () => {
     const r = soloRoom();
     expect(r.match?.phase).toBe('waiting');
@@ -293,6 +323,21 @@ describe('the solo room — the human joins', () => {
     // No second captain is coming, and none is waited for: the boarding gate is
     // satisfied by the whole cohort (1) being aboard.
     expect(r.match?.phase).toBe('countdown');
+  });
+
+  it('a captain leaving mid-countdown never unlocks the room (no captain re-enters a countdown, Story 10.7)', () => {
+    // The room is locked at birth (above) and must STAY locked through the
+    // countdown's fall-back to waiting: an unlocked room would let a leaver
+    // rejoin as a fresh record with a fresh opening and redraw. The Match half
+    // is swept per cohort in match.test.ts; this is the room's own wiring.
+    const r = soloRoom();
+    const alice = join(r, 'alice');
+    expect(r.match?.phase).toBe('countdown');
+    (r as unknown as { onLeave(c: FakeClient, code?: number): void }).onLeave(alice);
+    expect(r.match?.phase).not.toBe('countdown');
+    expect(r.world.ships.has('alice')).toBe(false);
+    expect(r.lock).toHaveBeenCalled();
+    expect((r as unknown as { unlock: ReturnType<typeof vi.fn> }).unlock).not.toHaveBeenCalled();
   });
 
   it('reads the full cap AFLOAT: a full roster of participants, never 1', () => {
@@ -336,45 +381,6 @@ describe('the solo room — the human joins', () => {
     expect(r.world.ships.size).toBe(CONFIG.map.playerCap);
     step(r, 20);
     expect(r.match?.phase).toBe('active'); // still a match, a full lobby in
-  });
-
-  it('the human KEEPS a preference a bot is already flying — the two SWAP hues', () => {
-    const r = soloRoom();
-    // Take a hue a bot is DEMONSTRABLY flying (a literal would be the free hue
-    // one room in several, and the swap would never be exercised).
-    const holder = bots(r)[0];
-    const pref = r.state.players.get(holder.id)!.color;
-    const before = rosterColors(r);
-    join(r, 'alice', { colorPref: pref });
-    expect(r.state.players.get('alice')!.color).toBe(pref); // the player keeps their choice
-    expect(r.state.players.get(holder.id)!.color).not.toBe(pref);
-    // ...and the bot took the hue the human would otherwise have flown: every
-    // hull still flies a DISTINCT hue off the wheel, and every hue the fleet
-    // flew before is still flown. (Was a bijection over the 20-hue wheel at the
-    // 20-captain cap; 16 captains since Story 9.8 fly 16 of its 20 hues.)
-    const after = rosterColors(r);
-    expect(new Set(after).size).toBe(CONFIG.map.playerCap);
-    for (const h of after) expect(h >= 0 && h < REGATTA_HUES.length).toBe(true);
-    for (const h of before) expect(after).toContain(h);
-    expect(before).toHaveLength(BOTS);
-  });
-
-  it('grants a FREE preference verbatim with no swap at all', () => {
-    const r = soloRoom();
-    const taken = new Set(rosterColors(r));
-    const free = [...Array(REGATTA_HUES.length).keys()].find((h) => !taken.has(h))!;
-    join(r, 'alice', { colorPref: free });
-    expect(r.state.players.get('alice')!.color).toBe(free);
-    expect(new Set(rosterColors(r)).size).toBe(CONFIG.map.playerCap);
-  });
-
-  it('with NO preference the human simply takes the free hue (no bot is disturbed)', () => {
-    const r = soloRoom();
-    const before = new Map<string, number>();
-    r.state.players.forEach((meta: PlayerMeta, id: string) => before.set(id, meta.color));
-    join(r, 'alice');
-    for (const [id, hue] of before) expect(r.state.players.get(id)!.color).toBe(hue);
-    expect(new Set(rosterColors(r)).size).toBe(CONFIG.map.playerCap);
   });
 
   it('redraws a BOT whose callsign collides with the player’s (case-insensitively)', () => {
@@ -482,7 +488,7 @@ describe('World.addBot — the optional class (Story 6.5)', () => {
     const b = new World(9);
     b.map.islands.length = 0;
     a.addBot(undefined, undefined);
-    b.addBot('battleship', undefined);
+    b.addBot('yamato', undefined);
     expect(a.addBot(undefined, undefined).hullId).toBe(b.addBot(undefined, undefined).hullId);
     expect([...a.ships.values()].map((s) => s.name)).toEqual([...b.ships.values()].map((s) => s.name));
   });
@@ -492,13 +498,13 @@ describe('World.renameBot', () => {
   it('draws a fresh unused callsign and leaves the hull alone', () => {
     const w = new World(3);
     w.map.islands.length = 0;
-    const rec = w.addBot('mineLayer', undefined);
+    const rec = w.addBot('warspite', undefined);
     const was = rec.name;
     const next = w.renameBot(rec.id);
     expect(next).not.toBeNull();
     expect(next).not.toBe(was);
     expect(rec.name).toBe(next);
-    expect(rec.hullId).toBe('mineLayer'); // nothing but the name moved
+    expect(rec.hullId).toBe('warspite'); // nothing but the name moved
     expect(rec.role).toBe('bot');
   });
 
@@ -591,5 +597,81 @@ describe('private arenas — the lobby-formed room', () => {
     const r = room({ solo: true, mode: 'private', botFill: true, mapSeed: 99, lobbyTicket: 'guess' } as RoomOptions);
     expect(r.state.mapSeed).not.toBe(99);
     expect(bots(r)).toHaveLength(BOTS);
+  });
+});
+
+// --- QUEUE-FORMED BOT FILL (Story 10.11, epic-10 amendment 20) ---------------
+//
+// The standard queue, with its bot fill on, forms its arena with the trust
+// ticket and `botFill` but NO mode. The arena must fill to the cap and arm at
+// one human exactly as a bot-filled private arena does, while staying a
+// STANDARD arena on its listing. An untrusted `botFill` stays inert.
+
+describe('queue-formed arenas — trusted botFill without a mode', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    delete process.env.HC_DEV_OPTIONS;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  type ListedRoom = SoloRoom & { setMetadata: ReturnType<typeof vi.fn> };
+  const queueArena = (opts: RoomOptions): ListedRoom => {
+    const r = new ArenaRoom() as unknown as ListedRoom & Record<string, unknown>;
+    r.lock = vi.fn(() => Promise.resolve());
+    r.unlock = vi.fn(() => Promise.resolve());
+    r.disconnect = vi.fn(() => Promise.resolve());
+    r.broadcast = vi.fn();
+    r.onMessage = vi.fn();
+    r.setTimestep = vi.fn();
+    r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
+    r.clients = [];
+    r.setMetadata = vi.fn(() => Promise.resolve());
+    r.onCreate(opts);
+    return r;
+  };
+  const listedMode = (r: ListedRoom): string | undefined =>
+    (r.setMetadata.mock.calls.at(-1)?.[0] as { mode?: string } | undefined)?.mode;
+  const minHumansOf = (r: SoloRoom): number => (r.match as unknown as { minHumans: number }).minHumans;
+
+  it('fills to playerCap − expectedCaptains bots before the first tick, for any cohort size', () => {
+    for (const captains of [1, 3, CONFIG.map.playerCap - 1, CONFIG.map.playerCap]) {
+      const r = queueArena({ expectedCaptains: captains, botFill: true, lobbyTicket: lobbyTicket() });
+      expect(r.world.tick, String(captains)).toBe(0);
+      expect(r.match?.phase).toBe('waiting');
+      expect(bots(r)).toHaveLength(CONFIG.map.playerCap - captains);
+      expect(r.state.players.size).toBe(CONFIG.map.playerCap - captains);
+    }
+  });
+
+  it('stays a STANDARD arena on its listing (no mode is ever learned)', () => {
+    const r = queueArena({ expectedCaptains: 2, botFill: true, lobbyTicket: lobbyTicket() });
+    expect(listedMode(r)).toBe('standard');
+  });
+
+  it('arms the countdown with ONE human aboard', () => {
+    const r = queueArena({ expectedCaptains: 1, botFill: true, lobbyTicket: lobbyTicket() });
+    expect(minHumansOf(r)).toBe(1);
+    join(r, 'alice');
+    expect(r.match?.phase).toBe('countdown');
+  });
+
+  it('an UNTRUSTED botFill (no ticket, or a guessed one) seats no bots and keeps the CONFIG minHumans', () => {
+    for (const ticket of [undefined, 'guess']) {
+      const r = queueArena({ expectedCaptains: 1, botFill: true, lobbyTicket: ticket } as RoomOptions);
+      expect(bots(r), String(ticket)).toHaveLength(0);
+      expect(minHumansOf(r)).toBe(CONFIG.match.minHumans);
+      expect(listedMode(r)).toBe('standard');
+      join(r, 'alice');
+      expect(r.match?.phase).toBe('waiting');
+    }
+  });
+
+  it('the bot-fill-OFF queue bag (expectedCaptains only) is the pre-10.11 arena: no bots', () => {
+    const r = queueArena({ expectedCaptains: 2 });
+    expect(bots(r)).toHaveLength(0);
+    expect(minHumansOf(r)).toBe(CONFIG.match.minHumans);
+    expect(listedMode(r)).toBe('standard');
   });
 });

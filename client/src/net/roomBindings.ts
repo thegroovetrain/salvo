@@ -11,29 +11,34 @@ import {
   CATALOG,
   CONFIG,
   HULL_IDS,
+  INDEX_IDS,
   MSG,
+  NO_INDEX_BONUS,
+  bonusCount,
   boonStackCount,
   hullEnvelope,
+  isDropRoll,
   type BallisticEvent,
   type BoomEvent,
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
   type DeniedView,
-  type DropEvent,
+  type DropPickupEvent,
   type FoghornEvent,
+  type CloudView,
   type FrameMsg,
   type GameEvent,
-  type GunId,
   type HealEvent,
   type HitCallEvent,
-  type HullId,
+  type IndexBonus,
   type MuzzleEvent,
   type OwnShip,
   type PointEvent,
   type RequeueMsg,
   type ResultsMsg,
   type ShipClassId,
+  type ShiftId,
   type SpawnEvent,
   type SplashEvent,
   type SunkEvent,
@@ -54,19 +59,24 @@ import type { Smoke } from '../render/smoke.js';
 import type { Fire } from '../render/fire.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
+import type { Drops } from '../render/drops.js';
+import { pegKindFor, type SplashPegs } from '../render/pegs.js';
+import { sanitizeDrops } from '../sim/dropView.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
 import type { FoulZones } from '../render/foulZones.js';
-import type { Decoys } from '../render/decoys.js';
 import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
-import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
-import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
-import { boonFitToastLine } from '../ui/boonCopy.js';
-import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
+import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
+import { pushUpgradeToast } from '../ui/upgradeToast.js';
+import { boonFitToastLine, dropToastLine } from '../ui/boonCopy.js';
+import { fitDetune, fitGain, fitPitch, fitTone, worldPlacement, type ToneId } from '../audio/tones.js';
+import type { CueId } from '../audio/synth/cues.js';
+import type { CueOptions } from '../audio/context.js';
+import { freshCloudCueState, newClouds, ownHitGain, unseedClouds, type CloudCueState } from '../audio/cueEdges.js';
 import type { OwnFire } from '../render/projectiles.js';
-import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
+import { ImpactDedup, ToneFloor, hitCallToneFloor, impactKey } from '../render/gunneryFeed.js';
 
 /**
  * "Close enough to be OUR hull": the squared threshold (one full hull length,
@@ -117,6 +127,13 @@ export interface RoomBindingDeps {
    */
   cameraCenter: () => { x: number; y: number };
   mines: Mines;
+  /** SPLASH PEGS (render/pegs.ts, Story 11.8) — an X wherever an OWN shell
+   *  ended, fed from `sp` / `hc` (own shooter only). Optional: a harness with
+   *  no chart simply lays none. */
+  pegs?: Pick<SplashPegs, 'add'>;
+  /** AIRDROPS (render/drops.ts, Story 10.9) — synced contact-like from
+   *  FrameMsg.drops every tick (omitted key = none), sanitized fail-closed. */
+  drops: Pick<Drops, 'sync'>;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
   litZones: LitZones;
@@ -126,9 +143,6 @@ export interface RoomBindingDeps {
   /** FOULING SHELL foul zones (render/foulZones.ts, Story 9.4) — synced
    *  contact-like from FrameMsg.foulZones every tick, exactly like burnZones. */
   foulZones: FoulZones;
-  /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
-   *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
-  decoys: Decoys;
   /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
    *  9.3) — synced contact-like from FrameMsg.clouds every tick, exactly like
    *  burnZones. NOT `smoke` above (that is WOUNDED smoke, an event-built plume). */
@@ -148,6 +162,10 @@ export interface RoomBindingDeps {
      *  tier multiplier, 0..1. The call can silently drop the honk at the mix's
      *  concurrency cap, which is why the chevron never rides on its result. */
     playHorn: (hornId: string, gain: number) => void;
+    /** Story 10.13: a LAYERED cue (Eric's picked recipes, audio/synth/cues.ts).
+     *  World cues carry `pan` + `distance01` from the pure `worldPlacement()`;
+     *  the call may drop the cue under voice pressure, so no mark rides on it. */
+    playCue: (id: CueId, opts?: CueOptions) => void;
   };
   /**
    * THE OWN-FIRE CORRELATION (Story 2.9). CLAIMS the click-time own-fire latch
@@ -183,6 +201,9 @@ export interface RoomBindingDeps {
    * reveal. Optional so a harness with no stream simply never claims one.
    */
   ownStreamWeapon?: () => OwnFire;
+  /** Story 10.13 review P10: our own hull just went down — the klaxon's first
+   *  sinking blast, sounded from the event itself (audio/klaxon.ts sinkStart). */
+  ownSinkAlarm?: () => void;
   /**
    * The burst-ring radius for an own-correlated burst, or undefined to keep the
    * CONFIG default (render/aimPreview.ownBurstRadius over the live own stats).
@@ -190,6 +211,13 @@ export interface RoomBindingDeps {
    * boon lands, and a captured snapshot would ring yesterday's blast.
    */
   ownBurstRadius: (own: OwnFire) => number | undefined;
+  /**
+   * THE FLASH SHELLS BURST DISC (Eric 2026-10-29, epic-10 amendment 5(d)) —
+   * render/flashBurst.ts. A burst whose shell the client knows as a FLASH
+   * SHELLS round spawns this disc INSTEAD of the ordinary ring. Optional: a
+   * harness without it draws every burst as the ordinary ring.
+   */
+  flashBursts?: { spawn(x: number, y: number, r?: number): void };
   /**
    * The OWNER's live mine radii for the own-mine rings, stamped with the FRAME
    * time `t` the caller hands in (the arming window is server-side, so it is
@@ -200,7 +228,7 @@ export interface RoomBindingDeps {
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
-   * Fired when the authoritative own class, boon list OR seat gun first arrive
+   * Fired when the authoritative own class, boon list OR seat Shift first arrive
    * (or ever change) on `you` — the client trusts the server, not the
    * localStorage guess. The handler resolves the boon ids (fail-closed),
    * recomputes effectiveStats(cls, boons), and swaps the predictor kinematics +
@@ -209,10 +237,14 @@ export interface RoomBindingDeps {
    * D onOwnClass seam, grown the boons leg in Story 2.5; the legacy upgrade-
    * counts leg died with the wholesale strip in Story 2.8).
    *
-   * `gun` is the seat's gun (Story 8.14): slot 0's module is replayed from it,
-   * so the loadout derivation needs it alongside the cards.
+   * `shift` is the seat's Shift (Story 10.4): slot 1's module is replayed from it,
+   * so the loadout derivation needs it alongside the cards. (The consumable
+   * KIT argument left with the kit — Story 10.5.)
+   *
+   * `bonus` is the exhausted hull's per-index bonus points (`you.ib`, Story
+   * 10.7, R5) — folded into the same effectiveStats() call beside the cards.
    */
-  onOwnStats: (cls: ShipClassId, boons: readonly string[], gun: GunId) => void;
+  onOwnStats: (cls: ShipClassId, boons: readonly string[], shift: ShiftId, bonus: IndexBonus) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -263,18 +295,25 @@ export interface RoomBindingDeps {
    *  rosterNameOrNull rule (main.ts handleSunkObserved). */
   names: (id: string) => string | null;
   /**
-   * Kill-feed name color (Story 1.12): a vessel id → the CSS-ready personal hue
-   * for its feed span (bright hue for a human, drone-outline for a drone), or null
+   * Kill-feed name color: a vessel id → the color for its feed span (the
+   * captain's RELATION stroke — Story 10.4), or null
    * for a roster miss (the name inherits text-secondary). The feed text-safes it.
    */
   colors: (id: string) => number | null;
   /**
-   * Ordnance-marker tint (Story 1.12): a mine/decoy/lit-zone firer id (`by`) →
-   * that pilot's BRIGHT personal hue (the SAME hue for every observer), or null
-   * while the roster hasn't synced the firer (or the firer left). The renderer
-   * paints the amber fallback for a null and retries per frame until it resolves.
+   * THE OWN BATTERY (Story 10.4, sim/ownBattery.ts): corrected from every own
+   * frame — the turrets and the secondaries heat snap to the server's. Optional
+   * so headless harnesses with no battery behave as before.
    */
-  ordnanceHue: (by: string) => number | null;
+  ownBattery?: { correct(you: OwnShip, ackSeq: number): void };
+  /** THE OWN TORPEDO LAUNCHERS (Story 10.6, sim/ownLaunchers.ts): corrected
+   *  from every own frame's `you.launchers`, exactly like the battery.
+   *  Optional, like ownBattery. */
+  ownLaunchers?: { correct(you: OwnShip, ackSeq: number): void };
+  /** Every own frame's block, after the mirror advanced (Story 10.5 review
+   *  gate — the C / V press latch, sim/abilityLatch.ts). Optional, like
+   *  ownBattery. */
+  onOwnFrame?: (you: OwnShip) => void;
   /**
    * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
    * FrameMsg.denied, one call per entry). main.ts routes it through the
@@ -290,7 +329,7 @@ export interface RoomBindingDeps {
    * elimination results modal. Fired for our own sinking too, so the accumulator
    * and the modal share one edge.
    */
-  onSunkObserved: (victimId: string, killerId: string | null, killerCls: HullId | undefined) => void;
+  onSunkObserved: (victimId: string, killerId: string | null) => void;
   /**
    * The self-private `bn` (boon fitted) event for the local captain arrived —
    * the server's RECEIPT for a spend (Story 2.7). main.ts marks the spend latch
@@ -370,6 +409,8 @@ interface BindState {
    *  status change into a machine-gun. The falling edge is silent — the line
    *  simply disappears, which is the whole visual twin doing its job. */
   slowed: boolean;
+  /** ...and the same for the DAZZLE window (FLASH SHELLS, Story 10.9). */
+  dazzled: boolean;
   /**
    * Server time (ms) of the last frame on which the own hull stood inside SOME
    * enemy incendiary zone — the burn classifier's memory (see readsAsBurn).
@@ -424,13 +465,31 @@ interface BindState {
    * within a second of each other and every one of them owes a settle.
    */
   wrecks: { id: string; at: number }[];
+  /** Story 10.13: own gun shells inside `ownGunFloorMs` of each other are ONE
+   *  main-battery report (a turret's salvo leaves together). */
+  ownGun: ToneFloor;
+  /** Story 10.13: the smoke-deploy detector's memory (audio/cueEdges.ts). */
+  smokeCues: CloudCueState;
+  /** Story 10.13: this frame's seen secondary (`w: 'mg'`) shell reveals — the
+   *  only weapon hint an `mz` flash can be paired with (handleMuzzle). */
+  mgReveals: { x: number; y: number }[];
+  /** This frame's Hit Call (`hc`) impact keys — a hit-less `boom` at one of
+   *  them was a HIT whose victim the server kept unnamed, so it draws no splash
+   *  and sounds no splash cue (handleBoom). */
+  hitCallPoints: Set<string>;
+  /** Story 10.13 review P5: false after a drop — the next frame only SEEDS the
+   *  victim-tell edges (slowed / dazzled) instead of sounding them. */
+  statusSeeded: boolean;
 }
 
 /**
- * The cues that are placed OUT IN THE WORLD (Story 4.7) — the only tones this
- * module ever plays with a pan/gain.
+ * The cues that are placed OUT IN THE WORLD (Story 4.7) — the only cues this
+ * module ever plays with a placement. Story 10.13 moved them onto the layered
+ * path: another ship's gun (`mainBatteryWorld` / `secondariesWorld`, was
+ * `gunReport`), a hit or burst (`steelHit`, was `impact`), a splash, a
+ * witnessed sinking (`sinkWitness`, was `sunkWitness`), and a smoke cloud.
  */
-type WorldToneId = 'gunReport' | 'impact' | 'splash' | 'sunkWitness';
+type WorldCueId = 'mainBatteryWorld' | 'secondariesWorld' | 'steelHit' | 'splash' | 'sinkWitness' | 'smoke';
 
 /**
  * The FLOOR families — which is not the same list as the tone ids, in both
@@ -578,12 +637,18 @@ function freshBindState(): BindState {
   return {
     pendingSnap: false,
     slowed: false,
+    dazzled: false,
     burningAt: -Infinity,
     impacts: new ImpactDedup(),
     hitCallTone: hitCallToneFloor(),
     worldTones: worldToneFloors(),
     splashCues: new ImpactDedup(),
     wrecks: [],
+    ownGun: new ToneFloor(CLIENT_CONFIG.audio.ownGunFloorMs),
+    smokeCues: freshCloudCueState(),
+    mgReveals: [],
+    hitCallPoints: new Set(),
+    statusSeeded: true,
   };
 }
 
@@ -668,6 +733,7 @@ function bindRoomSignals(
     conn.room.onDrop,
     gate(() => {
       console.warn('[net] connection dropped — auto-reconnecting');
+      reseedAudioEdges(s); // Story 10.13 review P5: the first resumed frame only seeds
       // ACCEPTED LIMITATION (0.2): prediction keeps sampling + applying local
       // input through the outage. The SDK buffers only the last 10 sends and the
       // server holds the LAST RECEIVED input, so the on-screen ship diverges under
@@ -736,7 +802,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // never reads state.net.you.
     const statsChanged = ownStatsChanged(f.you, net.you);
     net.you = f.you;
-    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.gun);
+    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift, f.you.ib ?? NO_INDEX_BONUS);
+    // Story 10.4: the own turrets + secondaries heat snap to the server's.
+    correctOwnMounts(deps, f.you, f.ackSeq);
+    deps.onOwnFrame?.(f.you);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
@@ -751,6 +820,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   }
   deps.contacts.pushFrame(f.t, f.contacts);
   syncContactLike(f, deps);
+  cueNewClouds(f, deps, s);
   routeVictimTells(f, deps, s);
   trackBurning(f, deps, s);
   routeDenials(f, deps);
@@ -758,7 +828,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
 }
 
 /**
- * The CONTACT-LIKE reconciles — mines, lit zones, burning zones, decoys, smoke
+ * The CONTACT-LIKE reconciles — mines, lit zones, burning zones, smoke
  * puffs — and the zone + puff mirrors into state. Split out of handleFrame when Story 8.17's
  * burning-zone channel joined them; the order and every line are unchanged.
  */
@@ -768,13 +838,15 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // the three zone kinds are ALERTS — own white, anybody else's the shared
   // yellow↔orange blend — so they take no hue lookup: a mine's own/enemy is
   // `MineView.own` from the server, a zone's is `by === sessionId` (undefined
-  // for a spectator → nobody's). Decoys keep the FIRER's personal hue (Story
-  // 1.12, `by` → deps.ordnanceHue).
+  // for a spectator → nobody's).
   // Own mines carry their owner-private radius rings (always-on, our stats,
   // THE FRAME's clock); enemy mines get exactly the marker they always got.
   // f.t — not a local clock reading: the arming dim measures a server-side
   // window, so both ends of it have to come off the server's own timestamps.
   deps.mines.sync(f.mines, deps.ownMineRings(f.t));
+  // AIRDROPS (Story 10.9), same reconcile, same omitted-key rule — and every
+  // view through the fail-closed gate: a malformed crate is not drawn.
+  deps.drops.sync(sanitizeDrops(f.drops ?? []));
   const ownId = net.sessionId;
   // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
   // sees no zones, so treat a missing key as an empty list.
@@ -786,16 +858,12 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // FOULING SHELL foul zones (Story 9.4), same reconcile, same omitted-key rule.
   const foulZones = f.foulZones ?? [];
   deps.foulZones.sync(foulZones, ownId);
-  // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
-  // observer sees no decoys, so treat a missing key as an empty list.
-  const decoys = f.decoys ?? [];
-  deps.decoys.sync(decoys, deps.ordnanceHue);
   // COUNTERMEASURE clouds (Story 9.3): NOT the same reconcile — the frame's
   // clouds MERGE into the held set (amendment 51: a cloud once seen is held
   // until it dies — delivery is per-sweep, Eric 2026-10-12: "If it's detected
   // by my radar, I want my radar to paint it"; nothing new is disclosed by
   // holding what was already sent, a cloud being stationary and fully derived
-  // from {id,x,y,t0}), and the held, unexpired list is what the renderer
+  // from {id,x,y,t0,lifeMs,r0,r1}), and the held, unexpired list is what the renderer
   // sees (a held cloud's sprite then outlives the list until its paint fades —
   // render/countermeasure.ts). The held set lives on `net` (state.ts) so the
   // match-start edge in main.ts can clear it with the renderer.
@@ -811,6 +879,31 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
+ * A SMOKE CLOUD DEPLOYED (Story 10.13): a cloud id entering the held set this
+ * frame, own or anybody's, sounds the deploy hiss at the cloud's position. The
+ * cloud is already drawn (render/countermeasure), so the cue says nothing new.
+ * The first frame of a binding only seeds (a reconnect into clouds that were
+ * already on the water is silent), and a cloud first painted long after it was
+ * laid is not a deploy (`smokeCueFreshMs`) — audio/cueEdges.ts `newClouds`.
+ */
+function cueNewClouds(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
+  const fresh = newClouds(s.smokeCues, deps.state.net.clouds ?? [], f.t, CLIENT_CONFIG.audio.smokeCueFreshMs);
+  for (const c of fresh) worldCueAt('smoke', null, c, f.t, deps);
+}
+
+/** Story 10.4 / 10.6: the own turrets + secondaries heat, and the own torpedo
+ *  launchers, snap to the server's on every own frame. */
+function correctOwnMounts(deps: RoomBindingDeps, you: OwnShip, ackSeq: number): void {
+  deps.ownBattery?.correct(you, ackSeq);
+  deps.ownLaunchers?.correct(you, ackSeq);
+}
+
+/** Pure: a cloud row is usable only when its stamped life and both radii are finite and positive — else it is dropped at ingest. */
+export function cloudRowValid(c: Pick<CloudView, 'lifeMs' | 'r0' | 'r1'>): boolean {
+  return [c.lifeMs, c.r0, c.r1].every((v) => Number.isFinite(v) && v > 0);
+}
+
+/**
  * Merge this frame's clouds into the held set and drop every held cloud whose
  * life has ended on the FRAME's server time (never a local clock reading).
  * A cloud is stationary, so a re-delivery only refreshes the same record —
@@ -821,8 +914,10 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
  * first-seen order).
  */
 function holdClouds(f: FrameMsg, held: Map<string, HeldCloud>): HeldCloud[] {
-  for (const c of f.clouds ?? []) held.set(c.id, { ...c, deliveredAt: f.t });
-  for (const [id, c] of held) if (f.t - c.t0 >= CONFIG.countermeasure.lifeMs) held.delete(id);
+  for (const c of f.clouds ?? []) if (cloudRowValid(c)) held.set(c.id, { ...c, deliveredAt: f.t });
+  // Each cloud's OWN stamped life (Story 10.6, I6 — the owner's SMOKE SCREEN
+  // cards at the press), never a CONFIG read.
+  for (const [id, c] of held) if (f.t - c.t0 >= c.lifeMs) held.delete(id);
   return [...held.values()];
 }
 
@@ -866,11 +961,24 @@ export function windowRunning(until: number | undefined, t: number): boolean {
  * source into the other hears one cue, not two. Both fields are victim-private
  * on `you`: nobody else's affliction ever reaches this client, and a spectator
  * frame (no `you`) simply clears it.
+ *
+ * DAZZLED (FLASH SHELLS, restored by Story 10.9) rides the same rule off the
+ * victim-private `dazzledUntil`: its cue on the rising edge only; its visual
+ * twin is the DAZZLED tell plus the shrunken sight hole.
  */
 function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const slowed = windowRunning(f.you?.slowedUntil, f.t) || windowRunning(f.you?.fouledUntil, f.t);
-  if (slowed && !s.slowed) deps.audio.play('slowed');
+  const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
+  if (s.statusSeeded) victimTellCues(slowed, dazzled, deps, s); // review P5: a resumed frame only seeds
+  s.statusSeeded = true;
   s.slowed = slowed;
+  s.dazzled = dazzled;
+}
+
+/** The victim tells' rising-edge cues (see routeVictimTells). */
+function victimTellCues(slowed: boolean, dazzled: boolean, deps: RoomBindingDeps, s: BindState): void {
+  if (slowed && !s.slowed) deps.audio.playCue('propFouled');
+  if (dazzled && !s.dazzled) deps.audio.playCue('dazzled');
 }
 
 /** Self-private denied presses (Story 1.10): frames OMIT the key when none,
@@ -881,8 +989,8 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
- * Pure: did the own class, the seat gun or the fitted-boon list change between
- * frames? Cheap array-equality over the boon ids (Story 2.8: the legacy
+ * Pure: did the own class, the seat Shift, the fitted-boon list or the bonus
+ * points (`ib`, Story 10.7 R5) change between frames? Cheap array-equality over the boon ids (Story 2.8: the legacy
  * 14-number `upg` vector died with the strip, so boons are the whole stat
  * input) — this gates the (heavier) effective-stats recompute in
  * deps.onOwnStats, so it runs on change only, not per frame. Two identical
@@ -890,14 +998,27 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
  * REPEATED ids are meaningful (a stack), so the comparison stays element-wise
  * and order-sensitive.
  *
- * The GUN (Story 8.14) is frozen at queue and cannot change mid-match, so in
- * practice only the first frame's `!prev` fires on it — it is compared anyway
- * because slot 0 is derived from it, and a watcher that ignores one of its
- * own inputs is how a stale loadout survives a change nobody expected.
+ * The SHIFT (Story 10.4 — the seat's pick, which replaced the seat's gun) is
+ * frozen at queue and cannot change mid-match, so in practice only the first
+ * frame's `!prev` fires on it — it is compared anyway because slot 1 is
+ * derived from it, and a watcher that ignores one of its own inputs is how a
+ * stale loadout survives a change nobody expected.
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
-  if (!prev || next.cls !== prev.cls || next.gun !== prev.gun) return true;
-  return !sameList(next.cards, prev.cards);
+  if (!prev || next.cls !== prev.cls || next.shift !== prev.shift) return true;
+  return !sameList(next.cards, prev.cards) || !sameBonus(next.ib, prev.ib);
+}
+
+/** Did the exhausted hull's bonus points (Story 10.7, R5 — `you.ib`, a stat
+ *  input beside the cards) stay the same? Compared as the counts the fold
+ *  actually reads (`bonusCount`, the shared acceptance rule — review gate P3),
+ *  so a missing `ib` or a malformed entry (NaN ≠ NaN) reads as no points and
+ *  can never make every frame look changed. */
+function sameBonus(a: IndexBonus | null | undefined, b: IndexBonus | null | undefined): boolean {
+  for (const id of INDEX_IDS) {
+    if (bonusCount(a?.[id]) !== bonusCount(b?.[id])) return false;
+  }
+  return true;
 }
 
 /** Element-wise equality of two flat lists (numbers or strings). */
@@ -929,8 +1050,32 @@ function sameList(a: readonly (number | string)[], b: readonly (number | string)
 function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   s.impacts.beginFrame();
   s.splashCues.beginFrame(); // ...and the splash CUE's own same-frame point claim
+  s.mgReveals = mgRevealsOf(f.events); // the `mz` weapon hint (handleMuzzle)
+  s.hitCallPoints = hitCallPointsOf(f.events); // a hit never draws as a miss (handleBoom)
   flushDamage(f, deps, s);
   for (const e of f.events) handleEvent(e, f, deps, s);
+}
+
+/** Story 10.13 review P5: after a dropped connection the binding's audio edges
+ *  (the smoke-deploy and victim-tell detectors) are unseeded, so the first
+ *  resumed frame only seeds them — nothing that happened in the gap sounds. */
+function reseedAudioEdges(s: BindState): void {
+  unseedClouds(s.smokeCues);
+  s.statusSeeded = false;
+}
+
+/** Pure: this frame's secondary-round (`w: 'mg'`) shell reveal positions. */
+export function mgRevealsOf(events: readonly GameEvent[]): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (const e of events) if (e.k === 'shell' && e.w === 'mg') out.push({ x: e.x, y: e.y });
+  return out;
+}
+
+/** Pure: this frame's Hit Call (`hc`) impact keys (`impactKey`). */
+export function hitCallPointsOf(events: readonly GameEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const e of events) if (e.k === 'hc') out.add(impactKey(e.x, e.y));
+  return out;
 }
 
 /** World/combat events (position + fire + hit); the accumulated sensor pulses,
@@ -940,7 +1085,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
   switch (e.k) {
     case 'spawn': handleSpawn(e, deps); return;
     case 'sunk': handleSunk(e, f.t, deps, s); return;
-    case 'shell': handleShell(e, deps); return;
+    case 'shell': handleShell(e, f.t, deps, s); return;
     case 'torp': handleTorp(e, deps); return;
     case 'torpU': deps.projectiles.onBallisticUpdate(e); return;
     case 'boom': handleBoom(e, f.t, deps, s); return;
@@ -1066,7 +1211,7 @@ function honkBearing(e: FoghornEvent, deps: RoomBindingDeps): number | null {
  * mono) would permanently rewrite the fallback for every cue after it. A fresh
  * literal per call costs nothing at these rates and cannot be corrupted.
  */
-function unplacedCue(): WorldCue {
+function unplacedCue(): CueOptions {
   return { pan: 0, gain: CLIENT_CONFIG.audio.worldFloorGain };
 }
 
@@ -1168,28 +1313,32 @@ function ownHullFeelsDamage(deps: RoomBindingDeps): boolean {
  * what reaches this client, and re-deciding it here would be a second
  * client-side implementation of a perception rule (audio/tones.ts `worldCue`).
  */
-function worldTone(
-  id: WorldToneId,
+function worldCueAt(
+  id: WorldCueId,
   floor: ToneFloor | null,
   pos: { x: number; y: number } | null,
   t: number,
   deps: RoomBindingDeps,
 ): void {
   if (floor && !floor.request(t)) return;
-  deps.audio.play(id, placeCue(pos, deps, t));
+  deps.audio.playCue(id, placeCue(pos, deps, t));
 }
 
-/** The pan/gain for a world position, or the unplaced fallback. `t` is the
- *  frame's server time, threaded through only so the ear can ask whether we
- *  still have a hull (listenerPos → hasLiveOwnHull). */
-function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): WorldCue {
+/** The pan + distance01 for a world position, or the unplaced fallback. `t`
+ *  is the frame's server time, threaded through only so the ear can ask
+ *  whether we still have a hull (listenerPos → hasLiveOwnHull).
+ *
+ *  ONE LEVEL CURVE (Story 10.13): a layered cue is shaped by its recipe's own
+ *  distance model (quieter, darker, later, wetter — synth/recipe.ts
+ *  `distanceShape`), so no linear gain is passed on top of it. */
+function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): CueOptions {
   if (!pos) return unplacedCue();
   const ear = listenerPos(deps, t);
-  // CONFIG.vision.radar — the twelfths ladder's 12/12 rung (full intel range) — is
+  // CONFIG.vision.radar — the twelfths ladder [retired 2026-11-12, Story 11.2]'s 12/12 rung (full intel range) — is
   // the falloff scale for EVERY world cue, read from shared CONFIG rather than
   // mirrored into a client tunable. Per-cue rungs were considered and rejected:
   // they would re-derive the server's own disclosure decision (audio/tones.ts).
-  return worldCue(pos.x - ear.x, pos.y - ear.y, CONFIG.vision.radar) ?? unplacedCue();
+  return worldPlacement(pos.x - ear.x, pos.y - ear.y, CONFIG.vision.radar) ?? unplacedCue();
 }
 
 /**
@@ -1225,7 +1374,7 @@ function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s:
  * — and no identity of any kind, because the row itself has none.
  *
  * OWN FIRE IS SUPPRESSED, on the same `nearOwnShip` idiom the own-fire
- * correlation already uses. Our own gun sounded `fireGun`/`fireBroadside` at the
+ * correlation already uses. Our own gun sounded `fireGun` at the
  * instant we fired it (handleShell); layering the distant-report cue on top
  * would double-sound one shot. Hull proximity is the only discriminator
  * available AND the correct one — `mz` deliberately carries no shooter id
@@ -1241,7 +1390,18 @@ function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s:
 function handleMuzzle(e: MuzzleEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.effects.spawnEffect('muzzle', e.x, e.y);
   if (onOwnLiveHull(e.x, e.y, deps, t)) return;
-  worldTone('gunReport', s.worldTones.gunReport, e, t, deps);
+  // Story 10.13: `mz` carries no weapon kind. The one honest hint is a SEEN
+  // secondary round (`w: 'mg'`) revealed in this same frame within a hull
+  // length of the flash — that ship is firing its secondaries; anything else
+  // reads as the main battery. An unseen secondary stream (flash halo beyond
+  // sight) therefore still sounds as the main battery.
+  const cue = mgRevealNear(e.x, e.y, s) ? 'secondariesWorld' : 'mainBatteryWorld';
+  worldCueAt(cue, s.worldTones.gunReport, e, t, deps);
+}
+
+/** Is any of this frame's seen secondary reveals within a hull length of (x, y)? */
+function mgRevealNear(x: number, y: number, s: BindState): boolean {
+  return s.mgReveals.some((p) => near2(x, y, p.x, p.y));
 }
 
 /** Did this happen ON our own hull — one we actually still have? The audio-side
@@ -1277,7 +1437,20 @@ function onOwnLiveHull(x: number, y: number, deps: RoomBindingDeps, t: number): 
  */
 function handleFallOfShot(e: SplashEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
+  layPeg(e, t, deps);
   splashTone(e, s.worldTones.fallOfShot, t, deps, s);
+}
+
+/**
+ * THE SPLASH PEG (Story 11.8): an own `sp` lays a MISS peg, an own `hc` a HIT
+ * peg, at the event's point, stamped with the frame's server time. Both rows
+ * are spectator-public, so another captain's lays nothing (`pegKindFor`).
+ * Not claim-gated: every own shell end is its own peg, even one sharing a
+ * point with a public splash the same frame.
+ */
+function layPeg(e: SplashEvent | HitCallEvent, t: number, deps: RoomBindingDeps): void {
+  const kind = pegKindFor(e, deps.state.net.sessionId);
+  if (kind !== null) deps.pegs?.add(kind, e.x, e.y, t);
 }
 
 /**
@@ -1301,7 +1474,7 @@ function splashTone(
 ): void {
   if (!floor.request(t)) return;
   if (!s.splashCues.claim(e.x, e.y)) return;
-  worldTone('splash', null, e, t, deps); // the floor is already spent, one line up
+  worldCueAt('splash', null, e, t, deps); // the floor is already spent, one line up
 }
 
 /**
@@ -1324,8 +1497,9 @@ function splashTone(
  */
 function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
+  layPeg(e, f.t, deps);
   if (e.id !== deps.state.net.sessionId) return;
-  if (s.hitCallTone.request(f.t)) deps.audio.play('hitCall');
+  if (s.hitCallTone.request(f.t)) deps.audio.playCue('hitCall');
 }
 
 /** Self-private reward events: the banked level, the fitted boon, and (cycle
@@ -1333,13 +1507,14 @@ function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
  *  spend — Story 2.1, PV 12 — came back at PV 23 as the DAMAGE CONTROL rail's
  *  confirmation, and since Story 8.8 confirms a HULL REPAIR copy fired out of
  *  the belt; the killer-private 'upg' grant left with the legacy upgrade strip
- *  — Story 2.8, PV 16), and (PV 68) the drone-drop stock. */
+ *  — Story 2.8, PV 16). (The drone-drop stock left the wire at PV 97 — Story
+ *  10.5: a drone kill pays XP only.) */
 function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   switch (e.k) {
     case 'pt': handlePoint(e, f, deps); return;
     case 'bn': handleBoonFit(e, deps); return;
-    case 'dp': handleDrop(e, f, deps); return;
     case 'heal': handleHeal(e, deps); return;
+    case 'dp': handleDropPickup(e, f, deps); return;
   }
 }
 
@@ -1353,7 +1528,7 @@ function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): vo
  */
 function handleHeal(e: HealEvent, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
-  deps.audio.play('heal');
+  deps.audio.playCue('repair');
   // ALSO the spend latch's ack, for the same reason `bn` is one (see
   // handleBoonFit): a heal is the OTHER way a spend can land, and every other
   // release clause is an inference off `you` that a same-frame passive bank can
@@ -1374,7 +1549,9 @@ export function frameIsDeadOrSpectating(f: FrameMsg): boolean {
 }
 
 /**
- * A level banked: prompt toast + a bright "point" ping. Like `upg`/`dmg`, `pt`
+ * A level banked: a bright "point" ping. THE TOAST IS GONE (Story 10.10, R10 —
+ * "The level-up toast is KILLED"): the offer group's arrival in its corner IS
+ * the level-up cue, and it is the ping's visual twin. Like `upg`/`dmg`, `pt`
  * is self-private (perception.ts forwards it only to the earner), so the id
  * check is defensive, not load-bearing. The authoritative bank count rides
  * OwnShip.pts — this is UX only, and must NOT touch the effectiveStats/fog
@@ -1396,8 +1573,27 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   // `TAB TO REFIT` cue is untouched (it is true copy, and Tab does open it).
   // Live `pt` is byte-for-byte unchanged.
   if (deps.heldAtStartLine?.() === true) return;
-  pushUpgradeToast(pointToastLine());
-  deps.audio.play('point');
+  deps.audio.playCue('levelUp');
+}
+
+/**
+ * AN AIRDROP COLLECTED (Story 10.9). `dp` is self-private (perception forwards
+ * it only to the collector), so the id check is defensive. UX only: the
+ * authoritative bonus self-syncs on `you.ib`. Dead-gated like `handlePoint`
+ * (no toast to a corpse or a results screen). NO TONE (the audio twin map is
+ * untouched). The tell is the stat-row toast (Eric 2026-11-08, on the
+ * rendered page) — the rolls are drawn AT PICKUP, so this is the first time
+ * the player learns the amount. A malformed `g` shows nothing.
+ */
+function handleDropPickup(e: DropPickupEvent, f: FrameMsg, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  if (frameIsDeadOrSpectating(f)) return;
+  const g = Array.isArray(e.g) ? e.g.filter((r) => isDropRoll(r)) : [];
+  if (g.length === 0) return;
+  pushUpgradeToast(dropToastLine(g));
+  // Story 10.13: the pickup chime (Eric's pick), centered — it rides the
+  // stat toast it twins, so a pickup that draws no toast makes no sound.
+  deps.audio.playCue('airdropChime');
 }
 
 /**
@@ -1420,15 +1616,10 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // boon (handleFrame applies it before the events fan out), so the occurrence
   // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
   // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
-  //
-  // THE VERB FOLLOWS THE KIND (Story 8.7, ruling 14): a consumable is STOCKED,
-  // not FITTED — nothing about the hull changed, a copy went onto the belt. The
-  // line is resolved once, here, and serves both the toast's verb and the cue's
-  // weight below; an unknown id falls through to the FITTED default.
+  // The line is resolved once, here, for the cue's weight below; an unknown id
+  // falls through to the light default.
   const line = Object.hasOwn(CATALOG, e.boon) ? CATALOG[e.boon] : undefined;
-  pushUpgradeToast(
-    boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon), line?.kind),
-  );
+  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon)));
   // STORY 2.9, re-keyed in 8.1 — the fit is no longer one generic two-note for
   // every line: the cue is WEIGHTED BY KIND (fitTone) and the flash lands on the
   // slot holding the equipment the card ADDRESSES. Both read off the shared
@@ -1437,30 +1628,17 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // without a cue. The KIND picks the cue's weight and transposes it (fitDetune,
   // in cents), so a ladder rung and a weapon fit are audibly different events
   // without becoming different cues.
-  deps.audio.play(fitTone(line?.kind), { detune: fitDetune(line?.kind ?? '') });
+  // Story 10.13: ONE layered recipe (Eric's pick), pitched and weighted by kind
+  // through the same cents table; the legacy pair stays the fallback.
+  const kind = line?.kind;
+  deps.audio.playCue('cardFitted', {
+    pitch: fitPitch(kind ?? ''),
+    gain: fitGain(kind),
+    fallback: fitTone(kind),
+    fallbackDetune: fitDetune(kind ?? ''),
+  });
   deps.onBoonFitted(e.boon);
   deps.onSpendAck();
-}
-
-/**
- * A drone kill STOCKED a consumable (Eric ruling 2026-10-01): the existing
- * `◆ <LINE> STOCKED` toast, the consumable fit cue and the belt flash — the
- * `bn` receipt's UX exactly, MINUS the spend ack (nothing was spent, so the
- * spend latch must not release on it). `dp` is self-private (perception
- * forwards it only to the killer), so the id check is defensive. NOT dead-gated
- * (unlike `pt`): the server rolls only for a killer afloat at the drone's sink,
- * but a mine or the storm later in the SAME tick can sink that killer, and the
- * end-of-tick frame then reads `alive: false` while the copy is authoritatively
- * stocked (cycle-163 review gate, Codex) — the receipt still shows. Only a
- * spectating frame (no `you`, no belt to flash) is skipped. The authoritative
- * card list rides OwnShip.cards; this is UX only.
- */
-function handleDrop(e: DropEvent, f: FrameMsg, deps: RoomBindingDeps): void {
-  if (e.id !== deps.state.net.sessionId) return;
-  if (!f.you) return;
-  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon), 'consumable'));
-  deps.audio.play(fitTone('consumable'), { detune: fitDetune('consumable') });
-  deps.onBoonFitted(e.boon);
 }
 
 /**
@@ -1469,7 +1647,7 @@ function handleDrop(e: DropEvent, f: FrameMsg, deps: RoomBindingDeps): void {
  * airtight) own-shot signal — the same heuristic the muzzle flash already uses.
  * Story 2.9 composes it with the click-time weapon latch (deps.ownFireWeapon) so
  * an own BROADSIDE shot lands with the weight it should have: its own heavy
- * report (the `fireBroadside` tone), a bigger muzzle flash, and a heavier shell
+ * report (the main-battery cue), a bigger muzzle flash, and a heavier shell
  * in flight. An onlooker's side of the event is BYTE-IDENTICAL to before — the
  * wire cannot say which weapon fired and must not.
  *
@@ -1491,7 +1669,7 @@ function handleDrop(e: DropEvent, f: FrameMsg, deps: RoomBindingDeps): void {
  * two different statements about the same shot, and correlating `mz` back to a
  * shell is impossible by design (it carries no id at all).
  */
-function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
+function handleShell(e: BallisticEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   // The latch is claimed ONCE, and only for a reveal already sitting on our own
   // hull — see the ownFireWeapon dep note (a claim consumes) — and only for a
   // reveal the store has never seen (`firstReveal`).
@@ -1500,8 +1678,33 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   const own = near ? ownShellWeapon(e, claim) : null;
   deps.projectiles.onShell(e, own, claim);
   if (own === 'broadside') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
-  if (own) deps.audio.play(fireTone(shellFireId(own)));
+  // Review P12: an own-fire SOUND only on a real claim — the 'gun' LOOK fallback
+  // (an enemy shell revealed on our bow, a salvo's unclaimed sister shell) is a
+  // guess, and must never play our main battery or spend the own-gun floor.
+  if (own && claim) ownShellCue(own, t, deps, s);
 }
+
+/**
+ * Story 10.13 — the own-fire cue a claimed shell weapon reports with (Eric's
+ * picks): a secondary round its own bark; each special-shell line its own
+ * launch; every other gun-family shell (the main battery, and the unclaimed
+ * 'gun' fallback of a salvo's sister shells) the main battery — with a salvo's
+ * shells collapsed to ONE report by the `ownGunFloorMs` floor.
+ */
+function ownShellCue(own: NonNullable<OwnFire>, t: number, deps: RoomBindingDeps, s: BindState): void {
+  const special = SPECIAL_SHELL_CUE[own];
+  if (special) return deps.audio.playCue(special);
+  if (own === 'machineGun') return deps.audio.playCue('secondaries');
+  if (s.ownGun.request(t)) deps.audio.playCue('mainBattery');
+}
+
+/** The special-shell lines, by the equipment that fired. */
+const SPECIAL_SHELL_CUE: Partial<Record<NonNullable<OwnFire>, CueId>> = {
+  starShells: 'starShell',
+  phosphorShells: 'phosphorShell',
+  foulingShell: 'foulingShell',
+  dazzleShells: 'flashShell',
+};
 
 /**
  * Pure-ish: the GENUINE claim behind an own-looking SHELL reveal, or null. The
@@ -1526,7 +1729,8 @@ function shellClaim(e: BallisticEvent, deps: RoomBindingDeps): OwnFire {
 
 /** The click-latched weapons whose round rides the `shell` wire kind: the gun,
  *  the broadside, the flak gun, the star shell, and (Story 8.17) PHOSPHOR
- *  SHELLS and (Story 9.4) the FOULING SHELL consumable. */
+ *  SHELLS, (Story 9.4) the FOULING SHELL consumable and (Story 10.9) FLASH
+ *  SHELLS beside it. */
 const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
   'gun',
   'broadside',
@@ -1534,6 +1738,8 @@ const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
   'flak',
   'phosphorShells',
   'foulingShell',
+  'dazzleShells',
+  'mainBattery', // Story 10.4 — the turret salvo, cannon shells
 ]);
 
 /**
@@ -1558,16 +1764,6 @@ function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
   return claim ?? 'gun';
 }
 
-/** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
- *  earns its own launch report (Story 2.9: every fitted line is felt), and
- *  PHOSPHOR SHELLS (Story 8.17) and the FOULING SHELL (Story 9.4) report through
- *  the same launch cue (audio/tones FIRE_TONE); anything the claim could not
- *  name falls to the gun crack. */
-function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'foulingShell' {
-  if (own === 'broadside' || own === 'starShells') return own;
-  if (own === 'phosphorShells' || own === 'foulingShell') return own;
-  return 'gun';
-}
 
 /** A steering torpedo re-anchored its track (Story 2.8 — ACOUSTIC HOMING).
  *  Pure render bookkeeping: no tone, no flash, no muzzle heuristic — the fish
@@ -1597,7 +1793,7 @@ function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
   // an unclaimed fish renders the generic straight-runner), so it doubles as
   // the burst-ring authority for a COMMAND DETONATION fish.
   deps.projectiles.onShell(e, own, own);
-  if (near) deps.audio.play(fireTone('heavyTorpedo'));
+  if (near) deps.audio.playCue('torpedoLaunch');
 }
 
 /**
@@ -1671,6 +1867,13 @@ function near2(x: number, y: number, cx: number, cy: number): boolean {
 function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.projectiles.onBoom(e);
   if (!e.hit) {
+    // A HIT NEVER DRAWS OR SOUNDS AS A MISS (review gate, 11). The
+    // firer is sent his own shell's end at any range, but the struck hull's id
+    // only inside his class reach — so a hit on an unsighted hull arrives here
+    // with no `hit`, AHEAD of the same point's self-private `hc`. That `hc`
+    // owns the point: no splash mark, no splash cue; its handler draws the
+    // spark and sounds the Hit Call. The track was retired above either way.
+    if (s.hitCallPoints.has(impactKey(e.x, e.y))) return;
     if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
     // STORY 4.7 — a hit and a miss are the two facts bracket-and-walk is built
     // on, so they are the two cues placed at opposite ends of the catalog: the
@@ -1695,7 +1898,7 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
   // the most common combat event in the game. The VISUALS above are untouched:
   // only the cue is suppressed. Do not "restore" this.
   if (e.hit !== deps.state.net.sessionId) {
-    worldTone('impact', s.worldTones.impact, e, t, deps);
+    worldCueAt('steelHit', s.worldTones.impact, e, t, deps);
     deps.contactViews.flash(e.hit);
   }
 }
@@ -1716,9 +1919,10 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
 function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   // Ask the track who fired it BEFORE onBurst retires it (Story 2.9's click
   // latch is long expired by burst time; the track carries the answer).
-  const radius = deps.ownBurstRadius(deps.projectiles.ownFireOf(e.id));
+  const own = deps.projectiles.ownFireOf(e.id);
+  const radius = deps.ownBurstRadius(own);
   deps.projectiles.onBurst(e);
-  deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
+  spawnBurstMark(e, own, radius, deps);
   // STORY 4.7 — the second half of report-then-boom: the `mz` crack goes off at
   // the muzzle, and seconds later at range the burst thuds at the clicked point.
   // Both are already on the wire; this is the pair finally being audible. It
@@ -1738,7 +1942,29 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
   // that never touched us, produced no `dmg` and emitted no `boom` was silenced
   // outright: a ring filling the screen and nothing to hear. The RING above
   // still draws in every case. Do not "restore" the hull ball.
-  if (!inOwnBlast(e.x, e.y, radius, deps)) worldTone('impact', s.worldTones.impact, e, t, deps);
+  if (!inOwnBlast(e.x, e.y, radius, deps)) worldCueAt('steelHit', s.worldTones.impact, e, t, deps);
+}
+
+/**
+ * Pure: is this burst a FLASH SHELLS round? Everyone who sees the detonation
+ * sees the disc (Eric 2026-10-29, epic-10 amendment 5): the server tags a flash
+ * round's burst `f: true` for every observer the burst reaches, so an enemy's
+ * or a third party's flash draws the disc too. The shooter's own-fire claim
+ * (set when the client saw its own shell leave) stays a second, independent
+ * path — a reveal's `w` names only the gun FAMILY (`cannon` for a flash round
+ * too), so nothing else can tell a flash from a cannon burst.
+ */
+export function isFlashBurst(e: Pick<BurstEvent, 'f'>, own: OwnFire): boolean {
+  return e.f === true || own === 'dazzleShells';
+}
+
+/** The burst's mark: the FLASH SHELLS disc for a flash round (when the host
+ *  wired the disc layer), else the ordinary ring at `radius`. */
+function spawnBurstMark(e: BurstEvent, own: OwnFire, radius: number | undefined, deps: RoomBindingDeps): void {
+  // The disc draws the wire's STAMPED radius `r` (Story 10.5, R7's tiers);
+  // flashDiscRadius falls back to the base radius when it is absent.
+  if (isFlashBurst(e, own) && deps.flashBursts) deps.flashBursts.spawn(e.x, e.y, e.r);
+  else deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
 }
 
 /**
@@ -1773,87 +1999,11 @@ function inOwnBlast(x: number, y: number, radius: number | undefined, deps: Room
   return dx * dx + dy * dy <= r * r;
 }
 
-/**
- * THE KILLER'S NAME, in its three-step order — the two-step `feedNameRef` this
- * replaces had no other caller, so it FOLDED IN HERE rather than surviving as a
- * one-use wrapper (Story 7.6, Eric ruling 2026-08-21: *"if someone gets sunk
- * by a drone, you can tell me what drone sunk them... let me laugh and foghorn
- * salute the dumbass who died to a drone"*). The MIRROR of `victimNameRef`, with the first two steps SWAPPED and
- * deliberately so:
- *
- *   1. `deps.names` — the roster callsign, or the SIZED fleet name off the
- *      ever-seen hull memo. FIRST, unlike the victim's order, because unlike
- *      `vcls` the new field is observer-INDEPENDENT and therefore never the
- *      more specific answer: the memo already resolves every hull this client
- *      has actually seen, and preferring it keeps the shipped path byte-for-byte
- *      unchanged for every case that already worked.
- *   2. `e.kcls` — the SIZED fleet name off the wire, for a fleet killer this
- *      client never once had in its bubble. That is the case the memo
- *      structurally cannot reach and the whole reason the field exists: a
- *      captain's sinking is PUBLIC, so this line renders on every client in the
- *      room, most of whom were nowhere near it.
- *   3. `UNKNOWN_VESSEL` — a hull that is neither named nor carried on the event
- *      (a fleet killer whose record was already gone when the frame was built).
- *
- * A CAPTAIN KILLER CANNOT REACH STEP 2. The server stamps `kcls` only for a
- * fleet hull, and `fleetSizeName` returns null for anything that is not a drone
- * hull anyway — two independent reasons, so this can never rename a player.
- */
-function killerNameRef(e: SunkEvent, deps: RoomBindingDeps): { name: string; id: string } {
-  const by = e.by as string;
-  return { name: deps.names(by) ?? fleetSizeName(e.kcls) ?? UNKNOWN_VESSEL, id: by };
-}
-
-/**
- * THE VICTIM'S NAME, in its full four-step resolution order (Eric rulings
- * 2026-08-14, the second same-day: *"if you actually die to a drone, I DO want
- * to see that... SUNK BY SMALL DRONE is both funnier and strictly more
- * informative"*). This is the ONE place that holds both the event and the
- * client's own knowledge, so it is the only place the order can live:
- *
- *   1. `e.vcls` — the SIZED fleet name (`SMALL DRONE`). Present only on the
- *      credited killer's copy of the row, which is exactly the case the client
- *      could never answer for itself: you can mine a hull you never saw. It
- *      OUTRANKS everything because *the size is the payout* and the moment of
- *      the kill is when the player wants it. A captain victim carries a `vcls`
- *      that is not a fleet hull, so `fleetSizeName` returns null and the roster
- *      callsign still wins — this cannot rename a human.
- *   2. the HULL MEMO — ALSO SIZED (`SMALL DRONE`, via the same `fleetSizeName`,
- *      now folded into `deps.names` itself / main.ts `feedName`), for a fleet
- *      sinking we WITNESSED but were not credited with (no `vcls`), on a hull
- *      that may already have aged out of the contact set. One resolver, so the
- *      kill feed and the MATCH LOG's `killerName` (which calls the same
- *      `feedName`) can never disagree about the same event's size.
- *   3. the roster CALLSIGN — every captain, also inside `deps.names`.
- *   4. `UNKNOWN_VESSEL` — now genuinely unreachable for our OWN kills, and still
- *      correct for a hull that is neither ours nor ever seen. Never a raw
- *      session id: a global feed would print transport plumbing to every client.
- */
-function victimNameRef(e: SunkEvent, deps: RoomBindingDeps): { name: string; id: string } {
-  return { name: fleetSizeName(e.vcls) ?? deps.names(e.id) ?? UNKNOWN_VESSEL, id: e.id };
-}
-
-/** The line's colour resolver. A hull named from the WIRE (`vcls` the victim,
- *  `kcls` the killer) is by definition one the roster and contact set both miss,
- *  so the ordinary id lookup would resolve null and render the drone in plain
- *  body text while the other name on the very same line wears the drone grey;
- *  pin each one that applies. Every other id still goes through the shipped
- *  resolver untouched, and a row carrying neither field is byte-identical to
- *  before. `pinDroneColor` composes: each wrapper defers to the one beneath it.
- *
- *  THE KILLER PIN IS GATED ON THE NAME ACTUALLY COMING FROM THE WIRE, not on
- *  `kcls` merely being present — the memo outranks it (killerNameRef step 1),
- *  and in that case `deps.colors` already resolves the drone grey on its own. */
-function sunkColors(e: SunkEvent, deps: RoomBindingDeps): (id: string) => number | null {
-  let colors = deps.colors;
-  if (fleetSizeName(e.vcls) !== null) colors = pinDroneColor(e.id, colors);
-  // `fleetSizeName(e.kcls)` FIRST: the field is absent on almost every row, so
-  // the cheap wire test short-circuits before the roster/memo lookup runs at all
-  // — a row without it never touches `deps.names` here, exactly as before.
-  if (e.by && fleetSizeName(e.kcls) !== null && deps.names(e.by) === null) {
-    colors = pinDroneColor(e.by, colors);
-  }
-  return colors;
+/** A vessel's feed name: the roster callsign (or the ever-seen memo inside
+ *  `deps.names`), else the neutral `UNKNOWN_VESSEL` — never a raw session id: a
+ *  global feed would print transport plumbing to every client. */
+function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: string } {
+  return { name: deps.names(id) ?? UNKNOWN_VESSEL, id };
 }
 
 /**
@@ -1919,13 +2069,9 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
   openWreckWindow(e, pos, t, deps, s);
   // feedNameRef: a roster miss renders the neutral UNKNOWN_VESSEL label,
   // never the raw session id — a global feed puts this line in front of
-  // EVERY client. The VICTIM runs the wider four-step order (victimNameRef),
-  // because only the victim can be a fleet hull the wire has just named for us.
-  // The KILLER runs killerNameRef since Story 7.6: `SunkEvent.kcls` names a
-  // fleet killer this client never saw, which is the one case `deps.names`
-  // (roster callsign / ever-seen hull memo) structurally cannot answer.
-  const killer = e.by ? killerNameRef(e, deps) : null;
-  const victim = victimNameRef(e, deps);
+  // EVERY client.
+  const killer = e.by ? feedNameRef(e.by, deps) : null;
+  const victim = feedNameRef(e.id, deps);
   // THE KILL LEADER'S MARK (Story 4.6, 2026-08-10 rework): `bty` is the
   // server's PRE-SINK truth — which participant held the throne at the
   // instant of sinking ('v' victim, 'k' killer). It is taken verbatim and
@@ -1936,14 +2082,11 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
   // CLAIMED/LIFTED trailing connectives carried a paid/unpaid distinction the
   // grammar no longer has.
   const line = e.bty ? bountyKillLine(victim, killer, e.bty) : killLine(victim, killer);
-  pushKillLine(line, sunkColors(e, deps));
+  pushKillLine(line, deps.colors);
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the
   // SAME observed sinking the kill feed does — no new wire data.
-  // `e.kcls` rides along (Story 7.6) so the MATCH LOG's `SUNK BY` line can name
-  // a never-seen fleet killer exactly as the feed line above just did — the two
-  // surfaces must agree about the same event (the Story 5.6 review-gate rule).
-  deps.onSunkObserved(e.id, e.by ?? null, e.kcls);
+  deps.onSunkObserved(e.id, e.by ?? null);
   if (e.id === sessionId) {
     // ONLY WHEN THE SERVER ACTUALLY ARMED ONE (Story 5.2 review fix). This used
     // to be unconditional, on the reasoning that "in active this ETA is never
@@ -2146,19 +2289,33 @@ function sunkCue(
   deps: RoomBindingDeps,
 ): void {
   const sessionId = deps.state.net.sessionId;
+  // Our own hull: Story 10.13 retired the one-shot `sink` tone here — the
+  // KLAXON repeats through the whole sinking window instead, driven per frame
+  // off `you.sinkingUntil` (audio/engineMix.ts → audio/klaxon.ts), with `sink`
+  // as its first blast's fallback.
   if (e.id === sessionId) {
-    deps.audio.play('sink');
+    deps.ownSinkAlarm?.(); // review P10: the event starts the alarm; the frames repeat it
     return;
   }
-  if (e.by === sessionId) {
-    deps.audio.play('kill'); // your victim went down — fog or not
-    return;
-  }
+  // Your victim went down — fog or not. Story 10.13: a WITNESSED kill also
+  // groans below like any witnessed wreck (Eric: keep both).
+  if (e.by === sessionId) killCue(e.seen === true ? pos : null, t, deps);
   if (!e.seen) return; // the fog kill's silence — see above
   // A witnessed wreck whose last-known contact has already aged out of the store
   // still sounds, unpanned at the floor (worldTone): we SAW it go down, so the
   // fact is legitimately ours even when the bearing is unavailable.
-  worldTone('sunkWitness', null, pos, t, deps);
+  worldCueAt('sinkWitness', null, pos, t, deps);
+}
+
+/**
+ * YOUR CREDITED KILL (Story 10.13, Eric's pick: the far boom). Placed by the
+ * wreck's distance only when the sinking was WITNESSED (the `seen` rule above:
+ * an unseen kill must not tell you where it happened); otherwise unplaced at a
+ * far distance — it is a distant kill — `killUnplacedDistance01`.
+ */
+function killCue(pos: { x: number; y: number } | null, t: number, deps: RoomBindingDeps): void {
+  const placed = pos ? placeCue(pos, deps, t) : { pan: 0, distance01: CLIENT_CONFIG.audio.killUnplacedDistance01 };
+  deps.audio.playCue('killSound', placed);
 }
 
 /**
@@ -2215,12 +2372,16 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     if (!readsAsBurn(e.amount, since)) allBurn = false;
   }
   // Gated on the EVENT, never on the amount (Story 8.16, epic-8 amendment 117):
-  // a hit the SHIELD BLOCK fully absorbed arrives as `dmg` with amount 0 and
-  // must still play the ordinary hit cue — the shake floors at the subtle
-  // (gun-weight) magnitude, and the falling blue number is its twin.
+  // any own `dmg` plays the ordinary hit cue — the shake floors at the subtle
+  // (gun-weight) magnitude. (The fully-absorbed SHIELD BLOCK hit that made the
+  // amount-0 case real left with the shield — Story 10.5, 2026-11-05.)
   if (!hit) return; // no own damage this frame (the overwhelmingly common case)
   deps.shake.trigger(allBurn ? total * CLIENT_CONFIG.burnZone.burnShakeScale : total);
-  deps.audio.play(allBurn ? 'burn' : 'damage');
+  if (allBurn) return deps.audio.playCue('burning');
+  // Story 10.13: the own-hit level follows the size of the frame's blow — a
+  // secondary round is quiet, a main-battery salvo full (audio/cueEdges.ts).
+  const { ownHitFullHp, ownHitMinGain } = CLIENT_CONFIG.audio;
+  deps.audio.playCue('ownHit', { gain: ownHitGain(total, ownHitFullHp, ownHitMinGain) });
 }
 
 /**
@@ -2243,7 +2404,8 @@ const BURN_TICK_S = CONFIG.tick.simDtMs / 1000;
 /**
  * hp/s — the HIGHEST burn rate any PHOSPHOR SHELLS zone can carry: the tier-I
  * `CONFIG.phosphorShells.dps` plus every `dps` step the catalog's ladder
- * authors (5 → 10 at tier V, Story 8.17, amendment 131). Summed off the ladder
+ * authors (20 → 40 at tier V since Story 10.3, ruling 9; was 5 → 10, Story 8.17,
+ * amendment 131). Summed off the ladder
  * rather than hard-coded so a retune of either moves the cap with it.
  */
 export function maxBurnDps(): number {
@@ -2260,13 +2422,19 @@ export function maxBurnDps(): number {
  * INCLUSIVE window. `bankDot` (server world.ts) opens a bucket with
  * `since = now` on the FIRST bite and flushes when `now - since >= 500 ms`
  * AFTER adding the current bite, so at 20 Hz a window holds 11 bites
- * (t = 0, 50, …, 500 ms) = window + one tick = 0.55 s of burn: 10 hp/s × 0.55 s
- * = 5.5 hp (Story 8.17 re-derived it from the burning zone that replaced the
+ * (t = 0, 50, …, 500 ms) = window + one tick = 0.55 s of burn: at Story 10.3's
+ * phosphor ladder (20 → 40 hp/s, Eric's ruling 9) that is 40 hp/s × 0.55 s
+ * = 22 hp — it follows the catalog (Story 8.17 re-derived it from the burning zone that replaced the
  * star-shell INCENDIARY verb, and the old ×4 overlap headroom went with it). The classifier exists to tell a burn `dmg` from an
  * impact: anything bigger than this arrived some other way — a torpedo, a
  * shell, a mine — and must read as the slam it was.
  */
-export const BURN_AMOUNT_CAP = maxBurnDps() * (BURN_WINDOW_S + BURN_TICK_S);
+/** The damage curve's bound: `damageMultiplierFor` is strictly under ×2 for any
+ *  effective armor, so a burn tick — multiplied at the gate by the owner's POWER
+ *  plus phosphor's own weapon POWER (epic-11 amendment 17) — never exceeds twice
+ *  its raw rate. */
+export const BURN_MAX_MULTIPLIER = 2;
+export const BURN_AMOUNT_CAP = maxBurnDps() * BURN_MAX_MULTIPLIER * (BURN_WINDOW_S + BURN_TICK_S);
 
 /**
  * Pure: does a damage event read as FIRE rather than as an impact? Both halves

@@ -35,6 +35,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 import { machineGunEquipment } from '../game/equipment/machineGun.js';
 import type { ActivationContext } from '../game/equipment/index.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const MG = CONFIG.machineGun;
@@ -49,13 +50,13 @@ function bareWorld(seed = 15): World {
 
 /** A machine-gun captain parked at (x, y), bow along +x. */
 function gunner(w: World, id: string, x = 0, y = 0, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, 'machineGun');
+  const rec = mountDeckGun(neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined)), 'machineGun');
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 400, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 400, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Drive `ticks` ticks with the given level, collecting every tick's events. */
@@ -92,7 +93,7 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
     const a = gunner(w, 'a');
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('machineGun');
     expect(mag(a)).toEqual({ n: MG.maxAmmo, reloadMsLeft: 0 });
-    expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU); // its own dial, 6/12 (Story 9.8, ruling 125)
+    expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU); // its own dial (Story 9.8, ruling 125; a hectometer fact since Story 11.2)
   });
 
   it('held for 3 s: one shell per rateMs from the first held tick, each born at `now` with its own `mz`, NO burst, the magazine drained by exactly that count', () => {
@@ -272,7 +273,7 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
   it('a direct hit deals the FULL damage as a contact hit: one `hc`, no burst', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
-    const b = w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
+    const b = neutralize(w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined));
     b.state = { x: 300, y: 0, heading: Math.PI / 2, speed: 0 }; // broadside-on at 300 u
     const log: GameEvent[] = [];
     hold(w, 'a', true, 1, 0, log);
@@ -296,34 +297,40 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
 describe('the lit-zone reach — the machine gun fires into its own flare (amendment 114)', () => {
   /** u — a click past the gun's Tier I reach (Story 9.8: derived, never a literal). */
   const FAR = CONFIG.machineGun.rangeU + 140;
-  function litStream(owner: string | null): { w: World; a: ShipRecord } {
+  // THE RIM SEAT (Story 11.2): the reach is longer than the board's radius, so
+  // a shot from the origin would be clamped by the map disk first. The gunner
+  // sits one hull length inside the WEST rim and fires EAST across the board;
+  // `x0` is the seat, and every expectation is a distance from it.
+  function litStream(owner: string | null): { w: World; a: ShipRecord; x0: number } {
     const w = bareWorld();
-    const a = gunner(w, 'a');
+    const x0 = -(w.map.radius - CONFIG.shipClasses.bismarck.hull.length);
+    const a = gunner(w, 'a', x0);
+    expect(x0 + FAR).toBeLessThan(w.map.radius); // the far click is on the water
     if (owner !== null) {
       w.litZones.set('z1', {
-        id: 'z1', ownerId: owner, x: FAR, y: 0, r: 120, until: 10 * 60 * 1000,
+        id: 'z1', ownerId: owner, x: x0 + FAR, y: 0, r: 120, until: 10 * 60 * 1000,
       });
     }
     w.submitInput('a', makeInput({ seq: 1, held: true, aimDist: FAR }));
     w.step();
-    return { w, a };
+    return { w, a, x0 };
   }
 
   it('a click past reach into an OWN live lit zone lands the shell at the click', () => {
-    const { w, a } = litStream('a');
+    const { w, a, x0 } = litStream('a');
     expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU);
     expect(FAR).toBeGreaterThan(CONFIG.machineGun.rangeU);
     const shells = [...w.shells.values()];
     expect(shells).toHaveLength(1);
-    expect(shells[0].targetX).toBeCloseTo(FAR, 6);
+    expect(shells[0].targetX).toBeCloseTo(x0 + FAR, 6);
   });
 
   it('the same click into an ENEMY zone, or with no zone, clamps to the gun reach', () => {
     for (const owner of ['b', null]) {
-      const { w } = litStream(owner);
+      const { w, x0 } = litStream(owner);
       const shells = [...w.shells.values()];
       expect(shells, `owner=${owner}`).toHaveLength(1);
-      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(CONFIG.machineGun.rangeU, 6);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(x0 + CONFIG.machineGun.rangeU, 6);
     }
   });
 });
@@ -583,7 +590,7 @@ describe('the stream honours the click channel\'s gates', () => {
 
   it('a CANNON seat ignores the level entirely: held:true on a deck gun fires nothing', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, 'deckGun');
+    const a = mountDeckGun(neutralize(w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined)), 'gun');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const log: GameEvent[] = [];
     hold(w, 'a', true, 20, 0, log);

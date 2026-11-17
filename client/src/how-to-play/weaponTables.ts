@@ -14,20 +14,26 @@
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_CLASS_ID,
+  SHIP_CLASS_IDS,
   effectiveStats,
   tierTargetOf,
   type CatalogLine,
+  type EffectiveStats,
+  type EquipmentId,
   type ShipClassId,
 } from '@salvo/shared';
 import {
+  ABILITY_LADDERS,
+  abilityStatRows,
   cardTierSteps,
-  consumableStatRows,
   equipmentStatRows,
   shipStatRows,
   statValueText,
   type CardStatRow,
 } from '../ui/boonCopy.js';
 import { CLASS_DISPLAY_NAMES } from '../ui/classNames.js';
+import { shownWeaponDamage } from '../render/console/readouts.js';
 import { romanTier } from '../ui/tierRamp.js';
 
 /** One table: a header row of column labels, then labelled rows of values. */
@@ -36,12 +42,15 @@ export interface StatTable {
   rows: readonly { label: string; values: readonly string[] }[];
 }
 
-/** The hull every equipment table folds against. Equipment stats are
- *  hull-independent (pinned by `weaponTables.test.ts` across all three). */
-const TABLE_HULL: ShipClassId = 'torpedoBoat';
+/** The hull every equipment and ability table folds against. Since Story 10.4
+ *  the RELOAD index folds into equipment rows (and HULL REPAIR heals a share of
+ *  the hull), so the numbers are the default hull's (the tables' SHAPE is the
+ *  same on every hull — weaponTables.test.ts). */
+const TABLE_HULL: ShipClassId = DEFAULT_CLASS_ID;
 
-/** The three hulls, in the order the ship-upgrade tables print them. */
-export const TABLE_HULLS: readonly ShipClassId[] = ['torpedoBoat', 'mineLayer', 'battleship'];
+/** The hulls, in the order the ship-upgrade tables print them (Story 10.4:
+ *  the shared menu order). */
+export const TABLE_HULLS: readonly ShipClassId[] = SHIP_CLASS_IDS;
 
 /** Printed where a derived row has no value at some tier (fail-open). */
 const NO_VALUE = '—';
@@ -95,9 +104,23 @@ function pivot(columns: readonly string[], perColumn: readonly (readonly CardSta
 }
 
 /**
+ * The fold a table row prints, with the weapon's DAMAGE swapped for the damage
+ * the battle console shows (`shownWeaponDamage`: vs an ARMOR-100 hull, the
+ * weapon's tier POWER included — epic-11 amendment 17), so the manual's DAMAGE
+ * climbs per tier exactly as the HUD's does. Every other field is the fold's.
+ */
+function shownFold(stats: EffectiveStats, target: EquipmentId): EffectiveStats {
+  const damage = shownWeaponDamage(stats, target);
+  if (damage === undefined) return stats;
+  const row = { ...stats.equipment[target], damage };
+  return { ...stats, equipment: { ...stats.equipment, [target]: row } };
+}
+
+/**
  * Pure: a tiered equipment line's table — one column per tier (I…V), one row
- * per stat the slot tooltip prints, each cell that tier's live fold. `cls`
- * exists for the hull-independence pin; the page always uses the default.
+ * per stat the slot tooltip prints, each cell that tier's live fold (DAMAGE as
+ * the HUD shows it). `cls` exists for the hull-independence pin; the page
+ * always uses the default.
  */
 export function tierTable(lineId: string, cls: ShipClassId = TABLE_HULL): StatTable {
   const line = lineOf(lineId);
@@ -106,16 +129,35 @@ export function tierTable(lineId: string, cls: ShipClassId = TABLE_HULL): StatTa
   const spec = CONFIG.shipClasses[cls];
   const copies = tierCopies(line);
   const columns = copies.map((k) => romanTier(cardTierSteps(line, k)?.cur ?? 1));
-  const perColumn = copies.map((k) => equipmentStatRows(target, effectiveStats(spec, Array(k).fill(lineId))));
+  const perColumn = copies.map((k) =>
+    equipmentStatRows(target, shownFold(effectiveStats(spec, Array(k).fill(lineId)), target)));
   return pivot(columns, perColumn);
 }
 
-/** Pure: a consumable's table — attribute, value — or null for a line with no
- *  live rows (the entry then renders without a table). */
-export function consumableTable(id: string): StatTable | null {
-  const rows = consumableStatRows(id);
-  if (rows.length === 0) return null;
-  return { columns: ['', ''], rows: rows.map((r) => ({ label: r.label, values: [statValueText(r)] })) };
+/** The BASE, +1 … +cap columns of a ladder's table, as copy counts. */
+function ladderCounts(line: CatalogLine): number[] {
+  return Array.from({ length: line.cap + 1 }, (_, k) => k);
+}
+
+/** A ladder column's label: BASE at zero copies, else `+k`. */
+function ladderColumn(k: number): string {
+  return k === 0 ? 'BASE' : `+${k}`;
+}
+
+/**
+ * Pure: a C / V ability ladder's table (HULL REPAIR, SMOKE SCREEN — Story
+ * 11.11) — columns BASE, +1 … +cap; one row per stat the ability's tooltip
+ * prints (`abilityStatRows`), each cell that copy count's live fold on the
+ * default hull.
+ */
+export function abilityTable(lineId: string): StatTable {
+  const line = lineOf(lineId);
+  const ability = ABILITY_LADDERS[line.id];
+  if (ability === undefined) throw new Error(`weaponTables: ${lineId} improves no ability`);
+  const spec = CONFIG.shipClasses[TABLE_HULL];
+  const counts = ladderCounts(line);
+  const perColumn = counts.map((k) => abilityStatRows(ability, effectiveStats(spec, Array(k).fill(lineId))));
+  return pivot(counts.map(ladderColumn), perColumn);
 }
 
 /** The SHIP-panel row index a ship ladder moves (the first row whose value
@@ -137,8 +179,8 @@ function movedRowIndex(lineId: string): number {
 export function shipUpgradeTable(lineId: string): StatTable {
   const line = lineOf(lineId);
   const index = movedRowIndex(lineId);
-  const counts = Array.from({ length: line.cap + 1 }, (_, k) => k);
-  const columns = counts.map((k) => (k === 0 ? 'BASE' : `+${k}`));
+  const counts = ladderCounts(line);
+  const columns = counts.map(ladderColumn);
   const rows = TABLE_HULLS.map((cls) => ({
     label: CLASS_DISPLAY_NAMES[cls],
     values: counts.map((k) =>

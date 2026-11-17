@@ -52,7 +52,7 @@
 //    tactics) is what makes retuning difficulty a one-number edit.
 //
 // A NOTE ON `BotTrack`: wave 2 shipped it as `extends RememberedContact` with
-// the four fields wave 1's type lacked (class, fleet-ness, acquisition time,
+// the fields wave 1's type lacked (class, acquisition time,
 // hit history) and normalized every read through an `asTrack()` fallback,
 // because a plain wave-1 entry written elsewhere would be missing them. WAVE 3
 // PROMOTED THOSE FOUR FIELDS onto `RememberedContact` itself, so `BotTrack` is
@@ -61,17 +61,17 @@
 
 import {
   CONFIG,
-  SHIP_CLASS_IDS,
+  effectiveSight,
   pointInLitZone,
   type BlipEvent,
   type Contact,
-  type DecoyView,
   type EffectiveStats,
   type GameEvent,
   type HullId,
+  type HeightRaster,
   type Island,
   type LitZoneView,
-  type SlotItemId,
+  type EquipmentId,
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
@@ -87,16 +87,13 @@ import {
   PAINT_STILL_U,
   associatePaint,
   foldWakeCells,
+  isCrateSizedPaint,
   lineBlocked,
-  nearKnownDecoy,
   nearestPredicted,
-  nextStillSweeps,
-  paintCellCount,
   paintCenter,
   paintVelocity,
   plotPoint,
   predictedPos,
-  probableDecoy,
   refitWakeCourses,
   trackVelocity,
 } from './plot.js';
@@ -120,7 +117,7 @@ export { choosePosture, type PostureInputs } from './posture.js';
 
 /**
  * ONE PLOTTED TRACK. An alias of `RememberedContact` since wave 3 promoted
- * class / fleet-ness / acquisition time / hit history onto it: the name is
+ * class / acquisition time / hit history onto it: the name is
  * kept because it is what scoring and tactics speak, and because a future
  * scoring-only field would land here rather than on the driver's type.
  */
@@ -158,6 +155,13 @@ export interface BotSituation {
    *  IS THERE A LINE OF FIRE (see lineBlocked). Steering reads the port's copy
    *  directly; scoring and the trigger read it from here. */
   islands: readonly Island[];
+  /** The map's height raster — `port.map.heightRaster`, rebuilt from the seed
+   *  by every client, so it discloses nothing. Read for the MAIN BATTERY'S and
+   *  SECONDARIES' terrain rule (epic-11 amendment 8: the lowest land band is
+   *  passed over, higher ground stops the round — tacticKit
+   *  `overLandReaches`). Optional so a hand-built situation can omit it (no
+   *  terrain: open water). */
+  raster?: HeightRaster;
   /** The public map radius about the map centre (`port.map.radius`): plot
    *  predictions stay on the water (ai/plot.ts predictedPos). Optional so a
    *  hand-built situation can omit it (no clamp). */
@@ -166,7 +170,7 @@ export interface BotSituation {
    *  9.8, ruling 126): the engagement band's anchor is this gun's folded
    *  reach (profiles.ts engagementBand). Optional so a hand-built situation
    *  can omit it (the deck gun is assumed). */
-  gunId?: SlotItemId | null;
+  gunId?: EquipmentId | null;
   /** This hull's own class (a self-read, Story 9.13): the ram exit's contact
    *  distance (`hullBumper`) and the cover arrival tolerance (one own hull
    *  length) read it. Optional so a hand-built situation can omit it (the
@@ -182,6 +186,21 @@ export interface BotSituation {
    *  the bot (ai/navigate.ts departureDue) — ringEscaping arms on it.
    *  Optional = false. */
   departing?: boolean;
+  /** ms — the bot's OWN FLASH SHELLS mark (BotSelf.dazzledUntil, a self-read
+   *  of exactly what a human client is sent). Read ONLY through `ownSightU`
+   *  (gate fix F8). Optional = never flashed. */
+  dazzledUntil?: number;
+}
+
+/**
+ * u — THE BOT'S OWN TRUESIGHT RADIUS this tick (gate fix F8, Eric 2026-10-29:
+ * "reflect this in what bots can see"): the SHARED `effectiveSight` over its
+ * stats and its own flash mark — the clear circle the server perceives this
+ * hull with (signals.sightOf), so a whited-out bot's own "inside my sight"
+ * gates shrink exactly as its contacts do. Never re-derived.
+ */
+export function ownSightU(sit: Pick<BotSituation, 'stats' | 'now' | 'dazzledUntil'>): number {
+  return effectiveSight(sit.stats, sit.dazzledUntil ?? 0, sit.now);
 }
 
 /**
@@ -198,14 +217,6 @@ export function ownReachU(
     mountedGun(sit.gunId),
   );
   return reach.maxU;
-}
-
-/** Is this plot a DECOY BUOY by what the bot can see (Story 9.13, epic-9
- *  amendment 197)? The paint of a decoy the view names (own at any range, an
- *  enemy one inside sight / own light), or a radar-only plot whose cues read
- *  as a probable buoy. Never counted as a hostile in the odds gate. */
-export function isDecoyPlot(t: BotTrack, decoys: readonly DecoyView[]): boolean {
-  return probableDecoy(t) || nearKnownDecoy(t, { x: t.x, y: t.y }, decoys);
 }
 
 /** Where this situation reads a plot: its predicted point (ai/plot.ts
@@ -252,9 +263,13 @@ const TARGET_HORIZON_FACTOR = 1.25;
  *  is worth something, just not much. */
 const STALE_FLOOR = 0.15;
 
-/** u — radius that decides whether a track is ALONE. Half of base truesight:
- *  two hulls this close are supporting each other. */
-const ISOLATION_U = CONFIG.vision.sight * 0.5;
+/** u — radius that decides whether a track is ALONE: two hulls this close
+ *  are supporting each other. ITS OWN FACT since 2026-11-12 (Story 11.2
+ *  review gate, F6): it was `CONFIG.vision.sight × 0.5` — 250 u on the old
+ *  500 u sight — and silently grew to 2,273 u when sight became 200 hm.
+ *  Bots are unchanged by Story 11.2 (R6), so it keeps the 250 u it had;
+ *  Story 11.9 tunes it. */
+const ISOLATION_U = 250;
 
 /**
  * Score multiplier for a track with LAND IN THE WAY — a plot the trigger will
@@ -269,23 +284,16 @@ const ISOLATION_U = CONFIG.vision.sight * 0.5;
  * would leave it with NO target at all in cluttered coastal water — patrolling
  * for the ring centre while an enemy sits 200u away behind a rock.
  *
- * THE NUMBER IS SET BY THE WORST MEASURED CASE, not by feel. `forager` is the
- * profile the defect lived on (15.7% of its shells into terrain) precisely
- * because its `targetWeights.fleet` of 2.0 parks it on drone groups in
- * cluttered coastal water, against a `captain` weight of 0.5. Anything above
- * 0.25 leaves that fight unchanged — 2.0 x 0.35 = 0.70 still beats 0.50 — so
- * the penalty has to bite harder than a third to move the one case it was
- * written for. At 0.2 the blocked drones score 0.40 against the reachable
- * captain's 0.50 and the bot takes the shot it can actually make, while a
- * blocked track that is the ONLY thing on the water still scores well clear of
- * zero, still wins the slot, and still gets pursued.
+ * THE NUMBER WAS SET BY THE WORST MEASURED CASE, not by feel: `forager`, the
+ * profile the defect lived on (15.7% of its shells into terrain), parked on
+ * the retired PvE drone groups in cluttered coastal water with a fleet weight
+ * of 2.0 against a `captain` weight of 0.5; 0.2 was the first value that
+ * moved that fight (2.0 x 0.2 = 0.40 lost to the reachable captain's 0.50).
+ * The fleet weight retired with the drones (Story 10.8); the penalty keeps
+ * its measured value, and a blocked track that is the ONLY thing on the water
+ * still scores well clear of zero, still wins the slot, and still gets pursued.
  */
 const BLOCKED_LINE_SCORE = 0.2;
-
-/** A hull id that is PvE fleet content rather than a participant. */
-function isFleetHullId(cls: HullId): boolean {
-  return !(SHIP_CLASS_IDS as readonly string[]).includes(cls);
-}
 
 /** The one sighting shape every fold path funnels through. */
 interface Sighting {
@@ -304,7 +312,6 @@ type Carried = Pick<
   BotTrack,
   | 'id'
   | 'cls'
-  | 'fleet'
   | 'firstSeenAt'
   | 'hits'
   | 'sunk'
@@ -315,29 +322,13 @@ type Carried = Pick<
   | 'paintX'
   | 'paintY'
   | 'paintAt'
-  | 'paintCells'
-  | 'stillSweeps'
-  | 'hasWake'
 >;
-
-type Cues = Pick<BotTrack, 'paintCells' | 'stillSweeps' | 'hasWake'>;
-
-/** The decoy cues a refresh carries over (amendment 197) — only the keys the
- *  plot actually has, so a never-painted track gains no fields. */
-function carriedCues(base: Carried): Cues {
-  const out: Cues = {};
-  if (base.paintCells !== undefined) out.paintCells = base.paintCells;
-  if (base.stillSweeps !== undefined) out.stillSweeps = base.stillSweeps;
-  if (base.hasWake !== undefined) out.hasWake = base.hasWake;
-  return out;
-}
 
 /** A brand-new track's carried-over half (no history to preserve). */
 function freshBase(now: number): Carried {
   return {
     id: null,
     cls: null,
-    fleet: false,
     firstSeenAt: now,
     hits: 0,
     sunk: false,
@@ -379,7 +370,6 @@ function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, liv
     live: live && !dead,
     sunk: dead,
     cls,
-    fleet: cls === null ? base.fleet : isFleetHullId(cls),
     firstSeenAt: base.firstSeenAt,
     hits: base.hits,
     ...courseOf(s, base, now),
@@ -387,7 +377,6 @@ function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, liv
     paintY: base.paintY,
     paintAt: base.paintAt,
     missSweptAt: -1, // a refresh is the opposite of a miss
-    ...carriedCues(base),
   };
   tracks.set(key, track);
   return track;
@@ -433,7 +422,7 @@ function secondHull(prev: BotTrack | undefined, x: number, y: number, now: numbe
  *  and overrides any wake guess (and stays until the next paint — a wake fit
  *  never replaces it); every paint then becomes the new baseline. A paint
  *  that reads as a second hull (secondHull) opens its own plot. */
-function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: FoldCtx): void {
+function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
   const now = fx.now;
   const chosen = associatePaint(tracks, { x, y }, now, fx.cells, fx.waterR) ?? anonKey(x, y);
   const key = secondHull(tracks.get(chosen), x, y, now) ? anonKey(x, y) : chosen;
@@ -449,10 +438,6 @@ function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: Fo
   t.paintX = x;
   t.paintY = y;
   t.paintAt = now;
-  // THE DECOY CUES (amendment 197(b)): this paint's footprint, and the run of
-  // stationary paint-to-paint measurements.
-  t.paintCells = cells;
-  t.stillSweeps = nextStillSweeps(prev?.stillSweeps, v);
 }
 
 /** Fold one radar paint — an identity-free coverage footprint. A paint whose
@@ -461,16 +446,19 @@ function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: Fo
  *  inner edge, so a sighted hull also paints) and is skipped — the contact
  *  fold carries it at full confidence, and associating the paint would smear
  *  the sighted plot or open a duplicate anonymous one. A paint merely NEAR a
- *  sighted hull is a different return (a second hull, a decoy) and folds. */
+ *  sighted hull is a different return (a second hull, a decoy) and folds.
+ *  A CRATE-SIZED paint (Story 10.9, `CONFIG.bots.cratePaintMaxU`) is an
+ *  airdrop's disc imprint and never becomes a hostile track. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
+  if (isCrateSizedPaint(e)) return;
   const c = paintCenter(e);
-  if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
+  if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, fx);
 }
 
 /** Does the paint's coverage rect (absolute `radarCellU` cell indices, grown
  *  by one cell on every side) contain the position cell of a contact sighted
  *  in this view? */
-function paintCoversSighted(e: BlipEvent, sighted: readonly Contact[]): boolean {
+function paintCoversSighted(e: BlipEvent, sighted: readonly Vec2[]): boolean {
   const cell = CONFIG.vision.radarCellU;
   for (const c of sighted) {
     const cx = Math.floor(c.x / cell);
@@ -543,6 +531,38 @@ function foldContact(tracks: TrackMap, c: Contact, now: number, sunkNow: Readonl
   writeTrack(tracks, c.id, { id: c.id, x: c.x, y: c.y, heading: c.heading, speed: c.speed, cls: c.cls }, now, true, sunkNow.has(c.id));
 }
 
+/**
+ * RETIRE THE STALE TWIN of every hull held by eye this fold (Story 11.2
+ * review gate, F5; kept when the plain tier that prompted it was removed —
+ * Eric 2026-11-15). A hull first held as an identity-free plot (a radar
+ * paint's `a:x:y` track) and then sighted opens a second track under its
+ * roster id, and the old plot would stand as a dead-reckoned twin ON TOP of
+ * the live one until the sweep-miss drop or memory took it: one hull counted
+ * twice (isolation, target count). So any track that is NOT live, was not
+ * refreshed this fold and is not a wreck, and whose plot (dead-reckoned to
+ * now) lies within one hull length (`LONGEST_HULL_U`) of a hull this view
+ * holds by eye, is dropped: the eye says what is there. Nothing is carried
+ * from the twin to the live track. A wreck's track stays (it is that hull's
+ * own record), and so does a plot refreshed this fold (a paint that folded
+ * is another return nearby).
+ */
+function retireTwins(tracks: TrackMap, sighted: readonly Vec2[], fx: FoldCtx): void {
+  if (sighted.length === 0) return;
+  for (const [key, t] of tracks) {
+    if (t.live || t.sunk || t.seenAt === fx.now) continue;
+    const at = predictedPos(t, fx.now, fx.waterR);
+    if (nearAny(at, sighted, LONGEST_HULL_U)) tracks.delete(key);
+  }
+}
+
+/** Is `p` within `r` of any of `points`? */
+function nearAny(p: Vec2, points: readonly Vec2[], r: number): boolean {
+  for (const q of points) {
+    if (Math.hypot(q.x - p.x, q.y - p.y) <= r) return true;
+  }
+  return false;
+}
+
 /** Route one event to its fold. Everything not named here — the `sp` splash
  *  included, since the review gate deleted its dead feedback channel — is
  *  deliberately ignored: a bot reads only what it is entitled to and only
@@ -561,9 +581,10 @@ interface FoldCtx {
    *  ms of the last credited Hit Call (BotMind.hitVolleyAt). Null = no ledger
    *  (every row counts). */
   volleys: Map<string, number> | null;
-  /** This view's live truesight contacts — a paint on one of them is its own
-   *  echo and is not folded (foldBlip, amendment 210). */
-  sighted: readonly Contact[];
+  /** The positions of every hull this view holds BY EYE (its contacts): a
+   *  paint on one of them is its own echo and is not folded (foldBlip,
+   *  amendment 210). */
+  sighted: readonly Vec2[];
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -644,8 +665,9 @@ export interface FoldSweep {
  *      view also SIGHTS (its rect covers that hull's cell) is skipped
  *      (amendment 210: a sighted hull paints too; its contact is the better
  *      record) — a paint merely NEAR a sighted hull still folds;
- *   4. live truesight contacts fold — so a hull that is both painted and
- *      sighted this tick ends up stored LIVE (the reverse order would let a
+ *   4. live truesight contacts fold (every hull the eye holds, out to the
+ *      hull sight — one tier since Eric 2026-11-15) — so a hull that is both
+ *      painted and sighted this tick ends up stored LIVE (the reverse order would let a
  *      same-tick radar paint demote a sighted hull to a stale plot — the
  *      sensors disagree about confidence, never about existence, and
  *      truesight always wins);
@@ -674,6 +696,7 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
   };
   for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);
+  retireTwins(tracks, fx.sighted, fx);
   if (sweep !== undefined) settleSweptMisses(tracks, sweep.beam, sweep.site, now);
   refitWakeCourses(tracks, mind.wakeCells, now);
   prune(tracks, now);
@@ -798,8 +821,8 @@ export function damageEstimate(t: BotTrack): number {
  * (three connections read as crippled, i.e. 0 remaining), so this is the
  * same guess the scorer's "how hurt" term makes, in hp instead of a weight
  * — never the target's real hp, which a bot cannot know. `baseHp` is
- * `hullEnvelope(cls).hp` (a captain's class hp or a drone's envelope hp):
- * the target's upgrades are private, exactly as they are to a human.
+ * `hullEnvelope(cls).hp` (the class base hp): the target's upgrades are
+ * private, exactly as they are to a human.
  */
 export function estimatedRemainingHp(t: BotTrack, baseHp: number): number {
   return (1 - damageEstimate(t)) * baseHp;
@@ -824,12 +847,13 @@ function isolation(
 
 /**
  * Profile-weighted desirability of one track, 0 = not worth pursuing. The
- * five terms are exactly the ones the profiles speak in: WHAT it is
- * (participant vs fleet hull — never human vs bot, ruling B3), HOW CLOSE it
- * is, HOW SURE we are of the plot, HOW HURT we believe it is (self-private
- * Hit Calls only) and HOW ALONE it is — times a SIXTH term that is not about
- * the track at all but about the water between: a target with a coastline in
- * the way cannot be shot at (see BLOCKED_LINE_SCORE).
+ * terms are exactly the ones the profiles speak in: the profile's `captain`
+ * weight on the whole (every track is a participant — never human vs bot,
+ * ruling B3), HOW CLOSE it is, HOW SURE we are of the plot, HOW HURT we
+ * believe it is (self-private Hit Calls only) and HOW ALONE it is — times a
+ * term that is not about the track at all but about the water between: a
+ * target with a coastline in the way cannot be shot at (see
+ * BLOCKED_LINE_SCORE).
  */
 export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
   if (t.sunk) return 0; // a wreck is nobody's target (Story 9.5 review gate)
@@ -838,12 +862,12 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
   const d = Math.hypot(p.x - sit.x, p.y - sit.y);
   if (d > horizon) return 0;
   const w = sit.profile.targetWeights;
-  const kind = t.fleet ? w.fleet : w.captain;
+  const kind = w.captain;
   const prox = 1 - d / horizon;
   const dmg = 1 + w.damaged * damageEstimate(t);
   const iso = 1 + w.isolated * isolation(t, neighbours, sit);
   const reach = lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands) ? BLOCKED_LINE_SCORE : 1;
-  return kind * prox * freshness(t, sit.now) * dmg * iso * reach * decoyFactor(t, sit, neighbours) * litFactor(p, sit);
+  return kind * prox * freshness(t, sit.now) * dmg * iso * reach * litFactor(p, sit);
 }
 
 /** THE LIT-TARGET BONUS (Story 9.13, epic-9 amendment 204): a plot inside
@@ -851,29 +875,6 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
 function litFactor(p: Vec2, sit: BotSituation): number {
   const zones = sit.ownLitZones;
   return zones !== undefined && zones.length > 0 && pointInLitZone(p, zones) ? CONFIG.bots.litTargetBonus : 1;
-}
-
-/**
- * THE PROBABLE-BUOY DEMOTION (Story 9.13, epic-9 amendment 197(c)): a
- * radar-only plot whose cues read as a buoy (ai/plot.ts probableDecoy) scores
- * x CONFIG.bots.decoyDemote WHILE any live sighted hull sits inside the bot's
- * own weapon reach — and at full weight when nothing else is around (it may
- * still be a hull, and it is all there is to shoot).
- */
-function decoyFactor(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
-  if (!probableDecoy(t)) return 1;
-  return liveHullInReach(sit, neighbours) ? CONFIG.bots.decoyDemote : 1;
-}
-
-/** Is a live sighted, afloat hull inside the bot's own weapon reach? */
-function liveHullInReach(sit: BotSituation, tracks: readonly BotTrack[]): boolean {
-  const reach = ownReachU(sit);
-  for (const o of tracks) {
-    if (!o.live || o.sunk) continue;
-    const p = plotAt(sit, o);
-    if (Math.hypot(p.x - sit.x, p.y - sit.y) <= reach) return true;
-  }
-  return false;
 }
 
 /**
@@ -885,14 +886,10 @@ function liveHullInReach(sit: BotSituation, tracks: readonly BotTrack[]): boolea
  */
 export function selectTargetKey(mind: BotMind, sit: BotSituation): string | null {
   const all = tracksOf(mind);
-  const decoys = mind.view?.decoys ?? [];
   let best: string | null = null;
   let bestScore = 0;
   for (const [key, t] of mind.contacts) {
     if (!isActionable(t, sit.now)) continue;
-    // A KNOWN decoy's paint (own at any range, an enemy buoy in sight) is
-    // never a candidate (Story 9.13, epic-9 amendment 197(a)).
-    if (nearKnownDecoy(t, { x: t.x, y: t.y }, decoys)) continue;
     const s = scoreTrack(t, sit, all);
     if (s > bestScore) {
       bestScore = s;

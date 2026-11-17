@@ -1,23 +1,29 @@
 // MULTI-SPECTRAL COUNTERMEASURE — the server half of Story 9.3 (Eric rulings
 // 2026-10-11, epic-9 amendments 40–47; SMOKE SCREEN's 8.18 seat), re-cut by
-// Story 9.3 session 2 (Eric 2026-10-12: "just draw it on top of ships" — the
-// cloud is a CLIENT VISUAL OVERLAY; the server hides nothing):
+// Story 9.3 session 2 (Eric 2026-10-12) and again by Story 11.6 (Eric
+// 2026-11-14: smoke OCCLUDES SIGHT like rain, the owner blinded too; never
+// radar):
 //
-//   • the PRESS: one copy makes ONE stationary cloud at the hull's CENTRE,
-//     born now, deleted at now + lifeMs; a RE-PRESS makes a second full cloud
-//     at the hull's new position (46); a SINKING press is refused `blocked`,
-//     copy kept, and clouds already made live out their life (amendment 127);
-//     a non-finite pose makes none;
-//   • a cloud HIDES NOTHING: a fresh cloud between two hulls hides neither
-//     (contacts, radar paints, the owner inside its own cloud alike);
+//   • the PRESS — the SMOKE ability on `V` since Story 10.5 (2026-11-05,
+//     epic-10 amendment 11, R2): a press makes ONE stationary cloud at the
+//     hull's CENTRE, born now, deleted at now + lifeMs, and starts the fixed
+//     cooldown (`smokeReadyAt = abilityReadyAt(now, 'smoke')`); a press inside
+//     the cooldown is refused `cooling`; a ready RE-PRESS makes a second full
+//     cloud at the hull's new position (46); a SINKING press is refused
+//     `blocked`, no cooldown, and clouds already made live out their life
+//     (amendment 127); a non-finite pose makes none;
+//   • a cloud HIDES BY OPTICAL DEPTH: a grown cloud across the line hides two
+//     hulls from each other whoever owns it, a line that only grazes its soft
+//     rim is seen through, and radar paints through it (the gate's own
+//     contract is fogGate.test.ts; the oracle and the fuzz perception.test.ts);
 //   • the `clouds` CHANNEL's own gate over the spray DISC (centre, radius
 //     cloudOutlineRadius(age)): SIGHTED — the disc's nearest point within
 //     sight with island LOS to it — or RADAR-DETECTED — the nearest point
 //     within radar range, the beam across the disc's bearing span, the centre
 //     shadow-visible; owner always, spectator always; the wire shape
 //     `{id,x,y,t0}` and nothing else; gone the step it expires;
-//   • the bot presses once on the way out and not again until its cloud
-//     expires; resetForMatchStart clears the water.
+//   • the bot presses once on the way out and not again inside the cooldown;
+//     resetForMatchStart clears the water.
 //
 // The perception FUZZ and its independent cloud oracle live in
 // perception.test.ts; the bot drill in botTactics.test.ts.
@@ -25,8 +31,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  abilityCode,
+  abilityReadyAt,
+  abilitySlot,
+  baseSmokeStats,
   cloudOutlineRadius,
-  consumableSlotFor,
+  fogMaxDepth,
   islandBlocksSegment,
   isSinking,
   wrapPositive,
@@ -34,12 +44,14 @@ import {
   type GameEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { clearWater } from './rainFixture.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
-const CM = CONFIG.countermeasure;
+/** SMOKE at zero cards — what a fresh hull's press stamps on its cloud
+ *  (Story 10.6, R9 / I6: the cloud's life and disc are the owner's own). */
+const SMOKE0 = baseSmokeStats();
 const DT = CONFIG.tick.simDtMs;
-const KEY = consumableSlotFor('countermeasure')!;
 
 type P = { x: number; y: number };
 
@@ -47,12 +59,12 @@ function bareWorld(seed = 1): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // clear water: these cases are about reaches and the wire, not the weather (a World rains from the start line)
 }
 
 /** A torpedo-boat captain teleported to an exact pose (speed 0, beam parked). */
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -62,20 +74,24 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
   return rec;
 }
 
-/** Stock `n` copies in the countermeasure's fixed slot (production catalog). */
-function stock(w: World, ship: ShipRecord, n = 1): void {
-  for (let i = 0; i < n; i += 1) w.applyCard(ship, 'countermeasure');
+/** One SMOKE press through the real input path (the actSeq edge naming
+ *  `abilityCode('smoke')`), resolved by one step. Returns the press time — the
+ *  `now` activationControl ran at. */
+function press(w: World, ship: ShipRecord): number {
+  ship.input = { ...ship.input, seq: ship.input.seq + 1, actSeq: ship.lastActSeq + 1, act: abilityCode('smoke') };
+  w.step(DT);
+  return w.now;
 }
 
-/** Fire the slot through the ONE activation path. */
-const press = (w: World, ship: ShipRecord): unknown => w.sinkingActivationGate(ship, KEY);
-
-const copies = (ship: ShipRecord): number => ship.loadout[KEY].state?.n ?? 0;
+/** The ability-press denials queued for `ship` on the last step. */
+const smokeDenials = (w: World, ship: ShipRecord) =>
+  (w.denialsFor(ship.id) ?? []).filter((d) => d.act === abilityCode('smoke'));
 
 /** Drop a cloud straight into the store (the injectMine posture): owned by
  *  `ownerId`, born at `bornAt` (fresh by default), alive for the full life. */
 function injectCloud(w: World, id: string, ownerId: string, x: number, y: number, bornAt = w.now): void {
-  w.clouds.set(id, { id, ownerId, x, y, bornAt, until: bornAt + CM.lifeMs });
+  const { lifeMs, r0, r1 } = SMOKE0;
+  w.clouds.set(id, { id, ownerId, x, y, bornAt, until: bornAt + lifeMs, lifeMs, r0, r1 });
 }
 
 function steps(w: World, n: number): void {
@@ -98,21 +114,19 @@ const O: P = { x: 0, y: 0 };
 // The press
 // ---------------------------------------------------------------------------
 
-describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => {
-  it('one copy: spent at the press, ONE cloud at the hull\'s centre, born now, until now + life, the hull\'s own stamp advanced', () => {
+describe('SMOKE — the press (rulings 43 / 46, amendment 127; the cooldown ability since Story 10.5)', () => {
+  it('a press makes ONE cloud at the hull\'s centre, born now, until now + life; the cooldown starts at the press', () => {
     const w = bareWorld();
     const a = place(w, 'a', 30, -40, 1.2);
-    stock(w, a, 1);
-    const t0 = w.now;
-    expect(press(w, a)).toEqual({ ok: true });
-    expect(copies(a)).toBe(0); // the ONE SPEND LAW: a successful press costs the copy
-    expect(a.cards.filter((c) => c === 'countermeasure')).toHaveLength(0);
+    expect(a.smokeReadyAt).toBe(0); // ready at spawn
+    const t0 = press(w, a);
     expect(w.clouds.size).toBe(1); // made AT the press, not on a later tick
     expect(w.cloudCount).toBe(1);
     const [cloud] = [...w.clouds.values()];
     expect(cloud.id).toMatch(/^cl\d+$/);
-    expect(cloud).toMatchObject({ ownerId: 'a', x: 30, y: -40, bornAt: t0, until: t0 + CM.lifeMs });
-    expect(a.cloudUntil).toBe(t0 + CM.lifeMs);
+    expect(cloud).toMatchObject({ ownerId: 'a', x: 30, y: -40, bornAt: t0, until: t0 + SMOKE0.lifeMs });
+    expect(a.cloudUntil).toBe(t0 + SMOKE0.lifeMs);
+    expect(a.smokeReadyAt).toBe(abilityReadyAt(t0, a.stats, 'smoke'));
     steps(w, 40);
     expect(w.clouds.size).toBe(1); // nothing else drops: no trail, no cadence
   });
@@ -121,7 +135,6 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
     for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 3]) {
       const w = bareWorld();
       const a = place(w, 'a', 100, 100, heading);
-      stock(w, a, 1);
       press(w, a);
       const [c] = [...w.clouds.values()];
       expect(c.x, `heading ${heading}`).toBe(a.state.x);
@@ -129,69 +142,76 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
     }
   });
 
-  it('RE-PRESS 3 s later at a new position: a SECOND full cloud there; the first is untouched (no restart, no refusal — ruling 46)', () => {
+  it('a press INSIDE the cooldown is refused `cooling` (act + abilitySlot), no cloud, the stamp unmoved', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 2);
-    const t0 = w.now;
+    const t0 = press(w, a);
+    steps(w, 60); // +3 s, well inside the cooldown
+    const ready = a.smokeReadyAt;
     press(w, a);
-    steps(w, 60); // +3 s
+    expect(w.clouds.size).toBe(1);
+    expect(a.smokeReadyAt).toBe(ready);
+    expect(smokeDenials(w, a)).toEqual([
+      { slot: abilitySlot('smoke'), reason: 'cooling', seq: a.lastActSeq, act: abilityCode('smoke') },
+    ]);
+    expect(ready).toBe(abilityReadyAt(t0, a.stats, 'smoke'));
+  });
+
+  it('a READY re-press at a new position makes a SECOND full cloud there; the first is untouched (no restart — ruling 46)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const t0 = press(w, a);
+    steps(w, 60);
     a.state.x = 120;
     a.state.y = -30;
-    const t1 = w.now;
-    expect(press(w, a)).toEqual({ ok: true });
-    expect(copies(a)).toBe(0); // the second copy is SPENT
+    a.smokeReadyAt = 0; // test seam: the cooldown is not what this case is about
+    const t1 = press(w, a);
     const clouds = [...w.clouds.values()];
     expect(clouds).toHaveLength(2);
-    expect(clouds[0]).toMatchObject({ x: 0, y: 0, bornAt: t0, until: t0 + CM.lifeMs });
-    expect(clouds[1]).toMatchObject({ x: 120, y: -30, bornAt: t1, until: t1 + CM.lifeMs });
+    expect(clouds[0]).toMatchObject({ x: 0, y: 0, bornAt: t0, until: t0 + SMOKE0.lifeMs });
+    expect(clouds[1]).toMatchObject({ x: 120, y: -30, bornAt: t1, until: t1 + SMOKE0.lifeMs });
     expect(clouds[0].id).not.toBe(clouds[1].id);
-    expect(a.cloudUntil).toBe(t1 + CM.lifeMs); // the stamp follows the most recent cloud
+    expect(a.cloudUntil).toBe(t1 + SMOKE0.lifeMs); // the stamp follows the most recent cloud
     // They die on their OWN clocks, oldest first.
-    while (w.now < t0 + CM.lifeMs) steps(w, 1);
+    while (w.now < t0 + SMOKE0.lifeMs) steps(w, 1);
     expect(w.clouds.size).toBe(1);
-    while (w.now < t1 + CM.lifeMs) steps(w, 1);
+    while (w.now < t1 + SMOKE0.lifeMs) steps(w, 1);
     expect(w.clouds.size).toBe(0);
   });
 
-  it('a SINKING press is refused `blocked`, the copy kept, no cloud made; clouds already made live out their life past the hull (amendment 127)', () => {
+  it('a SINKING press is refused `blocked`, no cooldown, no cloud; clouds already made live out their life past the hull (amendment 127)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 2);
-    const t0 = w.now;
-    press(w, a);
+    const t0 = press(w, a);
     expect(w.clouds.size).toBe(1);
     w.sinkShip('a');
     expect(isSinking(a.lifecycle)).toBe(true);
     expect(a.cloudUntil).toBe(0); // the own-cloud stamp dies with the life
-    expect(press(w, a)).toEqual({ ok: false, reason: 'blocked' });
-    expect(copies(a)).toBe(1);
-    expect(a.cards.filter((c) => c === 'countermeasure')).toHaveLength(1);
+    a.smokeReadyAt = 0; // ready, so only the sinking gate can refuse
+    press(w, a);
+    expect(smokeDenials(w, a).map((d) => d.reason)).toEqual(['blocked']);
+    expect(a.smokeReadyAt).toBe(0);
     expect(w.clouds.size).toBe(1);
     steps(w, 120); // through the founder edge and the respawn — the cloud is still on the water
     expect(w.clouds.size).toBe(1);
-    while (w.now < t0 + CM.lifeMs) steps(w, 1);
+    while (w.now < t0 + SMOKE0.lifeMs) steps(w, 1);
     expect(w.clouds.size).toBe(0); // deleted at exactly bornAt + lifeMs
   });
 
   it('a NON-FINITE position makes nothing: no NaN cloud ever enters the store', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 2);
     a.state.x = Number.NaN;
+    a.state.speed = 0;
     press(w, a);
     expect(w.clouds.size).toBe(0);
-    a.state.x = 0;
-    press(w, a);
-    expect(w.clouds.size).toBe(1);
     for (const c of w.clouds.values()) expect(Number.isFinite(c.x) && Number.isFinite(c.y)).toBe(true);
   });
 
-  it('resetForMatchStart clears every cloud and every own-cloud stamp (the mines / decoys precedent)', () => {
+  it('resetForMatchStart clears every cloud and every own-cloud stamp (the mines precedent)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 900, 0);
-    stock(w, a, 1);
     press(w, a);
     expect(w.clouds.size).toBe(1);
     expect(a.cloudUntil).toBeGreaterThan(w.now);
@@ -199,34 +219,54 @@ describe('COUNTERMEASURE — the press (rulings 43 / 46, amendment 127)', () => 
     expect(w.clouds.size).toBe(0);
     expect(w.cloudCount).toBe(0);
     for (const s of w.ships.values()) expect(s.cloudUntil).toBe(0);
+    expect(a.smokeReadyAt).toBe(0); // and the ability is ready again (Story 10.5)
     steps(w, 20);
     expect(w.clouds.size).toBe(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// A cloud hides NOTHING (Story 9.3 session 2, Eric 2026-10-12)
+// A cloud occludes SIGHT like rain, never radar (Story 11.6, Eric 2026-11-14)
 // ---------------------------------------------------------------------------
 
-describe('COUNTERMEASURE — a cloud hides nothing (Story 9.3 session 2: a client overlay)', () => {
-  it('a fresh cloud centred between two hulls 150 u apart hides neither from the other — whoever owns it', () => {
+describe('COUNTERMEASURE — a cloud occludes sight by optical depth, whoever owns it; never radar (Story 11.6)', () => {
+  const T = fogMaxDepth(CONFIG.fog);
+
+  it('a grown cloud centred between two hulls hides each from the other — whoever owns it; a cloud whose soft rim the line only grazes hides neither', () => {
+    const R1 = cloudOutlineRadius(SMOKE0.lifeMs, SMOKE0);
     for (const owner of ['a', 'b', 'z']) {
       const w = bareWorld();
       place(w, 'a', 0, 0);
-      place(w, 'b', 150, 0);
-      injectCloud(w, 'mid', owner, 75, 0);
-      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}`).toEqual(['b']);
-      expect(contactIds(buildFrame(w, 'b')), `owner ${owner}`).toEqual(['a']);
+      place(w, 'b', R1 * 4, 0);
+      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}, no cloud`).toEqual(['b']);
+      injectCloud(w, 'graze', owner, R1 * 2, R1 * 0.95, w.now - SMOKE0.lifeMs * 0.999);
+      const thin = w.smokeDepthAlong(0, 0, R1 * 4, 0);
+      expect(thin).toBeGreaterThan(0); // premises: the line crosses smoke...
+      expect(thin).toBeLessThan(T / 2); // ...well under the threshold
+      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}, grazed`).toEqual(['b']);
+      expect(contactIds(buildFrame(w, 'b')), `owner ${owner}, grazed`).toEqual(['a']);
+      w.clouds.clear();
+      injectCloud(w, 'mid', owner, R1 * 2, 0, w.now - SMOKE0.lifeMs * 0.999);
+      expect(w.smokeDepthAlong(0, 0, R1 * 4 - R1 / 2, 0)).toBeGreaterThan(T * 1.5); // premise: far past it, short of the hull's near end
+      expect(contactIds(buildFrame(w, 'a')), `owner ${owner}, across`).toEqual([]);
+      expect(contactIds(buildFrame(w, 'b')), `owner ${owner}, across`).toEqual([]);
     }
   });
 
-  it("radar paints a hull standing inside a NON-owner's fresh cloud in the annulus", () => {
+  it("radar paints a hull standing inside a NON-owner's fresh cloud in radar-only water (beyond both eye tiers)", () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    place(w, 'b', 700, 0); // sight < 700 ≤ dropout start < radar (Story 9.8, amendment 103)
-    injectCloud(w, 'onB', 'b', 700, 0);
+    // Radar-only water (Story 11.2): past the plain-hull eye reach, inside the
+    // radar reach — the two hulls seated either side of the origin, on the board.
+    const d = (CONFIG.vision.hullSight + CONFIG.vision.radar) / 2;
+    expect(d / 2).toBeLessThan(w.map.radius); // premise: both seats are on the water
+    const a = place(w, 'a', -d / 2, 0);
+    place(w, 'b', d / 2, 0);
+    injectCloud(w, 'onB', 'b', d / 2, 0);
     windowAround(a, 0);
-    expect(eventsOf(buildFrame(w, 'a'), 'blip')).toHaveLength(1);
+    const f = buildFrame(w, 'a');
+    expect(contactIds(f)).toEqual([]); // premise: the eye has nothing —
+    expect('pc' in f).toBe(false); // — at either tier
+    expect(eventsOf(f, 'blip')).toHaveLength(1);
   });
 });
 
@@ -237,12 +277,14 @@ describe('COUNTERMEASURE — a cloud hides nothing (Story 9.3 session 2: a clien
 describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RADAR-DETECTED; owner / spectator always)', () => {
   const SIGHT = CONFIG.vision.sight;
   const RADAR = CONFIG.vision.radar;
-  const R0 = cloudOutlineRadius(0);
-  // Placements off the live ladder (Story 9.8, amendment 103): NEAR's nearest
-  // rim point sits 30 u inside sight, FAR's 70 u past it; RADAR_C's whole
-  // disc is beyond sight and its centre inside the dropout's flat band (so
-  // every swept tick delivers — ruling 121); BEYOND's nearest point is past
-  // radar.
+  const R0 = cloudOutlineRadius(0, SMOKE0);
+  // Placements off the named reaches (Story 11.2 — `sight` and `radar` are
+  // each their own hectometer fact): NEAR's nearest rim point sits 30 u
+  // inside sight, FAR's 70 u past it; RADAR_C's whole disc is beyond sight
+  // and inside radar (every swept, unshadowed tick delivers — the dropout
+  // roll is gone); BEYOND's nearest point is past radar. A cloud is a raw
+  // store write and none of these cases steps the world, so BEYOND lying off
+  // the board is harmless here.
   const NEAR = SIGHT + R0 - 30;
   const FAR = SIGHT + R0 + 70;
   const RADAR_C = SIGHT + R0 + 100;
@@ -278,10 +320,11 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     place(w, 'b', 900, 900);
     expect(RADAR_C - R0).toBeGreaterThan(SIGHT); // premise: no point of the disc in sight
     expect(RADAR_C - R0).toBeLessThanOrEqual(RADAR); // premise: its nearest point in radar range
-    expect(RADAR_C).toBeLessThanOrEqual(CONFIG.vision.dropout.startU); // premise: no dropout at the centre
-    expect(0.2).toBeLessThan(Math.asin(R0 / RADAR_C)); // premise: 0.2 rad is inside the bearing span
+    // Half the disc's half-span: inside its bearing span, off the centre's own
+    // bearing (derived from the stamped disc — Story 10.6 — never a literal).
+    const off = Math.asin(R0 / RADAR_C) / 2;
     injectCloud(w, 'c1', 'b', RADAR_C, 0);
-    windowAround(a, 0.2); // inside the span ±asin(R0/RADAR_C), off the centre's own bearing
+    windowAround(a, off); // inside the span ±asin(R0/RADAR_C), off the centre's own bearing
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['c1']);
     windowAround(a, Math.PI);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
@@ -312,8 +355,11 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
-    injectCloud(w, 'mine', 'a', 2000, 0);
-    injectCloud(w, 'theirs', 'b', -2000, 0);
+    // 'mine' lies past a's radar; 'theirs' lies wholly past a's sight (and
+    // a's beam is parked zero-width, so radar delivers nothing) and as far
+    // again from its owner b.
+    injectCloud(w, 'mine', 'a', BEYOND, 0);
+    injectCloud(w, 'theirs', 'b', -FAR, 0);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['mine']);
     expect(cloudIds(buildFrame(w, 'b'))).toEqual(['theirs']);
     expect(cloudIds(buildFrame(w, 'a', 'finished'))).toEqual(['mine', 'theirs']); // unfogged, in press order
@@ -328,14 +374,14 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['A', 'B']);
   });
 
-  it('the wire shape is {id,x,y,t0} in that order — no owner, no until', () => {
+  it('the wire shape is {id,x,y,t0,lifeMs,r0,r1} in that order — no owner, no until', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
     injectCloud(w, 'cl9', 'b', 50, 0, w.now - 1234);
     const f = buildFrame(w, 'a');
-    expect(f.clouds).toEqual([{ id: 'cl9', x: 50, y: 0, t0: w.now - 1234 }]);
-    expect(Object.keys(f.clouds![0])).toEqual(['id', 'x', 'y', 't0']);
+    expect(f.clouds).toEqual([{ id: 'cl9', x: 50, y: 0, t0: w.now - 1234, lifeMs: SMOKE0.lifeMs, r0: SMOKE0.r0, r1: SMOKE0.r1 }]);
+    expect(Object.keys(f.clouds![0])).toEqual(['id', 'x', 'y', 't0', 'lifeMs', 'r0', 'r1']);
     const text = JSON.stringify(f);
     for (const forbidden of ['ownerId', 'bornAt', 'until']) expect(text).not.toContain(forbidden);
   });
@@ -343,7 +389,7 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
   it('a cloud leaves the channel the step it expires — never a stale cloud on the wire', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectCloud(w, 'old', 'z', 50, 0, w.now - (CM.lifeMs - DT)); // one tick of life left; a stands inside it
+    injectCloud(w, 'old', 'z', 50, 0, w.now - (SMOKE0.lifeMs - DT)); // one tick of life left; a stands inside it
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['old']);
     steps(w, 1);
     expect(w.clouds.size).toBe(0);
@@ -355,24 +401,25 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
 // The bot
 // ---------------------------------------------------------------------------
 
-describe('COUNTERMEASURE — the bot (R12 on one cloud per press)', () => {
-  it('a hurt bot holding two copies presses ONCE on the way out — one cloud at its centre — and not again until that cloud expires', () => {
+describe('SMOKE — the bot (one press, then the cooldown)', () => {
+  it('a hurt bot presses SMOKE on the way out — one cloud at its centre, the cooldown stamped — and not again inside the cooldown', () => {
     const w = new World(81624, 4);
     w.map.islands.length = 0;
-    const rec = w.addBot('torpedoBoat', 'duelist');
-    stock(w, rec, 2);
+    const rec = w.addBot('bismarck', 'duelist');
     const step = (ms: number): void => steps(w, Math.round(ms / DT));
     rec.hp = rec.stats.maxHp * 0.1;
     step(12_000);
-    expect(copies(rec)).toBe(1);
     expect(w.clouds.size).toBe(1);
     const [cloud] = [...w.clouds.values()];
     expect(cloud.ownerId).toBe(rec.id);
     expect(rec.cloudUntil).toBe(cloud.until);
+    expect(rec.smokeReadyAt).toBe(abilityReadyAt(cloud.bornAt, rec.stats, 'smoke'));
     rec.hp = rec.stats.maxHp * 0.1; // stay on the way out
-    while (w.now < cloud.until - DT) steps(w, 1);
-    expect(copies(rec)).toBe(1); // its own cloud is still up
-    step(5_000);
-    expect(copies(rec)).toBe(0); // expired: pressed again
+    while (w.now < cloud.until + 5_000) {
+      steps(w, 1);
+      rec.hp = Math.min(rec.hp, rec.stats.maxHp * 0.1);
+    }
+    expect(w.clouds.size).toBe(0); // the cloud expired, and the cooldown still holds the key
+    expect(w.now).toBeLessThan(rec.smokeReadyAt);
   });
 });

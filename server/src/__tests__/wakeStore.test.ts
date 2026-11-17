@@ -8,7 +8,7 @@
 // speed, and nothing survives the practice-field wipe.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, SHIP_CLASS_IDS, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
+import { isAfloat, CONFIG, SHIP_CLASS_IDS, effectiveStats, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -34,7 +34,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 /** Drive `id` full ahead for `ticks` ticks. */
 function drive(w: World, id: string, ticks: number): void {
   for (let t = 1; t <= ticks; t++) {
-    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
   }
 }
@@ -54,7 +54,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     expect(torp.widthU).toBe(CONFIG.vision.radarCellU); // exactly one radar cell
   });
 
-  it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus PLUS a full wake-draft lift (never base kinematics alone)', () => {
+  it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus AND a full SPEED BUOY term PLUS a full wake-draft lift (never base kinematics alone)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // The class max + a PROPORTION of it for the boost (Story 8.9, amendment
@@ -63,7 +63,8 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     // would silently drop the oldest tail. wakeTopSpeed derives it through the
     // SAME shared boostedKinematics → draftedKinematics hooks the client's ring
     // budget uses.
-    const base = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    // (The SPEED BUOY's term left with the buoys — Story 10.5.)
+    const base = effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed;
     const boosted = base + base * CONFIG.boost.factor;
     const top = boosted + boosted * CONFIG.wake.draft.lift;
     expect(a.wake.cap).toBe(wakeCapacity(top, CONFIG.vision.wakeLifeMs));
@@ -161,7 +162,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     const laid = before.count;
     expect(laid).toBeGreaterThan(0);
     const capBefore = before.cap;
-    for (let i = 0; i < 5; i++) w.applyCard(a, 'speed'); // ×1.05⁵ maxSpeed
+    for (let i = 0; i < 5; i++) w.applyCard(a, 'engines'); // ×1.05⁵ maxSpeed
     expect(a.wake.cap).toBeGreaterThan(capBefore); // upsized for the faster hull
     expect(a.wake.count).toBe(laid); // every live sample replayed, none dropped
     expect(a.wake.xs[0]).toBe(before.xs[(before.head + 0) % before.cap]);

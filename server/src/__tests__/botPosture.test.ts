@@ -10,7 +10,6 @@ import {
   hullBumper,
   hullEnvelope,
   mulberry32,
-  type DecoyView,
   type EffectiveStats,
   type GameEvent,
   type HullId,
@@ -19,7 +18,6 @@ import {
 import type { PerceptionView } from '../game/perception.js';
 import type { BotMind, BotProfileId } from '../game/ai/types.js';
 import { profileOf } from '../game/ai/profiles.js';
-import { probableDecoy } from '../game/ai/plot.js';
 import { noteContact, oddsFor, outnumbered, targetReachU } from '../game/ai/posture.js';
 import {
   choosePosture,
@@ -56,16 +54,25 @@ function mind(profile: BotProfileId = 'bulwark'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], ...over };
 }
 
-function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat'): EffectiveStats {
+function stats(cls: 'bismarck' | 'yamato' | 'warspite' = 'bismarck'): EffectiveStats {
   return effectiveStats(hullEnvelope(cls));
+}
+
+/** hp — a worn hull for the bulwark (the default profile): 90 % of max, under
+ *  its odds bar (1.0) against a peer, well above its disengage fraction. */
+function wornHp(st: EffectiveStats): number {
+  const hp = st.maxHp * 0.9;
+  expect(hp / st.maxHp).toBeLessThan(profileOf('bulwark').oddsThreshold);
+  expect(hp / st.maxHp).toBeGreaterThan(profileOf('bulwark').disengageHpFrac + CONFIG.bots.disengageHysteresis);
+  return hp;
 }
 
 /** A hull on the torpedo-boat class at full health by default. */
 function situation(over: Partial<BotSituation> = {}): BotSituation {
-  const st = over.stats ?? stats('torpedoBoat');
+  const st = over.stats ?? stats('bismarck');
   return {
     now: NOW,
     x: 0,
@@ -78,7 +85,7 @@ function situation(over: Partial<BotSituation> = {}): BotSituation {
     profile: profileOf('bulwark'),
     ring: WIDE,
     islands: [],
-    hullId: 'torpedoBoat',
+    hullId: 'bismarck',
     ...over,
   };
 }
@@ -94,8 +101,7 @@ function track(over: Partial<BotTrack> = {}): BotTrack {
     seenAt: NOW,
     live: true,
     sunk: false,
-    cls: 'torpedoBoat' as HullId,
-    fleet: false,
+    cls: 'bismarck' as HullId,
     firstSeenAt: 0,
     hits: 0,
     vx: null,
@@ -123,49 +129,53 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
   it('odds = own hp × (1 + own damage estimate) / peer factor − the crowd term; an unclassed plot is a peer', () => {
     const sit = situation({ hp: situation().maxHp / 2 });
     const anon = plot({ x: reachOf(sit.stats) + 200, hits: 1 });
-    expect(oddsFor(sit, anon, [anon], [])).toBeCloseTo(0.5 * (1 + damageEstimate(anon)), 9);
-    // A sighted battleship: its base hull over the torpedo boat's base hull.
-    const bs = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
-    const peer = hullEnvelope('battleship').hp / hullEnvelope('torpedoBoat').hp;
-    expect(oddsFor(sit, bs, [bs], [])).toBeCloseTo(0.5 / peer, 9);
+    expect(oddsFor(sit, anon, [anon])).toBeCloseTo(0.5 * (1 + damageEstimate(anon)), 9);
+    // A sighted battleship: its base toughness over the torpedo boat's — the
+    // ARMOR index since Story 10.3 (toughness = ARMOR, never HP).
+    const bs = track({ x: reachOf(sit.stats) + 200, cls: 'yamato' });
+    const peer = hullEnvelope('yamato').index.armor / hullEnvelope('bismarck').index.armor;
+    expect(oddsFor(sit, bs, [bs])).toBeCloseTo(0.5 / peer, 9);
   });
 
   it('PASS -> pursue: a full hull against a peer beyond own reach clears the bulwark bar', () => {
     const sit = situation();
     const t = track({ x: reachOf(sit.stats) + 200 });
-    expect(oddsFor(sit, t, [t], [])).toBeGreaterThanOrEqual(profileOf('bulwark').oddsThreshold);
+    expect(oddsFor(sit, t, [t])).toBeGreaterThanOrEqual(profileOf('bulwark').oddsThreshold);
     expect(choosePosture(sit, t)).toBe('pursue');
   });
 
   it('IN OWN REACH -> engage, whatever the odds', () => {
     const sit = situation({ hp: 1 + situation().maxHp * profileOf('bulwark').disengageHpFrac });
-    expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10, cls: 'battleship' }))).toBe('engage');
+    expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10, cls: 'yamato' }))).toBe('engage');
   });
 
   // Amendment 194 read literally (orchestrator ruling 2026-10-17): a failed
   // gate that is not outnumbered SHADOWS the contact at the edge of own reach.
   it('FAIL -> KITE (shadow) on a contact that is not closing, or that closes against a gun no longer than own', () => {
-    const base = stats('torpedoBoat');
+    const base = stats('bismarck');
     const longer = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 1.3 } } };
-    const sit = situation({ stats: longer });
+    // A worn hull, so the gate FAILS on the odds whatever the class toughness
+    // ratio (every scaffold hull is ARMOR 100 since Story 10.3 — a peer).
+    const worn = { hp: wornHp(base) };
+    const sit = situation({ stats: longer, ...worn });
     const at = reachOf(longer) + 100;
-    const closing = track({ x: at, cls: 'battleship', heading: Math.PI, speed: 20 });
-    expect(oddsFor(sit, closing, [closing], [])).toBeLessThan(profileOf('bulwark').oddsThreshold);
+    const closing = track({ x: at, cls: 'yamato', heading: Math.PI, speed: 20 });
+    expect(oddsFor(sit, closing, [closing])).toBeLessThan(profileOf('bulwark').oddsThreshold);
     expect(choosePosture(sit, closing)).toBe('kite');
     // Running away (not closing): shadowed too.
-    expect(choosePosture(sit, track({ x: at, cls: 'battleship', heading: 0, speed: 20 }))).toBe('kite');
+    expect(choosePosture(sit, track({ x: at, cls: 'yamato', heading: 0, speed: 20 }))).toBe('kite');
     // A course-less plot is not closing: shadowed.
-    expect(choosePosture(situation(), track({ x: reachOf(base) + 200, cls: 'battleship' }))).toBe('kite');
+    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 200, cls: 'yamato' }))).toBe('kite');
     // A closing sighted peer whose base reach equals own: ≥, so shadowed.
-    expect(targetReachU(situation(), track({ cls: 'battleship' }))).toBeLessThanOrEqual(reachOf(base));
-    expect(choosePosture(situation(), track({ x: reachOf(base) + 100, cls: 'battleship', heading: Math.PI, speed: 20 }))).toBe('kite');
+    expect(targetReachU(situation(), track({ cls: 'bismarck' }))).toBeLessThanOrEqual(reachOf(base));
+    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 100, cls: 'bismarck', heading: Math.PI, speed: 20 }))).toBe('kite');
   });
 
   it('FAIL + closing with the LONGER gun -> HIDE with a cover point (solid fog), DISENGAGE without one', () => {
-    const base = stats('torpedoBoat');
+    const base = stats('bismarck');
     const shorter = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 0.7 } } };
-    const sit = situation({ stats: shorter });
-    const t = track({ x: reachOf(shorter) + 200, cls: 'battleship', heading: Math.PI, speed: 20 });
+    const sit = situation({ stats: shorter, hp: wornHp(base) });
+    const t = track({ x: reachOf(shorter) + 200, cls: 'yamato', heading: Math.PI, speed: 20 });
     expect(targetReachU(sit, t)).toBeGreaterThan(reachOf(shorter));
     const foggy = mind();
     foggy.fogAt = solidFog;
@@ -179,13 +189,13 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
   });
 
   it('a LEANS-IN profile closes on a failed gate down to three quarters of its bar', () => {
-    // A slightly worn hull (90 %), so the odds sit under the bar whatever the
-    // class hp ratio (a full 300 hp torpedoBoat vs a 350 hp battleship reads
-    // 0.857, over the raider's bar, since amendment 209).
-    const st = stats('torpedoBoat');
-    const sit = situation({ profile: profileOf('raider'), hp: st.maxHp * 0.9 });
-    const t = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
-    const odds = oddsFor(sit, t, [t], []);
+    // A worn hull at 90 % of the raider's bar, so the odds sit under the bar
+    // whatever the class toughness ratio (every scaffold hull is a peer since
+    // Story 10.3) yet above the lean-in floor.
+    const st = stats('bismarck');
+    const sit = situation({ profile: profileOf('raider'), hp: st.maxHp * profileOf('raider').oddsThreshold * 0.9 });
+    const t = track({ x: reachOf(sit.stats) + 200, cls: 'yamato' });
+    const odds = oddsFor(sit, t, [t]);
     const bar = profileOf('raider').oddsThreshold;
     expect(odds).toBeLessThan(bar);
     expect(choosePosture(sit, t)).toBe(odds >= bar * CONFIG.bots.leanInFactor ? 'pursue' : 'kite');
@@ -203,15 +213,14 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     m.contacts.set('e1', t);
     others.forEach((o) => m.contacts.set(o.id!, o));
     const all = [t, ...others];
-    expect(outnumbered(sit, t, all, [])).toBe(true);
+    expect(outnumbered(sit, t, all)).toBe(true);
     expect(['hide', 'disengage']).toContain(choosePosture(sit, t, 'pursue', { mind: m, targetKey: 'e1' }));
-    // PvE fleet hulls, wrecks and beyond-radar plots do not count.
+    // Wrecks and beyond-radar plots do not count.
     const harmless = [
-      track({ id: 'f', x: 0, y: 100, fleet: true, cls: 'droneSmall' }),
       track({ id: 'w', x: 0, y: 200, sunk: true }),
       track({ id: 'far', x: 0, y: sit.stats.radarRange + 100 }),
     ];
-    expect(outnumbered(sit, t, [t, ...harmless], [])).toBe(false);
+    expect(outnumbered(sit, t, [t, ...harmless])).toBe(false);
   });
 });
 
@@ -219,7 +228,7 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
   const bulwark = profileOf('bulwark');
 
   it('holds below line + hysteresis, and above it while a hostile still paints; releases once contact is broken', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const m = mind();
     m.fogAt = noFog;
     const chaser = plot({ x: 800, paintX: 800, paintAt: NOW, seenAt: NOW });
@@ -245,7 +254,7 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
   });
 
   it('reaching the cover point releases a healed hull even under paint', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const m = mind();
     m.contacts.set('c', plot({ x: 800, paintAt: NOW, seenAt: NOW }));
     m.disengagedSince = NOW - 5000;
@@ -254,7 +263,7 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
     expect(choosePosture(situation({ hp: healed }), null, 'disengage', { mind: m })).not.toBe('disengage');
   });
 
-  it('the contact clock reads live sightings and paint times, never wrecks or decoys', () => {
+  it('the contact clock reads live sightings and paint times, never wrecks', () => {
     const m = mind();
     m.contacts.set('w', track({ id: 'w', sunk: true, live: false }));
     noteContact(m, NOW);
@@ -269,16 +278,16 @@ describe('ai/posture — THE DISENGAGE LATCH (epic-9 amendment 196)', () => {
 });
 
 describe('ai/posture — THE RAM EXIT (epic-9 amendment 201)', () => {
-  const TB = stats('torpedoBoat');
+  const TB = stats('bismarck');
   const raider = profileOf('raider');
   const broken = TB.maxHp * raider.disengageHpFrac - 1;
-  const touching = hullBumper('torpedoBoat', 'droneMedium') - 1;
+  const touching = hullBumper('bismarck', 'yamato') - 1;
 
   it('falls to disengage ramExitMs after the strike on a surviving target, and never re-arms on it until the pair separate', () => {
     const m = mind('raider');
     m.fogAt = noFog;
     m.targetKey = 'e1';
-    const t = track({ x: touching, cls: 'droneMedium', hits: 3 });
+    const t = track({ x: touching, cls: 'yamato', hits: 3 });
     m.contacts.set('e1', t);
     const at = (now: number) =>
       choosePosture(
@@ -352,66 +361,106 @@ describe('ai/posture — HOLD in cover with no target (epic-9 amendments 199/202
   });
 });
 
-describe('ai/utility — DECOYS (epic-9 amendment 197)', () => {
-  const ownBuoy = (x: number, y: number): DecoyView => ({ id: 'd1', x, y, own: true, by: 'me', hp: 50 });
+describe('ai/posture — THE BEACON STAYER (Story 10.12, Eric 2026-11-11, R4)', () => {
+  const stayers = CONFIG.bots.profiles.filter((id) => !profileOf(id).contestsBeacon);
+  const contesters = CONFIG.bots.profiles.filter((id) => profileOf(id).contestsBeacon);
+  /** u — a distance inside the paying circle (the bot is collecting). */
+  const insideU = CONFIG.beacons.rangeU * CONFIG.bots.beaconStandoffFrac;
+  /** A mind whose beacon goal lies `awayU` from the situation's own position
+   *  (the default: parked inside its paying circle). */
+  const farming = (id: BotProfileId, awayU = insideU, paying = true): BotMind => {
+    const m = mind(id);
+    m.fogAt = noFog;
+    const at = situation({ profile: profileOf(id) });
+    m.beaconGoal = { x: at.x, y: at.y + awayU, bearing: -Math.PI / 2, standoff: { x: at.x, y: at.y }, centerSide: false, paying };
+    return m;
+  };
 
-  it('an OWN decoy\'s paint is never selected, even as the only thing on the water', () => {
-    const m = mind();
-    m.view = view({ decoys: [ownBuoy(-600, 0)] });
-    m.contacts.set('a', plot({ x: -600, y: 0 }));
-    expect(selectTargetKey(m, situation())).toBeNull();
+  it('both kinds are dealt', () => {
+    expect(stayers.length).toBeGreaterThan(0);
+    expect(contesters.length).toBeGreaterThan(0);
   });
 
-  it('a SIGHTED enemy decoy\'s plot is excluded; the live hull in reach is selected', () => {
-    const m = mind();
-    m.view = view({ decoys: [{ id: 'd2', x: 300, y: 0, own: false, by: 'enemy' }] });
-    m.contacts.set('buoy', plot({ x: 300, y: 5 }));
-    m.contacts.set('hull', track({ id: 'hull', x: 0, y: 450 }));
-    expect(selectTargetKey(m, situation())).toBe('hull');
+  it('a STAYER with a beacon goal keeps `farm` with a target in reach and beyond it', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      const far = track({ x: reachOf(sit.stats) + 200 });
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id) }), id).toBe('farm');
+      expect(choosePosture(sit, far, 'farm', { mind: farming(id) }), id).toBe('farm');
+    }
   });
 
-  it('a probable buoy (tiny, wake-less, stationary for decoyStillSweeps) is demoted ONLY while a live hull is in reach', () => {
-    const sit = situation();
-    const cues = { paintCells: 4, stillSweeps: CONFIG.bots.decoyStillSweeps };
-    const buoy = plot({ x: -600, y: 0, ...cues });
-    const notBuoy = plot({ x: -600, y: 0, ...cues, paintCells: 40 });
-    expect(probableDecoy(buoy)).toBe(true);
-    expect(probableDecoy(notBuoy)).toBe(false);
-    expect(probableDecoy({ ...buoy, hasWake: true })).toBe(false);
-    expect(probableDecoy({ ...buoy, stillSweeps: CONFIG.bots.decoyStillSweeps - 1 })).toBe(false);
-    const near = track({ id: 'h', x: 0, y: reachOf(sit.stats) - 50 });
-    const far = track({ id: 'h', x: 0, y: reachOf(sit.stats) + 50 });
-    const ratio = (h: BotTrack) => scoreTrack(buoy, sit, [buoy, h]) / scoreTrack(notBuoy, sit, [notBuoy, h]);
-    expect(ratio(near)).toBeCloseTo(CONFIG.bots.decoyDemote, 9);
-    expect(ratio(far)).toBeCloseTo(1, 9);
+  it('a CONTESTER with a beacon goal leaves it — the chain exactly as without one', () => {
+    for (const id of contesters) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id) }), id).toBe('engage');
+      const bare = mind(id);
+      bare.fogAt = noFog;
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id) }), id).toBe(choosePosture(sit, near, 'farm', { mind: bare }));
+    }
   });
 
-  it('the fold carries the cues: a 2x2 paint painted stationary across sweeps reads as a probable buoy', () => {
-    const m = mind();
-    const blip = (t: number): GameEvent => ({ k: 'blip', t, gx: 40, gy: 0, w: 2, h: 2, bits: [0b1111] });
-    const sweep = 60000 / CONFIG.vision.sweepRpm;
-    for (let i = 0; i <= CONFIG.bots.decoyStillSweeps; i += 1) foldView(m, view({ events: [blip(i)] }), 1000 + i * sweep);
-    const [t] = [...m.contacts.values()];
-    expect(m.contacts.size).toBe(1);
-    expect(t.paintCells).toBe(4);
-    expect(t.stillSweeps).toBe(CONFIG.bots.decoyStillSweeps);
-    expect(probableDecoy(t)).toBe(true);
+  it('a stayer still ON ITS WAY to a beacon (outside the paying circle) fights as before', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const enRoute = farming(id, CONFIG.beacons.rangeU * 4);
+      expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10 }), 'farm', { mind: enRoute }), id).toBe('engage');
+    }
   });
 
-  it('a decoy never counts as a hostile in the odds count', () => {
-    const sit = situation();
-    const t = track({ x: reachOf(sit.stats) + 200 });
-    const buoys = Array.from({ length: CONFIG.bots.outnumberedCount }, (_, i) =>
-      plot({ x: 0, y: (i + 1) * 100, paintCells: 4, stillSweeps: CONFIG.bots.decoyStillSweeps }),
-    );
-    expect(outnumbered(sit, t, [t, ...buoys], [])).toBe(false);
+  it('a stayer ALREADY FIGHTING (previous posture not `farm`) that crosses a beacon\'s paying circle is not pulled out of its fight', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      for (const prev of ['engage', 'pursue', 'kite'] as const) {
+        expect(choosePosture(sit, near, prev, { mind: farming(id) }), `${id} ${prev}`).toBe('engage');
+      }
+    }
+  });
+
+  it('a stayer on a beacon that is NOT PAYING (charted / spent) fights as before', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const near = track({ x: reachOf(sit.stats) - 10 });
+      expect(choosePosture(sit, near, 'farm', { mind: farming(id, insideU, false) }), id).toBe('engage');
+    }
+  });
+
+  it('a stayer WITHOUT a beacon goal fights as before', () => {
+    for (const id of stayers) {
+      const sit = situation({ profile: profileOf(id) });
+      const m = mind(id);
+      m.fogAt = noFog;
+      expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10 }), 'farm', { mind: m }), id).toBe('engage');
+    }
+  });
+
+  it('the break-off, the ring run and the close-imminent ring clause still outrank the stay', () => {
+    for (const id of stayers) {
+      const p = profileOf(id);
+      const base = situation({ profile: p });
+      const near = track({ x: reachOf(base.stats) - 10 });
+      // Broken hull: break off (or ram), never farm.
+      const broken = situation({ profile: p, hp: base.maxHp * p.disengageHpFrac - 1 });
+      expect(['disengage', 'ram']).toContain(choosePosture(broken, near, 'farm', { mind: farming(id) }));
+      // Outside the live ring: the ring run.
+      const ring: ZoneRing = { cx: 0, cy: 0, r: 2000 };
+      const outside = situation({ profile: p, ring, x: ring.r + 500 });
+      expect(choosePosture(outside, track({ x: ring.r + 500 + 100 }), 'farm', { mind: farming(id) }), id).toBe('ringRun');
+      // A close inside the margin, target beyond reach: no fight opened, no stay.
+      const far = track({ x: reachOf(base.stats) + 200 });
+      const soon = { mind: farming(id), zone: { phase: 'closing' as const, closesInMs: CONFIG.bots.ringOpenMarginMs - 1 } };
+      expect(choosePosture(base, far, 'farm', soon), id).toBe('reposition');
+    }
   });
 });
 
 describe('ai/utility — HITS PER CLICK (epic-9 amendment 195)', () => {
   it('two hc rows of one click count one hit; the next click counts again', () => {
     const m = mind();
-    foldView(m, view({ contacts: [{ id: 'e1', x: 200, y: 0, heading: 0, speed: 0, cls: 'battleship' }] }), 1000);
+    foldView(m, view({ contacts: [{ id: 'e1', x: 200, y: 0, heading: 0, speed: 0, cls: 'yamato' }] }), 1000);
     m.fireSeq = 1;
     foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 200, y: 0 }, { k: 'hc', id: 'me', x: 202, y: 0 }] }), 1500);
     expect(m.contacts.get('e1')!.hits).toBe(1);

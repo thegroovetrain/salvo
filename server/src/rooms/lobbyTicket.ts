@@ -12,7 +12,9 @@
 // ticket: a random string minted once per process at module load, known only
 // to server modules, never sent to any client and never echoed into a
 // sanitized option bag. `sanitizeRoomOptions` admits the three keys only when
-// the bag carries this exact value.
+// the bag carries this exact value. The standard queue carries it too when its
+// bot fill is on (Story 10.11, epic-10 amendment 20), for `botFill` alone —
+// never `mode`, never `mapSeed`.
 //
 // PER PROCESS, deliberately: no env secret, no deploy change. The lobby and the
 // arena it creates are created through the same matchMaker call path; if a

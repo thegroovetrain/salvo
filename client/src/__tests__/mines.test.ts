@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import { Container, type Graphics } from 'pixi.js';
 import {
   CONFIG,
+  DEFAULT_CLASS_ID,
   effectiveStats,
   type EffectiveMine,
   type MineKind,
@@ -40,9 +41,9 @@ const params = (over: Partial<Record<MineKind, EffectiveMine>> = {}, now = 0): O
   now,
 });
 
-/** The owner's three rows as the REAL fold produces them for a Mine Layer. */
+/** The owner's three rows as the REAL fold produces them for the default captain hull. */
 const liveParams = (cards: readonly string[] = [], now = 0): OwnMineRings => {
-  const e = effectiveStats(CONFIG.shipClasses.mineLayer, cards).equipment;
+  const e = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], cards).equipment;
   return { rows: { naval: e.navalMines, captive: e.captiveMines, fouling: e.foulingMines }, now };
 };
 /** A mine at a world point. */
@@ -234,7 +235,7 @@ describe('ownMineRings — the owner-private radius set', () => {
   // line's tier inside the fold (144 u at I, ×1.1 a rung) and its 32 u burst is
   // fixed, so the ring set READS both and re-derives neither.
   it('CAPTIVE: draws the CONFIG trip ring alone — no contact-blast ring', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
+    const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []);
     expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius, 9);
     const rings = ownMineRings(liveParams(), 'captive', true);
     expect(rings.map((r) => [r.r, r.style])).toEqual([[CONFIG.captiveMines.triggerRadius, 'dotted']]);
@@ -247,7 +248,7 @@ describe('ownMineRings — the owner-private radius set', () => {
   // The ring set follows the fold without arithmetic of its own.
   it('CAPTIVE: the trip ring follows the fold to tier V without re-deriving it', () => {
     const maxed = Array<string>(5).fill('captiveMines');
-    const e = effectiveStats(CONFIG.shipClasses.mineLayer, maxed).equipment.captiveMines;
+    const e = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], maxed).equipment.captiveMines;
     expect(e.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** 4, 6); // 175.7 u at the 120 u ring
     const [ring] = ownMineRings(liveParams(maxed), 'captive', true);
     expect(ring.r).toBe(e.triggerRadius);

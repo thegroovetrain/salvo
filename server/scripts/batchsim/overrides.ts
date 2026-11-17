@@ -27,7 +27,8 @@
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
-import { CATALOG, CONFIG, TERRAIN_PARAMS, effectiveStats } from '@salvo/shared';
+import { CONFIG, TERRAIN_PARAMS } from '@salvo/shared';
+import { isLadderKey, ladderKeyProblem, ladderValueProblem, LADDER_PREFIX } from './catalogTune.js';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
@@ -63,24 +64,41 @@ export function isTunableKey(key: string): boolean {
 // deleted in Story 8.16) are in.
 // Keep this list in step with the top-level equipment blocks of CONFIG.
 const TUNE_FAMILIES = [
+  // THE MAIN BATTERY and THE SECONDARIES (Story 10.4, epic-10 amendment 9 R2/
+  // R3): the captain's turret battery (reach, per-turret reload, the shell;
+  // traverse and the on-target tolerance retired 2026-11-12, Story 11.1) and
+  // the heat-limited secondaries (damage,
+  // cold / hot rates, heat clocks, reach fraction, the round).
+  // `mainBattery.reloadMs` is floored by the reload suffix rule, `rangeU` /
+  // `shellSpeed` by their leaf; the two secondaries rates and two heat clocks
+  // are floored by exact key (TUNE_MIN_ONE_KEYS) — the heat stepper divides
+  // by them.
+  'mainBattery.',
+  'secondaries.',
+  // The deck gun — kept for reference (amendment 6); no hull mounts it since Story 10.8.
   'gun.',
   // Story 8.15: the two pickable guns and the two new class Shifts — every
   // number Eric ruled for them is a harness dial (amendments 97-105).
   'machineGun.',
   'flak.',
-  // DECK-GUN RANGE ATTENUATION (Story 9.12, Eric 2026-10-16, epic-9
-  // amendments 184–185): the ONE shared block the three deck guns read —
-  // `fullFrac` on [0, 1) and `minFactor` on [0, 1] (GUN_FRACTION_KEYS), with
-  // `fullFrac < 1` re-checked on the finished CONFIG (validateAttenuationDials).
+  // DECK-GUN RANGE ATTENUATION (`gunAttenuation.*`, Story 9.12) — RETIRED
+  // 2026-11-12 with the block (Story 11.1): the family is gone.
   // `flak.rimFactor` (the burst's rim falloff) rides the `flak.` family above,
-  // on [0, 1] too; the retired `flak.edgeFalloff` is refused by name.
-  // `gun.barrels` (two at every tier, no rungs) is an integer dial in [1, 3]
-  // (validateBarrels — the ceiling is clampStats's barrel clamp).
-  'gunAttenuation.',
+  // on [0, 1] (GUN_FRACTION_KEYS); the retired `flak.edgeFalloff` is refused
+  // by name. `gun.barrels` (two at every tier, no rungs) is an integer dial in
+  // [1, 3] (validateBarrels — the ceiling is clampStats's barrel clamp).
   'instantReload.',
   'hunker.',
   'broadside.',
   'torpedo.',
+  // THE OTHER TWO TORPEDO KINDS and FLASH SHELLS (Eric 2026-11-15: "all weapon
+  // stats can be played with") — `torpedo.` above is the HEAVY torpedo and
+  // the family's shared numbers; these are each kind's own block.
+  'lightTorpedo.',
+  'supercavTorpedo.',
+  'flashShells.',
+  // GUN DISPERSION (Story 11.1) — the scatter every main-gun shell lands with.
+  'dispersion.',
   'mine.',
   // CAPTIVE and FOULING MINES (Story 9.1 session 3, Eric 2026-10-08: "run
   // progressive experiments on trigger/blast radius for all types of mines")
@@ -114,15 +132,13 @@ const TUNE_FAMILIES = [
   // became its own tiered dial on the twelfths ruler (ruling 125).
   'phosphorShells.',
   'boost.',
+  // THE HULL CLASSES. Since Story 10.3 each class carries its seven INDICES
+  // (`shipClasses.<cls>.index.<armor|power|reload|engines|intel|range>` — the
+  // fold derives speed / sweep / cooldown / reach from them; RUDDER left in
+  // Story 10.6, R2 — every captain turns at `CONFIG.index.turnRate`), its hp
+  // (1000) and the four pass-through kinematics; `maxSpeed` / `turnRate` are
+  // no longer leaves (derived from ENGINES / the baseline).
   'shipClasses.',
-  // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
-  // "should a drone be worth, through damage, what its kill tier already says
-  // it is worth" — at a damage->XP rate of 1/N, tier x N is the hp that makes
-  // the two halves proportional. It is a COMBAT envelope (hp, gun, kinematics)
-  // and so belongs on this surface rather than the --set economy whitelist,
-  // even though the question that reaches for it is an economy one. The `hp`
-  // leaf inherits the existing floor of 1 via TUNE_MIN_ONE_LEAVES.
-  'drones.',
   // HULL REPAIR is a COMBAT dial, not an economy one, so it belongs on this
   // surface rather than the --set whitelist: `hullRepair` amounts are FLAT
   // on every hull by ruling ("no maxHp scaling, no upgrade scaling"), which
@@ -131,18 +147,12 @@ const TUNE_FAMILIES = [
   // and the highest-HP hull paid most — so the heal has to be reachable to
   // tell a real class problem apart from that repricing.
   'hullRepair.',
-  // OUT-OF-COMBAT REGEN (epic-8 amendment 46) rides the same surface for the
-  // same reason: it is the other half of how a hull gets hp back, and the
-  // fraction-of-MISSING shape means it never needs repricing with hull HP —
-  // but a class read still has to be able to turn it off or up. SINCE STORY
-  // 9.6 the PASSIVE HEALING ladder ADDS to these bases inside the fold
-  // (+0.006 rate, −1000 ms wait per card), and the fold keeps only POSITIVE
-  // results: `regen.missingPctPerS=0` is therefore "off" for an un-carded hull
-  // only (a carded bot still regens at 0.006 × copies), and a wait tuned under
-  // 1000 × copies saturates instead of stepping (2500 → 1500 → 500 → 500).
-  // Read a regen-off arm against bots that cannot draw the ladder, or accept
-  // the floor (Edge Case Hunter, 2026-10-13 gate; ledgered in deferred-work).
-  'regen.',
+  // 2026-11-04 (Story 10.3, Eric, epic-10 amendment 8): the `regen.` family
+  // (OUT-OF-COMBAT REGEN, epic-8 amendment 46 / Story 9.6) is GONE with the
+  // regen itself and `CONFIG.regen` — "passive healing dies". 2026-11-05
+  // (Story 10.5, R8): passive regen is BACK as `CONFIG.regen` (2 % of missing
+  // hp per second after 15 s unhurt), but it is not re-opened as a dial here —
+  // nobody asked for it on the harness; add `'regen.'` the day someone does.
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): `armor.k`,
   // the K in the curve (K / (K + E) for E ≥ 0, (K − 2E) / (K − E) below zero
   // since Story 9.9, amendment 146; 100 by amendment 144), is the dial — floor
@@ -161,42 +171,56 @@ const TUNE_FAMILIES = [
   // `offer.weighting.` rather than `offer.` so `offer.size` keeps its --set
   // home and its floor of 1.
   'offer.weighting.',
-  // THE RADAR DROPOUT (Story 9.8, epic-9 amendment 104, rulings 121–123):
-  // `startU` / `kneeU` (floor 1 — TUNE_MIN_ONE_KEYS) and the two paint
-  // probabilities `kneeP` / `rimP` (clamped to [0, 1] — PROBABILITY_KEYS).
-  // ONLY the dropout sub-block: the rest of `vision.*` is the sensor ladder
-  // itself, which the shared fold and the client both derive from, so it is
-  // not a harness dial.
-  'vision.dropout.',
-  // THE FOG FIELD (Story 9.10, Eric 2026-10-15 — "no discs", a rolling
-  // fractal-noise field; every leaf of CONFIG.fog is a harness dial).
-  // Floors: `sightCostPerU`, `windU`, `edgeBand` and `cutRatePerS` at 0 (each
-  // a real arm — fog that costs nothing / a still field / a hard edge / a
-  // frozen cut); every length, clock and count at 1 (TUNE_MIN_ONE_KEYS — a
-  // 0 wavelength or march step divides, a 0 refresh or lattice spins or
-  // samples nothing); `gain` on (0, 1] (FOG_GAIN_KEY — fbm persistence) and
-  // the coverage band a closed share of the ring's area [0, 1]
-  // (FOG_SHARE_KEYS — `coverageMax=0` is "fog off"). `coverageMin <=
-  // coverageMax` is refused on the finished CONFIG in validateFogDials.
-  // `spinRimU` (u/s at the rim) and `spinShear` take the generic floor of 0:
-  // 0 is "no spin" / "rigid spin", both real arms (amendments 177–178; the
-  // rate is a speed over the ocean radius, so no divide-by-period hazard).
+  // THE RADAR DROPOUT (`vision.dropout.*`, Story 9.8) — RETIRED 2026-11-12,
+  // Story 11.2, R8: the dropout is removed (Story 11.4's strength model
+  // replaces it), so the family, its two floors, its probability clamp and
+  // its curve validation left the --tune surface. No `vision.*` leaf is a
+  // harness dial: the reaches are hectometer facts the shared fold and the
+  // client both read.
+  // THE RAIN FIELD (Story 11.6, Eric 2026-11-14 — the storm eye; it replaced
+  // Story 9.10's fog banks, so `sightCostPerU`, `windU`, `cutRatePerS`,
+  // `spinRimU`, `spinShear`, `coverageMin` / `coverageMax`, `targetPeriodMs`
+  // and `quantileLattice` are GONE with their leaves). Every numeric leaf of
+  // CONFIG.fog is a harness dial. Floors: the generic 0 for `edgeBand` (a
+  // hard edge), `extinctionPerU` (0 = rain that hides nothing), `edgeSpeedU`
+  // (a still storm), `centerTurnFrac`, `spiralWindRad` and `edgeSoftFrac`
+  // — each a real arm (`onsetMs` left with the roll-in, Eric 2026-11-15); every length, clock and
+  // count that divides or sizes at 1 (TUNE_MIN_ONE_KEYS), `marchStepU` and
+  // `refreshMs` at their SERVER floors (FOG_SERVER_FLOORS); `gain` on (0, 1]
+  // (FOG_GAIN_KEY — fbm persistence); `sightCutoffV` and `outsideCoverage` on
+  // CLOSED [0, 1] (FOG_SHARE_KEYS). THE TWO PER-RING ARRAYS
+  // (`eyeRadiusFracByRing`, `edgeCoverageByRing`) are dials BY INDEX —
+  // `fog.edgeCoverageByRing.2=0.6`, the `zone.ringRadii.0` precedent
+  // (resolveLeaf's array rule: an entry is addressable only by an existing
+  // index, so an arm can move an entry and never grow or truncate a table) —
+  // each entry on CLOSED [0, 1] (FOG_RING_SHARE). `octaves`, `hullGridCols`
+  // and `hullGridRows` are COUNTS: integers, the grid capped at
+  // FOG_GRID_CEILING POINTS — cols × rows (validateFogDials, on the finished
+  // CONFIG).
+  // READ-ONCE CAVEAT (true of the old field too): a World reads the dials
+  // when it is constructed (the quantile table, T, the grid), so an arm is
+  // applied before its matches are built — which is how the harness runs.
   'fog.',
   // THE BOT BRAIN (Story 9.13 wave 3, spec Harness paragraph): every numeric
   // leaf of CONFIG.bots is an arm Eric may run against the posture workover's
-  // baseline. Floors: the generic 0, except `disengageHysteresis` /
-  // `decoyDemote` and every `gunBand.<gun>.<0|1>` on CLOSED [0, 1]
+  // baseline. Floors: the generic 0, except `disengageHysteresis` and every
+  // `gunBand.<gun>.<0|1>` on CLOSED [0, 1]
   // (BOT_FRACTION_KEYS / BOT_GUN_BAND), each band's min <= max re-checked on
   // the finished CONFIG (validateBotDials), every `nav.*` leaf at 1 except
   // `nav.clearancePenalty` (0 = no shore cost, a real arm), `aimScatterRefU`
-  // / `contactMemoryMs` / `outnumberedCount` / `decoyStillSweeps` at 1
-  // (BOT_MIN_ONE_KEYS), `kiteHoldFrac` on (0, 1] and a gun band's far edge
-  // above 0 (fix wave P10), and the
-  // `cardPoints.*` scores, which ship NEGATIVE values (`carried` −1,
-  // `beltHunger.low` −1), take any finite number. `nav.cellU`,
-  // `disengageHpFrac` and `healHpFrac` are REFUSED (DERIVED_TUNE_KEYS): the
-  // first must equal the generator's NAV_CELL and is never read, the other
-  // two are snapshotted into the profile tables at module load.
+  // / `contactMemoryMs` / `outnumberedCount` at 1 (BOT_MIN_ONE_KEYS),
+  // `kiteHoldFrac` on (0, 1] and a gun band's far edge above 0 (fix wave
+  // P10), and the `cardPoints.*` scores, which may be NEGATIVE, take any
+  // finite number. (`decoyDemote`, `decoyStillSweeps` and the `carried` /
+  // `beltHunger` card scores left CONFIG with the decoys and the kit, Story
+  // 10.5.) Story 10.12: `shiftFitWeight` (the weighted Shift roll's fitting
+  // share) on CLOSED [0, 1] (BOT_FRACTION_KEYS); Story 11.9: `hitBar` (a
+  // probability) and `barStandoffFrac` likewise. `nav.cellU`,
+  // `disengageHpFrac` and `arcOpenMarginDeg` are REFUSED (DERIVED_TUNE_KEYS):
+  // the first must equal the generator's NAV_CELL and is never read, the
+  // second is snapshotted into the profile tables and the third into
+  // ai/arcs.ts ARC_OPEN_MARGIN_RAD at module load. (`healHpFrac` left CONFIG
+  // with the one-line repair gate, Story 10.12.)
   'bots.',
 ];
 
@@ -216,10 +240,11 @@ export function isTuneKey(key: string): boolean {
 //
 // THE WEAPON REACHES ARE DIALS SINCE STORY 9.8 (ruling 125): every
 // `<weapon>.rangeU` is the Tier I reach, read live by the fold, so it LEFT
-// this map and is tunable (floor 1 — TUNE_MIN_ONE_LEAVES). Its sibling
-// `<weapon>.rangeUAtV` is REFUSED (RANGE_AT_V below, the amendment-110
-// pattern): the Tier V reach authors the per-card step ONCE, at module load
-// (sim/catalog.ts rangeStep), so a --tune of it would change nothing.
+// this map and is tunable (floor 1 — TUNE_MIN_ONE_LEAVES). Its siblings
+// `<weapon>.rangeUAtV` / `<kind>.runUAtV` were REFUSED until 2026-11-15 (the
+// per-card step is read once at module load); the run's tuned catalog
+// (catalogTune.ts) now re-derives that step from the live CONFIG, so both are
+// real dials (floor 1).
 const DERIVED_TUNE_KEYS = new Map<string, string>([
   [
     'mine.triggerRadius',
@@ -234,21 +259,17 @@ const DERIVED_TUNE_KEYS = new Map<string, string>([
     'server ai/profiles.ts snapshots it into every profile table at module load, so a --tune never reaches a bot',
   ],
   [
-    'bots.healHpFrac',
-    'server ai/profiles.ts snapshots it into every profile table at module load, so a --tune never reaches a bot',
+    'bots.arcOpenMarginDeg',
+    'server ai/arcs.ts snapshots it into ARC_OPEN_MARGIN_RAD at module load, so a --tune never reaches a bot',
   ],
 ]);
 
-/** `<weapon>.rangeUAtV` — read once at module load (see DERIVED_TUNE_KEYS). */
-const RANGE_AT_V = /\.rangeUAtV$/;
+/** `<weapon>.rangeUAtV` — read once at module load (see DERIVED_TUNE_KEYS) —
+ *  and its torpedo sibling `<kind>.runUAtV` (sim/catalog.ts `runStep`, the
+ *  same read-once law; Story 11.2 review gate, F7). */
 
 /** Refuse a path the firewall re-derives post-fold (see DERIVED_TUNE_KEYS). */
 function assertNotDerived(key: string): void {
-  if (RANGE_AT_V.test(key)) {
-    throw new TunableError(
-      `'${key}' is REFUSED: the Tier V reach authors the per-card step at module load; tune rangeU for the base`,
-    );
-  }
   const advice = DERIVED_TUNE_KEYS.get(key);
   if (advice !== undefined) {
     throw new TunableError(`'${key}' is a DERIVED stat — tuning it has no effect on the sim: ${advice}`);
@@ -288,7 +309,7 @@ function assertKeyAllowed(key: string, allowTune: boolean): void {
     assertNotDerived(key);
     if (isTuneKey(key)) return;
     throw new TunableError(
-      `'${key}' is not an equipment dial (allowed: ${TUNE_FAMILIES.map((f) => `${f}*`).join(', ')})`,
+      `'${key}' is not an equipment dial (allowed: ${TUNE_FAMILIES.map((f) => `${f}*`).join(', ')}) — or a catalog step: ${LADDER_PREFIX}<line>.<stat>[.<tier>]`,
     );
   }
   if (isTunableKey(key)) return;
@@ -372,15 +393,29 @@ export function validateTunableKey(key: string): void {
 }
 
 /** Per-key numeric FLOOR. A dial the sim divides by, or loops until it consumes,
- *  cannot legally be <= 0: `offer.size` 0 makes drawOffer return an empty offer
- *  forever (every level would bank with nothing to spend it on),
- *  `xp.levelMs` 0 makes passive accrual a divide-by-zero,
+ *  cannot legally be <= 0: `xp.levelMs` 0 makes passive accrual a divide-by-zero,
  *  `zone.beatMs` 0 collapses zoneClosedAtMs to 0 (a zero tick budget — the
  *  shared timeline fails closed, but every match would report as unresolved
  *  nonsense), and `map.baseRadius` 0 is a zero-area board. Everything else may
  *  legitimately be 0 — `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
  *  (a hold-at-map-radius ring) are real evidence values. */
-const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius', 'terrain.regionWavelength']);
+const MIN_ONE_KEYS = new Set(['xp.levelMs', 'zone.beatMs', 'map.baseRadius', 'terrain.regionWavelength']);
+
+/** Keys whose floor is ABOVE 1. `offer.size` floors at 2 (Story 10.7 review
+ *  gate, 2026-11-06): the four-slot plan deals slot 0 a Ship card, slot 1 an
+ *  Equipment card and every later slot a wildcard, so a size of 1 has NO
+ *  Equipment slot — it would deal only ladder rungs until every ladder is
+ *  capped, and a bare hull would never be offered a weapon (the retired
+ *  level-zero guarantee used to cover that). 0 deals nothing at all. */
+const KEY_FLOORS: ReadonlyMap<string, number> = new Map([['offer.size', 2]]);
+
+/** The numeric floor of a --set/--sweep key: its own entry, else 1 for the
+ *  divide-by / loop-until dials, else 0. */
+function floorOf(key: string): number {
+  const own = KEY_FLOORS.get(key);
+  if (own !== undefined) return own;
+  return MIN_ONE_KEYS.has(key) || MIN_ONE_PATTERNS.some((p) => p.test(key)) ? 1 : 0;
+}
 
 /** A ring radius of 0 is the collapse ring's job (synthesized, never a dial);
  *  the geometric ladder floors at 1 u structurally, so the dial does too. */
@@ -399,7 +434,7 @@ export function validateTunableValue(key: string, value: number): void {
     }
     return;
   }
-  const floor = MIN_ONE_KEYS.has(key) || MIN_ONE_PATTERNS.some((p) => p.test(key)) ? 1 : 0;
+  const floor = floorOf(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
   }
@@ -407,6 +442,11 @@ export function validateTunableValue(key: string, value: number): void {
 
 /** Validate a --tune key without touching CONFIG (arg-parse time). */
 export function validateTuneKey(key: string): void {
+  if (isLadderKey(key)) {
+    const problem = ladderKeyProblem(key);
+    if (problem !== null) throw new TunableError(problem);
+    return;
+  }
   resolveLeaf(key, true);
 }
 
@@ -416,10 +456,16 @@ export function validateTuneKey(key: string): void {
  *    steerageSpeed — shared/src/sim/ship.ts:69 `clampUnit(s.speed /
  *      cfg.steerageSpeed)`; at rest that is 0/0 = NaN, which propagates
  *      straight into heading and then position.
- *    turnRate — server/src/game/ai/tactics.ts:816 and ai/utility.ts:518 both
- *      divide by it; the resulting Infinity/NaN steer fails the finite check in
- *      game/inputs.ts and the input is SILENTLY DROPPED, so the bots go inert
- *      while every row still reads plausible.
+ *    reload / engines / intel / range — THE INDICES the fold
+ *      derives from (Story 10.3, sim/indexStats.ts; RUDDER left in Story
+ *      10.6): the RELOAD haste law
+ *      divides by `1 + (RELOAD − 100) / 100`, ENGINES becomes the
+ *      speed the bots divide by (ai/navigate.ts, ai/utility.ts —
+ *      a 0 turn rate was the old `turnRate` floor's NaN-steer hazard) and
+ *      INTEL the sweep period's divisor. clampStats floors each at 1, so a 0
+ *      arm would print as 0 while the sim ran 1 — false evidence; refused
+ *      here instead. `armor` / `power` keep floor 0 (the fold floors them at
+ *      0 and E may legitimately go negative through the gate).
  *    shellSpeed / speed (torpedo) — server/src/game/ai/tactics.ts:277
  *      `hypot(...) / speed` in the lead solve, same silent-drop ending; a
  *      0 u/s projectile also never leaves the muzzle.
@@ -449,8 +495,17 @@ const TUNE_MIN_ONE_LEAVES = new Set([
   // multiplies it (ai/profiles.ts engagementBand) — a 0 reach is a weapon
   // that fires into its own muzzle and a bot band collapsed to a point.
   'rangeU',
+  'rangeUAtV', // a real dial since the tuned catalog re-derives the step (2026-11-15)
+  // runU (Story 11.2 review gate, F7): a torpedo's run is its launch
+  // `distLeft` — at 0 the fish expires in its tube and the arm measures no
+  // torpedo while the report reads normal.
+  'runU',
+  'runUAtV', // likewise
   'steerageSpeed',
-  'turnRate',
+  'reload',
+  'engines',
+  'intel',
+  // (`range` — the RANGE index's floor — left with the index, Story 11.2, R9.)
   'shellSpeed',
   'speed',
   'hp',
@@ -468,55 +523,42 @@ const TUNE_MIN_ONE_LEAVES = new Set([
  *  stay although no CONFIG leaf needs them today — they name a HAZARD CLASS, and a
  *  future `<equipment>.cooldownMs` must inherit the floor by existing, not by
  *  someone remembering to come back here. */
-/**
- * Leaves whose only hazard is ZERO but whose legitimate range sits BELOW 1.
- *
- * `turnRate` is rad/s and ships at 0.4 / 0.6 / 0.8 across the three hulls, so
- * the blanket floor of 1 did not merely restrict it — it made the leaf
- * UNTUNABLE AT ITS OWN SHIPPED VALUES, refusing every arm including a no-op
- * one (`--tune shipClasses.battleship.kinematics.turnRate=0.4` was an error).
- * The hazard the floor exists for is the DIVIDE at ai/tactics.ts:816 and
- * ai/utility.ts:518, and that is a divide by zero, not by anything under 1 —
- * so the correct floor here is a small epsilon well clear of 0 and well below
- * any value a hull would plausibly carry.
- *
- * Checked BEFORE the min-one set, which still names `turnRate` because that
- * set documents the hazard class; this map only corrects its magnitude.
- */
-const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
+// 2026-11-04 (Story 10.3): `TUNE_SUB_ONE_FLOORS` (the `turnRate` 0.05 floor —
+// a rad/s leaf whose shipped values sat below 1) is GONE with the leaf itself:
+// turn rate is DERIVED from the RUDDER index (whole numbers around 100, floor
+// 1 in TUNE_MIN_ONE_LEAVES above), so no tunable leaf lives below 1 any more.
 
-/** Exact --tune keys floored at 1 (Story 9.8): the dropout curve's two
- *  distances. Not leaf names — `startU` / `kneeU` are generic words, and the
- *  hazard is specific to this block (a 0 start makes every return a coin
- *  flip from the hull outward). The pair relations (start < knee < radar, rim ≤ knee
- *  probability) are refused on the finished CONFIG in validateDropoutCurve. */
+/** Exact --tune keys floored at 1 — full keys, not leaf names, where the leaf
+ *  is a generic word and the hazard is specific to its block. (The dropout
+ *  curve's `startU` / `kneeU`, Story 9.8, left with the dropout — Story 11.2,
+ *  R8.) */
 const TUNE_MIN_ONE_KEYS = new Set([
-  'vision.dropout.startU',
-  'vision.dropout.kneeU',
-  // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
-  'fog.targetPeriodMs',
+  // Story 10.4: the secondaries' heat clocks and cadence (sim/secondaries.ts
+  // divides by the two heat clocks and by the heat-slid rate; a 0 rate is an
+  // interval that never ends — epic-11 amendment 9 replaced `rateMs`).
+  'secondaries.coldRatePerS',
+  'secondaries.hotRatePerS',
+  'secondaries.overheatMs',
+  'secondaries.coolMs',
+  // THE RAIN FIELD (Story 11.6) — see the `fog.` family note in TUNE_FAMILIES.
   'fog.wavelengthU',
   'fog.octaves',
   'fog.morphMs',
   'fog.refreshMs',
   'fog.marchStepU',
-  'fog.quantileLattice',
+  'fog.hullGridCols',
+  'fog.hullGridRows',
+  'fog.spinRadiusFloorU',
 ]);
 
-/** The coverage lattice's floor (Story 9.10 review gate): under ~1/target
- *  points the (1 − target) quantile lands on the lattice maximum — coverage 0
- *  while the dial names a share. 8 a side (≈ 50 points inside the disc) is
- *  the least that still resolves the 2 % floor of the band. */
-const FOG_LATTICE_KEY = 'fog.quantileLattice';
-const FOG_LATTICE_FLOOR = 8;
-/** Fog dials whose floor keeps the SERVER up (Story 9.10 review gate):
+/** Rain dials whose floor keeps the SERVER up (Story 9.10 review gate):
  *  `marchStepU` sizes the density memo (≈ (2 × radius / step)² cells — at
  *  1 u that is 100 M cells, ~800 MB per room; 5 u is ~4 M, 34 MB) and
- *  `refreshMs` is the quantile + epoch cadence (every tick at 50 ms). */
+ *  `refreshMs` is the frame + epoch cadence (every tick at 50 ms would
+ *  re-evaluate every touched cell every tick). */
 const FOG_SERVER_FLOORS = new Map<string, number>([
   ['fog.marchStepU', 5],
   ['fog.refreshMs', 250],
-  [FOG_LATTICE_KEY, FOG_LATTICE_FLOOR],
 ]);
 
 function tuneFloor(key: string): number {
@@ -527,8 +569,6 @@ function tuneFloor(key: string): number {
   const leaf = key.slice(key.lastIndexOf('.') + 1);
   const lower = leaf.toLowerCase();
   if (lower.endsWith('reloadms') || lower.endsWith('cooldownms')) return 1;
-  const subOne = TUNE_SUB_ONE_FLOORS.get(leaf);
-  if (subOne !== undefined) return subOne;
   return TUNE_MIN_ONE_LEAVES.has(leaf) ? 1 : 0;
 }
 
@@ -541,10 +581,17 @@ function tuneFloor(key: string): number {
  *  be 0 — `gun.burstRadius=0` is what ARMOR-PIERCING already does, and a
  *  0-damage arm is a real control. */
 export function validateTuneValue(key: string, value: number): void {
+  if (!isLadderKey(key)) return validateCombatValue(key, value);
+  const problem = ladderValueProblem(key, value);
+  if (problem !== null) throw new TunableError(problem);
+}
+
+/** The CONFIG-leaf half of validateTuneValue (every key but `ladder.*`). */
+function validateCombatValue(key: string, value: number): void {
   if (validateBotRange(key, value)) return;
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
-  if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
+  if (isFogShare(key)) return validateShare(key, value);
   if (GUN_FRACTION_KEYS.has(key)) return validateFraction(key, value);
   if (key === FOG_GAIN_KEY) return validateGain(key, value);
   if (key === BARRELS_KEY) return validateBarrels(key, value);
@@ -574,13 +621,24 @@ export function validateTuneValue(key: string, value: number): void {
  */
 const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.floor']);
 
-/** The dropout curve's paint probabilities (Story 9.8, ruling 121): CLOSED
- *  [0, 1] — 0 (never paints at that rung) and 1 (always paints) are both real
- *  arms; outside it is not a probability. */
-const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
+/** --tune keys that are probabilities: CLOSED [0, 1]. EMPTY since Story 11.2
+ *  (R8) removed the radar dropout's `kneeP` / `rimP`; the clamp stays so the
+ *  next probability dial inherits it by being listed here. */
+const PROBABILITY_KEYS = new Set<string>();
 
-/** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; see the `bots.` family). */
-const BOT_FRACTION_KEYS = new Set(['bots.disengageHysteresis', 'bots.decoyDemote']);
+/** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; the secondaries heat
+ *  lines since Story 10.4; the weighted Shift roll's fitting share since Story
+ *  10.12 — read live by ai/profiles.ts rollShift; the main battery's per-shell
+ *  hit bar since Story 11.9 — read live by ai/battery.ts and ai/doctrine.ts;
+ *  see the `bots.` family). */
+const BOT_FRACTION_KEYS = new Set([
+  'bots.disengageHysteresis',
+  'bots.secReleaseHeat',
+  'bots.secRepressHeat',
+  'bots.shiftFitWeight',
+  'bots.hitBar',
+  'bots.barStandoffFrac',
+]);
 /** A per-gun doctrine band end — `bots.gunBand.<gun>.0` (min) / `.1` (max). */
 const BOT_GUN_BAND = /^bots\.gunBand\.[A-Za-z]+\.[01]$/;
 /** The routing dials: counts / lengths / clocks, floored at 1 … */
@@ -591,13 +649,11 @@ const BOT_NAV_ZERO_OK = 'bots.nav.clearancePenalty';
 const BOT_CARD_POINTS = /^bots\.cardPoints\./;
 /** Bot dials floored at 1 (fix wave P10, Edge Case Hunter): the aim-scatter
  *  reference is a divisor; a 0 contact memory forgets every plot the tick it
- *  is folded; an outnumbered count of 0 reads every lone hull as a crowd; 0
- *  still sweeps flags every radar plot a probable decoy. */
+ *  is folded; an outnumbered count of 0 reads every lone hull as a crowd. */
 const BOT_MIN_ONE_KEYS = new Set([
   'bots.aimScatterRefU',
   'bots.contactMemoryMs',
   'bots.outnumberedCount',
-  'bots.decoyStillSweeps',
 ]);
 /** The kite's hold fraction of own reach: HALF-OPEN (0, 1] — 0 parks the
  *  kite on top of its target, above 1 the band's floor passes its ceiling. */
@@ -648,32 +704,30 @@ function validateBotDials(): void {
   }
 }
 
-/** The fog controller's coverage band (Story 9.10): a CLOSED share of the
- *  live ring's area, [0, 1] — 0 is "no fog" and a real arm; above 1 the
- *  quantile would chase a coverage the ring cannot hold. */
-const FOG_SHARE_KEYS = new Set(['fog.coverageMin', 'fog.coverageMax']);
+/** The rain's shares (Story 11.6), each on CLOSED [0, 1]: `outsideCoverage`
+ *  is a share of area at solid rain (0 = a clear storm, a real arm) and
+ *  `sightCutoffV` a visibility (0 = rain never hides, 1 = any rain hides —
+ *  `fogMaxDepth` defines both ends). */
+const FOG_SHARE_KEYS = new Set(['fog.outsideCoverage', 'fog.sightCutoffV']);
+/** One entry of a per-ring rain table, by index: the eye's radius as a
+ *  fraction of the live ring, or the solid share at the ring edge — [0, 1]. */
+const FOG_RING_SHARE = /^fog\.(?:eyeRadiusFracByRing|edgeCoverageByRing)\.\d+$/;
 
-/** The deck-gun blow fractions (Story 9.12): CLOSED [0, 1] — the attenuation
- *  curve's full-damage share and far factor (`minFactor=1` is "attenuation
- *  off", a real arm), and flak's rim loss (`rimFactor=0` is the flat blast).
- *  The shared functions clamp out-of-range dials, so an arm outside [0, 1]
- *  would read moved while the sim ran the clamp — refused at the leaf. */
-const GUN_FRACTION_KEYS = new Set(['gunAttenuation.fullFrac', 'gunAttenuation.minFactor', 'flak.rimFactor']);
+/** Is `key` one of the rain's [0, 1] shares — a scalar one or a per-ring table entry? */
+function isFogShare(key: string): boolean {
+  return FOG_SHARE_KEYS.has(key) || FOG_RING_SHARE.test(key);
+}
 
-/** `fullFrac` is the one HALF-OPEN fraction, [0, 1) (Story 9.12 review
- *  gate): at 1 or more `rangeAttenuation` answers a STEP, so the arm is
- *  refused at the parse leaf; validateAttenuationDials re-checks the
- *  finished CONFIG as a belt-and-braces guard. */
-const FULL_FRAC_KEY = 'gunAttenuation.fullFrac';
+/** The deck-gun blow fraction (Story 9.12): CLOSED [0, 1] — flak's rim loss
+ *  (`rimFactor=0` is the flat blast). The shared function clamps an
+ *  out-of-range dial, so an arm outside [0, 1] would read moved while the sim
+ *  ran the clamp — refused at the leaf. (The two `gunAttenuation.*` fractions
+ *  retired with the block, 2026-11-12, Story 11.1.) */
+const GUN_FRACTION_KEYS = new Set(['flak.rimFactor']);
 
 function validateFraction(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
     throw new TunableError(`'${key}': expected a finite fraction in [0, 1], got '${value}'`);
-  }
-  if (key === FULL_FRAC_KEY && value >= 1) {
-    throw new TunableError(
-      `'${key}': expected a finite fraction in [0, 1), got '${value}' — at 1 the attenuation curve collapses to a step at the gun's range`,
-    );
   }
 }
 
@@ -696,7 +750,7 @@ function validateBarrels(key: string, value: number): void {
 
 function validateShare(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
-    throw new TunableError(`'${key}': expected a finite share of water in [0, 1], got '${value}'`);
+    throw new TunableError(`'${key}': expected a finite share in [0, 1], got '${value}'`);
   }
 }
 
@@ -744,20 +798,10 @@ function validateUnitInterval(key: string, value: number): void {
  * the family gate before any write (pinned) — but the check runs on the
  * finished CONFIG after BOTH surfaces have written, so it is surface-blind.
  *
- * Story 8.9 REVIEW (Edge Case Hunter): the check above compared the RAW pair,
- * but the LIVE reload a match ever ticks against is `reloadMs *
- * cooldownScale`, and `cooldownScale` is moved by the RELOAD ladder (catalog-v3
- * R12: −5%/tier, cap 5 copies -> 0.75, floored at 0.1 in clampStats) — the same
- * fold every equipment reload takes (shared/src/sim/stats.ts clampStats).
- * `--tune boost.reloadMs=12000` cleared the raw check (12000 >= 10000) while a
- * five-RELOAD deck folds it to 9000ms < the 10000ms window — the exact
- * permanently-re-tappable state the raw check exists to forbid, just reached
- * one card-count away. So the relation is now checked through the REAL fold,
- * at the worst case the ladder can reach: `effectiveStats()` on a class with
- * RELOAD stacked to `CATALOG.reload.cap` copies, which is CONFIG-live so a
- * tuned `boost.reloadMs`/`boost.durationMs` is exactly what gets folded. The
- * class chosen (torpedoBoat) is arbitrary — the boost row carries no
- * per-class numbers (see boostRow) — so any class would fold identically.
+ * 2026-11-05 (Story 10.5, R10): the Story 8.9 review branch that folded the
+ * reload through a MAXED RELOAD ladder is gone — RELOAD no longer scales any
+ * Shift cooldown (`RELOAD_UNSCALED_ROWS`), so the live boost
+ * reload IS the raw one and the raw pair is the whole relation again.
  *
  * `boost.maxAmmo` (Story 8.9 REVIEW, Edge Case Hunter): the reload/duration
  * relation assumes a single charge. A second charge lets a mid-window tap
@@ -772,9 +816,7 @@ function validateUnitInterval(key: string, value: number): void {
 function validateCrossKeyInvariants(): void {
   validateWeightingPair();
   validateCoverBand();
-  validateDropoutCurve();
   validateFogDials();
-  validateAttenuationDials();
   validateBotDials();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
@@ -784,16 +826,11 @@ function validateCrossKeyInvariants(): void {
         "duration' cannot prevent",
     );
   }
-  const rawReloadMs = CONFIG.boost.reloadMs;
-  const maxedReloadMs = effectiveStats(
-    CONFIG.shipClasses.torpedoBoat,
-    Array.from({ length: CATALOG.reload.cap }, () => 'reload'),
-  ).equipment.boost.reloadMs;
-  if (maxedReloadMs < durationMs) {
+  const { reloadMs } = CONFIG.boost;
+  if (reloadMs < durationMs) {
     throw new TunableError(
-      `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +
-        `-> ${maxedReloadMs} live at five RELOAD copies < ${durationMs}): an active window must ` +
-        'always imply a cooling pool',
+      `'boost.reloadMs' must stay >= 'boost.durationMs' (got ${reloadMs} < ${durationMs}): an active ` +
+        'window must always imply a cooling pool',
     );
   }
 }
@@ -815,72 +852,30 @@ function validateCoverBand(): void {
 }
 
 /**
- * THE DROPOUT CURVE MUST BE A CURVE (Story 9.8 review, F3): `startU < kneeU <
- * vision.radar` and `rimP <= kneeP`, on the FINAL resolved values (an arm may
- * set several leaves at once). Anything else is what shared `dropoutPaintP`
- * calls DEGENERATE and fails closed on — a STEP at startU (full paint inside,
- * none beyond) — so a sim would silently read a mis-set dial as "the dropout
- * got harsher". A harness may not produce false evidence; refused up front.
- */
-function validateDropoutCurve(): void {
-  const { startU, kneeU, kneeP, rimP } = CONFIG.vision.dropout;
-  const radar = CONFIG.vision.radar;
-  if (!(startU < kneeU)) {
-    throw new TunableError(
-      `'vision.dropout.startU' (${startU}) must stay < 'vision.dropout.kneeU' (${kneeU}): otherwise the curve collapses to a step at startU`,
-    );
-  }
-  if (!(kneeU < radar)) {
-    throw new TunableError(
-      `'vision.dropout.kneeU' (${kneeU}) must stay < 'vision.radar' (${radar}): otherwise the curve collapses to a step at startU`,
-    );
-  }
-  if (!(rimP <= kneeP)) {
-    throw new TunableError(
-      `'vision.dropout.rimP' (${rimP}) must stay <= 'vision.dropout.kneeP' (${kneeP}): a rim more reliable than the knee collapses the curve to a step at startU`,
-    );
-  }
-}
-
-/**
- * THE ATTENUATION CURVE MUST BE A CURVE (Story 9.12): `gunAttenuation.fullFrac
- * < 1` on the FINAL value. At 1 or more the shared `rangeAttenuation` answers
- * a STEP — full damage all the way to range, `minFactor` only beyond — so an
- * arm would read as "attenuation from X %" while the sim ran no falloff.
- */
-function validateAttenuationDials(): void {
-  const { fullFrac } = CONFIG.gunAttenuation;
-  if (!(fullFrac < 1)) {
-    throw new TunableError(
-      `'gunAttenuation.fullFrac' (${fullFrac}) must stay < 1: otherwise the curve collapses to a step at the gun's range`,
-    );
-  }
-}
-
-/**
- * THE FOG DIALS MUST DESCRIBE A FIELD (Story 9.10): `coverageMin <=
- * coverageMax` (the target is drawn in [min, max]); `octaves` and
- * `quantileLattice` are COUNTS — a fractional octave count is a partial fbm
- * loop and a fractional lattice side is a lattice that is not square — so
- * both must be integers (review gate, Codex #3). Judged on the FINISHED
- * CONFIG — an arm may set several leaves at once.
+ * THE RAIN DIALS MUST DESCRIBE A FIELD (Story 9.10; Story 11.6): `octaves`,
+ * `hullGridCols` and `hullGridRows` are COUNTS — a fractional octave count is
+ * a partial fbm loop and a fractional grid side is no grid — so each must be
+ * an integer, and the hull grid stays at most FOG_GRID_CEILING POINTS in all
+ * (cols × rows — the PRODUCT, never a per-side cap: 16 × 16 would be 256).
+ * Judged on the FINISHED CONFIG — an arm may set several leaves at once.
  */
 function validateFogDials(): void {
-  const { coverageMin, coverageMax, octaves, quantileLattice } = CONFIG.fog;
-  if (!(coverageMin <= coverageMax)) {
-    throw new TunableError(`'fog.coverageMin' (${coverageMin}) must stay <= 'fog.coverageMax' (${coverageMax})`);
-  }
+  const { octaves, hullGridCols, hullGridRows } = CONFIG.fog;
   if (!Number.isInteger(octaves)) throw new TunableError(`'fog.octaves' must be an integer count of fbm octaves, got '${octaves}'`);
-  if (!Number.isInteger(quantileLattice)) {
-    throw new TunableError(`'fog.quantileLattice' must be an integer lattice side, got '${quantileLattice}'`);
+  for (const [name, side] of [['hullGridCols', hullGridCols], ['hullGridRows', hullGridRows]] as const) {
+    if (!Number.isInteger(side)) throw new TunableError(`'fog.${name}' must be an integer grid side, got '${side}'`);
   }
-  if (quantileLattice > FOG_LATTICE_CEILING) {
-    throw new TunableError(`'fog.quantileLattice' (${quantileLattice}) must stay <= ${FOG_LATTICE_CEILING}: the quantile sorts side² noise samples every refresh`);
+  if (hullGridCols * hullGridRows > FOG_GRID_CEILING) {
+    throw new TunableError(
+      `'fog.hullGridCols' x 'fog.hullGridRows' must be <= ${FOG_GRID_CEILING} grid points (the client's dissolve shader holds one visibility per point in a ${FOG_GRID_CEILING}-slot uniform, and a hidden hull costs one rain walk per point per observer), got ${hullGridCols} x ${hullGridRows}`,
+    );
   }
 }
 
-/** The lattice's ceiling: 256² = 65k noise samples sorted per refresh is the most a tick can carry. */
-const FOG_LATTICE_CEILING = 256;
+/** The hull sight grid's ceiling in POINTS (cols × rows): the client dissolve
+ *  shader's uniform capacity — one visibility per grid point — and every
+ *  point is one optical-depth walk per hidden hull per observer per tick. */
+const FOG_GRID_CEILING = 16;
 
 /**
  * `offer.weighting.floor <= offer.weighting.factor` (Story 8.14 review, F5).
@@ -947,7 +942,9 @@ export function applyOverrides(
     if (Object.hasOwn(set, 'map.baseRadius') && !Object.hasOwn(set, 'terrain.regionWavelength')) {
       write('terrain.regionWavelength', set['map.baseRadius'], false);
     }
-    for (const key of Object.keys(tune)) write(key, tune[key], true);
+    // `ladder.*` keys are catalog steps, not CONFIG leaves: the run's tuned
+    // catalog (catalogTune.ts buildTunedCatalog) applies them.
+    for (const key of Object.keys(tune)) if (!isLadderKey(key)) write(key, tune[key], true);
     // Relations between leaves, on the FINISHED CONFIG — inside the try, so a
     // violation rolls every write back exactly like a bad leaf does.
     validateCrossKeyInvariants();

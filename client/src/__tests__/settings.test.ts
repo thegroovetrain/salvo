@@ -6,9 +6,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
+  OFFER_POSITIONS,
   SettingsStore,
   coerceVolume,
   effectiveScale,
+  hudScale,
   loadSettings,
   monoFloorOk,
   motionAllowed,
@@ -20,12 +22,17 @@ import {
   scaleFactor,
   scaleTierEnabled,
   scaleTierNote,
+  viewportScale,
   volumeGain,
   type Settings,
 } from '../settings/store.js';
 import {
   ABANDON_BUTTON_ID,
   CLOSE_BUTTON_ID,
+  AIM_COLOR_LABEL,
+  AIM_SIZE_LABEL,
+  OFFER_POS_LABEL,
+  OFFER_POS_OPTIONS,
   RESET_BUTTON_ID,
   SettingsOverlay,
   bindingRows,
@@ -40,7 +47,9 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import {
   BOOST_KEY_CODES,
-  CONSUMABLE_KEY_CODES,
+  ABILITY_KEY_CODES,
+  CAMERA_HOME_CODE,
+  PAN_KEY_CODES,
   REFIT_DIGIT_CODES,
   SLOT_KEY_CODES,
 } from '../input/keyboard.js';
@@ -72,6 +81,12 @@ describe('sanitizeSettings — every field falls back independently', () => {
     expect(sanitizeSettings({ motion: 'cinematic' }).motion).toBe('full');
     expect(sanitizeSettings({ uiScale: 150 }).uiScale).toBe(100); // no 150% tier — foreclosed
     expect(sanitizeSettings({ uiScale: 90 }).uiScale).toBe(90);
+  });
+
+  it('the OFFER POSITION (R26) keeps right / left / bottom and sanitizes anything else to right', () => {
+    for (const pos of OFFER_POSITIONS) expect(sanitizeSettings({ offerPos: pos }).offerPos).toBe(pos);
+    for (const bad of ['top', '', 3, null, undefined, { pos: 'left' }]) expect(sanitizeSettings({ offerPos: bad }).offerPos).toBe('right');
+    expect(DEFAULT_SETTINGS.offerPos).toBe('right');
   });
 
   it('clamps + rounds volumes into 0..100', () => {
@@ -166,6 +181,38 @@ describe('UI scale — tiers, the 1600px gate, and the mono floor', () => {
   });
 });
 
+describe('the VIEWPORT factor (epic-10 amendment 18 R25) and the HUD factor', () => {
+  const V = CLIENT_CONFIG.console.viewport;
+
+  it('is 1 at the reference, and the tighter ratio below it', () => {
+    expect(viewportScale(V.refW, V.refH)).toBe(1);
+    // The 13-inch MacBook Pro default: its WIDTH is the tighter ratio (1440 ÷ 1920).
+    expect(viewportScale(1440, 900)).toBeCloseTo(Math.max(V.min, 1440 / V.refW), 9);
+    // The TIGHTER of the two ratios rules: a wide-but-short window shrinks by its height.
+    expect(viewportScale(V.refW, 950)).toBeCloseTo(950 / V.refH, 9);
+    expect(viewportScale(1700, V.refH)).toBeCloseTo(1700 / V.refW, 9);
+  });
+
+  it('clamps to [min, max]: never larger than the reference, never smaller than the floor', () => {
+    expect(viewportScale(1366, 768)).toBe(V.min); // 0.711… raw → the floor
+    expect(viewportScale(2560, 1440)).toBe(V.max); // 1.333… raw → never grows past the reference
+  });
+
+  it('answers the reference (1) for a degenerate viewport — never NaN, 0 or Infinity', () => {
+    const cases: [number, number][] = [[0, 0], [0, 1080], [1920, 0], [NaN, 1080], [1920, NaN], [-5, 900], [Infinity, Infinity]];
+    for (const [w, h] of cases) expect(viewportScale(w, h), `${w} x ${h}`).toBe(1);
+  });
+
+  it('the HUD factor is the viewport factor × the settings tier — the 125 % gate unchanged', () => {
+    const at = (uiScale: Settings['uiScale'], w: number, h: number): number => hudScale({ ...DEFAULT_SETTINGS, uiScale }, w, h);
+    expect(at(100, V.refW, V.refH)).toBe(1);
+    expect(at(90, 1440, 900)).toBeCloseTo(viewportScale(1440, 900) * scaleFactor(90), 9);
+    expect(at(125, V.refW, V.refH)).toBeCloseTo(scaleFactor(125), 9);
+    // A stored 125 under the 1600 px gate applies 100, times the viewport.
+    expect(at(125, 1440, 900)).toBeCloseTo(viewportScale(1440, 900), 9);
+  });
+});
+
 describe('volumeGain', () => {
   it('maps 0..100 onto a 0..1 linear bus gain, clamped', () => {
     expect(volumeGain(0)).toBe(0);
@@ -231,7 +278,7 @@ describe('SettingsStore — live effect + persistence + reset', () => {
 // --- the uniform ESC law (amendment 23) --------------------------------------
 
 describe('escapeAction — ESC closes the TOPMOST surface, never returns to port', () => {
-  const none = { results: false, refit: false, settings: false };
+  const none = { results: false, settings: false };
 
   it('opens settings only when nothing is open', () => {
     expect(escapeAction(none)).toBe('openSettings');
@@ -241,12 +288,8 @@ describe('escapeAction — ESC closes the TOPMOST surface, never returns to port
     expect(escapeAction({ ...none, settings: true })).toBe('closeSettings');
   });
 
-  it('with the refit modal open, ESC closes the REFIT and settings does not open', () => {
-    expect(escapeAction({ ...none, refit: true })).toBe('closeRefit');
-  });
-
   it('the results modal outranks everything — ESC closes it (= SPECTATE)', () => {
-    expect(escapeAction({ results: true, refit: true, settings: true })).toBe('closeResults');
+    expect(escapeAction({ results: true, settings: true })).toBe('closeResults');
     expect(escapeAction({ ...none, results: true })).toBe('closeResults');
   });
 });
@@ -254,7 +297,7 @@ describe('escapeAction — ESC closes the TOPMOST surface, never returns to port
 // --- the wheel belongs to an open scrollable surface (Eric 2026-10-01) -------
 
 describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scroll, not a zoom', () => {
-  const none = { results: false, refit: false, settings: false };
+  const none = { results: false, settings: false };
 
   it('claims the wheel while the settings overlay (ESC menu) is open', () => {
     expect(wheelScrollsSurface({ ...none, settings: true })).toBe(true);
@@ -264,9 +307,8 @@ describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scro
     expect(wheelScrollsSurface({ ...none, results: true })).toBe(true);
   });
 
-  it('leaves the wheel to the camera when nothing scrollable is open — the refit modal is not scrollable', () => {
+  it('leaves the wheel to the camera when nothing scrollable is open', () => {
     expect(wheelScrollsSurface(none)).toBe(false);
-    expect(wheelScrollsSurface({ ...none, refit: true })).toBe(false);
   });
 
   // ERIC RULING 2026-08-19 — from spectate, ESC puts the SCORE SCREEN back,
@@ -286,28 +328,23 @@ describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scro
     expect(escapeAction(none, false)).toBe('openSettings');
   });
 
-  // Not a style preference: while ALIVE the refit modal and the helm are live,
-  // and a stray ESC that threw a full-screen score overlay over a moving ship
-  // would be a combat hazard rather than a convenience.
+  // Not a style preference: while ALIVE the helm is live, and a stray ESC that
+  // threw a full-screen score overlay over a moving ship would be a combat
+  // hazard rather than a convenience.
   it('a LIVE player is untouched — ESC still opens settings, never a score screen', () => {
-    expect(escapeAction({ ...none, refit: true }, false)).toBe('closeRefit');
+    expect(escapeAction(none, false)).toBe('openSettings');
     expect(escapeAction({ ...none, settings: true }, false)).toBe('closeSettings');
   });
 });
 
 describe('canOpenSurface — nothing ever stacks, in either direction', () => {
-  it('refuses to open settings over the refit modal or the results screen', () => {
-    expect(canOpenSurface('settings', { results: false, refit: true, settings: false })).toBe(false);
-    expect(canOpenSurface('settings', { results: true, refit: false, settings: false })).toBe(false);
-  });
-
-  it('refuses to open the refit modal over settings', () => {
-    expect(canOpenSurface('refit', { results: false, refit: false, settings: true })).toBe(false);
+  it('refuses to open settings over the results screen', () => {
+    expect(canOpenSurface('settings', { results: true, settings: false })).toBe(false);
   });
 
   it('allows an open when nothing else is up (and re-opening itself is fine)', () => {
-    expect(canOpenSurface('settings', { results: false, refit: false, settings: false })).toBe(true);
-    expect(canOpenSurface('settings', { results: false, refit: false, settings: true })).toBe(true);
+    expect(canOpenSurface('settings', { results: false, settings: false })).toBe(true);
+    expect(canOpenSurface('settings', { results: false, settings: true })).toBe(true);
   });
 });
 
@@ -334,17 +371,17 @@ describe('bindingRows — the view-only reference model', () => {
     ESC: ['Escape'],
     ENTER: ['Enter'],
     ARROWS: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'],
+    SPACE: ['Space'],
   };
   /** Words in a keys label that name no key (a mouse action, an absence, a qualifier). */
-  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'NUMPAD']);
+  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'RIGHT', 'NUMPAD', 'MIDDLE', 'DRAG']);
   /** keyboard.ts binds these directly (not via an exported table). */
-  const DIRECT_CODES = [
-    'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyF', 'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyX', 'KeyZ', 'KeyM',
-  ];
+  const DIRECT_CODES = ['KeyA', 'KeyD', 'KeyF', 'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyX', 'KeyZ', 'KeyM'];
   const BOUND = new Set<string>([
     ...THROTTLE_AHEAD, ...THROTTLE_ASTERN, ...DIRECT_CODES,
     ...Object.keys(SLOT_KEY_CODES), ...BOOST_KEY_CODES,
-    ...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(CONSUMABLE_KEY_CODES),
+    ...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(ABILITY_KEY_CODES),
+    ...Object.values(PAN_KEY_CODES), CAMERA_HOME_CODE,
   ]);
 
   /** A row's keys label → the codes it advertises; an unmapped token throws, naming it. */
@@ -370,21 +407,21 @@ describe('bindingRows — the view-only reference model', () => {
     for (const r of bindingRows()) {
       for (const code of advertisedCodes(r.keys)) {
         expect(BOUND.has(code), `${r.keys} → ${code} is not bound in keyboard.ts`).toBe(true);
-        expect(['KeyP', 'Space', 'ControlLeft', 'ControlRight'], `${r.keys} advertises ${code}`).not.toContain(code);
+        expect(['KeyP', 'ControlLeft', 'ControlRight'], `${r.keys} advertises ${code}`).not.toContain(code);
       }
     }
   });
 
-  it('every key in keyboard.ts\'s slot / boost / refit-digit / consumable tables is advertised', () => {
+  it('every key in keyboard.ts\'s slot / boost / refit-digit / ability tables is advertised', () => {
     const shown = advertised();
     const tables: Record<string, readonly string[]> = {
       SLOT_KEY_CODES: Object.keys(SLOT_KEY_CODES),
       BOOST_KEY_CODES,
       REFIT_DIGIT_CODES: Object.keys(REFIT_DIGIT_CODES),
-      // 9.14: belt keys are 1–6 in keyboard.ts but the row says 1 – 4 — Eric's call (test-audit-2026-10-22.md); re-enable when the copy is fixed
-      CONSUMABLE_KEY_CODES: Object.keys(CONSUMABLE_KEY_CODES).filter((c) => shown.has(c)),
+      ABILITY_KEY_CODES: Object.keys(ABILITY_KEY_CODES),
+      PAN_KEY_CODES: Object.values(PAN_KEY_CODES),
+      CAMERA_HOME_CODE: [CAMERA_HOME_CODE],
     };
-    expect(tables.CONSUMABLE_KEY_CODES.length, 'no consumable key is advertised').toBeGreaterThan(0);
     for (const [name, codes] of Object.entries(tables)) {
       for (const code of codes) expect(shown.has(code), `${name}.${code} has no row`).toBe(true);
     }
@@ -447,11 +484,25 @@ describe('SettingsOverlay — DOM shell', () => {
     expect(overlay.visible).toBe(true);
     const values = [...document.querySelectorAll<HTMLButtonElement>('#hc-settings button')].map((b) => b.dataset.value);
     for (const v of ['full', 'reduced', 'off', ...S.scaleTiers.map(String)]) expect(values, v).toContain(v);
-    // master + effects volume
-    expect(document.querySelectorAll('#hc-settings input[type=range]')).toHaveLength(2);
+    // master + effects volume + AIM SIZE (Story 11.1), and the AIM COLOR picker
+    expect(document.querySelectorAll('#hc-settings input[type=range]')).toHaveLength(3);
+    expect(document.querySelectorAll('#hc-settings input[type=color]')).toHaveLength(1);
     // the view-only bindings render the reference model, row for row
     const t = panelText();
     for (const r of bindingRows()) expect(t, r.keys).toContain(r.action);
+  });
+
+  it('carries the OFFER POSITION choice row — three options, the stored one selected — and a pick writes through', () => {
+    overlay.open();
+    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === OFFER_POS_LABEL);
+    expect(row).toBeDefined();
+    const buttons = [...row!.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((b) => b.dataset.value)).toEqual(OFFER_POS_OPTIONS.map((o) => o.value));
+    expect(buttons).toHaveLength(3);
+    expect(buttons.find((b) => b.dataset.value === 'right')!.style.color).toContain('amber');
+    buttons.find((b) => b.dataset.value === 'bottom')!.click();
+    expect(store.current.offerPos).toBe('bottom');
+    expect(loadSettings().offerPos).toBe('bottom');
   });
 
   it('toggle() closes an open overlay (the ESC toggle path)', () => {
@@ -549,10 +600,45 @@ describe('SettingsOverlay — DOM shell', () => {
     expect(abandons).toBe(0);
   });
 
+  // --- THE AIM ROWS (Story 11.1, R15 / R18) -----------------------------------
+
+  function rowOf(label: string): HTMLElement {
+    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === label);
+    if (row === undefined) throw new Error(`no ${label} row`);
+    return row;
+  }
+
+  it('AIM COLOR: a color picker showing the stored color; a pick writes through, persists, and keeps the picker', () => {
+    overlay.open();
+    const input = rowOf(AIM_COLOR_LABEL).querySelector<HTMLInputElement>('input[type=color]')!;
+    expect(input.value).toBe(DEFAULT_SETTINGS.aimColor);
+    input.value = '#33ccff';
+    input.dispatchEvent(new Event('input'));
+    expect(store.current.aimColor).toBe('#33ccff');
+    expect(loadSettings().aimColor).toBe('#33ccff');
+    expect(document.body.contains(input)).toBe(true); // no rebuild under the open picker
+  });
+
+  it('AIM SIZE: a slider over the configured range and step; a drag writes through and persists', () => {
+    overlay.open();
+    const input = rowOf(AIM_SIZE_LABEL).querySelector<HTMLInputElement>('input[type=range]')!;
+    expect(Number(input.min)).toBe(CLIENT_CONFIG.reticle.sizeMin);
+    expect(Number(input.max)).toBe(CLIENT_CONFIG.reticle.sizeMax);
+    expect(Number(input.step)).toBe(CLIENT_CONFIG.reticle.sizeStep);
+    expect(Number(input.value)).toBe(DEFAULT_SETTINGS.aimSize);
+    input.value = '3.5';
+    input.dispatchEvent(new Event('input'));
+    expect(store.current.aimSize).toBe(3.5);
+    expect(loadSettings().aimSize).toBe(3.5);
+    expect(document.body.contains(input)).toBe(true);
+  });
+
   // --- REGRESSIONS (Story 2.3 review gate) ------------------------------------
 
+  /** The VOLUME sliders (master first) — the AIM SIZE slider is not one. */
   function sliders(): HTMLInputElement[] {
-    return [...document.querySelectorAll<HTMLInputElement>('#hc-settings input[type=range]')];
+    return [...document.querySelectorAll<HTMLInputElement>('#hc-settings input[type=range]')]
+      .filter((el) => el.parentElement?.firstElementChild?.textContent !== AIM_SIZE_LABEL);
   }
 
   it('a volume drag updates in place — the dragged input SURVIVES every input event', () => {

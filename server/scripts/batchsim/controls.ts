@@ -66,13 +66,14 @@
 //      captured ONCE as the burst arms and held (no per-tick flapping). Note
 //      stepShip's authority is signed, so the commanded rudder is the NEGATION
 //      of the forward-sense turn (see asternTurnRudder). Measured swing over a
-//      full burst: 39.5 deg battleship / 65.3 deg mineLayer / 92.8 deg
-//      torpedo boat.
+//      full burst, on the retired three-class roster: 39.5 deg for its
+//      slowest hull, 92.8 deg for its quickest (the four battleships since
+//      Story 10.4 are not re-measured).
 //   2. HOLD THE EXIT HEADING THROUGH THE GRACE. Goal-seek is suppressed for
 //      the grace window and the rudder simply steers back onto the heading the
 //      hull left the burst on (same x3 gain), throttle as normal. Without this
-//      the rotated approach line never commits — a battleship undoes the whole
-//      39.5 deg in ~1.7 s of goal-seek.
+//      the rotated approach line never commits — the retired roster's slowest
+//      hull undid the whole 39.5 deg in ~1.7 s of goal-seek.
 //
 // GRACE HOLD, EXACTLY (both reviewers confirmed this tick-by-tick — see
 // wantsAstern): the burst's last astern tick (the exit-heading capture tick)
@@ -142,7 +143,7 @@ export type ControlFactory = (id: string, seed: number) => CaptainControl;
 // --- control tunables (script behavior, not game balance) -------------------
 const ZONE_SAFETY = 0.8; // steer for the ring center once outside this fraction of the live ring
 const WAYPOINT_REACHED_U = 60; // wander waypoint retarget distance
-const ISLAND_LOOKAHEAD_U = 160; // dronesSmoke huntTick avoidance horizon
+const ISLAND_LOOKAHEAD_U = 160; // the old dronesSmoke huntTick avoidance horizon
 
 // --- un-beach seamanship (Story 3.4, amendment 25) ---------------------------
 // All four numbers are TICK/UNIT counters — no rng, no world accessors beyond
@@ -154,10 +155,10 @@ const STUCK_THROTTLE_MIN = 0.4;
  *  0.1 u/tick = 2 u/s, which cleanly separates the two regimes: a permalocked
  *  hull crawls at ~0.2-0.25 u/s (~0.01 u/tick — the islandSpeedMult damp
  *  re-crushing speed every contact tick), while even the SLOWEST hull under way
- *  (the 35 u/s battleship) makes 1.75 u/tick. Wide headroom on both sides. */
+ *  (35 u/s, the retired roster's slowest top speed) makes 1.75 u/tick. Wide headroom on both sides. */
 const STUCK_STEP_U = 0.1;
 /** Consecutive sub-threshold ticks before declaring the hull beached (1.5 s).
- *  The slowest hull (battleship, accel 5 u/s^2) passes 2 u/s within 0.4 s of
+ *  The slowest hull measured (accel 5 u/s^2, retired roster) passes 2 u/s within 0.4 s of
  *  ordering ahead, so a healthy hull never accumulates this many. */
 const STUCK_TICKS = 30;
 /** Full-astern burst length (2.5 s). The slowest hull reaches its 9 u/s reverse
@@ -387,7 +388,7 @@ class PacifistControl implements CaptainControl {
       slot: SLOT_GUN,
       fireT: 0,
       actSeq: 0,
-      actSlot: SLOT_GUN, hornSeq: 0, held: false, // slot 0 on the ability channel: inert (the gun is a weapon)
+      act: 0, hornSeq: 0, held: false, sec: false, // act read only on an actSeq advance; actSeq never moves
     };
   }
 
@@ -405,7 +406,7 @@ class PacifistControl implements CaptainControl {
       slot: SLOT_GUN,
       fireT: 0, // in-process: no latency, no claim (zero compensation)
       actSeq: 0,
-      actSlot: SLOT_GUN, hornSeq: 0, held: false, // slot 0 on the ability channel: inert (the gun is a weapon)
+      act: 0, hornSeq: 0, held: false, sec: false, // act read only on an actSeq advance; actSeq never moves
     };
   }
 
@@ -418,7 +419,7 @@ class PacifistControl implements CaptainControl {
 
   /** The grace-window rudder: proportional steering back onto the heading the
    *  hull left the burst on. Nothing else may pull the bow around until the
-   *  window expires — the probe measured goal-seek undoing a battleship's
+   *  window expires — the probe measured goal-seek undoing the retired roster's slowest hull's
    *  whole 39.5 degree exit turn in ~1.7 s. No wander draw happens here. */
   private holdRudder(ship: ShipRecord): number {
     return clamp(angleDiff(ship.state.heading, this.holdHeading ?? ship.state.heading) * HEADING_GAIN, -1, 1);

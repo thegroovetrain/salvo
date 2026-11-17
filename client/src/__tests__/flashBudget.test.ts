@@ -6,7 +6,7 @@
 // and the window must slide BY TIMESTAMP so a tab restore cannot burst-degrade.
 
 import { describe, it, expect } from 'vitest';
-import { createFlashBudget, regionKey, FLASH_ELEMENTS, hotbarSlotKey } from '../render/flashBudget.js';
+import { createFlashBudget, regionKey, FLASH_ELEMENTS, consoleRowKey } from '../render/flashBudget.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const FB = CLIENT_CONFIG.flashBudget;
@@ -84,7 +84,7 @@ describe('claim — the per-key sliding window', () => {
     expect(b.claim('r0:0', 1_000)).toBe('degrade');
     expect(b.claim('r3:2', 1_000)).toBe('animate');
     expect(b.claim(FLASH_ELEMENTS.deniedArc, 1_000)).toBe('animate');
-    expect(b.claim(hotbarSlotKey(1), 1_000)).toBe('animate');
+    expect(b.claim(consoleRowKey(1), 1_000)).toBe('animate');
   });
 
   it('a long stack never throws (the sweep)', () => {

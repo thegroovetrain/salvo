@@ -24,7 +24,7 @@
 // regular polygon's pole of inaccessibility coincides with its centroid, so
 // `pole` lands exactly at `(x, y)` too.
 
-import { buildHeightRaster, islandFromPolygon, type HeightRaster, type Island } from '@salvo/shared';
+import { buildHeightRaster, islandFromPolygon, pointInPolygon, type HeightRaster, type Island } from '@salvo/shared';
 
 /** Vertex count for a fixture coastline. High enough that the polygon is a
  *  circle to within 3e-4 of its radius, cheap enough for unit tests. */
@@ -104,4 +104,17 @@ export function flatRaster(reachU = 700): HeightRaster {
 export function ridgeField(cx: number, cy: number, hw: number, hh: number, q = 255): HeightAt {
   return (x: number, y: number): number =>
     Math.abs(x - cx) <= hw && Math.abs(y - cy) <= hh ? q : 0;
+}
+
+/**
+ * A raster in which each of `islands` is terrain of height `q` (default 255:
+ * HIGH GROUND) out to its coastline, sea elsewhere — so a polygon fixture
+ * stops what real high ground stops (Eric 2026-11-13, epic-11 amendment 8:
+ * the main battery and the secondaries clear the chart's lowest land band and
+ * are stopped only by higher ground, read from the RASTER — a `circleIsland`
+ * alone has no raster presence). Covers every island plus a margin.
+ */
+export function rasterOfIslands(islands: readonly Island[], q = 255): HeightRaster {
+  const reach = islands.reduce((m, i) => Math.max(m, Math.hypot(i.x, i.y) + i.r + 100), 700);
+  return rasterFrom(reach, (x, y) => (islands.some((i) => pointInPolygon({ x, y }, i.poly)) ? q : 0));
 }

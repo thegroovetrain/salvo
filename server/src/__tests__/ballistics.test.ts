@@ -2,18 +2,18 @@
 // Story 1.4 added muzzleSpawn — the hull-silhouette-edge gun spawn).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, hullSilhouette, pointPolygonDistance, transformPolygon } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, hullSilhouette, pointPolygonDistance, transformPolygon } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { hullClearOffset, makeBallistic, muzzleSpawn } from '../game/equipment/ballistics.js';
 
 describe('hullClearOffset', () => {
   it("is half the FIRER's class hull length plus the projectile/trigger radius", () => {
     const w = new World(1);
-    const boat = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    const battleship = w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
-    expect(hullClearOffset(boat, 2)).toBe(CONFIG.shipClasses.torpedoBoat.hull.length / 2 + 2);
-    expect(hullClearOffset(battleship, CONFIG.mine.triggerRadius)).toBe(
-      CONFIG.shipClasses.battleship.hull.length / 2 + CONFIG.mine.triggerRadius,
+    const short = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
+    const long = w.addShip('b', 'B', 'captain', 'iowa', undefined, undefined);
+    expect(hullClearOffset(short, 2)).toBe(CONFIG.shipClasses.warspite.hull.length / 2 + 2);
+    expect(hullClearOffset(long, CONFIG.mine.triggerRadius)).toBe(
+      CONFIG.shipClasses.iowa.hull.length / 2 + CONFIG.mine.triggerRadius,
     );
   });
 });
@@ -116,9 +116,9 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
 
   it('spawns strictly outside the own silhouette, hugging the boundary, on every bearing', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
+    const ship = w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined);
     ship.state = { x: 40, y: -25, heading: 0.7, speed: 0 };
-    const poly = transformPolygon(hullSilhouette('battleship'), 40, -25, 0.7);
+    const poly = transformPolygon(hullSilhouette('yamato'), 40, -25, 0.7);
     for (let i = 0; i < 16; i++) {
       const dir = (i / 16) * 2 * Math.PI;
       const p = muzzleSpawn(ship, dir, CLEAR);
@@ -128,20 +128,8 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
     }
   });
 
-  it('a concave bearing (mineLayer transom notch, dead astern) spawns in the OPEN cavity, outside the hull', () => {
-    const w = new World(1);
-    const ship = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
-    ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const poly = transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0);
-    const p = muzzleSpawn(ship, Math.PI, CLEAR); // straight astern, through the notch cavity
-    // The notch is an OPEN cavity wide enough for the shell: the boundary
-    // crossing on this bearing is the cavity's inner wall, so the shell spawns
-    // inside the notch — outside the silhouette polygon — and exits astern.
-    expect(pointPolygonDistance(p, poly)).toBeGreaterThan(0); // never inside the hull
-    expect(p.y).toBeCloseTo(0, 6); // dead on the astern bearing
-    expect(p.x).toBeLessThan(-CONFIG.shipClasses.mineLayer.hull.length / 4); // well aft of center
-    expect(p.x).toBeGreaterThan(-CONFIG.shipClasses.mineLayer.hull.length / 2 - 3 * CLEAR); // no dead ring astern either
-  });
+  // (The Mine Layer's transom-notch case retired with the class — Story 10.4;
+  // the four traced hulls' concavity is pinned in shared silhouette tests.)
 
   it('follows the ship pose: spawn point rotates and translates with the hull', () => {
     const w = new World(1);
@@ -150,7 +138,7 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
     const p = muzzleSpawn(ship, Math.PI / 2, CLEAR); // over the bow (heading +y)
     expect(p.x).toBeCloseTo(100, 4); // bow line stays on the ship's x
     // Bow tip sits length/2 up the +y axis; spawn is just beyond it.
-    expect(p.y).toBeGreaterThan(200 + CONFIG.shipClasses.torpedoBoat.hull.length / 2);
-    expect(p.y).toBeLessThan(200 + CONFIG.shipClasses.torpedoBoat.hull.length / 2 + 3 * CLEAR + 1);
+    expect(p.y).toBeGreaterThan(200 + CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.length / 2);
+    expect(p.y).toBeLessThan(200 + CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.length / 2 + 3 * CLEAR + 1);
   });
 });

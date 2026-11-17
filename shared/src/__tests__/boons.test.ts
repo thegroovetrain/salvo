@@ -2,33 +2,34 @@
 // hooks" law under catalog v3. The CONTENT pins (29 lines, caps, kinds, the
 // stub set, the validator, order-independence) live in catalog.test.ts; this
 // suite is about the ENGINE:
-//   - the five-effect vocabulary, and that `slotReplace` is gone;
+//   - the four-effect vocabulary (`slotReplace` and, since Story 10.5, `stock`
+//     are gone);
 //   - home 1: `stat` effects reach EffectiveStats and nothing else, through a
 //     GENERATED whitelist whose deliberate absences are pinned;
 //   - home 2: `slotFill` mutates the one LoadoutSlot[] and nothing else —
-//     since Story 8.5 it takes the FIRST EMPTY WEAPON SLOT (2, then 3, then 4)
-//     and leaves every other slot's state object REFERENCE-IDENTICAL;
-//   - `doctrine` verbs, `behavior` hooks, and `stock` — which since Story 8.7
-//     fills a consumable slot, the kind's OWN fixed slot since Story 9.2 (its
-//     own section near the foot of this file);
+//     since Story 10.5 into the weapon's FAMILY slot (one kind per slot),
+//     leaving every other slot's state object REFERENCE-IDENTICAL;
+//   - `doctrine` verbs and `behavior` hooks;
 //   - the parity property: the server's INCREMENTAL slot path and the client's
-//     REPLAYED `slotsWithCards` agree after any sequence of grants.
+//     REPLAYED `slotsWithCards` agree after any sequence of grants;
+//   - `pickRefusal`, the one "can this ship take this card" predicate.
 
 import { describe, it, expect } from 'vitest';
 import {
   BOON_STAT_PATHS,
   CATALOG,
   CONFIG,
-  CONSUMABLE_IDS,
-  CONSUMABLE_KEY_ORDER,
-  CONSUMABLE_SLOTS,
   DOCTRINE_MODES,
+  EQUIPMENT_FAMILY,
   EQUIPMENT_INT_FIELDS,
   EQUIPMENT_STAT_FIELDS,
   EQUIPMENT_IDS,
+  FAMILY_SLOT,
   LINE_IDS,
   NO_CARDS,
+  SHIFT_IDS,
   SLOT_BOOST,
+  SLOT_FAMILIES,
   SLOT_GUN,
   WEAPON_SLOTS,
   applyCardStats,
@@ -37,27 +38,28 @@ import {
   pickRefusal,
   cardBehaviors,
   cardCounts,
-  consumableSlotFor,
   effectiveStats,
   equipmentMaxAmmo,
+  familyMembers,
+  familySlotFor,
   loadoutFor,
   mulberry32,
   slotsWithCards,
-  stockSlotFor,
-  validateLine,
+  tierTargetOf,
   type BoonEffect,
   type Catalog,
   type CatalogLine,
-  type ConsumableId,
   type EffectiveStats,
+  type EquipmentId,
   type LineId,
   type LoadoutSlot,
   type ShipClassId,
-  type SlotItemId,
+  type SlotFamily,
 } from '../index.js';
+import { lineForEquipment } from '../sim/catalog.js';
 
-const TB = CONFIG.shipClasses.torpedoBoat;
-const BS = CONFIG.shipClasses.battleship;
+const TB = CONFIG.shipClasses.iowa;
+const BS = CONFIG.shipClasses.yamato;
 
 /** A one-copy test line carrying `effects` (never in the production catalog). */
 const line = (id: string, ...effects: BoonEffect[]): CatalogLine => ({
@@ -106,13 +108,18 @@ const diff = (a: EffectiveStats, b: EffectiveStats): string[] => {
 describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)', () => {
   it('is exactly the top-level paths plus every equipment.<id>.<field>', () => {
     const expected: string[] = [
-      // `armor` sits right after maxHp (Story 9.7, epic-9 amendments 86–88 / 110–117),
-      // `armorPiercing` right after it (Story 9.9, epic-9 amendments 144–145).
-      'maxHp', 'armor', 'armorPiercing', 'radarRange', 'sweepRpm', 'cooldownScale',
-      'kinematics.maxSpeed', 'kinematics.reverseSpeed', 'kinematics.accel',
-      'kinematics.decel', 'kinematics.turnRate', 'kinematics.steerageSpeed',
-      // The regen pair (Story 9.6, epic-9 amendments 90–91): PASSIVE HEALING's paths.
-      'regen.missingPctPerS', 'regen.outOfCombatMs',
+      // THE INDICES (Story 10.3, Eric 2026-11-04, epic-10 amendment 8; RUDDER
+      // deleted by Story 10.6, R2; RANGE by Story 11.2, R9) after `maxHp`,
+      // then radarRange and the four pass-through kinematics.
+      // `kinematics.maxSpeed` / `turnRate`, `sweepRpm`, `cooldownScale` and the
+      // `regen.*` pair are GONE from the whitelist: derived or deleted.
+      'maxHp', 'armor', 'power', 'reload', 'engines', 'intel', 'radarRange',
+      'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
+      // Story 10.6: the two abilities' card-written halves (R8 / R9), then the
+      // four mount counts of the one-off WEAPON cards (R6 / R7).
+      'repair.reload', 'repair.instantHp', 'repair.regenHp',
+      'smoke.reload', 'smoke.lifeMs', 'smoke.sizeRung',
+      'torpedoLaunchers', 'tubesPerLauncher', 'mineRacks', 'rackBonus',
     ];
     for (const id of EQUIPMENT_IDS) {
       for (const f of EQUIPMENT_STAT_FIELDS[id] as readonly string[]) expected.push(`equipment.${id}.${f}`);
@@ -133,9 +140,20 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
   it('pins the derived paths ABSENT: sightRange, sweepPeriodMs, the broadside arcs, every triggerRadius, every tier', () => {
     const absent = [
       'sightRange',
+      'hullSightRange', // the plain-hull eye (Story 11.2) — a CONFIG fact, never a card path
+      'range', // RANGE left the index (Story 11.2, R9) — no `range` path is accepted
       'sweepPeriodMs',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): derived from `armor`.
       'damageMultiplier',
+      // Story 10.3 (epic-10 amendment 8): derived from the indices in
+      // sim/indexStats.ts — a card writes ENGINES, never the speed.
+      'kinematics.maxSpeed',
+      'kinematics.turnRate',
+      'sweepRpm',
+      'cooldownScale',
+      // ...and the regen pair is DELETED with PASSIVE HEALING.
+      'regen.missingPctPerS',
+      'regen.outOfCombatMs',
       // The cut's Armor bonus is a CONFIG pass-through (amendment 88).
       'equipment.hunker.armorBonus',
       'equipment.broadside.traverseRad',
@@ -152,12 +170,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       // addressable (the captive's fixed-burst precedent above).
       'equipment.flak.burstRadius',
       'equipment.flak.contactDamage',
-      // ...and `supercavTorpedo` has no paths AT ALL: it became a CONSUMABLE
-      // (amendment 74), and a consumable has no stat row to address.
-      'equipment.supercavTorpedo.damage',
-      'equipment.supercavTorpedo.speed',
-      'equipment.supercavTorpedo.reloadMs',
-      'equipment.supercavTorpedo.maxAmmo',
+      // THE SUPERCAV NEVER HOMES (amendment 74): its row is back since Story
+      // 10.5, but its turn rate is not addressable.
+      'equipment.supercavTorpedo.homingTurnRate',
     ];
     for (const path of absent) expect(BOON_STAT_PATHS, path).not.toContain(path);
     // `tier` is derived from the COPY COUNT, never from an effect: a card that
@@ -166,59 +181,6 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // ...and no doctrine verb is addressable as a stat.
     for (const [weapon, verbs] of Object.entries(DOCTRINE_MODES)) {
       for (const v of verbs as readonly string[]) expect(BOON_STAT_PATHS).not.toContain(`equipment.${weapon}.${v}`);
-    }
-  });
-
-  it('keeps the WHITELISTED-BUT-UNWRITTEN paths (a stat with no card is still addressable in principle)', () => {
-    const written = new Set<string>();
-    for (const id of LINE_IDS) {
-      for (const tier of CATALOG[id].tiers) {
-        for (const e of tier) if (e.kind === 'stat') written.add(e.path);
-      }
-    }
-    // The universal ladders + the deck gun (Story 8.1), the five torpedo /
-    // mine ladders (Story 8.13), the machine gun / flak ladders (Story 8.15)
-    // and the STAR SHELLS / BROADSIDE / PHOSPHOR SHELLS ladders (Story 8.17,
-    // Eric 2026-09-29, amendments 130/131/133), and PASSIVE HEALING's regen
-    // pair (Story 9.6, epic-9 amendments 90–91), and ARMOR (Story 9.7, epic-9
-    // amendments 86–88 / 110–117), and ARMOR PIERCING (Story 9.9, epic-9
-    // amendments 144–145).
-    expect([...written].sort()).toEqual([
-      'armor', 'armorPiercing',
-      'regen.missingPctPerS', 'regen.outOfCombatMs',
-      'cooldownScale', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
-      'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',
-      'equipment.lightTorpedo.damage', 'equipment.lightTorpedo.speed',
-      'equipment.lightTorpedo.maxAmmo', 'equipment.lightTorpedo.homingTurnRate',
-      'equipment.heavyTorpedo.damage', 'equipment.heavyTorpedo.speed',
-      'equipment.heavyTorpedo.maxAmmo', 'equipment.heavyTorpedo.homingTurnRate',
-      'equipment.navalMines.damage', 'equipment.navalMines.blastRadius', 'equipment.navalMines.maxAmmo',
-      'equipment.captiveMines.damage', 'equipment.captiveMines.maxAmmo',
-      'equipment.captiveMines.homingTurnRate',
-      'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
-      'equipment.foulingMines.slowFactor',
-      'equipment.machineGun.maxAmmo', 'equipment.machineGun.rateMs',
-      'equipment.flak.damage', 'equipment.flak.maxAmmo',
-      'equipment.starShells.litDurationMs', 'equipment.starShells.litRadius',
-      'equipment.starShells.maxAmmo', 'equipment.starShells.damage',
-      'equipment.broadside.spreadRung', 'equipment.broadside.turrets',
-      'equipment.phosphorShells.damage', 'equipment.phosphorShells.dps',
-      'equipment.phosphorShells.zoneRadius', 'equipment.phosphorShells.zoneDurationMs',
-      // Story 9.8 (ruling 125): every tiered weapon's reach steps per card.
-      'equipment.gun.rangeU', 'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
-      'equipment.broadside.rangeU', 'equipment.starShells.rangeU', 'equipment.phosphorShells.rangeU',
-    ].sort());
-    // Still addressable in principle, still written by nothing: the FOULING
-    // mine's damage is fixed at 10 by ruling (amendment 81), the BROADSIDE's
-    // at 15 (amendment 133), radarRange has no card at all, and since Story
-    // 9.12 (Eric 2026-10-16) the cannon's barrels are a fixed CONFIG.gun.barrels
-    // and the machine gun's damage is 5 flat — no rung authors either.
-    for (const path of [
-      'radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage',
-      'equipment.gun.barrels', 'equipment.machineGun.damage',
-    ]) {
-      expect(BOON_STAT_PATHS, path).toContain(path);
-      expect(written.has(path), path).toBe(false);
     }
   });
 
@@ -238,14 +200,12 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // equipment line. CUT TO ONE in Story 8.15: the missile's `homing` went
     // with HEAT SEEKING and the missile itself (amendment 89e). EMPTIED in
     // Story 8.17 (Eric 2026-09-29, amendments 131–134): PHOSPHOR SHELLS is its
-    // own weapon and DAZZLE the FLASH SHELLS consumable, so the star shell's
+    // own weapon and DAZZLE the FLASH SHELLS line, so the star shell's
     // verbs are gone. The table stays, empty (the machinery is kept).
     expect(DOCTRINE_MODES).toEqual({});
     expect('starShells' in DOCTRINE_MODES).toBe(false);
     for (const weapon of Object.keys(DOCTRINE_MODES)) expect(EQUIPMENT_IDS).toContain(weapon);
-    // The radar buoy's gun/jamming verbs left with the buoy (catalog-v3 R1) and
     // `captive` left because CAPTIVE MINES became its own equipment line (R25).
-    expect('radarBuoy' in DOCTRINE_MODES).toBe(false);
     expect('navalMines' in DOCTRINE_MODES).toBe(false);
     expect('lightTorpedo' in DOCTRINE_MODES).toBe(false);
     expect('heavyTorpedo' in DOCTRINE_MODES).toBe(false);
@@ -258,10 +218,16 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
 
 describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
   it('a mult stat card moves EXACTLY its targeted path (flatten diff), nothing else', () => {
-    const l = line('t', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
+    const l = line('t', { kind: 'stat', path: 'kinematics.reverseSpeed', mult: 1.1 });
     const s = foldOne(TB, l);
-    expect(diff(effectiveStats(TB), s)).toEqual(['kinematics.maxSpeed']);
-    expect(s.kinematics.maxSpeed).toBeCloseTo(TB.kinematics.maxSpeed * 1.1, 9);
+    expect(diff(effectiveStats(TB), s)).toEqual(['kinematics.reverseSpeed']);
+    expect(s.kinematics.reverseSpeed).toBeCloseTo(TB.kinematics.reverseSpeed * 1.1, 9);
+  });
+
+  it('an INDEX card moves its index AND what the fold derives from it, nothing else (Story 10.3)', () => {
+    const s = foldOne(TB, line('e', { kind: 'stat', path: 'engines', mult: 1.5 }));
+    expect(diff(effectiveStats(TB), s)).toEqual(['engines', 'kinematics.maxSpeed']);
+    expect(s.kinematics.maxSpeed).toBe((CONFIG.index.engines * s.engines) / CONFIG.index.base);
   });
 
   it('a THREE-SEGMENT equipment path resolves (the 8.1 walk), and only that row moves', () => {
@@ -273,13 +239,14 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
     expect(s.equipment.lightTorpedo.speed).toBe(CONFIG.lightTorpedo.speed);
   });
 
-  it('a sweepRpm card re-derives sweepPeriodMs, and the CEILING is re-applied over the fold', () => {
-    const s = foldOne(TB, line('r', { kind: 'stat', path: 'sweepRpm', add: 5 }));
-    expect(s.sweepRpm).toBe(CONFIG.vision.sweepRpm + 5);
+  it('an INTEL card re-derives sweepRpm and sweepPeriodMs, with NO ceiling over the fold (Story 10.7, R6)', () => {
+    const s = foldOne(TB, line('r', { kind: 'stat', path: 'intel', add: 5 }));
+    expect(s.intel).toBe(TB.index.intel + 5);
+    expect(s.sweepRpm).toBe((CONFIG.vision.sweepRpm * s.intel) / CONFIG.index.base);
     expect(s.sweepPeriodMs).toBeCloseTo(60000 / s.sweepRpm, 9);
-    const over = foldOne(TB, line('o', { kind: 'stat', path: 'sweepRpm', add: 1000 }));
-    expect(over.sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
-    expect(over.sweepPeriodMs).toBe(60000 / CONFIG.vision.sweepRpmMax);
+    const over = foldOne(TB, line('o', { kind: 'stat', path: 'intel', add: 100000 }));
+    expect(over.sweepRpm).toBe((CONFIG.vision.sweepRpm * over.intel) / CONFIG.index.base);
+    expect(over.sweepPeriodMs).toBeCloseTo(60000 / over.sweepRpm, 9);
   });
 
   it('an off-whitelist or malformed path is a fail-closed no-op (runtime guard)', () => {
@@ -315,12 +282,9 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
     expect(stats.maxHp).toBe(TB.hp + 25);
   });
 
-  it('`stock` is a TOTAL no-op in the fold (Story 8.7 owns the rack)', () => {
-    const l: CatalogLine = {
-      id: 'hullRepair', kind: 'consumable', cap: 5,
-      tiers: new Array(5).fill([{ kind: 'stock', equipmentId: 'hullRepair' }]),
-    };
-    expect(effectiveStats(TB, new Array<LineId>(5).fill('hullRepair'), catalogOf(l))).toEqual(effectiveStats(TB));
+  it('the deleted `stock` effect is a TOTAL no-op in the fold (an untyped line carrying one moves nothing)', () => {
+    const l = line('s', { kind: 'stock', equipmentId: 'hullRepair' } as unknown as BoonEffect);
+    expect(foldOne(TB, l)).toEqual(effectiveStats(TB));
   });
 });
 
@@ -330,15 +294,15 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
 
 describe('cardCounts / boonStackCount — the copy-count spine', () => {
   it('counts occurrences, caps at the line cap, drops junk, and keeps CATALOG order', () => {
-    const counts = cardCounts(['reload', 'hullPoints', 'reload', 'nope', 'constructor', 'hullPoints', 'hullPoints']);
-    expect([...counts]).toEqual([['hullPoints', 3], ['reload', 2]]); // catalog order: hullPoints before reload
+    const counts = cardCounts(['reload', 'armor', 'reload', 'nope', 'constructor', 'armor', 'armor']);
+    expect([...counts]).toEqual([['armor', 3], ['reload', 2]]); // catalog order: armor before reload
     expect(cardCounts(new Array<string>(9).fill('reload')).get('reload')).toBe(5); // capped
     expect([...cardCounts([])]).toEqual([]);
   });
 
   it('boonStackCount counts occurrences of one id', () => {
-    expect(boonStackCount(['hullPoints', 'speed', 'hullPoints'], 'hullPoints')).toBe(2);
-    expect(boonStackCount([], 'hullPoints')).toBe(0);
+    expect(boonStackCount(['armor', 'engines', 'armor'], 'armor')).toBe(2);
+    expect(boonStackCount([], 'armor')).toBe(0);
   });
 
   it('NO_CARDS is the frozen shared zero-card identity', () => {
@@ -351,27 +315,24 @@ describe('cardCounts / boonStackCount — the copy-count spine', () => {
 // Home 2: slot effects.
 // ---------------------------------------------------------------------------
 
+/** One weapon of each family, and a second kind of each — read off the model. */
+const FIRST_OF = Object.fromEntries(SLOT_FAMILIES.map((f) => [f, familyMembers(f)[0]])) as Record<SlotFamily, EquipmentId>;
+const SECOND_OF = Object.fromEntries(SLOT_FAMILIES.map((f) => [f, familyMembers(f)[1]])) as Record<SlotFamily, EquipmentId>;
+const fill = (equipmentId: EquipmentId): BoonEffect => ({ kind: 'slotFill', equipmentId });
+
 describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])', () => {
   const stats = effectiveStats(TB);
-  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells' | 'broadside'): BoonEffect =>
-    ({ kind: 'slotFill', equipmentId });
-  const [W0, W1, W2] = WEAPON_SLOTS;
 
-  it('slotFill fills the FIRST EMPTY WEAPON SLOT — 2, then 3, then 4, in fit order', () => {
-    // WAS: the single SLOT_EXTRA (3). The weapon row is three wide now, so the
-    // second and third equipment cards stop being no-ops (deferred-work :1988).
-    const loadout = loadoutFor(stats);
-    expect(loadout[W0].equipmentId).toBeNull();
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
-    expect(loadout[W0].equipmentId).toBe('heavyTorpedo');
-    expect(loadout[W0].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 0 });
-    applySlotEffect(loadout, fill('navalMines'), stats);
-    expect(loadout[W1].equipmentId).toBe('navalMines');
-    applySlotEffect(loadout, fill('starShells'), stats);
-    expect(loadout[W2].equipmentId).toBe('starShells');
-    expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'heavyTorpedo', 'navalMines', 'starShells', ...CONSUMABLE_SLOTS.map(() => null),
-    ]);
+  it('slotFill fills the weapon\'s FAMILY slot with a fresh full pool — every family weapon, on an empty row', () => {
+    for (const id of EQUIPMENT_IDS) {
+      const slot = familySlotFor(id);
+      if (slot === null) continue;
+      const loadout = loadoutFor(stats);
+      applySlotEffect(loadout, fill(id), stats);
+      expect(loadout[slot], id).toEqual({ equipmentId: id, state: { n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 } });
+      // ...and nowhere else: the other two family slots stay empty.
+      for (const i of WEAPON_SLOTS) if (i !== slot) expect(loadout[i].equipmentId, `${id} slot ${i}`).toBeNull();
+    }
   });
 
   it('A FILL TOUCHES ITS TARGET SLOT AND NOTHING ELSE — every other state object is REFERENCE-IDENTICAL', () => {
@@ -380,76 +341,85 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     // timers make it bite — an implementation that rebuilds the array (or
     // re-freshens a pool) fails here while a toEqual would pass.
     const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
+    applySlotEffect(loadout, fill(FIRST_OF.torpedo), stats);
     loadout[SLOT_GUN].state!.reloadMsLeft = 321;
     loadout[SLOT_BOOST].state!.n = 0;
-    loadout[W0].state!.reloadMsLeft = 4242;
+    loadout[FAMILY_SLOT.torpedo].state!.reloadMsLeft = 4242;
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
-    applySlotEffect(loadout, fill('navalMines'), stats);
+    applySlotEffect(loadout, fill(FIRST_OF.mine), stats);
     loadout.forEach((slot, i) => {
       expect(slot, `slot ${i}`).toBe(slotRefs[i]); // the ARRAY is mutated in place
-      if (i !== W1) expect(slot.state, `slot ${i} state`).toBe(stateRefs[i]);
+      if (i !== FAMILY_SLOT.mine) expect(slot.state, `slot ${i} state`).toBe(stateRefs[i]);
     });
-    expect(loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 321 });
+    expect(loadout[SLOT_GUN].state!.reloadMsLeft).toBe(321);
     expect(loadout[SLOT_BOOST].state!.n).toBe(0);
-    expect(loadout[W0].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 4242 });
+    expect(loadout[FAMILY_SLOT.torpedo].state!.reloadMsLeft).toBe(4242);
   });
 
-  it('a FULL weapon row is a silent no-op — the loadout is untouched, nothing spills into the consumable slots', () => {
-    const loadout = loadoutFor(stats);
-    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) {
-      applySlotEffect(loadout, e, stats);
+  it('ONE KIND PER SLOT: a second kind of a filled family is a silent no-op — it never displaces, never spills into another slot', () => {
+    for (const family of SLOT_FAMILIES) {
+      const loadout = loadoutFor(stats);
+      applySlotEffect(loadout, fill(FIRST_OF[family]), stats);
+      const before = loadout.map((s) => s.equipmentId);
+      const stateRefs = loadout.map((s) => s.state);
+      for (const other of familyMembers(family)) applySlotEffect(loadout, fill(other), stats);
+      expect(loadout.map((s) => s.equipmentId), family).toEqual(before);
+      loadout.forEach((s, i) => expect(s.state, `${family} slot ${i}`).toBe(stateRefs[i]));
     }
-    const before = loadout.map((s) => s.equipmentId);
-    const stateRefs = loadout.map((s) => s.state);
-    applySlotEffect(loadout, fill('broadside'), stats);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(before);
-    loadout.forEach((s, i) => expect(s.state, `slot ${i}`).toBe(stateRefs[i]));
   });
 
-  it('slotFill of equipment ALREADY fitted is a no-op (the duplicate guard, over ANY slot)', () => {
+  it('slotFill of equipment ALREADY fitted is a no-op: the pool is never re-freshened', () => {
     const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
-    const stateRef = loadout[W0].state;
-    loadout[W0].state!.n = 1;
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
-    expect(loadout[W0].state).toBe(stateRef);
-    expect(loadout[W0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // never re-freshened
-    expect(loadout[W1].equipmentId).toBeNull(); // and it did NOT land in the next slot
-    // An UNfitted id still fills normally (the guard is duplicate-only).
-    applySlotEffect(loadout, fill('navalMines'), stats);
-    expect(loadout[W1].equipmentId).toBe('navalMines');
+    applySlotEffect(loadout, fill(FIRST_OF.mine), stats);
+    const stateRef = loadout[FAMILY_SLOT.mine].state;
+    loadout[FAMILY_SLOT.mine].state!.n = 0;
+    applySlotEffect(loadout, fill(FIRST_OF.mine), stats);
+    expect(loadout[FAMILY_SLOT.mine].state).toBe(stateRef);
+    expect(loadout[FAMILY_SLOT.mine].state!.n).toBe(0);
   });
 
-  it('stat, behavior and doctrine effects are structural no-ops in the slot home (and a STUB stock with them)', () => {
-    // `stock` moved home in Story 8.7 — it fills a consumable slot now. The one used
-    // here is DEPTH CHARGE, still a stub (epic-8 amendment 83; SHIELD BLOCK
-    // until Story 8.16 and SMOKE SCREEN until Story 8.18 were used here and
-    // went live), so the stub
-    // gate refuses it and it stays a no-op; a LIVE keyed line would fill its slot. The live rack is exercised against a non-stub
-    // test catalog at the foot of this file.
+  it('equipment with NO family slot fits nowhere: BROADSIDE (left the deal, R6), the guns and the Shifts', () => {
+    for (const id of EQUIPMENT_IDS) {
+      if (familySlotFor(id) !== null) continue;
+      const loadout = loadoutFor(stats);
+      const before = loadout.map((s) => s.equipmentId);
+      applySlotEffect(loadout, fill(id), stats);
+      expect(loadout.map((s) => s.equipmentId), id).toEqual(before);
+    }
+    expect(slotsWithCards(stats, ['broadside'])).toEqual(loadoutFor(stats));
+  });
+
+  // Review gate (Edge Case Hunter 5): the documented answer for an id outside
+  // EQUIPMENT_FAMILY is `null`, never `undefined` (a `!== null` caller would
+  // otherwise treat it as fitted somewhere).
+  it('familySlotFor: an id outside EQUIPMENT_FAMILY (unknown, or an Object.prototype key) answers null', () => {
+    for (const id of ['notAnEquipment', 'toString', '__proto__', '']) {
+      expect(familySlotFor(id as EquipmentId), id).toBeNull();
+    }
+  });
+
+  it('a short or malformed loadout is fail-closed: a missing family slot is never filled', () => {
+    const short = loadoutFor(stats).slice(0, FAMILY_SLOT.torpedo);
+    applySlotEffect(short, fill(FIRST_OF.torpedo), stats);
+    expect(short).toHaveLength(FAMILY_SLOT.torpedo);
+    expect(short.some((s) => s.equipmentId === FIRST_OF.torpedo)).toBe(false);
+  });
+
+  it('stat, behavior and doctrine effects are structural no-ops in the slot home — and so is the deleted `stock`', () => {
     const loadout = loadoutFor(stats);
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
     const effects: BoonEffect[] = [
       { kind: 'stat', path: 'maxHp', add: 1 },
       { kind: 'behavior', hookId: 'x', params: {} },
-      // A doctrine effect for a verb that no longer exists (Story 8.17): the
-      // slot home ignores doctrine regardless.
       { kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' },
-      { kind: 'stock', equipmentId: 'depthCharge' },
+      { kind: 'stock', equipmentId: 'hullRepair' } as unknown as BoonEffect,
+      { kind: 'slotReplace', from: 'heavyTorpedo', to: 'navalMines' } as unknown as BoonEffect,
     ];
     for (const e of effects) applySlotEffect(loadout, e, stats);
     expect(loadout.map((s) => s)).toEqual(slotRefs);
     loadout.forEach((s, i) => expect(s.state).toBe(stateRefs[i]));
-  });
-
-  it('`slotReplace` IS DELETED: an untyped one moves nothing (no catalog-v3 line swaps equipment)', () => {
-    const loadout = loadoutFor(stats);
-    const before = loadout.map((s) => s.equipmentId);
-    applySlotEffect(loadout, { kind: 'slotReplace', from: 'heavyTorpedo', to: 'navalMines' } as unknown as BoonEffect, stats);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(before);
   });
 });
 
@@ -459,7 +429,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
 
 describe('two homes — a card may touch stats and slots, NOTHING else, each via its home', () => {
   it('a stat-only card leaves the loadout REFERENCE-EQUAL through the slot path', () => {
-    const l = line('t', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
+    const l = line('t', { kind: 'stat', path: 'engines', mult: 1.1 });
     const stats = foldOne(TB, l);
     const base = loadoutFor(stats);
     const slotRefs = [...base];
@@ -470,7 +440,7 @@ describe('two homes — a card may touch stats and slots, NOTHING else, each via
   it('a slot-only card leaves effectiveStats output BYTE-IDENTICAL', () => {
     // The production equipment lines are exactly this shape at copy 1.
     expect(effectiveStats(TB, ['navalMines'])).toEqual(effectiveStats(TB));
-    expect(effectiveStats(TB, ['broadside'])).toEqual(effectiveStats(TB));
+    expect(effectiveStats(TB, ['dazzleShells'])).toEqual(effectiveStats(TB));
   });
 
   it('a behavior-only card touches NEITHER home (hooks are its only leg)', () => {
@@ -501,10 +471,13 @@ describe('two homes — a card may touch stats and slots, NOTHING else, each via
 // Parity property: server-incremental vs client-replayed slot ids.
 // ---------------------------------------------------------------------------
 
+/** Every dealable EQUIPMENT line (a weapon card), in catalog order. */
+const WEAPON_LINES: LineId[] = LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment' && CATALOG[id].stub !== true);
+
 describe('one derivation, both sides — incremental vs replayed slot-id parity', () => {
-  /** The NON-STUB equipment lines plus two ladders (CANNON carries the pool
-   *  rung since 2026-09-30), as a grant pool. */
-  const POOL: LineId[] = ['heavyTorpedo', 'navalMines', 'broadside', 'starShells', 'hullPoints', 'deckGun'];
+  /** A grant pool: every weapon line (BROADSIDE included — it fits nowhere on
+   *  either path) plus two ladders. */
+  const POOL: LineId[] = [...WEAPON_LINES, 'armor', 'deckGun'];
 
   /**
    * The server's incremental path, emulated faithfully: per granted card,
@@ -524,16 +497,15 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
     return loadout;
   }
 
-  it('server slot ids == client-derived slot ids after arbitrary grant sequences (seeded property)', () => {
+  it('server slot ids == client-derived slot ids after arbitrary grant sequences — second kinds of a family included (seeded property)', () => {
     const rng = mulberry32(0xb00b5);
-    const classes: ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
-    for (let trial = 0; trial < 120; trial += 1) {
+    const classes: ShipClassId[] = ['iowa', 'yamato', 'warspite'];
+    for (let trial = 0; trial < 200; trial += 1) {
       const cls = rng.pick(classes);
-      const n = rng.int(0, 6);
+      const n = rng.int(0, 8);
       const cards = Array.from({ length: n }, () => rng.pick(POOL));
       const server = serverIncremental(cls, cards).map((s) => s.equipmentId);
-      const client = slotsWithCards(effectiveStats(CONFIG.shipClasses[cls], cards), cards)
-        .map((s) => s.equipmentId);
+      const client = slotsWithCards(effectiveStats(CONFIG.shipClasses[cls], cards), cards).map((s) => s.equipmentId);
       expect(client, cards.join('+')).toEqual(server);
     }
   });
@@ -541,42 +513,37 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
   it('slotsWithCards at zero cards equals plain loadoutFor (byte-identical baseline)', () => {
     const stats = effectiveStats(TB);
     expect(slotsWithCards(stats, [])).toEqual(loadoutFor(stats));
-    // ...and the fleet flag rides through to the gun-only drone fit (a drone
-    // holds no cards at all — EMPTY_DECK_LIST — so this IS its whole loadout).
-    expect(slotsWithCards(stats, [], CATALOG, true)).toEqual(loadoutFor(stats, true));
-    expect(slotsWithCards(stats, [], CATALOG, true)[SLOT_BOOST])
-      .toEqual({ equipmentId: null, state: null });
+    // ...and the seat's Shift rides through to slot 1.
+    for (const shift of SHIFT_IDS) {
+      expect(slotsWithCards(stats, [], CATALOG, shift)).toEqual(loadoutFor(stats, shift));
+    }
   });
 
-  it('a capacity ladder + an equipment fit compose: turret pool 2 beside a fresh fill', () => {
-    // CANNON ×2 reaches tier III, whose rung adds the second turret (Eric
-    // 2026-09-30 — the deleted DECK GUN TURRET card's effect).
-    const cards: LineId[] = ['deckGun', 'deckGun', 'navalMines'];
-    const stats = effectiveStats(BS, cards);
-    const loadout = slotsWithCards(stats, cards);
-    expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'navalMines', null, null, ...CONSUMABLE_SLOTS.map(() => null),
-    ]);
-    expect(loadout[0].state).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 }); // the CANNON tier-III pool
-    expect(equipmentMaxAmmo(stats, 'gun')).toBeGreaterThan(CONFIG.gun.maxAmmo);
-    expect(loadout[WEAPON_SLOTS[0]].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
+  it('THE SLOT IS THE FAMILY\'S, WHATEVER THE CARD ORDER: every permutation of one weapon per family replays the same row', () => {
+    // WAS first-empty-first (Story 8.5): which weapon sat in Q was a fact about
+    // the order the cards were taken in. Since Story 10.5 it is a fact about
+    // the weapon's KIND and nothing else.
+    const rng = mulberry32(0x105);
+    for (let trial = 0; trial < 100; trial += 1) {
+      const picks = SLOT_FAMILIES.map((f) => rng.pick(familyMembers(f)));
+      const cards = picks.map((eq) => lineForEquipment(eq)!.id);
+      const shuffled = [...cards].sort(() => rng.next() - 0.5);
+      const stats = effectiveStats(BS, shuffled);
+      const row = slotsWithCards(stats, shuffled).map((s) => s.equipmentId);
+      SLOT_FAMILIES.forEach((f, k) => expect(row[FAMILY_SLOT[f]], shuffled.join('+')).toBe(picks[k]));
+      expect(effectiveStats(BS, cards)).toEqual(stats); // and the stats never cared
+    }
   });
 
-  it('THE WEAPON ROW IS FIRST-EMPTY-FIRST: the replay follows FIT order, where the stat fold does not', () => {
-    // Three weapon slots, two equipment cards — WHICH weapon sits in Q and
-    // which in E is a fact about the order they took the cards in. The stats,
-    // meanwhile, are identical either way: that asymmetry is the contract.
-    // (Before Story 8.5 the same asymmetry decided which single card landed at
-    // all; now both land, in order.)
-    const cards: LineId[] = ['navalMines', 'heavyTorpedo'];
-    const reversed: LineId[] = ['heavyTorpedo', 'navalMines'];
-    const stats = effectiveStats(BS, cards);
-    expect(effectiveStats(BS, reversed)).toEqual(stats);
-    const [Q, E] = WEAPON_SLOTS;
-    expect(slotsWithCards(stats, cards)[Q].equipmentId).toBe('navalMines');
-    expect(slotsWithCards(stats, cards)[E].equipmentId).toBe('heavyTorpedo');
-    expect(slotsWithCards(stats, reversed)[Q].equipmentId).toBe('heavyTorpedo');
-    expect(slotsWithCards(stats, reversed)[E].equipmentId).toBe('navalMines');
+  it('between two kinds of ONE family the FIRST card taken holds the slot — on both paths', () => {
+    for (const family of SLOT_FAMILIES) {
+      const a = lineForEquipment(FIRST_OF[family])!.id;
+      const b = lineForEquipment(SECOND_OF[family])!.id;
+      const stats = effectiveStats(TB, [a, b]);
+      expect(slotsWithCards(stats, [a, b])[FAMILY_SLOT[family]].equipmentId, family).toBe(FIRST_OF[family]);
+      expect(slotsWithCards(stats, [b, a])[FAMILY_SLOT[family]].equipmentId, family).toBe(SECOND_OF[family]);
+      expect(serverIncremental('iowa', [b, a])[FAMILY_SLOT[family]].equipmentId, family).toBe(SECOND_OF[family]);
+    }
   });
 });
 
@@ -585,357 +552,133 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
 // shape -- copy 1 carries a real `slotFill` -- with NO module behind it. The
 // server refused to fit one; the SHARED fold did not, so the client (and the
 // server own respawn replay, which goes through slotsWithCards) would fit a
-// phantom weapon into the extra slot off a card id that reached `cards` by any
-// path. The guard belongs in shared, where both sides read it.
+// phantom weapon off a card id that reached `cards` by any path. The guard
+// belongs in shared, where both sides read it.
 // ---------------------------------------------------------------------------
 describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
-  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
-  // PRODUCTION HAS NO EQUIPMENT STUB LEFT (Story 8.15 cut missile/monitor and
-  // built the machine gun and flak), so the guard is exercised through an
-  // injected catalog in which the BROADSIDE line is stubbed.
-  const STUBBED: Catalog = { ...CATALOG, broadside: { ...CATALOG.broadside, stub: true } };
+  const stats = effectiveStats(CONFIG.shipClasses.iowa);
+  // PRODUCTION HAS NO EQUIPMENT STUB (the one stub, DEPTH CHARGE, fits
+  // nothing), so the guard is exercised through an injected catalog in which
+  // the NAVAL MINES line is stubbed.
+  const STUBBED: Catalog = { ...CATALOG, navalMines: { ...CATALOG.navalMines, stub: true } };
 
   it('slotsWithCards over a stub id leaves the loadout exactly loadoutFor', () => {
-    expect(slotsWithCards(stats, ['broadside'], STUBBED)).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['navalMines'], STUBBED)).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['depthCharge'])).toEqual(loadoutFor(stats));
   });
 
-  it('...and a LIVE line still fills it, so the guard is about stubs alone', () => {
-    expect(slotsWithCards(stats, ['navalMines'], STUBBED)[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
-    expect(slotsWithCards(stats, ['broadside'])[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
+  it('...and the same line fills when live, so the guard is about stubs alone', () => {
+    expect(slotsWithCards(stats, ['navalMines'])[FAMILY_SLOT.mine].equipmentId).toBe('navalMines');
   });
 
-  it('a stub NEVER consumes a weapon slot — a live line behind it still takes slot 2', () => {
-    // The stub is skipped, not "fitted then ignored": the row does not shift.
-    expect(slotsWithCards(stats, ['broadside', 'navalMines'], STUBBED)[WEAPON_SLOTS[0]].equipmentId)
-      .toBe('navalMines');
+  it('a stub NEVER holds its family slot — a live kind of that family behind it still takes it', () => {
+    expect(slotsWithCards(stats, ['navalMines', 'captiveMines'], STUBBED)[FAMILY_SLOT.mine].equipmentId)
+      .toBe('captiveMines');
   });
 
   it('applySlotEffect itself refuses a stub fill', () => {
     const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'broadside' }, stats, STUBBED);
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'navalMines' }, stats, STUBBED);
     for (const i of WEAPON_SLOTS) expect(loadout[i].equipmentId).toBeNull();
   });
 
   it('a GUN LADDER card (machineGun / flak, Story 8.15) never fills a slot — it only steps its gun', () => {
     expect(slotsWithCards(stats, ['machineGun', 'flak'])).toEqual(loadoutFor(stats));
-    expect(slotsWithCards(stats, ['machineGun', 'navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, ['machineGun', 'navalMines'])[FAMILY_SLOT.mine].equipmentId).toBe('navalMines');
   });
 });
 
 // ---------------------------------------------------------------------------
-// THE CONSUMABLE SLOTS (Story 8.7, FIXED since Story 9.2) — a consumable copy
-// goes into its KIND'S OWN slot (`consumableSlotFor`, sim/loadout.ts — epic-9
-// amendments 21/31): the packed belt is retired, nothing packs and nothing
-// shifts, so a kind's key means the same thing all match. A stack is
-// `{ n: copiesHeld, reloadMsLeft: 0 }` — it never reloads — and
-// `slotsWithCards` needs no code of its own to replay it: k copies replayed IS
-// n = k. The DEPTH CHARGE stub has no slot at all.
+// pickRefusal — THE one "can this ship take this card" predicate.
 // ---------------------------------------------------------------------------
-
-describe('the consumable slots — stockSlotFor / the stock fold (Story 8.7, fixed slots since 9.2)', () => {
-  const stats = effectiveStats(TB);
-
-  /** The private `consumable()` helper of sim/catalog.ts — the shape is
-   *  identical (cap copies, one `stock` per copy, a fresh effect object per
-   *  tier) and `validateLine` is asserted clean. */
-  const consumableLine = (id: ConsumableId, opts: { stub?: true; cap?: number } = {}): CatalogLine => {
-    const cap = opts.cap ?? 5;
-    const tiers = Array.from({ length: cap }, () => [{ kind: 'stock', equipmentId: id }] as readonly BoonEffect[]);
-    const l: CatalogLine = { id: id as LineId, kind: 'consumable', cap, tiers };
-    return opts.stub === undefined ? l : { ...l, stub: opts.stub };
-  };
-
-  /** Every consumable line, NONE of them a stub — so the unkeyed DEPTH CHARGE
-   *  is exercised as a LIVE line with no slot to go to. */
-  const UNSTUBBED: Catalog = catalogOf(...CONSUMABLE_IDS.map((id) => consumableLine(id)));
-  const stock = (id: ConsumableId): BoonEffect => ({ kind: 'stock', equipmentId: id });
-  const slotOf = (id: ConsumableId): number => {
-    const slot = consumableSlotFor(id);
-    if (slot === null) throw new Error(`${id} has no slot`);
-    return slot;
-  };
-  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells'): BoonEffect =>
-    ({ kind: 'slotFill', equipmentId });
-
-  /** THE FIXED-PLACEMENT CONTRACT over one loadout and the cards it replayed:
-   *  every held keyed kind sits at its own slot with n = its copies (≤ cap),
-   *  every unheld kind's slot is empty, and no slot holds another kind. */
-  function expectFixedPlacement(loadout: LoadoutSlot[], cards: readonly string[], label: string): void {
-    for (const id of CONSUMABLE_KEY_ORDER) {
-      const slot = loadout[slotOf(id)];
-      const copies = Math.min(boonStackCount(cards, id), CATALOG[id].cap);
-      if (copies === 0) {
-        expect(slot, `${label}: ${id} empty`).toEqual({ equipmentId: null, state: null });
-      } else {
-        expect(slot, `${label}: ${id}`).toEqual({ equipmentId: id, state: { n: copies, reloadMsLeft: 0 } });
-      }
-    }
-  }
-
-  it('the test lines are LEGAL catalog lines, and production keys every live consumable', () => {
-    for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
-    for (const id of CONSUMABLE_IDS) {
-      expect(consumableSlotFor(id) !== null, id).toBe(CATALOG[id].stub !== true);
-    }
-  });
-
-  // --- the slot ------------------------------------------------------------
-
-  it('stockSlotFor answers the kind’s OWN slot, empty or already holding it, over any other contents', () => {
-    const rng = mulberry32(0x9a2);
-    for (let trial = 0; trial < 100; trial += 1) {
-      // Random OTHER kinds fill the remaining consumable slots legally.
-      const ids: (SlotItemId | null)[] = loadoutFor(stats).map((s) => s.equipmentId);
-      for (const id of CONSUMABLE_KEY_ORDER) if (rng.next() < 0.5) ids[slotOf(id)] = id;
-      for (const id of CONSUMABLE_KEY_ORDER) {
-        expect(stockSlotFor(ids, id), `${id} over ${ids.join(',')}`).toBe(slotOf(id));
-      }
-    }
-  });
-
-  it('an unkeyed kind (the DEPTH CHARGE stub) and a malformed array have no slot (fail-closed)', () => {
-    const ids: (SlotItemId | null)[] = loadoutFor(stats).map((s) => s.equipmentId);
-    expect(stockSlotFor(ids, 'depthCharge')).toBeNull();
-    expect(stockSlotFor([], 'hullRepair')).toBeNull(); // a missing slot is never "empty"
-    const corrupt = [...ids];
-    corrupt[slotOf('hullRepair')] = 'shieldBlock'; // another kind where none may sit
-    expect(stockSlotFor(corrupt, 'hullRepair')).toBeNull();
-  });
-
-  // --- the fold -------------------------------------------------------------
-
-  it('the FIRST copy opens { n: 1, reloadMsLeft: 0 } at the kind’s slot and touches nothing else', () => {
-    for (const id of CONSUMABLE_KEY_ORDER) {
-      const loadout = loadoutFor(stats);
-      const slotRefs = [...loadout];
-      const stateRefs = loadout.map((s) => s.state);
-      applySlotEffect(loadout, stock(id), stats);
-      expect(loadout[slotOf(id)], id).toEqual({ equipmentId: id, state: { n: 1, reloadMsLeft: 0 } });
-      loadout.forEach((slot, i) => {
-        expect(slot, `${id} slot ${i}`).toBe(slotRefs[i]);
-        if (i !== slotOf(id)) expect(slot.state, `${id} slot ${i} state`).toBe(stateRefs[i]);
-      });
-    }
-  });
-
-  it('the SECOND copy INCREMENTS n in place — same state object', () => {
-    const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, stock('shieldBlock'), stats);
-    const stateRef = loadout[slotOf('shieldBlock')].state;
-    applySlotEffect(loadout, stock('shieldBlock'), stats);
-    expect(loadout[slotOf('shieldBlock')].state).toBe(stateRef); // mutated in place, never re-built
-    expect(stateRef).toEqual({ n: 2, reloadMsLeft: 0 });
-  });
-
-  it('stocking a SECOND kind never moves the first (no packing)', () => {
-    const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, stock('hullRepair'), stats);
-    const repair = loadout[slotOf('hullRepair')];
-    const repairState = repair.state;
-    applySlotEffect(loadout, stock('decoyBuoy'), stats);
-    expect(loadout[slotOf('hullRepair')]).toBe(repair);
-    expect(loadout[slotOf('hullRepair')].state).toBe(repairState);
-    expect(loadout[slotOf('decoyBuoy')].equipmentId).toBe('decoyBuoy');
-    expectFixedPlacement(loadout, ['hullRepair', 'decoyBuoy'], 'repair then decoy');
-  });
-
-  it('a STUB consumable line is REFUSED — the same gate `slotFill` uses, catalog-driven', () => {
-    const loadout = loadoutFor(stats);
-    const before = JSON.parse(JSON.stringify(loadout)) as LoadoutSlot[];
-    applySlotEffect(loadout, stock('hullRepair'), stats, catalogOf(consumableLine('hullRepair', { stub: true })));
-    expect(loadout).toEqual(before);
-  });
-
-  it('an UNKEYED line stocks nowhere even when live — a silent no-op, every state object the same', () => {
-    const loadout = loadoutFor(stats);
-    const before = JSON.parse(JSON.stringify(loadout)) as LoadoutSlot[];
-    const stateRefs = loadout.map((s) => s.state);
-    applySlotEffect(loadout, stock('depthCharge'), stats, UNSTUBBED);
-    expect(loadout).toEqual(before);
-    loadout.forEach((s, i) => expect(s.state, `slot ${i}`).toBe(stateRefs[i]));
-  });
-
-  it('a stock NEVER touches the gun, the Shift or the weapon row — even with the row full', () => {
-    const loadout = loadoutFor(stats);
-    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) applySlotEffect(loadout, e, stats);
-    const head = [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS];
-    const headIds = head.map((i) => loadout[i].equipmentId);
-    const headStates = head.map((i) => loadout[i].state);
-    for (const id of CONSUMABLE_IDS) applySlotEffect(loadout, stock(id), stats);
-    expect(head.map((i) => loadout[i].equipmentId)).toEqual(headIds);
-    head.forEach((i, k) => expect(loadout[i].state, `slot ${i}`).toBe(headStates[k]));
-    expectFixedPlacement(loadout, CONSUMABLE_IDS, 'one of each');
-  });
-
-  it('...and a slotFill never spills into the consumable slots while stacks sit there', () => {
-    const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, stock('hullRepair'), stats);
-    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) applySlotEffect(loadout, e, stats);
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats); // duplicate, and the row is full anyway
-    expectFixedPlacement(loadout, ['hullRepair'], 'repair beside a full row');
-  });
-
-  // --- the replay -----------------------------------------------------------
-
-  it('slotsWithCards REPLAYS the slot with no code of its own: k copies ⇒ n = k (capped at the line cap)', () => {
-    for (let k = 1; k <= 7; k += 1) {
-      const cards = new Array<string>(k).fill('hullRepair');
-      expectFixedPlacement(slotsWithCards(stats, cards), cards, `k=${k}`);
-    }
-  });
-
-  it('FIXED PLACEMENT (seeded property): any legal hand puts every stack at its own slot, weapons untouched', () => {
-    const rng = mulberry32(0x5107);
-    const WEAPONS: LineId[] = ['heavyTorpedo', 'navalMines', 'starShells', 'lightTorpedo'];
-    const KINDS = [...CONSUMABLE_KEY_ORDER] as LineId[];
-    for (let trial = 0; trial < 200; trial += 1) {
-      const held: LineId[] = [];
-      const n = rng.int(0, 20);
-      for (let i = 0; i < n; i += 1) {
-        const id = rng.next() < 0.2 ? rng.pick(WEAPONS) : rng.pick(KINDS);
-        // A LEGAL hand: the server never lets a refused pick into `cards`.
-        const slotIds = slotsWithCards(effectiveStats(TB, held), held).map((s) => s.equipmentId);
-        if (pickRefusal(held, slotIds, id) === null) held.push(id);
-      }
-      const loadout = slotsWithCards(effectiveStats(TB, held), held);
-      const label = held.join('+');
-      expectFixedPlacement(loadout, held, label);
-      // The weapon row is exactly what the same hand WITHOUT its consumables fits.
-      const weaponsOnly = held.filter((id) => !(CONSUMABLE_IDS as readonly string[]).includes(id));
-      const bare = slotsWithCards(effectiveStats(TB, weaponsOnly), weaponsOnly);
-      for (const i of [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS]) {
-        expect(loadout[i].equipmentId, `${label} slot ${i}`).toBe(bare[i].equipmentId);
-      }
-    }
-  });
-
-  it('the replay agrees with the INCREMENTAL path over a mixed hand, in either fit order', () => {
-    const cards: ConsumableId[] = ['decoyBuoy', 'hullRepair', 'decoyBuoy', 'countermeasure', 'hullRepair', 'decoyBuoy'];
-    for (const hand of [cards, [...cards].reverse()]) {
-      const replayed = slotsWithCards(stats, hand);
-      const incremental = loadoutFor(stats);
-      for (const id of hand) applySlotEffect(incremental, stock(id), stats);
-      expect(replayed).toEqual(incremental);
-      expectFixedPlacement(replayed, hand, hand.join('+'));
-    }
-  });
-
-  it('using the LAST copy nulls ONLY that kind’s slot — every other stack stays put', () => {
-    // A spent copy leaves `cards` server-side, so the next replay is the
-    // clear-at-zero state: the kind's own slot reads null, nothing shifts.
-    const before: ConsumableId[] = ['hullRepair', 'countermeasure', 'decoyBuoy', 'decoyBuoy'];
-    const after = before.filter((id) => id !== 'countermeasure');
-    const a = slotsWithCards(stats, before);
-    const b = slotsWithCards(stats, after);
-    expect(b[slotOf('countermeasure')]).toEqual({ equipmentId: null, state: null });
-    a.forEach((slot, i) => {
-      if (i !== slotOf('countermeasure')) expect(b[i], `slot ${i}`).toEqual(slot);
-    });
-  });
-});
-
-
-// ---------------------------------------------------------------------------
-// pickRefusal — THE ONE PICK PREDICATE (Story 8.14 review, F1/F2)
-//
-// Every "can this ship take this card" question in the engine runs through
-// this: World.refusesCard (so applyCard, the dev spawn fit and every directed
-// grant), World.spendCard (before the level is consumed), the client's greyed
-// refit card, the bot spend scorer and the batch-sim spend instrument. One
-// branch per refusal, plus the legal cases and the fail-closed edges.
-// ---------------------------------------------------------------------------
-
 describe('pickRefusal — every branch', () => {
-  /** A fresh hull's slots: gun, Shift, an empty weapon row, empty consumable slots. */
-  const OPEN_SLOTS: readonly (SlotItemId | null)[] = loadoutFor(effectiveStats(TB)).map((s) => s.equipmentId);
-  /** The same hull with Q/E/R occupied. */
-  const ROW_IDS: readonly SlotItemId[] = ['lightTorpedo', 'heavyTorpedo', 'navalMines'];
-  const ROW_FULL: readonly (SlotItemId | null)[] = OPEN_SLOTS.map((id, i) => {
-    const k = (WEAPON_SLOTS as readonly number[]).indexOf(i);
-    return k < 0 ? id : ROW_IDS[k];
-  });
-  /** Every keyed consumable kind stocked in its own slot. */
-  const ALL_STOCKED: readonly (SlotItemId | null)[] = OPEN_SLOTS.map(
-    (id, i) => CONSUMABLE_KEY_ORDER.find((k) => consumableSlotFor(k) === i) ?? id,
-  );
+  const stats = effectiveStats(TB);
+  const idsFor = (held: readonly LineId[]): (EquipmentId | null)[] =>
+    slotsWithCards(effectiveStats(TB, held), held).map((s) => s.equipmentId);
+  const EMPTY = loadoutFor(stats).map((s) => s.equipmentId);
 
-  it("'stub' — a consumable with no key has no slot, so it is refused even when the catalog un-stubs it", () => {
-    // Story 9.2: the slot IS the key; a keyless line must never enter `cards`.
-    const { stub: _dropped, ...liveDepthCharge } = CATALOG.depthCharge;
-    const unstubbed: Catalog = { ...CATALOG, depthCharge: liveDepthCharge };
-    expect(consumableSlotFor('depthCharge')).toBeNull();
-    expect(pickRefusal([], OPEN_SLOTS, 'depthCharge', unstubbed)).toBe('stub');
-    // and the keyed kinds in the same catalog are untouched by the guard
-    for (const k of CONSUMABLE_KEY_ORDER) expect(pickRefusal([], OPEN_SLOTS, k, unstubbed)).toBeNull();
+  /** The fresh-hull answer for a line: a stub is `stub`, BROADSIDE has no
+   *  slot, an add-on (the Story 10.6 one-offs) has no host aboard yet. */
+  const freshRefusal = (id: LineId): string | null => {
+    if (CATALOG[id].stub === true) return 'stub';
+    if (id === 'broadside') return 'noWeaponSlot';
+    return CATALOG[id].kind === 'addon' ? 'noHost' : null;
+  };
+
+  it('null — the ordinary legal pick: every dealable line with a home, on a fresh hull', () => {
+    for (const id of LINE_IDS) expect(pickRefusal([], EMPTY, id), id).toBe(freshRefusal(id));
   });
 
-  it('null — the ordinary legal pick, every kind', () => {
-    expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo')).toBeNull(); // copy 1, row open
-    expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo')).toBeNull(); // a TIER card
-    expect(pickRefusal([], OPEN_SLOTS, 'hullPoints')).toBeNull(); // a ladder
-    expect(pickRefusal([], OPEN_SLOTS, 'foulingShell')).toBeNull(); // FOULING SHELL, a consumable (no add-on is left since 8.17)
-    expect(pickRefusal([], OPEN_SLOTS, 'hullRepair')).toBeNull(); // a consumable
-  });
-
-  it("'stub' — an unbuilt line, an unknown id, and a prototype key (fail closed)", () => {
-    const stubId = LINE_IDS.find((id) => CATALOG[id].stub === true);
-    expect(stubId, 'the catalog still carries at least one stub line').toBeDefined();
-    expect(pickRefusal([], OPEN_SLOTS, stubId as string)).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, 'notALine')).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, 'constructor')).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, '__proto__')).toBe('stub');
-  });
-
-  it("'atCap' — at the line's cap, for EVERY kind, consumables included", () => {
-    // THE BUG THIS EXISTS FOR (review F1): a consumable at its cap already owns
-    // its slot, so the slot alone would take copy 6 — the cap does not.
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    expect(stockSlotFor(ALL_STOCKED, 'hullRepair')).not.toBeNull(); // the slot would take it...
-    expect(pickRefusal(five, ALL_STOCKED, 'hullRepair')).toBe('atCap'); // ...the cap does not.
-    for (const id of CONSUMABLE_KEY_ORDER) {
-      const capped = new Array<string>(CATALOG[id].cap).fill(id);
-      expect(CATALOG[id].cap, id).toBe(5);
-      expect(pickRefusal(capped, OPEN_SLOTS, id), id).toBe('atCap');
-      expect(pickRefusal(capped.slice(1), OPEN_SLOTS, id), `${id} below cap`).toBeNull();
-    }
-    expect(pickRefusal(new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'), OPEN_SLOTS, 'hullPoints')).toBe('atCap');
-    const maxTorp = new Array<string>(CATALOG.lightTorpedo.cap).fill('lightTorpedo');
-    expect(pickRefusal(maxTorp, ROW_FULL, 'lightTorpedo')).toBe('atCap');
-    // The cap is decided BEFORE the row, so a capped line reads
-    // `atCap` whatever the slots look like.
-    expect(pickRefusal(five, OPEN_SLOTS, 'hullRepair')).toBe('atCap');
-  });
-
-  it('a consumable is never refused for room: every keyed kind is pickable beside all the others (no full belt)', () => {
-    // Since Story 9.2 (epic-9 amendment 21) there is no belt to fill: below its
-    // cap a live consumable is legal whatever else is stocked.
-    const held = [...CONSUMABLE_KEY_ORDER];
-    for (const id of CONSUMABLE_KEY_ORDER) {
-      expect(pickRefusal(held, ALL_STOCKED, id), id).toBeNull();
-      expect(pickRefusal([], OPEN_SLOTS, id), id).toBeNull();
+  it("'noHost' — an add-on (a one-off WEAPON card, Story 10.6 R10) is refused until a weapon it names holds its family slot", () => {
+    for (const id of LINE_IDS) {
+      const line = CATALOG[id];
+      if (line.kind !== 'addon' || line.stub === true) continue;
+      expect(pickRefusal([], EMPTY, id), id).toBe('noHost');
+      for (const eq of line.appliesTo ?? []) {
+        const host = LINE_IDS.find((l) => CATALOG[l].kind === 'equipment' && tierTargetOf(CATALOG[l]) === eq)!;
+        expect(pickRefusal([host], idsFor([host]), id), `${id} with ${host}`).toBeNull();
+      }
     }
   });
 
-  it("'noWeaponSlot' — copy 1 of an equipment line with Q/E/R full, never a later copy", () => {
-    expect(pickRefusal([], ROW_FULL, 'starShells')).toBe('noWeaponSlot');
-    expect(pickRefusal(['starShells'], ROW_FULL, 'starShells')).toBeNull(); // tier II lands on the hull
-    // Only EQUIPMENT claims the row: a ladder and two consumables (the
-    // FOULING SHELL and HULL REPAIR) all pass with the row full.
-    for (const id of ['hullPoints', 'foulingShell', 'hullRepair']) {
-      expect(pickRefusal([], ROW_FULL, id), id).toBeNull();
+  it("'stub' — an unbuilt line, an unknown id, a deleted line and a prototype key (fail closed)", () => {
+    for (const id of ['depthCharge', 'nope', 'shieldBlock', 'healingBuoy', 'rudder', 'constructor', 'toString', '']) {
+      expect(pickRefusal([], EMPTY, id), id).toBe('stub');
     }
   });
 
-  it('is FAIL-CLOSED on a short or malformed slot array for the weapon row (a missing slot is never empty)', () => {
-    expect(pickRefusal([], [], 'starShells')).toBe('noWeaponSlot');
-    // ...and undefined entries are not empty either.
-    expect(pickRefusal([], new Array<null>(OPEN_SLOTS.length).fill(null).map(() => undefined) as never, 'starShells'))
-      .toBe('noWeaponSlot');
+  it("'atCap' — at the line's cap, for every dealable line, and one under it is still legal", () => {
+    for (const id of LINE_IDS) {
+      if (CATALOG[id].stub === true || id === 'broadside') continue;
+      // An add-on is asked with its host aboard (the first weapon it names).
+      const hostEq = CATALOG[id].kind === 'addon' ? CATALOG[id].appliesTo![0] : undefined;
+      const host: LineId[] = hostEq === undefined
+        ? []
+        : [LINE_IDS.find((l) => CATALOG[l].kind === 'equipment' && tierTargetOf(CATALOG[l]) === hostEq)!];
+      const cap = CATALOG[id].cap;
+      const full = [...host, ...new Array<LineId>(cap).fill(id)];
+      expect(pickRefusal(full, idsFor(full), id), id).toBe('atCap');
+      const under = [...host, ...new Array<LineId>(cap - 1).fill(id)];
+      expect(pickRefusal(under, idsFor(under), id), id).toBeNull();
+    }
+  });
+
+  it("'noWeaponSlot' — a SECOND KIND of a filled family is refused; the SAME kind tiers up; the other families stay open", () => {
+    for (const line of WEAPON_LINES) {
+      const eq = tierTargetOf(CATALOG[line])!;
+      const family = EQUIPMENT_FAMILY[eq];
+      if (family === null) continue;
+      const held = [line];
+      const ids = idsFor(held);
+      for (const other of WEAPON_LINES) {
+        const otherFamily = EQUIPMENT_FAMILY[tierTargetOf(CATALOG[other])!];
+        if (otherFamily === null) continue;
+        const want = other === line || otherFamily !== family ? null : 'noWeaponSlot';
+        expect(pickRefusal(held, ids, other), `${other} after ${line}`).toBe(want);
+      }
+    }
+  });
+
+  it("'noWeaponSlot' — BROADSIDE has no slot at all (it left the deal, R6), at any count and on any row", () => {
+    expect(pickRefusal([], EMPTY, 'broadside')).toBe('noWeaponSlot');
+    const held: LineId[] = ['lightTorpedo'];
+    expect(pickRefusal(held, idsFor(held), 'broadside')).toBe('noWeaponSlot');
+  });
+
+  it('is FAIL-CLOSED on a short or malformed slot array (a missing slot is never empty)', () => {
+    for (const line of WEAPON_LINES) {
+      if (line === 'broadside') continue;
+      expect(pickRefusal([], [], line), line).toBe('noWeaponSlot');
+      expect(pickRefusal([], EMPTY.slice(0, WEAPON_SLOTS[0]), line), line).toBe('noWeaponSlot');
+    }
+    // A ladder never asks about a slot.
+    expect(pickRefusal([], [], 'armor')).toBeNull();
   });
 
   it('honours an INJECTED catalog rather than the shipped one', () => {
-    const rows = { ...CATALOG, hullPoints: { ...CATALOG.hullPoints, stub: true as const } };
-    expect(pickRefusal([], OPEN_SLOTS, 'hullPoints', rows)).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, 'hullPoints')).toBeNull();
+    const cat = catalogOf({ ...CATALOG.navalMines, stub: true }, CATALOG.captiveMines);
+    expect(pickRefusal([], EMPTY, 'navalMines', cat)).toBe('stub');
+    expect(pickRefusal([], EMPTY, 'captiveMines', cat)).toBeNull();
+    expect(pickRefusal([], EMPTY, 'armor', cat)).toBe('stub'); // not a line of this catalog
   });
 });

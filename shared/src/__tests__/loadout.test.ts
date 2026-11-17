@@ -7,74 +7,53 @@
 // every CAPTAIN hull now fits exactly [gun, boost, empty × the rest] — the boost
 // stopped being a Torpedo Boat privilege (amendment 23) and the class weapons
 // arrive as CARDS: since Story 8.10 deleted the interim spawn seed, the first
-// of them comes off the LEVEL-ZERO OFFER at countdown start. A PvE fleet
-// hull fits [gun, empty × the rest] (Story 5.6, amendment 34). Also pins the
+// of them comes off the LEVEL-ZERO OFFER at countdown start. (The PvE fleet
+// hull's [gun, empty × the rest] fit retired with the fleet, Story 10.8,
+// 2026-11-06.) Also pins the
 // EQUIPMENT_IS_WEAPON split — the single source server rows and the client
 // activation path read. Pure, zero I/O.
 
 import { describe, it, expect } from 'vitest';
 import {
-  CATALOG,
   CONFIG,
-  CONSUMABLE_IDS,
-  CONSUMABLE_IS_WEAPON,
-  DEFAULT_GUN,
-  HULL_IDS,
-  SHIFT_IDS,
-  classShift,
-  SHIP_CLASS_IDS,
-  SLOT_COUNT,
-  SLOT_GUN,
-  SLOT_BOOST,
-  WEAPON_SLOTS,
-  CONSUMABLE_SLOTS,
-  CONSUMABLE_KEY_ORDER,
-  SLOT_ROLES,
-  consumableKindAt,
-  consumableSlotFor,
+  DEFAULT_SHIFT,
+  EQUIPMENT_FAMILY,
   EQUIPMENT_IDS,
   EQUIPMENT_IS_WEAPON,
+  FAMILY_SLOT,
+  HULL_IDS,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  SLOT_BOOST,
+  SLOT_COUNT,
+  SLOT_FAMILIES,
+  SLOT_GUN,
+  SLOT_ROLES,
+  WEAPON_SLOTS,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
+  familyMembers,
+  familySlotFor,
   hullEnvelope,
-  isConsumableId,
-  isWeaponItem,
+  isShiftId,
   loadoutFor,
-  slotMaxAmmo,
-  type Catalog,
-  type CatalogLine,
+  sanitizeShiftId,
+  slotFamilyAt,
   type EffectiveStats,
   type HullId,
-  type LineId,
   type LoadoutSlot,
-  type SlotItemId,
 } from '../index.js';
+import { NEUTRAL_HULL } from './neutralHull.js';
 
 /** Fresh effective stats for any hull id at zero boons. */
 function statsFor(id: HullId): EffectiveStats {
   return effectiveStats(hullEnvelope(id));
 }
 
-/** Is this hull id a PvE fleet (drone) hull? */
-function isFleet(id: HullId): boolean {
-  return !(SHIP_CLASS_IDS as readonly string[]).includes(id);
-}
-
-describe('slot-grammar constants — the fixed roles (Story 8.5; six consumable keys since Story 9.2)', () => {
-  it('SLOT_GUN 0, SLOT_BOOST 1, weapons [2,3,4], then ONE consumable slot per keyed kind', () => {
-    // WAS 4 (gun, two per-hull specials, one extra); nine from Story 8.5; since
-    // Story 9.2 (epic-9 amendments 21/31) the belt is retired and every keyed
-    // consumable kind owns one slot, so the count follows the key order.
-    expect(SLOT_GUN).toBe(0);
-    expect(SLOT_BOOST).toBe(1);
-    expect(WEAPON_SLOTS).toEqual([2, 3, 4]);
-    expect(CONSUMABLE_SLOTS).toEqual(CONSUMABLE_KEY_ORDER.map((id) => consumableSlotFor(id)));
-    expect(SLOT_COUNT).toBe(WEAPON_SLOTS.length + 2 + CONSUMABLE_KEY_ORDER.length);
-  });
-
-  it('the four role groups PARTITION 0..SLOT_COUNT-1 exactly once', () => {
-    const all = [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS, ...CONSUMABLE_SLOTS];
+describe('slot-grammar constants — the fixed roles (Story 8.5; five slots since Story 10.5)', () => {
+  it('the role groups PARTITION 0..SLOT_COUNT-1 exactly once: the gun, the Shift, the weapon row', () => {
+    const all = [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS];
     expect([...all].sort((a, b) => a - b)).toEqual(Array.from({ length: SLOT_COUNT }, (_, i) => i));
     expect(new Set(all).size).toBe(SLOT_COUNT);
   });
@@ -84,13 +63,83 @@ describe('slot-grammar constants — the fixed roles (Story 8.5; six consumable 
     expect(SLOT_ROLES[SLOT_GUN]).toBe('gun');
     expect(SLOT_ROLES[SLOT_BOOST]).toBe('boost');
     for (const i of WEAPON_SLOTS) expect(SLOT_ROLES[i], `slot ${i}`).toBe('weapon');
-    for (const i of CONSUMABLE_SLOTS) expect(SLOT_ROLES[i], `slot ${i}`).toBe('consumable');
   });
 
-  it('`SLOT_EXTRA` and `specialsFor` are GONE from the module surface (no per-hull fit to name)', async () => {
+  it('the retired slot models are GONE from the module surface: no per-hull fit, no key row, no kit', async () => {
     const mod = (await import('../index.js')) as Record<string, unknown>;
-    expect(mod.SLOT_EXTRA).toBeUndefined();
-    expect(mod.specialsFor).toBeUndefined();
+    for (const name of [
+      'SLOT_EXTRA', 'specialsFor', 'CONSUMABLE_KEY_ORDER',
+      // Story 10.5 (Eric 2026-11-05, epic-10 amendment 11): the kit is retired.
+      'KIT_SIZE', 'DEFAULT_KIT', 'CONSUMABLE_SLOTS', 'CONSUMABLE_IDS', 'CONSUMABLE_IS_WEAPON',
+      'consumableSlotFor', 'consumableKindAt', 'isConsumableKit', 'isConsumableId', 'rollKit', 'KitRollError',
+      'dealableConsumables', 'stockSlotFor', 'slotMaxAmmo', 'isWeaponItem',
+    ]) {
+      expect(mod[name], name).toBeUndefined();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE THREE FAMILY SLOTS (Story 10.5, Eric 2026-11-05, epic-10 amendment 11):
+// `Q` holds a torpedo, `E` a mine, `R` a special shell — one kind per slot.
+// These pin the MODEL (every weapon has exactly one home, every home is a
+// weapon slot); what the fold and the draw do with it is familySlots.test.ts.
+// ---------------------------------------------------------------------------
+describe('the slot-family model — every slot weapon has ONE fixed home', () => {
+  it('SLOT_FAMILIES and WEAPON_SLOTS pair up one to one, in order, through FAMILY_SLOT and slotFamilyAt', () => {
+    expect(SLOT_FAMILIES).toHaveLength(WEAPON_SLOTS.length);
+    SLOT_FAMILIES.forEach((family, k) => {
+      expect(FAMILY_SLOT[family], family).toBe(WEAPON_SLOTS[k]);
+      expect(slotFamilyAt(WEAPON_SLOTS[k]), family).toBe(family);
+    });
+    expect(new Set(Object.values(FAMILY_SLOT)).size).toBe(SLOT_FAMILIES.length);
+  });
+
+  it('slotFamilyAt is null off the weapon row (gun, Shift, out of range, non-integer)', () => {
+    for (const slot of [SLOT_GUN, SLOT_BOOST, -1, SLOT_COUNT, SLOT_COUNT + 5, 2.5, Number.NaN]) {
+      expect(slotFamilyAt(slot), String(slot)).toBeNull();
+    }
+  });
+
+  it('familySlotFor is the family\'s slot for a family weapon and null for everything else', () => {
+    for (const id of EQUIPMENT_IDS) {
+      const family = EQUIPMENT_FAMILY[id];
+      expect(familySlotFor(id), id).toBe(family === null ? null : FAMILY_SLOT[family]);
+    }
+  });
+
+  it('a family member is always an aimed WEAPON; no Shift and no mounted gun has a family', () => {
+    for (const id of EQUIPMENT_IDS) {
+      if (EQUIPMENT_FAMILY[id] !== null) expect(EQUIPMENT_IS_WEAPON[id], id).toBe(true);
+    }
+    for (const id of [...SHIFT_IDS, 'gun', 'machineGun', 'flak', 'mainBattery'] as const) {
+      expect(EQUIPMENT_FAMILY[id], id).toBeNull();
+    }
+  });
+
+  it('familyMembers partitions the family weapons: every member once, more than one kind competing for each slot', () => {
+    const seen = new Set<string>();
+    for (const family of SLOT_FAMILIES) {
+      const members = familyMembers(family);
+      expect(members.length, family).toBeGreaterThan(1);
+      for (const id of members) {
+        expect(EQUIPMENT_FAMILY[id], id).toBe(family);
+        expect(seen.has(id), id).toBe(false);
+        seen.add(id);
+      }
+    }
+    expect(seen.size).toBe(EQUIPMENT_IDS.filter((id) => EQUIPMENT_FAMILY[id] !== null).length);
+  });
+
+  it('the three weapons that were consumables until Story 10.5 are family weapons now', () => {
+    expect(EQUIPMENT_FAMILY.supercavTorpedo).toBe('torpedo');
+    expect(EQUIPMENT_FAMILY.dazzleShells).toBe('shell');
+    expect(EQUIPMENT_FAMILY.foulingShell).toBe('shell');
+  });
+
+  it('BROADSIDE has NO family slot — it left the deal (Eric 2026-11-05, R6)', () => {
+    expect(EQUIPMENT_FAMILY.broadside).toBeNull();
+    expect(familySlotFor('broadside')).toBeNull();
   });
 });
 
@@ -126,10 +175,15 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       broadside: true, // Story 7-5 wave 2: prime-then-click twin-sector barrage
       starShells: true, // Story 1.7: prime-then-click lit-zone flare
       phosphorShells: true, // Story 8.17: its own 360° weapon (amendment 131)
-      // (radarBuoy DELETED in Story 8.16 — the DECOY BUOY consumable replaces it)
       // Story 8.15: the two NEW class Shifts — instant activations like boost.
       instantReload: false,
       hunker: false,
+      // Story 10.4: THE MAIN BATTERY — a captain's slot 0, click-aimed.
+      mainBattery: true,
+      // Story 10.5: the three weapons that left the consumable space.
+      supercavTorpedo: true,
+      dazzleShells: true,
+      foulingShell: true,
     });
     expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
   });
@@ -146,12 +200,12 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
   // [gun, heavyTorpedo, boost, empty]" / Battleship / Mine Layer cases,
   // and "the specials match the per-hull rule on every PICKABLE class". There
   // is no per-hull fit left to pin — the class weapons arrive as CARDS off the
-  // offers, whose landing slots are pinned in nineSlots.test.ts.
-  it('every CAPTAIN hull gets the IDENTICAL shape and ids: [gun, boost, empty × the rest]', () => {
+  // offers, whose landing slots are pinned in familySlots.test.ts.
+  it('every CAPTAIN hull gets the IDENTICAL shape and ids: [mainBattery, the default Shift, empty × the rest]', () => {
     for (const id of SHIP_CLASS_IDS) {
       const loadout = loadoutFor(statsFor(id));
       expect(loadout.map((s) => s.equipmentId), id).toEqual([
-        'gun', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null),
+        'mainBattery', DEFAULT_SHIFT, ...new Array<null>(SLOT_COUNT - 2).fill(null),
       ]);
     }
   });
@@ -160,88 +214,70 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     for (const id of SHIP_CLASS_IDS) {
       const stats = statsFor(id);
       const loadout = loadoutFor(stats);
-      expect(loadout[SLOT_GUN].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 });
+      // Slot 0's pool is the hull's TURRET COUNT — every turret loaded (Story 10.4).
+      expect(loadout[SLOT_GUN].state, id).toEqual({ n: CONFIG.shipClasses[id].battery.turrets.length, reloadMsLeft: 0 });
       expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'boost'), reloadMsLeft: 0 });
       expect(loadout[SLOT_BOOST].state, id).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });
     }
   });
 
-  it('the DEFAULT shift is the boost (the argument omitted fits the Torpedo Boat\'s Shift)', () => {
+  it('the DEFAULT shift fits when the argument is omitted', () => {
     for (const id of SHIP_CLASS_IDS) {
-      expect(loadoutFor(statsFor(id))[SLOT_BOOST].equipmentId, id).toBe('boost');
+      expect(loadoutFor(statsFor(id))[SLOT_BOOST].equipmentId, id).toBe(DEFAULT_SHIFT);
     }
   });
 
-  it('SLOT 1 IS THE HULL\'S CLASS SHIFT (Story 8.15, amendment 89c): TB boost · ML instant reload · BS hunker', () => {
-    const want = { torpedoBoat: 'boost', mineLayer: 'instantReload', battleship: 'hunker' } as const;
+  it("SLOT 1 IS THE SEAT'S SHIFT (Story 10.4): any hull fits any Shift, and nothing else moves", () => {
     for (const id of SHIP_CLASS_IDS) {
-      expect(CONFIG.shipClasses[id].shift, id).toBe(want[id]);
-      expect(classShift(id), id).toBe(want[id]);
       const stats = statsFor(id);
-      const loadout = loadoutFor(stats, false, DEFAULT_GUN, classShift(id));
-      expect(loadout[SLOT_BOOST].equipmentId, id).toBe(want[id]);
-      // A FULL charge, idle — the boost's semantics for every Shift.
-      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, want[id]), reloadMsLeft: 0 });
-      expect(EQUIPMENT_IS_WEAPON[want[id]], id).toBe(false);
-      // The rest of the fit does not move with the Shift.
-      expect(loadout.map((s) => s.equipmentId).filter((_, i) => i !== SLOT_BOOST), id)
-        .toEqual(['gun', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
+      for (const shift of SHIFT_IDS) {
+        const loadout = loadoutFor(stats, shift);
+        expect(loadout[SLOT_BOOST].equipmentId, `${id}/${shift}`).toBe(shift);
+        // A FULL charge, idle — the boost's semantics for every Shift.
+        expect(loadout[SLOT_BOOST].state, `${id}/${shift}`).toEqual({ n: equipmentMaxAmmo(stats, shift), reloadMsLeft: 0 });
+        expect(EQUIPMENT_IS_WEAPON[shift], shift).toBe(false);
+        // The rest of the fit does not move with the Shift.
+        expect(loadout.map((s) => s.equipmentId).filter((_, i) => i !== SLOT_BOOST), `${id}/${shift}`)
+          .toEqual(['mainBattery', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
+      }
     }
-    // Every ShiftId is some hull's — no orphan Shift, no hull without one.
-    expect(SHIP_CLASS_IDS.map((id) => classShift(id)).sort()).toEqual([...SHIFT_IDS].sort());
   });
 
-  it('a FLEET drone fits NO Shift whatever `shift` says', () => {
+  it('sanitizeShiftId passes every Shift through and fails OPEN to the default for anything else (R7)', () => {
     for (const shift of SHIFT_IDS) {
-      expect(loadoutFor(statsFor('droneSmall'), true, DEFAULT_GUN, shift)[SLOT_BOOST])
-        .toEqual({ equipmentId: null, state: null });
+      expect(isShiftId(shift), shift).toBe(true);
+      expect(sanitizeShiftId(shift), shift).toBe(shift);
+    }
+    expect(SHIFT_IDS).toContain(DEFAULT_SHIFT);
+    // The retired seat-gun ids, an equipment id that is not a Shift, junk.
+    for (const raw of ['deckGun', 'machineGun', 'flak', 'mainBattery', 'gun', '', 'BOOST', undefined, null, 1, {}]) {
+      expect(isShiftId(raw), String(raw)).toBe(false);
+      expect(sanitizeShiftId(raw), String(raw)).toBe(DEFAULT_SHIFT);
     }
   });
 
-  it('the weapon row and the consumable slots start EMPTY on every captain hull', () => {
+  it('the three family slots start EMPTY on every captain hull', () => {
     for (const id of SHIP_CLASS_IDS) {
       const loadout = loadoutFor(statsFor(id));
-      for (const i of [...WEAPON_SLOTS, ...CONSUMABLE_SLOTS]) {
+      for (const i of WEAPON_SLOTS) {
         expect(loadout[i], `${id}:${i}`).toEqual({ equipmentId: null, state: null });
       }
     }
   });
 
-  it('fleet === true is the gun-only drone fit: [gun, empty × the rest] (amendments 34 / 24)', () => {
+  it('is SLOT_COUNT slots with the main battery fitted in slot 0 on every hull id', () => {
     for (const id of HULL_IDS) {
-      const loadout = loadoutFor(statsFor(id), true);
-      expect(loadout.map((s) => s.equipmentId), id).toEqual([
-        'gun', ...new Array<null>(SLOT_COUNT - 1).fill(null),
-      ]);
-      expect(loadout[SLOT_GUN].state, id).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'gun'), reloadMsLeft: 0 });
-    }
-  });
-
-  it('is SLOT_COUNT slots with the gun in slot 0 on every hull id, captain or fleet', () => {
-    for (const id of HULL_IDS) {
-      for (const fleet of [false, true]) {
-        const loadout = loadoutFor(statsFor(id), fleet);
-        expect(loadout, `${id}/${String(fleet)}`).toHaveLength(SLOT_COUNT);
-        expect(loadout[SLOT_GUN].equipmentId).toBe('gun');
-        expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'gun'), reloadMsLeft: 0 });
-      }
-    }
-  });
-
-  it('the fit is hull-INDEPENDENT: a drone hull passed as a captain gets the captain fit', () => {
-    // The hull parameter is gone; a fleet hull is one BOOLEAN away, and the
-    // only thing its id still decides is its STATS (pools/reloads).
-    for (const id of HULL_IDS) {
-      if (!isFleet(id)) continue;
-      expect(loadoutFor(statsFor(id)).map((s) => s.equipmentId), id)
-        .toEqual(loadoutFor(statsFor('torpedoBoat')).map((s) => s.equipmentId));
+      const loadout = loadoutFor(statsFor(id));
+      expect(loadout, id).toHaveLength(SLOT_COUNT);
+      expect(loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
+      expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'mainBattery'), reloadMsLeft: 0 });
     }
   });
 });
 
 describe('equipmentMaxAmmo / equipmentReloadMs cover the Shift boost (from stats.boost)', () => {
   it('the boost pool + reload come from CONFIG.boost (Story 8.9)', () => {
-    const stats = statsFor('torpedoBoat');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'boost')).toBe(stats.equipment.boost.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'boost')).toBe(CONFIG.boost.maxAmmo);
     expect(equipmentReloadMs(stats, 'boost')).toBe(stats.equipment.boost.reloadMs);
@@ -251,13 +287,13 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover the Shift boost (from stats
 
 describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + phosphorShells', () => {
   it('phosphorShells pool + reload come from CONFIG.phosphorShells (Story 8.17, amendment 131)', () => {
-    const stats = statsFor('battleship');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.maxAmmo);
     expect(equipmentReloadMs(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.reloadMs);
   });
 
   it('broadside pool + reload come from CONFIG.broadside (via stats.broadside)', () => {
-    const stats = statsFor('battleship');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'broadside')).toBe(stats.equipment.broadside.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'broadside')).toBe(CONFIG.broadside.maxAmmo);
     expect(equipmentReloadMs(stats, 'broadside')).toBe(stats.equipment.broadside.reloadMs);
@@ -265,7 +301,7 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + ph
   });
 
   it('starShells pool + reload come from CONFIG.starShells (via stats.starShells)', () => {
-    const stats = statsFor('battleship');
+    const stats = effectiveStats(NEUTRAL_HULL);
     expect(equipmentMaxAmmo(stats, 'starShells')).toBe(stats.equipment.starShells.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'starShells')).toBe(CONFIG.starShells.maxAmmo);
     expect(equipmentReloadMs(stats, 'starShells')).toBe(stats.equipment.starShells.reloadMs);
@@ -273,163 +309,31 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + ph
   });
 });
 
-describe('the radar buoy is DELETED (Story 8.16) — no id, no stat row, no pool', () => {
-  it('radarBuoy is gone from EquipmentId and the stats record; the DECOY BUOY is a consumable with NO row', () => {
-    const stats = statsFor('mineLayer');
-    expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
-    expect('radarBuoy' in stats.equipment).toBe(false);
-    // The consumable law: the replacement DECOY BUOY carries no EffectiveStats
-    // row — its numbers are read straight from CONFIG.decoyBuoy.
-    expect('decoyBuoy' in stats.equipment).toBe(false);
-    expect(isConsumableId('decoyBuoy')).toBe(true);
+describe('equipmentMaxAmmo / equipmentReloadMs cover the three moved weapons (Story 10.5, R4)', () => {
+  it('each reads its pool and its Tier I reload from its own CONFIG block', () => {
+    const stats = effectiveStats(NEUTRAL_HULL);
+    const blocks = {
+      supercavTorpedo: CONFIG.supercavTorpedo,
+      dazzleShells: CONFIG.flashShells,
+      foulingShell: CONFIG.foulingShell,
+    } as const;
+    for (const id of ['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
+      expect(equipmentMaxAmmo(stats, id), id).toBe(blocks[id].maxAmmo);
+      expect(equipmentReloadMs(stats, id), id).toBe(blocks[id].reloadMs);
+    }
   });
 });
 
 describe('LoadoutSlot invariant — state is null iff equipmentId is null', () => {
   it('holds for every slot across every hull id', () => {
     for (const id of HULL_IDS) {
-      for (const fleet of [false, true]) {
-        const loadout: LoadoutSlot[] = loadoutFor(statsFor(id), fleet);
+      for (const shift of SHIFT_IDS) {
+        const loadout: LoadoutSlot[] = loadoutFor(statsFor(id), shift);
         expect(loadout).toHaveLength(SLOT_COUNT); // all SLOT_COUNT slots, not just the fitted head
         for (const slot of loadout) {
           expect(slot.state === null).toBe(slot.equipmentId === null);
         }
       }
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// THE BELT'S CONTENT TYPE (Story 8.7, orchestrator ruling 1). A slot holds a
-// `SlotItemId` — an EquipmentId (slots 0–4) or a ConsumableId (its fixed slot).
-// The two id spaces stay DISJOINT: every EquipmentId-keyed record
-// (EQUIPMENT_IS_WEAPON, EQUIPMENT_STAT_FIELDS, the server's rows, the glyph
-// table) would have to carry a lie for a stack if EquipmentId widened, so the
-// union lives at the ONE place that holds either — the slot — and every read
-// of an EquipmentId-keyed record narrows through `isConsumableId` first.
-// ---------------------------------------------------------------------------
-
-describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => {
-  it('the two id spaces never overlap: no consumable id is an EquipmentId and vice versa', () => {
-    const equipment = new Set<string>(EQUIPMENT_IDS);
-    for (const id of CONSUMABLE_IDS) expect(equipment.has(id), id).toBe(false);
-    const consumables = new Set<string>(CONSUMABLE_IDS);
-    for (const id of EQUIPMENT_IDS) expect(consumables.has(id), id).toBe(false);
-    // Story 9.4 replaced `dazzleShells` with `foulingShell`.
-    expect(CONSUMABLE_IDS).toContain('foulingShell');
-    expect((CONSUMABLE_IDS as readonly string[]).includes('dazzleShells')).toBe(false);
-    expect((EQUIPMENT_IDS as readonly string[]).includes('foulingShell')).toBe(false);
-  });
-
-  it('a LoadoutSlot may hold either kind — a weapon slot an EquipmentId, a consumable slot a ConsumableId', () => {
-    // Type-level pin as much as a runtime one: this file type-checks in the
-    // gate, so a narrowed `equipmentId: EquipmentId | null` fails to compile.
-    const weapon: LoadoutSlot = { equipmentId: 'heavyTorpedo', state: { n: 2, reloadMsLeft: 0 } };
-    const belt: LoadoutSlot = { equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } };
-    const ids: (SlotItemId | null)[] = [weapon.equipmentId, belt.equipmentId, null];
-    expect(ids).toEqual(['heavyTorpedo', 'hullRepair', null]);
-    // A STACK NEVER RELOADS (ruling 2): its reloadMsLeft is 0 forever.
-    expect(belt.state?.reloadMsLeft).toBe(0);
-  });
-
-  it('isConsumableId is the ONE guard: true for every consumable id, false for every EquipmentId and for junk', () => {
-    for (const id of CONSUMABLE_IDS) expect(isConsumableId(id), id).toBe(true);
-    for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
-    for (const junk of ['', 'nope', 'constructor', 'toString', 'hullrepair', 'HullRepair']) {
-      expect(isConsumableId(junk), junk).toBe(false);
-    }
-  });
-});
-
-describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation channels read', () => {
-  it('is the exact table: the DECOY BUOY, the SUPERCAV TORPEDO and the FOULING SHELL are click-aimed (D21)', () => {
-    expect(CONSUMABLE_IS_WEAPON).toEqual({
-      hullRepair: false,
-      shieldBlock: false,
-      countermeasure: false,
-      decoyBuoy: true, // click-placed in the mine's rear sector (catalog-v3 R1/R36, Story 8.16)
-      depthCharge: false, // STUB, non-aimed until Eric rules (amendment 83)
-      supercavTorpedo: true, // KEY PRIMES, CLICK FIRES — bow +/-15 deg (amendment 74)
-      foulingShell: true, // FOULING SHELL — KEY PRIMES, CLICK FIRES, 360° (Story 9.4; FLASH SHELLS' seat)
-    });
-    expect(Object.keys(CONSUMABLE_IS_WEAPON)).toEqual([...CONSUMABLE_IDS]);
-    for (const value of Object.values(CONSUMABLE_IS_WEAPON)) expect(typeof value).toBe('boolean');
-  });
-
-  it('isWeaponItem agrees with EQUIPMENT_IS_WEAPON over every EquipmentId', () => {
-    for (const id of EQUIPMENT_IDS) expect(isWeaponItem(id), id).toBe(EQUIPMENT_IS_WEAPON[id]);
-  });
-
-  it('isWeaponItem agrees with CONSUMABLE_IS_WEAPON over every ConsumableId', () => {
-    for (const id of CONSUMABLE_IDS) expect(isWeaponItem(id), id).toBe(CONSUMABLE_IS_WEAPON[id]);
-    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy', 'supercavTorpedo', 'foulingShell']);
-  });
-});
-
-describe('slotMaxAmmo — a stack is capped by its LINE, a weapon by its stats row', () => {
-  const stats = statsFor('torpedoBoat');
-
-  it('routes every EquipmentId to equipmentMaxAmmo, unchanged', () => {
-    for (const id of EQUIPMENT_IDS) expect(slotMaxAmmo(stats, id), id).toBe(equipmentMaxAmmo(stats, id));
-  });
-
-  it('routes every ConsumableId to its catalog line CAP (five copies, five uses)', () => {
-    for (const id of CONSUMABLE_IDS) {
-      expect(slotMaxAmmo(stats, id), id).toBe(CATALOG[id].cap);
-    }
-  });
-
-  it('reads the INJECTED catalog, and an unknown consumable line caps at 0 (fail-closed)', () => {
-    const short: CatalogLine = {
-      id: 'hullRepair' as LineId,
-      kind: 'consumable',
-      cap: 2,
-      tiers: [[{ kind: 'stock', equipmentId: 'hullRepair' }], [{ kind: 'stock', equipmentId: 'hullRepair' }]],
-    };
-    const cat: Catalog = { hullRepair: short };
-    expect(slotMaxAmmo(stats, 'hullRepair', cat)).toBe(2);
-    expect(slotMaxAmmo(stats, 'decoyBuoy', cat)).toBe(0); // no line in this catalog
-    expect(slotMaxAmmo(stats, 'gun', cat)).toBe(equipmentMaxAmmo(stats, 'gun')); // equipment ignores it
-  });
-});
-
-describe('THE KEY ROW — every consumable kind owns one fixed slot (Story 9.2, epic-9 amendments 21/31)', () => {
-  it('the key order holds each consumable at most once and names only consumable ids', () => {
-    expect(new Set(CONSUMABLE_KEY_ORDER).size).toBe(CONSUMABLE_KEY_ORDER.length);
-    for (const id of CONSUMABLE_KEY_ORDER) expect(isConsumableId(id), id).toBe(true);
-  });
-
-  it('every LIVE consumable line is keyed and every STUB line is not', () => {
-    for (const id of CONSUMABLE_IDS) {
-      const keyed = consumableSlotFor(id) !== null;
-      expect(keyed, id).toBe(CATALOG[id].stub !== true);
-    }
-  });
-
-  it('consumableSlotFor and consumableKindAt round-trip for every keyed kind', () => {
-    for (const id of CONSUMABLE_KEY_ORDER) {
-      const slot = consumableSlotFor(id);
-      expect(slot, id).not.toBeNull();
-      expect(SLOT_ROLES[slot ?? -1], id).toBe('consumable');
-      expect(consumableKindAt(slot ?? -1), id).toBe(id);
-    }
-  });
-
-  it('key `4` is the FOULING SHELL — it took FLASH SHELLS\' key (Story 9.4)', () => {
-    expect(CONSUMABLE_KEY_ORDER[3]).toBe('foulingShell');
-  });
-
-  it('the DEPTH CHARGE stub has no slot and no key', () => {
-    expect(consumableSlotFor('depthCharge')).toBeNull();
-  });
-
-  it('consumableKindAt is null off the consumable slots (gun, Shift, weapon row, out of range, non-integer)', () => {
-    for (const slot of [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS, -1, SLOT_COUNT, SLOT_COUNT + 5, 5.5, Number.NaN]) {
-      expect(consumableKindAt(slot), String(slot)).toBeNull();
-    }
-  });
-
-  it('CHAFF is retired: not a consumable id (amendment 31)', () => {
-    expect(isConsumableId('chaff')).toBe(false);
   });
 });

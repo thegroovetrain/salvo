@@ -8,14 +8,16 @@
 // I can see the smoke, not the ship. I cannot see the smoke outside of that
 // range, I can only infer it from radar returns."* The countermeasure's grey
 // haze is a SMOKE EFFECT, so it obeys the same rung wounded smoke does — the
-// server's `sm` row gates a plume at `radarRange × muzzleFlashFactor`
-// (server/src/game/signals.ts `muzzleFlashReach`, observer-scaled). The cloud
+// server's `sm` row gates a plume at `CONFIG.vision.muzzleFlash` (its own
+// 350 hm fact since Story 11.2, 2026-11-12; `radarRange × muzzleFlashFactor`
+// before — server/src/game/signals.ts `muzzleFlashReach`). The cloud
 // itself still has to be DELIVERED past that rung (the radar paints it), so
 // the eye's limit is applied here, at display time, off the very same
 // derivation. Beyond it the cloud exists only as radar returns.
 //
-// (The 5/8 rung then; the 6/12 rung on the twelfths ladder since Story 9.8,
-// epic-9 amendment 103 — `muzzleFlashFactor` 0.5.)
+// (The 5/8 rung then; the 6/12 rung on the twelfths ladder [retired 2026-11-12, Story 11.2] since Story 9.8,
+// epic-9 amendment 103 — `muzzleFlashFactor` 0.5; its own 350 hm fact since
+// Story 11.2, 2026-11-12, when the ladder retired.)
 //
 // THE RADIUS IS NOT A KNOB: it is the shared flash rung. Only the soft edge is
 // client feel (`CLIENT_CONFIG.countermeasure.haloFeatherU`).
@@ -23,15 +25,15 @@
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
-/** The flash rung (6/12) for a viewer whose live derived intel range is `radarRangeU` —
- *  the SAME derivation as the server's wounded-smoke reach. */
-export function hazeHaloU(radarRangeU: number): number {
-  return radarRangeU * CONFIG.vision.muzzleFlashFactor;
+/** The halo radius (u): the muzzle-flash / wounded-smoke reach — its own named
+ *  hectometer fact since Story 11.2 (R18: 350 hm), the SAME number the server's
+ *  wounded-smoke reach reads. It no longer follows the radar reach. */
+export function hazeHaloU(): number {
+  return CONFIG.vision.muzzleFlash;
 }
 
-/** The halo at the BASE intel range — what the mask holds before the first
- *  derived stats arrive. */
-export const BASE_HAZE_HALO_U = hazeHaloU(CONFIG.vision.radar);
+/** The halo before the first derived stats arrive (the same fact). */
+export const BASE_HAZE_HALO_U = hazeHaloU();
 
 /** World half-width (u) the mask sprite must cover for a halo of `haloU`: the
  *  halo, its feather, and one more feather of zero margin (a sprite mask hides

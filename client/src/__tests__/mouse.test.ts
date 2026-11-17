@@ -1,21 +1,21 @@
-// MouseInput (Story 2.1 hygiene): canvas-target-only click counting, the refit
-// modal's full combat lockout, contextmenu suppression on the canvas, and the
+// MouseInput (Story 2.1 hygiene): canvas-target-only click counting, the
+// combat lockout (overlays / the start line since Story 10.10 retired the refit
+// modal), contextmenu suppression on the canvas, and the
 // original counter/stamp semantics. jsdom (MouseEvent stands in for
 // PointerEvent; `bubbles: true` dispatched ON an element gives the window
 // listener a real e.target, exactly like a browser).
 
 import { CLIENT_CONFIG } from '../config.js';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { SLOT_GUN, WEAPON_SLOTS } from '@salvo/shared';
 import { MouseInput, worldAim, worldAimDist } from '../input/mouse.js';
+import { KeyboardInput } from '../input/keyboard.js';
 import { Camera } from '../render/camera.js';
 
 const opts = {
   defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
   closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
   ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-  followRate: 5,
-  leadSeconds: 4,
-  leadMax: 110,
 };
 
 describe('worldAim', () => {
@@ -46,10 +46,11 @@ function withMouse(
   nowServer?: () => number,
   isLocked?: () => boolean,
   onSlotPress?: (p: { x: number; y: number }) => boolean,
+  overConsole?: (p: { x: number; y: number }) => boolean,
 ): void {
   const canvas = document.createElement('canvas');
   document.body.appendChild(canvas);
-  const m = new MouseInput(nowServer, isLocked, onSlotPress);
+  const m = new MouseInput(nowServer, isLocked, onSlotPress, overConsole);
   m.attach(canvas);
   try {
     run(m, canvas);
@@ -72,7 +73,7 @@ describe('MouseInput.clickCount — cumulative button-0 CANVAS clicks', () => {
 
   it('a pointerdown on DOM chrome (a non-canvas target) NEVER counts — a card click cannot fire', () => {
     withMouse((m) => {
-      const card = document.createElement('button'); // e.g. a refit card
+      const card = document.createElement('button'); // e.g. an offer card
       document.body.appendChild(card);
       fire(card, 'pointerdown', { button: 0 });
       fire(document.body, 'pointerdown', { button: 0 });
@@ -81,7 +82,7 @@ describe('MouseInput.clickCount — cumulative button-0 CANVAS clicks', () => {
     });
   });
 
-  it('while the lockout predicate holds (refit modal open), even canvas clicks are dropped', () => {
+  it('while the lockout predicate holds (an overlay / the start line), even canvas clicks are dropped', () => {
     let locked = true;
     withMouse(
       (m, canvas) => {
@@ -246,7 +247,7 @@ describe('MouseInput — the injected hotbar gate', () => {
     );
   });
 
-  it('is never consulted while the refit modal holds the lockout (both suspended)', () => {
+  it('is never consulted while the lockout holds (both suspended)', () => {
     let consulted = 0;
     withMouse(
       (m, canvas) => {
@@ -311,62 +312,358 @@ describe('MouseInput.pointerInside — hover presence for the hotbar tooltip', (
   });
 });
 
-// --- Story 8.7, ruling 9: the refit window ENDS a held stream ----------------
-//
-// Opening the refit window is a full combat lockout, and the lockout only ever
-// gated the PRESS: a stream already running (Story 8.14's machine gun, a held
-// trigger of any kind) kept its hold open behind the window, and the pointerup
-// that ended it might land minutes later, on a different life. `endHolds()` is
-// the window's half of that contract — it ends every live hold exactly as a
-// pointerup would, and nothing else: no click is counted, no release is tallied,
-// and the cursor position (the aim path) is untouched.
-
-describe('MouseInput.endHolds — the refit window closing a live stream', () => {
-  it('ends the open hold exactly as its pointerup would have', () => {
+// STORY 10.4: the SECONDARIES LEVEL on the right button (button 2). `secHeld`
+// / `consumeSec()` mirror `isHeld` / `consumeHeld()`: the same canvas, lockout
+// and hotbar gates, the same press latch, ended by its own pointerup, a
+// pointercancel or a blur — and a right press is never a shot.
+describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)', () => {
+  it('a right press on the canvas holds the level until its own pointerup', () => {
     withMouse((m, canvas) => {
-      fire(canvas, 'pointerdown', { button: 0 });
-      expect(m.clickCount).toBe(1);
-      expect(m.releasedClickSeq).toBe(0); // still held
-      m.endHolds();
-      expect(m.releasedClickSeq).toBe(1); // the hold is over, named by its click
-      expect(m.releaseCount).toBe(0); // …without inventing a button-0 release
-      expect(m.clickCount).toBe(1); // …and without counting a shot
+      expect(m.secHeld).toBe(false);
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(m.secHeld).toBe(true);
+      expect(m.consumeSec()).toBe(true);
+      expect(m.consumeSec()).toBe(true); // still held — the level, not just the latch
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(false);
     });
   });
 
-  it('is a no-op with no hold open (opening the window over a quiet pointer)', () => {
+  it('a sub-sample tap yields exactly ONE true (the press latch), then false', () => {
     withMouse((m, canvas) => {
-      m.endHolds();
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(true);
+      expect(m.consumeSec()).toBe(false);
+    });
+  });
+
+  it('a right press counts NO click and opens no left hold', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(m.clickCount).toBe(0);
+      expect(m.isHeld).toBe(false);
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.releaseCount).toBe(0);
       expect(m.releasedClickSeq).toBe(0);
-      fire(canvas, 'pointerdown', { button: 0 });
-      fire(canvas, 'pointerup', { button: 0 });
-      expect(m.releasedClickSeq).toBe(1);
-      m.endHolds(); // the hold is already closed — nothing to re-publish
-      expect(m.releasedClickSeq).toBe(1);
     });
   });
 
-  it('the stream does NOT resume: the late pointerup closes nothing', () => {
+  it('a left click leaves the secondaries level alone', () => {
     withMouse((m, canvas) => {
-      fire(canvas, 'pointerdown', { button: 0 });
-      m.endHolds(); // the window opened mid-hold
-      fire(canvas, 'pointerdown', { button: 0 }); // a second press behind the window…
-      expect(m.clickCount).toBe(2);
-      m.endHolds();
-      expect(m.releasedClickSeq).toBe(2);
-      fire(canvas, 'pointerup', { button: 0 }); // …the real button finally comes up
-      expect(m.releaseCount).toBe(1); // counted as the raw tally…
-      expect(m.releasedClickSeq).toBe(2); // …but it closes no hold: there is none
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1 });
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(false);
     });
   });
 
-  it('leaves the aim and the hover presence alone', () => {
+  it('is ended — latch and level — by a blur', () => {
     withMouse((m, canvas) => {
-      fire(canvas, 'pointermove', { clientX: 77, clientY: 88 });
-      fire(canvas, 'pointerdown', { button: 0 });
-      m.endHolds();
-      expect(m.screenPos).toEqual({ x: 77, y: 88 });
-      expect(m.pointerInside).toBe(true);
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      window.dispatchEvent(new Event('blur'));
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(false);
+    });
+  });
+
+  it('is ended — latch and level — by a pointercancel', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      fire(canvas, 'pointercancel');
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(false);
+    });
+  });
+
+  it('is ignored off the canvas (DOM chrome)', () => {
+    withMouse((m) => {
+      const card = document.createElement('button');
+      document.body.appendChild(card);
+      fire(card, 'pointerdown', { button: 2, buttons: 2 });
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(false);
+      card.remove();
+    });
+  });
+
+  it('is ignored while locked out (an overlay / the start line)', () => {
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+        expect(m.secHeld).toBe(false);
+        expect(m.consumeSec()).toBe(false);
+      },
+      undefined,
+      () => true,
+    );
+  });
+
+  // REVIEW GATE C3(a): swallowed with NO side effect — the acting gate
+  // (`onSlotPress`, which burns the Shift / a consumable or changes the prime)
+  // is never called; only the side-effect-free hit test is.
+  it('is swallowed over a hotbar slot WITHOUT activating the slot (review C3a)', () => {
+    const onSlotPress = vi.fn(() => true);
+    const overConsole = vi.fn(() => true);
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 2, buttons: 2, clientX: 5, clientY: 5 });
+        expect(m.secHeld).toBe(false);
+        expect(m.consumeSec()).toBe(false);
+        fire(canvas, 'pointermove', { button: 2, buttons: 3, clientX: 5, clientY: 5 }); // the chord path too
+        expect(m.secHeld).toBe(false);
+      },
+      undefined,
+      undefined,
+      onSlotPress,
+      overConsole,
+    );
+    expect(onSlotPress).not.toHaveBeenCalled();
+    expect(overConsole).toHaveBeenCalled();
+  });
+
+  // REVIEW GATE C3(b): a button-0 chord edge is read off the PHYSICAL state
+  // (`buttons`), not off whether the right press was accepted.
+  it('a chorded LEFT press counts a click even when the right press was rejected over a slot (review C3b)', () => {
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 2, buttons: 2, clientX: 5, clientY: 5 }); // rejected
+        expect(m.secHeld).toBe(false);
+        fire(canvas, 'pointermove', { button: 0, buttons: 3, clientX: 300, clientY: 300 });
+        expect(m.clickCount).toBe(1);
+        expect(m.isHeld).toBe(true);
+      },
+      undefined,
+      undefined,
+      undefined,
+      (p) => p.x < 10,
+    );
+  });
+
+  it('a chorded LEFT release closes the hold even when the right press landed on DOM chrome (review C3b)', () => {
+    withMouse((m, canvas) => {
+      const card = document.createElement('button');
+      document.body.appendChild(card);
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1 }); // left hold open
+      fire(card, 'pointermove', { button: 2, buttons: 3 }); // right chord on chrome: rejected
+      expect(m.secHeld).toBe(false);
+      fire(card, 'pointermove', { button: 0, buttons: 2 }); // left released, right still down
+      expect(m.isHeld).toBe(false);
+      expect(m.releasedClickSeq).toBe(1);
+      card.remove();
+    });
+  });
+
+  // REVIEW GATE C3(c): a right release we never heard cannot stream forever.
+  it('a pointermove whose buttons lack the secondary bit releases the level (review C3c)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(m.secHeld).toBe(true);
+      fire(canvas, 'pointermove', { button: -1, buttons: 0, clientX: 9, clientY: 9 });
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(true); // the press latch still pays its one sample
+      expect(m.consumeSec()).toBe(false);
+    });
+  });
+
+  it('a pointermove with the secondary bit still set keeps the level', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      fire(canvas, 'pointermove', { button: -1, buttons: 2, clientX: 9, clientY: 9 });
+      expect(m.secHeld).toBe(true);
+    });
+  });
+
+  it('leaving the WINDOW releases the level; the left hold is untouched (review C3c)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1 });
+      fire(canvas, 'pointermove', { button: 2, buttons: 3 });
+      expect(m.secHeld).toBe(true);
+      const inner = document.createElement('div');
+      document.body.appendChild(inner);
+      fire(canvas, 'pointerout', { relatedTarget: inner, buttons: 3, button: -1 }); // within the page
+      expect(m.secHeld).toBe(true);
+      fire(canvas, 'pointerout', { relatedTarget: null, buttons: 3, button: -1 }); // out of the window
+      expect(m.secHeld).toBe(false);
+      expect(m.isHeld).toBe(true);
+      inner.remove();
+    });
+  });
+
+  // Pointer Events report a SECOND button pressed during a hold as a
+  // pointermove carrying that `button`, not as a pointerdown.
+  it('a CHORDED right press (pointermove, button 2, buttons & 2) holds the level; its chorded release ends it', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1 }); // left hold open
+      fire(canvas, 'pointermove', { button: 2, buttons: 3 });
+      expect(m.secHeld).toBe(true);
+      expect(m.isHeld).toBe(true); // the left hold is untouched
+      expect(m.clickCount).toBe(1); // the chord counts no click
+      fire(canvas, 'pointermove', { button: 2, buttons: 1 });
+      expect(m.secHeld).toBe(false);
+      expect(m.isHeld).toBe(true);
+    });
+  });
+
+  it('a plain pointermove (no button change) never touches the level', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { button: -1, buttons: 0, clientX: 3, clientY: 4 });
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(false);
+    });
+  });
+
+  it('a chorded LEFT press while the right is down still counts a click', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      fire(canvas, 'pointermove', { button: 0, buttons: 3 });
+      expect(m.clickCount).toBe(1);
+      expect(m.isHeld).toBe(true);
+      fire(canvas, 'pointermove', { button: 0, buttons: 2 });
+      expect(m.isHeld).toBe(false);
+      expect(m.secHeld).toBe(true);
+    });
+  });
+});
+
+// STORY 10.5, epic-10 amendment 11(s) (Eric 2026-11-05): the right button is
+// the secondaries ALWAYS. A readied Q / E / R weapon (the keyboard's prime) is
+// never cancelled by it and never masks it; only its key, or firing it, ends
+// the ready. Wired against the real KeyboardInput, the prime model's owner.
+const [Q] = WEAPON_SLOTS;
+
+function withKeyboard(run: (m: MouseInput, kb: KeyboardInput, canvas: HTMLElement) => void): void {
+  const kb = new KeyboardInput({ isSlotFitted: () => true });
+  withMouse((m, canvas) => run(m, kb, canvas));
+}
+
+describe('MouseInput — the right button with a readied weapon (Story 10.5, amendment 11(s))', () => {
+  it('a right PRESS with a weapon readied is the secondaries and leaves the ready alone', () => {
+    withKeyboard((m, kb, canvas) => {
+      kb.slotAction(Q); // ready the Q weapon
+      expect(kb.primedSlot).toBe(Q);
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(m.consumeSec()).toBe(true);
+      expect(kb.primedSlot).toBe(Q); // still readied
+      expect(m.consumeSec()).toBe(true); // held: the level
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.consumeSec()).toBe(false);
+      expect(kb.primedSlot).toBe(Q);
+    });
+  });
+
+  it('a right button already HELD keeps firing through a ready, the shot, and the ready ending', () => {
+    withKeyboard((m, kb, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 }); // secondaries streaming
+      expect(m.consumeSec()).toBe(true);
+      kb.slotAction(Q); // ready a weapon with the right button still down
+      expect(kb.primedSlot).toBe(Q);
+      expect(m.consumeSec()).toBe(true); // never interrupted
+      const clicks = m.clickCount;
+      fire(canvas, 'pointermove', { button: 0, buttons: 3 }); // left chord press: fire the weapon
+      expect(m.clickCount).toBeGreaterThan(clicks);
+      expect(m.consumeSec()).toBe(true); // …on the very tick the weapon fires
+      fire(canvas, 'pointermove', { button: 0, buttons: 2 }); // left chord release
+      kb.revertToGun(); // the ready ends
+      expect(m.consumeSec()).toBe(true);
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.consumeSec()).toBe(false); // a normal release ends it
+    });
+  });
+
+  it('with nothing readied the right button is the secondaries, exactly as Story 10.4 built it', () => {
+    withKeyboard((m, kb, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(kb.primedSlot).toBe(SLOT_GUN);
+      expect(m.consumeSec()).toBe(true);
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.consumeSec()).toBe(false);
+    });
+  });
+});
+
+describe('MouseInput — the middle drag pans the map (Story 11.8)', () => {
+  it('a canvas middle press opens the drag: each move adds its delta, drained once by consumePanDrag; the release ends it', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 100, clientY: 100 });
+      fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+      expect(m.panHeld).toBe(true);
+      fire(canvas, 'pointermove', { clientX: 130, clientY: 90, buttons: 4 });
+      fire(canvas, 'pointermove', { clientX: 140, clientY: 80, buttons: 4 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 40, y: -20 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 0, y: 0 });
+      fire(canvas, 'pointerup', { button: 1, buttons: 0 });
+      expect(m.panHeld).toBe(false);
+      fire(canvas, 'pointermove', { clientX: 200, clientY: 200 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 0, y: 0 });
+      expect(m.clickCount).toBe(0); // the middle button never fires
+    });
+  });
+
+  it('only a CANVAS press opens it, and never over a console', () => {
+    withMouse(
+      (m, canvas) => {
+        fire(document.body, 'pointerdown', { button: 1, buttons: 4 });
+        expect(m.panHeld).toBe(false);
+        fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 5, clientY: 5 });
+        expect(m.panHeld).toBe(false);
+      },
+      undefined,
+      undefined,
+      undefined,
+      (p) => p.x < 10,
+    );
+  });
+
+  it('a blur, a pointercancel, leaving the window, or a move without the middle bit ends the drag', () => {
+    const enders: ((canvas: HTMLElement) => void)[] = [
+      () => window.dispatchEvent(new Event('blur')),
+      (c) => fire(c, 'pointercancel'),
+      (c) => fire(c, 'pointerout', { relatedTarget: null }),
+      (c) => fire(c, 'pointermove', { clientX: 120, clientY: 100, buttons: 0 }),
+    ];
+    for (const end of enders) {
+      withMouse((m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+        expect(m.panHeld).toBe(true);
+        end(canvas);
+        expect(m.panHeld).toBe(false);
+      });
+    }
+  });
+
+  it('a cancel, a blur, leaving the window or detach DISCARD the pending delta; a plain release keeps it (Story 11.8 review)', () => {
+    const discarders: ((m: MouseInput, canvas: HTMLElement) => void)[] = [
+      () => window.dispatchEvent(new Event('blur')),
+      (_m, c) => fire(c, 'pointercancel'),
+      (_m, c) => fire(c, 'pointerout', { relatedTarget: null }),
+      (m) => m.detach(),
+      (m) => m.cancelPanDrag(),
+    ];
+    for (const end of discarders) {
+      withMouse((m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+        fire(canvas, 'pointermove', { clientX: 160, clientY: 70, buttons: 4 });
+        end(m, canvas);
+        expect(m.panHeld).toBe(false);
+        expect({ ...m.consumePanDrag() }).toEqual({ x: 0, y: 0 });
+      });
+    }
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 1, buttons: 4, clientX: 100, clientY: 100 });
+      fire(canvas, 'pointermove', { clientX: 160, clientY: 70, buttons: 4 });
+      fire(canvas, 'pointerup', { button: 1, buttons: 0 });
+      expect({ ...m.consumePanDrag() }).toEqual({ x: 60, y: -30 });
+    });
+  });
+
+  it('a middle press chorded during a left hold (a pointermove carrying button 1) opens the drag too', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1, clientX: 50, clientY: 50 });
+      fire(canvas, 'pointermove', { button: 1, buttons: 5, clientX: 50, clientY: 50 });
+      expect(m.panHeld).toBe(true);
+      expect(m.isHeld).toBe(true);
     });
   });
 });

@@ -36,10 +36,14 @@ import type {
   BoonOffer,
   EffectiveStats,
   LoadoutSlot,
+  SecondariesHeat,
   ShipLifecycle,
   ShipState,
+  TurretState,
+  LauncherState,
   Vec2,
   ZonePhase,
+  BeaconPhase,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 import type { NavCache } from '../navCache.js';
@@ -63,7 +67,7 @@ export type BotProfileId = (typeof CONFIG.bots.profiles)[number];
  * opponent can never carry one. They are reachable ONLY through the explicit
  * profile override the batch-sim harness threads through addBot.
  */
-export type TestProfileId = 'randomTorpedoBoat' | 'randomBattleship' | 'randomMineLayer';
+export type TestProfileId = 'randomYamato' | 'randomBismarck' | 'randomWarspite' | 'randomIowa';
 
 /** Any profile a bot mind may carry: an in-game row or a test-only row. */
 export type AnyProfileId = BotProfileId | TestProfileId;
@@ -109,8 +113,7 @@ export interface BotSelf {
    * a hull in the sinking window (amendment 10), and a tactic whose only test
    * is `hp / maxHp` is at its MOST eager exactly there. The driver already
    * drops non-afloat bots before they decide, so this is the row's own guard —
-   * the twin of the one the server's consumable row keeps — and not a
-   * substitute for it.
+   * the twin of the server's own gate — and not a substitute for it.
    */
   readonly lifecycle: ShipLifecycle;
   /**
@@ -125,6 +128,12 @@ export interface BotSelf {
   readonly repairHp: number;
   readonly stats: EffectiveStats;
   readonly loadout: readonly LoadoutSlot[];
+  /** ms — when this hull's HULL REPAIR / SMOKE are ready again (Story 10.5;
+   *  0 = ready) — exactly the `OwnShip.repairReadyAt` / `smokeReadyAt` a human
+   *  client is sent. The two ability rows read them through the shared
+   *  refusal law (ai/abilities.ts). */
+  readonly repairReadyAt: number;
+  readonly smokeReadyAt: number;
   /** The sim's own "this hull is pressing into LAND" bit (map-edge press is
    *  deliberately NOT contact — cycle 59). The un-beach trip reads this,
    *  never a speed guess. */
@@ -134,13 +143,6 @@ export interface BotSelf {
   /** Fitted card LINE ids, in fit order (Story 8.1 — repeats are stacks). */
   readonly cards: readonly string[];
   /**
-   * This hull's SHIELD BLOCK seat (Story 8.16) — the owner is told exactly
-   * this (`OwnShip.shield`). Read by the SHIELD BLOCK belt tactic so a
-   * bot never replaces a shield still up. Optional so hand-built fixtures that
-   * predate it stay valid; absent reads as "no shield".
-   */
-  readonly shield?: { readonly hpLeft: number; readonly until: number } | null;
-  /**
    * This hull's OWN radar beam angle (rad, wrapped to [0, 2π)) — exactly the
    * `OwnShip.sweep` a human client is sent every frame, and nothing more. The
    * previous angle is NOT read off the record: the bot remembers its own
@@ -149,6 +151,38 @@ export interface BotSelf {
    * Read by ai/plot.ts's sweep-miss drop.
    */
   readonly sweepAngle: number;
+  /**
+   * This hull's OWN MAIN-BATTERY TURRETS (Story 10.4) — exactly the
+   * `OwnShip.turrets` a human client is sent (angle + remaining reload per
+   * turret). The main-battery tactic reads it to click only when a ready
+   * turret bears on the aim it is holding (ai/battery.ts). Optional so hand-built
+   * fixtures that predate it stay valid; absent / empty = no battery.
+   */
+  readonly turrets?: readonly TurretState[];
+  /**
+   * This hull's OWN TORPEDO LAUNCHERS (Story 10.6) — exactly the
+   * `OwnShip.launchers` a human client is sent (angle + per-tube reload).
+   * The torpedo tactic reads it to click only when a tube would fire
+   * (ai/torpedoMount.ts). Optional like `turrets`; absent / empty =
+   * no torpedo held.
+   */
+  readonly launchers?: readonly LauncherState[];
+  /**
+   * This hull's OWN SECONDARIES HEAT (Story 10.4) — exactly the `OwnShip.sec`
+   * a human client is sent (`{heat}`). The secondaries trigger reads
+   * it for its burst discipline (ai/battery.ts). Optional, like `turrets`;
+   * absent = no secondaries.
+   */
+  readonly sec?: SecondariesHeat;
+  /**
+   * ms — this hull's OWN FLASH SHELLS mark (epic-10 amendment 5) — exactly
+   * the `OwnShip.dazzledUntil` a human client is sent (0 / absent = never
+   * flashed). The bot's sight gates resolve their radius through the shared
+   * `effectiveSight(stats, dazzledUntil, now)` (gate fix F8), the clear
+   * circle the server's own perception of this hull uses. Optional so
+   * hand-built fixtures stay valid; ShipRecord has it.
+   */
+  readonly dazzledUntil?: number;
 }
 
 /**
@@ -179,10 +213,11 @@ export interface BotTickEntry {
    *  call count is a pinned invariant, not a nicety). */
   observe(): PerceptionView;
   /**
-   * The FOG density at a point right now, in [0, 1] (`World.fogDensityAt`,
-   * bound by world.ts; Story 9.10). PUBLIC WEATHER a human client evaluates
-   * from the welcome seed and the schema cut too — where fog is, never what
-   * it hides. Read by the cover search (ai/cover.ts) alone. HISTORY:
+   * The RAIN density at a point right now, in [0, 1] (`World.fogDensityAt`,
+   * bound by world.ts — the shared storm-eye field at the server's current
+   * epoch frame; Story 9.10, re-cut by Story 11.6). PUBLIC WEATHER a human
+   * client evaluates from the welcome seed and the zone clock too — where
+   * rain is, never what it hides. Read by the cover search (ai/cover.ts) alone. HISTORY:
    * amendment 169 also had the sweep-miss rule read it as a fog limit;
    * amendment 210 retired that use.
    */
@@ -199,11 +234,43 @@ export interface BotZonePhase {
   readonly closesInMs: number | null;
 }
 
+/** One RADIO BEACON as a bot reads it (Story 10.8): its position and where it
+ *  is in its life — exactly what a human's chart shows (the schema's public
+ *  beacon slots run through the shared `beaconStateAt`). No hp, no pot, no
+ *  hulls-in-range count: those never leave the server. */
+export interface BotBeacon {
+  readonly x: number;
+  readonly y: number;
+  readonly phase: BeaconPhase;
+  /** 0..1 — the payout rate's fraction of full (0 while charted / gone). */
+  readonly rate01: number;
+}
+
+/** A beacon a bot is farming (ai/beacons.ts): its centre and the standoff
+ *  point fixed when it was first picked. */
+export interface BotBeaconGoal {
+  readonly x: number;
+  readonly y: number;
+  /** rad — the bearing from the beacon to the bot when the standoff was
+   *  fixed: a swing of more than 90° off it re-fixes the standoff. */
+  readonly bearing: number;
+  readonly standoff: Vec2;
+  /** Was the standoff fixed on the DISC-CENTRE side (the bot-side point lay
+   *  outside the patrol disc)? Such a goal is on station only AT its standoff
+   *  point (ai/beacons.ts onStation) — the "anywhere within the standoff
+   *  distance of the centre" reading would let the bot park outside the disc. */
+  readonly centerSide: boolean;
+  /** Is the beacon PAYING now (not gone, not merely charted, rate above 0)?
+   *  Re-read off the chart EVERY deliberation (ai/beacons.ts beaconGoalOf),
+   *  the kept goal included; the beacon stayer reads it (ai/posture.ts). */
+  readonly paying: boolean;
+}
+
 /**
  * THE NARROW WORLD PORT — everything the bot driver needs from World beyond
  * its per-tick entries, and nothing else. World builds it with
- * game/botPort.ts `makeBotPort` (an object of delegating getters) beside
- * FleetController; the driver only ever stores it as this type.
+ * game/botPort.ts `makeBotPort` (an object of delegating getters); the
+ * driver only ever stores it as this type.
  *
  * WIDENING RULE. The cycle-110 line "the port may not widen past this one
  * boolean" (zoneEndgameReached) is SUPERSEDED by epic-9 amendment 190 (Eric
@@ -212,12 +279,26 @@ export interface BotZonePhase {
  * is sent or derives from what it is sent (the schema's `zoneNext*`, the
  * shared zone timeline over `zoneStartT`, and CONFIG.zone's ring ladder).
  * Every OTHER widening of this interface still needs its own Eric ruling.
+ * The RADIO BEACON chart (`beacons`, Story 10.8) has one: Eric 2026-11-06
+ * "bots sail to and farm beacons" (epic-10 amendment 6(g); spec R3, R9 —
+ * every beacon's cycle, position and early sink are public on the schema).
  *
  * Deliberately absent: ANY ship store (a bot's own record arrives in its
  * BotTickEntry; everything else reaches it only through the fogged view),
- * `shells`, `mines`, `decoys`, `litZones`, events, other observers.
+ * `shells`, `mines`, `litZones`, events, other observers, and any beacon
+ * fact a chart does not show (hp, pot, hulls in range).
  */
 export interface BotWorldPort {
+  /**
+   * THE PUBLIC BEACON CHART (Story 10.8 — the widening ruled above): every
+   * beacon of the current cycle as `BotBeacon` (position, phase, rate), built
+   * by game/botPort.ts from `World.beaconChart` — the very facts the schema
+   * mirrors to every client — through the shared `beaconStateAt`. Empty when
+   * there is no set. The returned array is REUSED between calls: read it,
+   * never keep it. OPTIONAL so a hand-built test port omits it (absent = no
+   * beacons, as `nav` absent = the per-map cache).
+   */
+  beacons?(): readonly BotBeacon[];
   /** ms since world creation — the one server clock. */
   readonly now: number;
   /** The generated map: islands (avoidance/LOS context) + radius (boundary). */
@@ -348,11 +429,8 @@ export interface RememberedContact {
   sunk: boolean;
   /** Hull class if the source disclosed one, else null (radar blips are
    *  identity-free by ruling). Drives the rear-quarter mine-layer exception
-   *  in wave-3 tactics and the participant-vs-fleet split below. */
+   *  in wave-3 tactics. */
   cls: HullId | null;
-  /** True when the disclosed class is a PvE fleet hull rather than a
-   *  participant. Unknown class = false (assume a captain: the safer read). */
-  fleet: boolean;
   /** Server ms this track was FIRST acquired — the reaction gate's input.
    *  Survives every refresh; a forgotten-then-reacquired track starts over,
    *  which is correct (you did lose the plot). */
@@ -394,21 +472,9 @@ export interface RememberedContact {
    * clears the mark.
    */
   missSweptAt: number;
-  /**
-   * THE DECOY CUES (Story 9.13, epic-9 amendment 197) — what a human reads
-   * off the scope to call a radar plot a probable buoy, carried on the plot by
-   * the fold (ai/utility.ts foldPaint / ai/plot.ts). OPTIONAL so hand-built
-   * tracks stay valid; absent reads as "no evidence" (never a decoy).
-   *   - `paintCells`: lit-cell count of the plot's LAST radar paint (a buoy's
-   *     paint square covers a few lattice cells; a hull's silhouette many);
-   *   - `stillSweeps`: consecutive paint-to-paint measurements that read
-   *     STATIONARY (any measured motion resets it to 0);
-   *   - `hasWake`: a wake-ribbon course was EVER fitted to this plot (a buoy
-   *     lays no wake — the amendment-123 precedent).
-   */
-  paintCells?: number;
-  stillSweeps?: number;
-  hasWake?: boolean;
+  // (The DECOY CUES `paintCells` / `stillSweeps` / `hasWake` — Story 9.13,
+  // epic-9 amendment 197 — left with their last reader, the decoy buoys, at
+  // Story 10.5; the bookkeeping itself was removed at Story 10.12.)
 }
 
 /** One painted WAKE segment remembered for the course fit (ai/plot.ts): the
@@ -456,13 +522,6 @@ export interface BotMind {
    *  in every hand-built test mind — only the controller's enroll ever sets
    *  it, and only when the harness set BotController.spend first. */
   spendRandom?: boolean;
-  /** GUN-FIRST SPEND OVERRIDE (balance campaign, 2026-10-01) — the
-   *  `spendRandom` sibling, stamped at enroll from BotController.spend ===
-   *  'gun' (batch-sim `--bot-spend gun` only). A weighted row keeps its whole
-   *  temperament; its card pick takes the mounted gun's ladder card whenever
-   *  the hand deals it, else the shipped weighted scorer. OPTIONAL, absent =
-   *  false on every production path and hand-built test mind. */
-  spendGunFirst?: boolean;
   /** Deliberation-stagger slot in [0, cadenceTicks) — botPhase(id,
    *  cadenceTicks). Staggers DECISION work, never perception. */
   phase: number;
@@ -548,6 +607,10 @@ export interface BotMind {
   coverPoint?: Vec2 | null;
   /** The routed idle-patrol waypoint (amendment 202). */
   patrolWaypoint?: Vec2 | null;
+  /** THE BEACON BEING FARMED (Story 10.8, ai/beacons.ts): the public beacon
+   *  this bot sails to and holds by, re-picked every deliberation; null =
+   *  none (patrol as usual). */
+  beaconGoal?: BotBeaconGoal | null;
   /** u — the closest the bot has come to `patrolWaypoint`, and the server ms
    *  it last gained a hull length on it: the no-progress re-pick after
    *  CONFIG.bots.nav.waypointTimeoutMs (amendment 202). */
@@ -578,6 +641,49 @@ export interface BotMind {
   /** The id of the tactic row that fired last (harness readout, Story 9.13;
    *  stamped by the tactics wave); null = none yet. */
   lastTactic?: string | null;
+  /**
+   * THE HELD MAIN-BATTERY SCATTER (Story 10.4, ai/battery.ts): the
+   * competence scatter offset (u, world axes) the bot's main-battery aim
+   * carries, drawn ONCE off `rng` and HELD until the bot clicks — so the aim
+   * it writes every tick is steady enough for the turrets (which chase it at
+   * a finite traverse rate) to arrive on it. Re-drawn after every click.
+   * Since Story 11.9 a UNIT offset (per u of range), rescaled to the current
+   * range at every use. Optional; absent / null = draw on next use.
+   */
+  batteryScatter?: Vec2 | null;
+  /**
+   * The `targetKey` `batteryScatter` was drawn for (Story 10.4 gate S4): a
+   * different target redraws, so one target's range-scaled offset is never
+   * applied to another. Optional; absent = no held draw.
+   */
+  batteryScatterKey?: string | null;
+  // THE TORPEDO HOLD seat (`torpedoHold`, Story 10.6) — RETIRED 2026-11-12
+  // with the traverse (Story 11.1, ai/torpedoMount.ts).
+  /**
+   * SECONDARIES BURST DISCIPLINE (Story 10.4, ai/battery.ts): true while the
+   * bot has released the secondaries at the high-heat line and is waiting for
+   * them to cool below the low line before pressing again. Optional; absent =
+   * false.
+   */
+  secResting?: boolean;
+  /**
+   * THE NEXT-TICK POSE (Story 10.12, ai/tactics.ts decide -> ai/battery.ts):
+   * the pose this hull will have when the server steps its turrets THIS tick
+   * — the server steps the hull (STEP_ORDER `stepShips`) before `stepTurrets`
+   * and `fireControl`, so the turret step and the pick both read the
+   * post-move pose. Predicted with the shared `stepShip` from the hull's own
+   * state, its rated kinematics and the helm this same decision submits
+   * (collisions, a live boost and a slow are not modelled). `at` = the
+   * decision's `now`; a stale or absent seat reads as the current pose.
+   */
+  nextPose?: { x: number; y: number; heading: number; speed: number; at: number } | null;
+  /**
+   * THE MINE SWEEP (Story 10.12, ai/battery.ts): the sighted hostile mine
+   * the secondaries are sweeping THIS tick (`at` = the decision's `now`) —
+   * the aim is the mine's, so the main battery does not click on it. A stale
+   * or absent seat = not sweeping.
+   */
+  sweep?: { x: number; y: number; at: number } | null;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics
@@ -644,9 +750,10 @@ export interface BotDecision {
   /** Loadout slot to fire this tick, or null to hold fire. A non-null value
    *  advances the mind's fireSeq exactly once. */
   fireSlot: number | null;
-  /** Loadout slot to activate (ability press), or null. A non-null value
-   *  advances the mind's actSeq exactly once. */
-  actSlot: number | null;
+  /** The ability to press — its wire code (`InputMsg.act`, Story 10.5: 0
+   *  Shift, 1 HULL REPAIR, 2 SMOKE) — or null. A non-null value advances the
+   *  mind's actSeq exactly once. */
+  act: number | null;
   /** THE HELD LEVEL (Story 8.15, amendment 103) — `InputMsg.held`, the
    *  machine gun's trigger. A LEVEL, never an edge: true on every tick the
    *  stream should run, and it NEVER advances fireSeq (a click edge on a
@@ -654,6 +761,10 @@ export interface BotDecision {
    *  while the input's `slot` is 0 (the World's streamControl), so the driver
    *  leaves `fireSlot` null — and therefore `slot` 0 — on a held tick. */
   held: boolean;
+  /** THE SECONDARIES LEVEL (Story 10.4) — `InputMsg.sec`, right mouse held.
+   *  A LEVEL like `held`, never an edge; it fires along the same `aim` /
+   *  `aimDist`. Optional so a decision built without it reads false. */
+  sec?: boolean;
   /** Spend a banked level: an offer index, or null for no spend. Never
    *  negative (Story 8.8 retired the -1 heal sentinel). Only ever non-null on
    *  a deliberation tick (the decision cadence). */

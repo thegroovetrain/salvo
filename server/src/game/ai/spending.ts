@@ -7,17 +7,16 @@
 // public entry point a human client's SpendMsg lands on. IT NEVER RETURNS A
 // NEGATIVE: the reserved -1 heal sentinel left the wire in Story 8.8.
 //
-// THE HEAL IS NOT A SPEND (epic-8 amendments 46 + 49). Healing is a CARD a bot
-// draws, stocks in its own slot and FIRES — so `healHpFrac` gates the key press
-// in the HULL REPAIR tactic. The only thing this policy does with hp is WANT a HULL
-// REPAIR card more while hurt (below).
+// THE HEAL IS NOT A SPEND (epic-8 amendments 46 + 49). Healing is the HULL
+// REPAIR ability (`C`, Story 10.5) — the profile's `repairStyle` gates its
+// press in ai/abilities.ts (Story 10.12). This policy never reads hp.
 //
 // THE POINTS SCORER (Story 8.20, Eric ruling 2026-09-30, R3/R4). Every card
 // in the hand that the hull can actually take (`pickRefusal`) gets a score
 // from ONE table, CONFIG.bots.cardPoints, read against the bot's own build and
 // its personality's build TASTE (ai/profiles.ts). Highest score wins.
 //
-//   - A NEW WEAPON (copy 1 of an equipment line, for an empty Q/E/R slot) is
+//   - A NEW WEAPON (copy 1 of an equipment line, for its EMPTY family slot) is
 //     worth `weapon`, or `favoriteWeapon` if it is one of the taste's
 //     favorites. Nothing else is added to a weapon.
 //   - AN UPGRADE (a ladder rung, or a tier copy of a weapon already held) is
@@ -28,19 +27,12 @@
 //     counted by copies held. THE STYLE BONUS NEEDS AN UNEVEN BUILD (R11): when
 //     every line in it holds the same count (the flat level-zero build), no
 //     upgrade earns it, so a favorite ladder scores 3 and a weapon opens.
-//   - A CONSUMABLE is `base`, + `favorite` if it is one, then + the taste's
-//     belt hunger if it carries none of it (the kind's fixed slot is empty),
-//     or + `carried` (a negative) if it already does. HULL REPAIR while hurt
-//     and carrying none is `base + hurtRepair` (+ `favorite`) with belt
-//     hunger NOT applied. (`beltHunger` keeps its name since Story 9.2 retired
-//     the belt: it means "a consumable it carries none of". No slot is ever
-//     scarce — every kind owns its own slot, epic-9 amendment 21.)
+//   (The CONSUMABLE branch — belt hunger, carried, hurt repair — left with the
+//   kit, Story 10.5.)
 //
-// THE ORDER THAT PRODUCES: a two-bonus upgrade and a needed repair (both 4 or
-// more) beat any new weapon; a favorite weapon (3.75) beats any other weapon
-// (3.5); a new weapon beats a one-bonus upgrade or consumable (3 or less); a
-// plain card sits at 2 and a carried or unwanted consumable below it.
-// Upgrades and consumables stand on equal footing (R4).
+// THE ORDER THAT PRODUCES: a two-bonus upgrade beats any new weapon; a
+// favorite weapon (3.75) beats any other weapon (3.5); a new weapon beats a
+// one-bonus upgrade (3 or less); a plain card sits at 2.
 //
 // TIES draw the mind's decorrelated spend stream (`mind.spendRng`): a uniform
 // pick among the tied indices, ONE draw, and only when more than one index
@@ -53,13 +45,10 @@
 import {
   CATALOG,
   CONFIG,
-  DEFAULT_GUN,
-  MOUNTED_GUN,
   SLOT_COUNT,
   SLOT_GUN,
+  addonHosted,
   boonStackCount,
-  consumableSlotFor,
-  isConsumableId,
   ladderHost,
   pickRefusal,
   tierTargetOf,
@@ -67,7 +56,6 @@ import {
   type CatalogLine,
   type EquipmentId,
   type Rng,
-  type SlotItemId,
 } from '@salvo/shared';
 import type { BotProfile, BotTaste } from './profiles.js';
 
@@ -82,39 +70,29 @@ export interface BotSpendState {
   /** Card line ids already fitted, in fit order (repeats = stacks). */
   cards: readonly string[];
   /**
-   * The bot's ELEVEN SLOT CONTENTS (`loadout.map(s => s.equipmentId)`) — the same
+   * The bot's FIVE SLOT CONTENTS (`SLOT_COUNT`, Story 10.5) (`loadout.map(s => s.equipmentId)`) — the same
    * array the server's `pickRefusal` takes, read off the bot's own ShipRecord
    * by the driver like everything else here (ai/ never sees a World).
    *
    * The scorer reads three things off it: which cards `spendCard` would refuse
    * (Story 8.14 review, F4 — the offer does NOT reroll on a refusal, so naming
-   * a refused card would spend the same level into a no-op every tick), which
-   * consumables it already carries (each in its kind's fixed slot), and the
+   * a refused card would spend the same level into a no-op every tick) and the
    * mounted gun (slot 0).
    * OPTIONAL: absent reads as "the cannon mounted, every other slot empty", so
    * the many hand-built test states keep compiling.
    */
-  slotIds?: readonly (SlotItemId | null)[];
-  hp: number;
-  /**
-   * The paid HULL REPAIR pool still draining in (`BotSelf.repairHp`) — hp
-   * already bought. The scorer's HURT read is `(hp + repairHp) / maxHp <
-   * profile.healHpFrac`, the heal tactic's own read (Story 8.20). OPTIONAL:
-   * absent reads as 0, so hand-built test states keep compiling.
-   */
-  repairHp?: number;
-  maxHp: number;
+  slotIds?: readonly (EquipmentId | null)[];
 }
 
 /** A hull whose slots the caller did not supply: every slot empty, which is
  *  what a bare `BotSpendState` in a test means. */
-const EMPTY_SLOTS: readonly (SlotItemId | null)[] = Object.freeze(
+const EMPTY_SLOTS: readonly (EquipmentId | null)[] = Object.freeze(
   Array.from({ length: SLOT_COUNT }, () => null),
 );
 
 const POINTS = CONFIG.bots.cardPoints;
 
-function slotIdsOf(s: BotSpendState): readonly (SlotItemId | null)[] {
+function slotIdsOf(s: BotSpendState): readonly (EquipmentId | null)[] {
   return s.slotIds ?? EMPTY_SLOTS;
 }
 
@@ -123,7 +101,7 @@ function slotIdsOf(s: BotSpendState): readonly (SlotItemId | null)[] {
  * cards `World.spendCard` would not refuse, through the one shared predicate
  * both sides run. An empty result means the whole hand is refused, and the
  * right answer is the human one (amendment 44): DO NOT SPEND — the level stays
- * banked until firing a consumable brings its line back under its cap.
+ * banked.
  */
 function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
   const offer = s.offer ?? [];
@@ -135,18 +113,26 @@ function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
   return out;
 }
 
-/** The equipment row slot 0 carries — the cannon's when the caller supplied
- *  no slots (or slot 0 holds nothing a gun ladder could name). */
+/** The equipment row slot 0 carries — the captain's MAIN BATTERY (Story
+ *  10.4) when the caller supplied no slots (or slot 0 holds nothing a gun
+ *  ladder could name). */
 function mountedGunOf(s: BotSpendState): EquipmentId {
   const g = s.slotIds?.[SLOT_GUN] ?? null;
-  return g === null || isConsumableId(g) ? MOUNTED_GUN[DEFAULT_GUN] : g;
+  return g ?? 'mainBattery';
 }
 
 /** Does this line belong to the bot's UPGRADEABLE SET — a ship ladder, a
- *  ladder of the mounted gun, or a weapon already held? (Cap is checked by
- *  the caller.) */
-function inUpgradeableSet(line: CatalogLine, copies: number, mounted: EquipmentId): boolean {
+ *  ladder of the mounted gun, a weapon already held, or (Story 10.6, I8) a
+ *  one-off ADD-ON of a family whose weapon is held — an upgrade of that
+ *  family? (Cap is checked by the caller.) */
+function inUpgradeableSet(
+  line: CatalogLine,
+  copies: number,
+  mounted: EquipmentId,
+  slotIds: readonly (EquipmentId | null)[],
+): boolean {
   if (line.kind === 'equipment') return copies > 0;
+  if (line.kind === 'addon') return addonHosted(line, slotIds);
   if (line.kind !== 'ladder') return false;
   const host = ladderHost(line);
   return host === undefined || host === mounted;
@@ -160,12 +146,13 @@ function inUpgradeableSet(line: CatalogLine, copies: number, mounted: EquipmentI
  */
 function upgradeableSet(s: BotSpendState, catalog: Catalog): Map<string, number> {
   const mounted = mountedGunOf(s);
+  const slotIds = slotIdsOf(s);
   const out = new Map<string, number>();
   for (const key of Object.keys(catalog)) {
     const line = catalog[key];
     if (line === undefined || line.stub === true) continue;
     const copies = boonStackCount(s.cards, key);
-    if (copies < line.cap && inUpgradeableSet(line, copies, mounted)) out.set(key, copies);
+    if (copies < line.cap && inUpgradeableSet(line, copies, mounted, slotIds)) out.set(key, copies);
   }
   return out;
 }
@@ -185,13 +172,16 @@ function styleMatches(taste: BotTaste, s: BotSpendState, line: CatalogLine, cata
 }
 
 /** Does this upgrade card match one of the taste's favorite upgrades? A tier
- *  copy of a held weapon is `weapons`; a ladder with a host row is `gun`; a
- *  ship ladder is named by its own line id. */
+ *  copy of a held weapon — or one of its family's one-off ADD-ONS (Story
+ *  10.6, I8) — is `weapons`; a ship ladder is named by its own line id. A
+ *  ladder with a host row (a deck-gun ladder) matches no favorite: the `gun`
+ *  favorite died with those ladders' reach on a captain (Story 10.4; deleted
+ *  Story 10.12). */
 function isFavoriteUpgrade(taste: BotTaste, line: CatalogLine): boolean {
   const favs: readonly string[] = taste.favoriteUpgrades;
-  if (line.kind === 'equipment') return favs.includes('weapons');
+  if (line.kind === 'equipment' || line.kind === 'addon') return favs.includes('weapons');
   if (line.kind !== 'ladder') return false;
-  return ladderHost(line) === undefined ? favs.includes(line.id) : favs.includes('gun');
+  return ladderHost(line) === undefined && favs.includes(line.id);
 }
 
 function upgradeScore(taste: BotTaste, s: BotSpendState, line: CatalogLine, catalog: Catalog): number {
@@ -205,30 +195,10 @@ function weaponScore(taste: BotTaste, line: CatalogLine): number {
   return eq !== undefined && taste.favoriteWeapons.includes(eq) ? POINTS.favoriteWeapon : POINTS.weapon;
 }
 
-/** HURT — the heal tactic's own read, including the repair still draining in. */
-function isHurt(profile: BotProfile, s: BotSpendState): boolean {
-  return s.maxHp > 0 && (s.hp + (s.repairHp ?? 0)) / s.maxHp < profile.healHpFrac;
-}
-
-/** Does this consumable's FIXED slot (`consumableSlotFor`, Story 9.2) hold a
- *  stack? */
-function carries(s: BotSpendState, id: string): boolean {
-  const slot = isConsumableId(id) ? consumableSlotFor(id) : null;
-  return slot !== null && slotIdsOf(s)[slot] === id;
-}
-
-function consumableScore(profile: BotProfile, s: BotSpendState, id: string): number {
-  const favs: readonly string[] = profile.taste.favoriteConsumables;
-  const favorite = favs.includes(id) ? POINTS.favorite : 0;
-  const carried = carries(s, id);
-  if (!carried && id === 'hullRepair' && isHurt(profile, s)) return POINTS.base + POINTS.hurtRepair + favorite;
-  const belt = carried ? POINTS.carried : POINTS.beltHunger[profile.taste.beltHunger];
-  return POINTS.base + favorite + belt;
-}
-
 /**
  * ONE CARD'S SCORE for this bot, or null when the hull cannot take it
- * (`pickRefusal` — unknown, stub, at cap, no weapon slot). Pure:
+ * (`pickRefusal` — unknown, stub, at cap, its family slot holds another
+ * kind). Pure:
  * no rng, no clock. Exported so tests and tuning tools can read the policy
  * without running a spend.
  */
@@ -241,7 +211,6 @@ export function cardScore(
   if (pickRefusal(s.cards, slotIdsOf(s), lineId, catalog) !== null) return null;
   const line = catalog[lineId];
   if (line === undefined) return null;
-  if (line.kind === 'consumable') return consumableScore(profile, s, lineId);
   if (line.kind === 'equipment' && boonStackCount(s.cards, lineId) === 0) return weaponScore(profile.taste, line);
   return upgradeScore(profile.taste, s, line, catalog);
 }
@@ -281,9 +250,7 @@ function breakTie(ties: readonly number[], rng?: Rng): number | null {
  * to break a tie; a `spend: 'random'` test profile's uniform offer pick
  * consumes it; a random profile handed no rng — only reachable from a
  * hand-built test call, never from the driver, which always threads the
- * mind's spendRng — falls through to the scorer. A `spend: 'gunFirst'`
- * (harness-only) row takes the mounted gun's ladder card when dealt, else the
- * scorer.
+ * mind's spendRng — falls through to the scorer.
  */
 export function chooseSpend(
   profile: BotProfile,
@@ -294,24 +261,7 @@ export function chooseSpend(
   if (s.bankedLevels <= 0) return null;
   if (s.offer === null || s.offer.length === 0) return null;
   if (profile.spend === 'random' && rng !== undefined) return randomSpendable(s, catalog, rng);
-  const gun = profile.spend === 'gunFirst' ? gunLadderIndex(s, catalog) : null;
-  if (gun !== null) return gun;
   return breakTie(topIndices(profile, s, catalog), rng);
-}
-
-/** The `spend: 'gunFirst'` harness mode's pick (batch-sim `--bot-spend gun`):
- *  the first SPENDABLE offer index whose line is the MOUNTED gun's ladder
- *  (a ladder whose host row is slot 0's module — the `deckGun` / `machineGun`
- *  / `flak` card for that seat gun), or null when the hand deals none, and
- *  the caller falls through to the weighted scorer. No rng: deterministic. */
-function gunLadderIndex(s: BotSpendState, catalog: Catalog): number | null {
-  const offer = s.offer ?? [];
-  const mounted = mountedGunOf(s);
-  for (const i of spendableIndices(s, catalog)) {
-    const line = catalog[offer[i]];
-    if (line?.kind === 'ladder' && ladderHost(line) === mounted) return i;
-  }
-  return null;
 }
 
 /** The `spend: 'random'` test profile's uniform pick, over the SPENDABLE cards

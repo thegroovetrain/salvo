@@ -8,10 +8,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  DEFAULT_HORN_ID,
   buildNavGrid,
   cellOf,
-  droneHullOf,
   isWater,
   lineClear,
   mulberry32,
@@ -110,7 +108,7 @@ function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading: num
 function track(now: number, over: Partial<RememberedContact> = {}): RememberedContact {
   return {
     id: 'tgt', x: 0, y: 0, heading: 0, speed: 0, seenAt: now, live: true, sunk: false,
-    cls: 'torpedoBoat' as HullId, fleet: false, firstSeenAt: now - CONFIG.bots.reactionMs * 4,
+    cls: 'bismarck' as HullId, firstSeenAt: now - CONFIG.bots.reactionMs * 4,
     hits: 0, vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     ...over,
   };
@@ -121,7 +119,7 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
 function inputOf(d: BotDecision, seq: number): InputMsg {
   return {
     seq, throttle: d.throttle, rudder: d.rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
   };
 }
 
@@ -161,7 +159,7 @@ describe('the ring run — down the flow field around the land (amendments 192(a
     const isle = circleIsland(live.r + 400, 0, isleR);
     w.map.islands.push(isle);
     const port = fakePort(w, live);
-    const rec = mkBot(w, 'battleship', live.r + 800, 0, Math.PI); // bow at the centre, i.e. at the island
+    const rec = mkBot(w, 'yamato', live.r + 800, 0, Math.PI); // bow at the centre, i.e. at the island
     const grid = navCacheFor(w.map).grid;
     expect(lineClear(grid, rec.state, { x: live.cx, y: live.cy })).toBe(false);
     const mind = mkMind('bulwark');
@@ -180,7 +178,7 @@ describe('the ring run — down the flow field around the land (amendments 192(a
     const next: ZoneRing = { cx: 0, cy: 0, r: 1000 };
     const port = fakePort(w, live);
     port.next = next;
-    const rec = mkBot(w, 'mineLayer', 2500, 0, Math.PI);
+    const rec = mkBot(w, 'warspite', 2500, 0, Math.PI);
     const nav = navOf(port);
     const sit = { x: rec.state.x, y: rec.state.y, stats: rec.stats, speed: 0 };
     // The water-route time the rule reads: the field's geodesic over rated speed.
@@ -200,7 +198,7 @@ describe('the ring run — down the flow field around the land (amendments 192(a
     expect(at(runMs + margin / 2)).toBe(true); // the margin is what arms it
     // The situation carries it and ring escape arms on it, inside the live ring.
     port.zone = { phase: 'reveal', closesInMs: runMs + margin / 2 };
-    const full = situationOf(rec, mkMind('forager'), port);
+    const full = situationOf(rec, mkMind('bulwark'), port);
     expect(full.departing).toBe(true);
     expect(ringEscaping(full, false)).toBe(true);
     // A bot already inside the next ring never departs.
@@ -217,7 +215,7 @@ describe('goal steering — routed when the line is blocked (amendment 192(b))',
     const w = openWorld(9133);
     w.map.islands.push(circleIsland(0, 0, 300));
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'torpedoBoat', -700, 0, 0);
+    const rec = mkBot(w, 'bismarck', -700, 0, 0);
     const mind = mkMind('raider');
     mind.contacts.set('tgt', track(port.now, { x: 700, y: 0 }));
     COMBAT_BRAIN.decide(rec, mind, port, true);
@@ -241,8 +239,8 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     const w = openWorld(9134);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius });
     port.safe = { cx: 1800, cy: 0, r: 500 };
-    const rec = mkBot(w, 'torpedoBoat', -1200, 0, 0);
-    const mind = mkMind('forager');
+    const rec = mkBot(w, 'bismarck', -1200, 0, 0);
+    const mind = mkMind('bulwark');
     const centre = { x: port.safe.cx, y: port.safe.cy };
     const start = dist(rec.state, centre);
     const budget = Math.ceil(((2 * start) / rec.stats.kinematics.maxSpeed) * 1000 / DT);
@@ -260,7 +258,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     const map = { radius: 2000, islands: [circleIsland(0, 0, 700)] };
     const grid = buildNavGrid(map);
     const disc: ZoneRing = { cx: 0, cy: 0, r: 1200 };
-    const mind = mkMind('forager', 99);
+    const mind = mkMind('bulwark', 99);
     // Fog solid over the x > 0 half (public weather — the bot's fogAt thunk).
     mind.fogAt = (x) => (x > 0 ? 1 : 0);
     let inFog = 0;
@@ -273,7 +271,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     // Eight samples per pick: the fog half wins almost every time.
     expect(inFog / N).toBeGreaterThan(0.9);
     // Without fog the same draw is a plain uniform water pick: about half.
-    const plain = mkMind('forager', 99);
+    const plain = mkMind('bulwark', 99);
     let east = 0;
     for (let i = 0; i < N; i += 1) if (pickPatrolWaypoint(plain, grid, disc, [])!.x > 0) east += 1;
     expect(east / N).toBeLessThan(0.8);
@@ -294,7 +292,7 @@ describe('the new postures at the helm (amendments 193, 199)', () => {
   it('HOLD sits dead in the water — throttle 0, rudder 0 (no wake)', () => {
     const w = openWorld(9135);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'battleship', 0, 0, 0.7);
+    const rec = mkBot(w, 'yamato', 0, 0, 0.7);
     const mind = mkMind('siege');
     mind.posture = 'hold';
     const d = COMBAT_BRAIN.decide(rec, mind, port, false);
@@ -307,7 +305,7 @@ describe('hide at cover (orchestrator reading under amendment 199)', () => {
   it('a HIDE that has reached its cover point sits still; short of it, it steers there at full ahead', () => {
     const w = openWorld(9139);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0.3);
+    const rec = mkBot(w, 'bismarck', 0, 0, 0.3);
     const mind = mkMind('raider');
     mind.posture = 'hide';
     mind.coverPoint = { x: 5, y: 0 }; // within one own hull length
@@ -322,62 +320,16 @@ describe('hide at cover (orchestrator reading under amendment 199)', () => {
   });
 });
 
-describe('the fleet routes over the public map (amendments 191, 192)', () => {
-  it('a fleet waypoint behind an island is reached by routing, with no grounding', () => {
-    const w = new World(9136, CONFIG.map.playerCap);
-    w.map.islands.length = 0;
-    const isle = circleIsland(0, 0, 350);
-    w.map.islands.push(isle);
-    const id = 'f';
-    const rec = w.addShip(id, 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: -900, y: 0 });
-    w.drones.add(id, 'medium', 1, { x: 0, y: 0 });
-    w.step(); // the controller picks its own first waypoint
-    // Hand the fleet a waypoint dead behind the island (the controller's own
-    // pick + route seams, reached by a typed cast — the test wants geometry).
-    type Seams = { fleets: Map<number, { waypoint: { x: number; y: number } | null; ashore: boolean; bestDist: number; progressAt: number; route: unknown }>; routeFleet(f: unknown, wp: unknown): void };
-    const ctl = w.drones as unknown as Seams;
-    const fleet = ctl.fleets.get(1)!;
-    const wp = { x: 900, y: 0 };
-    fleet.waypoint = wp;
-    fleet.ashore = false;
-    fleet.bestDist = Infinity;
-    fleet.progressAt = w.now;
-    ctl.routeFleet(fleet, wp);
-    const route = w.drones.routeOf(id);
-    expect(route).not.toBeNull();
-    expect(route!.length).toBeGreaterThan(0);
-    let land = 0;
-    let reached = false;
-    // Budget: twice the routed length at HALF the hull's rated speed (a fleet
-    // cruises below full ahead) — a detour, never a lap.
-    let len = 0;
-    let prev = { x: rec.state.x, y: rec.state.y };
-    for (const p of route!) {
-      len += dist(prev, p);
-      prev = p;
-    }
-    const budget = Math.ceil(((2 * len) / (0.5 * rec.stats.kinematics.maxSpeed)) * 1000 / DT);
-    for (let t = 0; t < budget && !reached; t += 1) {
-      if (dist(rec.state, wp) < 121) reached = true;
-      w.step();
-      if (rec.landContact) land += 1;
-    }
-    expect(reached).toBe(true);
-    expect(land).toBe(0);
-    expect(pointPolygonDistance(rec.state, isle.poly)).toBeGreaterThan(0);
-  });
-});
-
 describe('the wave-1 wiring at the helm', () => {
   it('a target inside the bot\'s OWN live lit zone scores × CONFIG.bots.litTargetBonus; someone else\'s light is no bonus (amendment 204)', () => {
     const w = openWorld(9138);
     const port = fakePort(w, { cx: 0, cy: 0, r: w.map.radius * 4 });
-    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const rec = mkBot(w, 'yamato', 0, 0, 0);
     const mind = mkMind('siege');
     const t = track(port.now, { x: 1200, y: 0, live: false });
     const zone = { id: 'z', x: 1200, y: 0, r: 200, until: port.now + 5000, by: rec.id };
     const dark = situationOf(rec, mind, port);
-    mind.view = { contacts: [], events: [], mines: [], litZones: [zone], burnZones: [], foulZones: [], decoys: [], clouds: [] };
+    mind.view = { contacts: [], events: [], mines: [], litZones: [zone], burnZones: [], foulZones: [], clouds: [], drops: [] };
     const lit = situationOf(rec, mind, port);
     expect(lit.ownLitZones).toHaveLength(1);
     expect(scoreTrack(t, lit, [t]) / scoreTrack(t, dark, [t])).toBeCloseTo(CONFIG.bots.litTargetBonus, 9);

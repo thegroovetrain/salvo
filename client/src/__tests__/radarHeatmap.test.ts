@@ -33,7 +33,7 @@
 //     proved at nominal is not proved.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { noiseAmplitude } from '../render/radarFalloff.js';
@@ -74,7 +74,11 @@ import { marchSlice, returnStrength, type MarchSlice } from '../render/radarMarc
 // DIFFERENT test each run — this is thread-pool contention, not slow code).
 // 20000ms absorbs that starvation without hiding a real regression; a genuine
 // hang or infinite loop still fails.
-vi.setConfig({ testTimeout: 20000 });
+// Story 11.2: the scope now marches to the 400 hm reach (~9,090 u, six times
+// the 1,500 u rim these suites were tuned on), so whole-revolution tests take
+// seconds alone and starve far longer under the suite's thread parallelism.
+// 120000ms absorbs that without hiding a hang.
+vi.setConfig({ testTimeout: 120000 });
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
 /** The shipped knobs with the grain switched off — geometry tests need a
@@ -156,6 +160,15 @@ function grid(o: HeatmapOpts = CLEAN, cx = 0, cy = 0): HeatGrid {
   return g;
 }
 
+/** A small buffer for the QUANTIZER's own contracts — they range over every
+ *  cell's value, not over the scope, so a radar-sized grid (≈4 M cells at the
+ *  400 hm reach, Story 11.2) only made them slow. */
+function quantGrid(o: HeatmapOpts = CLEAN): HeatGrid {
+  const g = makeGrid(600, 600, o.cellU);
+  anchorGrid(g, 0, 0);
+  return g;
+}
+
 /** How many cells the buffer holds in each band — [green, blue, red]. */
 function bandCounts(g: HeatGrid): number[] {
   const out = [0, 0, 0];
@@ -212,7 +225,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
   });
 
   it('the rasterized BYTES are only ever a band token or fully transparent', () => {
-    const g = grid();
+    const g = quantGrid();
     for (let i = 0; i < g.w.length; i++) g.w[i] = (i % 40) / 40;
     g.a.fill(1);
     const out = new Uint8Array(g.cols * g.rows * 4);
@@ -235,7 +248,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
   // pixel landed in, nor on how far into that band its intensity sat.
   it('OPACITY IS AGE ALONE: every band draws at the same opacity, and intensity '
     + 'within a band does not change it', () => {
-    const g = grid();
+    const g = quantGrid();
     // One intensity per band, plus a second well inside each band, so the sweep
     // covers both "different band" and "same band, different strength".
     const probes = [0.13, 0.30, 0.37, 0.60, 0.71, 0.99];
@@ -701,8 +714,17 @@ function ribbonBox(segs: readonly WakeSegmentCover[]) {
   return { x0, y0, x1, y1 };
 }
 
+/** The widest captain beam (the wake / chop tests' "a hull that pushes a real patch"). */
+const WIDEST_BEAM = Math.max(...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].hull.beam));
+/** Captain hulls by plan area, largest first. */
+const BY_AREA = [...SHIP_CLASS_IDS].sort(
+  (a, b) =>
+    CONFIG.shipClasses[b].hull.length * CONFIG.shipClasses[b].hull.beam -
+    CONFIG.shipClasses[a].hull.length * CONFIG.shipClasses[a].hull.beam,
+);
+
 describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 203)', () => {
-  const BEAM = CONFIG.shipClasses.battleship.hull.beam;
+  const BEAM = WIDEST_BEAM;
 
   it('BOUND 1 — EVERY DRAW OF FRESH WATER LIGHTS, so the track is a LINE: no '
     + 'draw of the wake material is ever under the transparency threshold inside '
@@ -732,7 +754,8 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
   it('RASTERIZED, AT THE SHIPPED GRAIN: a ribbon paints a solid GREEN track and '
     + 'not one blue cell', () => {
     const { grid: g, wake, core } = litFractions({ x: 0, y: 0 }, ribbon(300, 24, BEAM), CFG);
-    expect(core, 'the fixture actually laid a ribbon').toBeGreaterThan(80);
+    // More cells than a one-cell-wide line of the ribbon's length: a real band of water.
+    expect(core, 'the fixture actually laid a ribbon').toBeGreaterThan((24 * CONFIG.vision.wakeSampleU) / CFG.cellU);
     expect(wake, 'essentially every core cell lights').toBeGreaterThan(0.98);
     const counts = bandCounts(g);
     expect(counts[1], 'THE FORBIDDEN BAND: not one blue cell').toBe(0);
@@ -774,7 +797,7 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
     }
     expect(sawCore).toBeGreaterThan(10);
     // ...and a hull standing on the same water still owns the cell.
-    const hulls = [{ id: 'h', x: 60, y: 0, heading: 0, cls: 'battleship' as HullId }];
+    const hulls = [{ id: 'h', x: 60, y: 0, heading: 0, cls: DEFAULT_CLASS_ID as HullId }];
     const both = fieldOf(obs, { wake: segs, hulls }, CFG);
     expect(both.sampleAt(60, 0, 60)?.refl, 'steel beats water').toBe(MODEL.ship);
   });
@@ -786,11 +809,17 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
     // the old 350 / 500 / 640 u placements over the old 412.5 u rung.
     const REACH = CONFIG.vision.muzzleFlash;
     const near = litFractions({ x: 0, y: 0 }, ribbon(REACH * 0.85, 16, BEAM), CFG).wake;
-    const mid = litFractions({ x: 0, y: 0 }, ribbon(REACH * 1.2, 16, BEAM), CFG).wake;
     const far = litFractions({ x: 0, y: 0 }, ribbon(REACH * 1.55, 16, BEAM), CFG).wake;
     expect(near).toBeGreaterThan(0.9);
-    expect(mid, 'partway out, some cells drop').toBeLessThan(near);
-    expect(mid, 'but it is a fade, not a cut').toBeGreaterThan(0.05);
+    // Partway out SOME range paints a partial track — a fade, not a cut. (Story
+    // 11.2: searched past the reach instead of pinned at 1.2 × it, which was a
+    // placement on the retired ladder's scale.)
+    let partial = 0;
+    for (let k = 1.0; k < 1.55 && partial === 0; k += 0.02) {
+      const f = litFractions({ x: 0, y: 0 }, ribbon(REACH * k, 16, BEAM), CFG).wake;
+      if (f > 0.05 && f < near) partial = f;
+    }
+    expect(partial, 'partway out, a fade, not a cut').toBeGreaterThan(0);
     expect(far, 'and past the material entirely, nothing').toBe(0);
   });
 
@@ -812,11 +841,10 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
     }
     expect(prev, 'and the oldest water is visibly thinner at the same range')
       .toBeLessThan(0.9);
-    // And the channel is REACH: at a range where fresh water still reads, the
-    // oldest is gone entirely, so a track paints only its newest stretch.
-    const far = CONFIG.vision.farRadar;
-    expect(at(far, 0), 'fresh water still shows out there').toBeGreaterThan(0.05);
-    expect(at(far, WAKE_AGE_BUCKETS - 1), 'the tail does not').toBe(0);
+    // ("And the channel is REACH: at `farRadar` fresh water still reads and
+    // the oldest is gone" — DELETED 2026-11-12, Story 11.2 as a ruling: it was
+    // proved at the ladder's 8/12 rung, which now sits INSIDE the 350 hm wake
+    // reach; the age-monotone thinning above is the contract that remains.)
     // The age scale can only ever WEAKEN, and it is a scale on intensity rather
     // than a second opacity channel (amendment 161 untouched).
     for (let a = 0; a < WAKE_AGE_BUCKETS; a++) {
@@ -955,7 +983,7 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
 });
 
 describe('SHIP-DISPLACEMENT CHOP inherits sea clutter\'s three bounds (amendment 202)', () => {
-  const BEAM = CONFIG.shipClasses.battleship.hull.beam;
+  const BEAM = WIDEST_BEAM;
 
   it('it IS the clutter coefficient, verbatim — so there is no fourth weak-water '
     + 'number to defend', () => {
@@ -990,7 +1018,7 @@ describe('SHIP-DISPLACEMENT CHOP inherits sea clutter\'s three bounds (amendment
   });
 
   it('THE HALO IS DERIVED FROM THE MASK, so a torpedo\'s one-cell ribbon pushes '
-    + 'almost nothing while a battleship pushes a real patch (amendment 197)', () => {
+    + 'almost nothing while the widest captain hull pushes a real patch (amendment 197)', () => {
     const bb = ribbon(300, 1, BEAM)[0].cov;
     const torp = ribbon(300, 1, CONFIG.vision.radarCellU)[0].cov;
     expect(coverageCellCount(bb)).toBeGreaterThan(coverageCellCount(torp));
@@ -1196,8 +1224,8 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
     // not a disc of suppression. Two identical hulls, one abeam and one directly
     // behind, make that the whole statement.
     const hulls = [
-      { id: 'clear', x: 200, y: 0, heading: 0, cls: 'battleship' as const },
-      { id: 'hidden', x: 0, y: 200, heading: 0, cls: 'battleship' as const },
+      { id: 'clear', x: 200, y: 0, heading: 0, cls: DEFAULT_CLASS_ID },
+      { id: 'hidden', x: 0, y: 200, heading: 0, cls: DEFAULT_CLASS_ID },
     ];
     const h = scope({ x: 0, y: -300 }, { raster: ISLAND, hulls }, CFG);
     expect(bandAt(h, 200, 0), 'the hull abeam of the island paints')
@@ -1224,7 +1252,7 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
 
 describe('the scope has exactly three appearances plus transparent', () => {
   it('no fourth colour survives the buffer, at ANY intensity or age', () => {
-    const g = grid();
+    const g = quantGrid();
     // Every intensity from under the transparent threshold to over saturation,
     // at every age — the full input domain of the quantizer.
     for (let i = 0; i < g.w.length; i++) {
@@ -1263,14 +1291,14 @@ describe('a hull is stamped into the same raster and painted by the same rules',
   const OBS: Vec2 = { x: 0, y: 0 };
 
   it('its return lands on its own footprint and reads RED close in', () => {
-    const g = scope(OBS, { hulls: [{ id: 'a', x: 0, y: 200, heading: 0, cls: 'battleship' }] }, CLEAN);
+    const g = scope(OBS, { hulls: [{ id: 'a', x: 0, y: 200, heading: 0, cls: DEFAULT_CLASS_ID }] }, CLEAN);
     expect(bandAt(g, 0, 200), 'amidships').toBe(2);
     expect(bandAt(g, 0, 400), 'and nothing where there is no hull').toBe(-1);
   });
 
   it('and a BROADSIDE hull paints a broader mark than a bow-on one', () => {
     const width = (heading: number): number => {
-      const g = scope(OBS, { hulls: [{ id: 'a', x: 0, y: 300, heading, cls: 'battleship' }] }, CLEAN);
+      const g = scope(OBS, { hulls: [{ id: 'a', x: 0, y: 300, heading, cls: DEFAULT_CLASS_ID }] }, CLEAN);
       let lo = Infinity;
       let hi = -Infinity;
       for (let cy = 0; cy < g.rows; cy++) {
@@ -1307,13 +1335,13 @@ describe('a hull is stamped into the same raster and painted by the same rules',
 
 describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at its core (amendment 77)', () => {
   const OBS: Vec2 = { x: 0, y: 0 };
-  /** A mine layer broadside at 520u: its core sits above the red threshold
+  /** A captain hull broadside at 520u: its core sits above the red threshold
    *  with margin (unsaturated, so "strongest" is a real comparison) and its
    *  fuzz fringe grades into the blue/green registers. The mask is the
    *  production paint — `paintCoverage` at the same seed time the test's
    *  `buildShipStamp` default uses (0), so the probe walks the exact cells
    *  the stamp laid down. */
-  const HULL = { id: 'a', x: 0, y: 520, heading: 0, cls: 'mineLayer' as HullId };
+  const HULL = { id: 'a', x: 0, y: 520, heading: 0, cls: DEFAULT_CLASS_ID as HullId };
 
   function litFootprintBands(g: HeatGrid): { bands: Set<number>; centre: number; strongest: number } {
     const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
@@ -1414,7 +1442,7 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
 
 describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is not (amendments 171-175)', () => {
   const OBS: Vec2 = { x: 0, y: 0 };
-  const CLASSES: HullId[] = ['torpedoBoat', 'mineLayer', 'battleship'];
+  const CLASSES: HullId[] = [...SHIP_CLASS_IDS];
   /** Observer at the origin, hull due +y: heading 0 presents BROADSIDE and
    *  heading π/2 points the bow straight down the bearing. */
   const ASPECTS: Array<[string, number]> = [['broadside', 0], ['bow-on', Math.PI / 2]];
@@ -1461,7 +1489,7 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
   }
 
   /** Covered lattice cells, averaged over glint seeds — the other half of
-   *  "how big", and the one that separates a battleship from a torpedo boat. */
+   *  "how big", and the one that separates the biggest hull from the smallest. */
   function meanCells(cls: HullId, heading: number, dist: number): number {
     let total = 0;
     const N = 12;
@@ -1500,7 +1528,10 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
       for (const [name, heading] of ASPECTS) {
         expect(register(cls, heading, 200), `${cls} ${name} @ 200u`).toBe(2);
         expect(register(cls, heading, 400), `${cls} ${name} @ 400u`).toBe(2);
-        expect(register(cls, heading, RADAR), `${cls} ${name} @ rim`).toBe(1);
+        // One cell inside the reach (Story 11.2): the march stops AT the reach,
+        // and 400 hm is not a whole number of 4 u steps, so the reach's own
+        // cell is never sampled — a lattice boundary, not the physics.
+        expect(register(cls, heading, RADAR - CFG.cellU), `${cls} ${name} @ rim`).toBe(1);
       }
     }
   });
@@ -1517,10 +1548,12 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
       }
       // CLASS: the biggest hull genuinely covers more of the scope than the
       // smallest, both across the bearing and in raw cells.
-      expect(meanAcross('battleship', 0, dist), `class across @ ${dist}u`)
-        .toBeGreaterThan(meanAcross('torpedoBoat', 0, dist));
-      expect(meanCells('battleship', 0, dist), `class cells @ ${dist}u`)
-        .toBeGreaterThan(meanCells('torpedoBoat', 0, dist));
+      const biggest = BY_AREA[0];
+      const smallest = BY_AREA[BY_AREA.length - 1];
+      expect(meanAcross(biggest, 0, dist), `class across @ ${dist}u`)
+        .toBeGreaterThan(meanAcross(smallest, 0, dist));
+      expect(meanCells(biggest, 0, dist), `class cells @ ${dist}u`)
+        .toBeGreaterThan(meanCells(smallest, 0, dist));
     }
   });
 
@@ -1537,9 +1570,9 @@ describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is n
       const phase = (k * 53.7) % CFG.cellU;
       const inside = CONFIG.vision.farRadar - 40 + phase;
       const outside = CONFIG.vision.farRadar + 40 + phase;
-      const gi = scope(OBS, { hulls: [{ id: 'a', x, y: inside, heading: 0, cls: 'mineLayer' }] }, CFG);
+      const gi = scope(OBS, { hulls: [{ id: 'a', x, y: inside, heading: 0, cls: DEFAULT_CLASS_ID }] }, CFG);
       expect(bandAt(gi, x, inside), `inside, draw ${k}`).toBe(2);
-      const go = scope(OBS, { hulls: [{ id: 'a', x, y: outside, heading: 0, cls: 'mineLayer' }] }, CFG);
+      const go = scope(OBS, { hulls: [{ id: 'a', x, y: outside, heading: 0, cls: DEFAULT_CLASS_ID }] }, CFG);
       expect(bandAt(go, x, outside), `outside, draw ${k}`).toBe(1);
     }
   });

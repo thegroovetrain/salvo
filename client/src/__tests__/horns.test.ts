@@ -11,22 +11,47 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_HORN_ID, HORN_IDS, type HornId } from '@salvo/shared';
 import {
   HORNS,
+  HORN_FAMILY,
   HORN_MAX_CONCURRENT,
+  HORN_NAMES,
   HornBufferCache,
   MAX_HORN_S,
+  STANDARD_HORN,
   hornGain,
   hornVoice,
-  type HornSynthVoice,
 } from '../audio/horns.js';
 
 /** A stand-in for a decoded buffer — nothing here inspects one. */
 const fakeBuffer = (tag = 'buf'): AudioBuffer => ({ tag }) as unknown as AudioBuffer;
 
-const STANDARD = HORNS[DEFAULT_HORN_ID] as HornSynthVoice;
+/** The pre-10.13 synthesized horn — kept as the fallback voice when the
+ *  layered path cannot build (Story 10.13), so its shape is still pinned. */
+const STANDARD = STANDARD_HORN;
 
-describe('HORNS — exactly one shipped horn, total over the shared catalog', () => {
-  it('has a row for every shared HornId and no orphan rows', () => {
+describe('HORNS — Eric’s selectable horns, total over the shared catalog (Story 10.13)', () => {
+  it('has a row for every shared HornId and no orphan rows — and a display name for each', () => {
     expect(Object.keys(HORNS).sort()).toEqual([...HORN_IDS].sort());
+    expect(Object.keys(HORN_NAMES).sort()).toEqual([...HORN_IDS].sort());
+    for (const id of HORN_IDS) expect(HORN_NAMES[id].trim().length, id).toBeGreaterThan(0);
+  });
+
+  it('every RECIPE voice plays in the horn family under the mix cap, at a level in 0..1', () => {
+    for (const id of HORN_IDS) {
+      const v = HORNS[id];
+      expect(v.volume, id).toBeGreaterThan(0);
+      expect(v.volume, id).toBeLessThanOrEqual(1);
+      if (v.kind !== 'recipe') continue;
+      expect(v.recipe.layers.length, id).toBeGreaterThan(0);
+      expect(v.recipe.family, id).toBe(HORN_FAMILY);
+      expect(v.recipe.maxVoices, id).toBe(HORN_MAX_CONCURRENT);
+    }
+  });
+
+  it('the length ceiling is the horn path’s own bound, longer than a tone and finite', () => {
+    // A recipe longer than this is FADED OUT to end at it at play time
+    // (Synth `maxS`, pinned in audio/__tests__/playCue.test.ts).
+    expect(MAX_HORN_S).toBeGreaterThan(0);
+    expect(Number.isFinite(MAX_HORN_S)).toBe(true);
   });
 
   it('ships no sample-backed catalog entry — no licensed recording exists (amendment 57)', () => {
@@ -53,8 +78,8 @@ describe('hornVoice — unknown ids degrade to a SOUND, never silence or a throw
   });
 });
 
-describe('the standard horn — a ship, not a beep (amendment 57)', () => {
-  it('is the synthesized voice, since the sample path ships unused', () => {
+describe('the fallback synthesized horn — a ship, not a beep (amendment 57)', () => {
+  it('is a synthesized voice (the arm every recipe horn falls back to)', () => {
     expect(STANDARD.kind).toBe('synth');
   });
 

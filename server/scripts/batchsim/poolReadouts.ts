@@ -9,15 +9,15 @@
 // runner and one field + one render call in botReport.ts.
 //
 // READ-ONLY, exactly like BotCollector: every number is read off public World
-// state (`ship.gun`, `ship.loadout`, `ship.level`, `world.mineCount` — the
+// state (`ship.shift`, `ship.loadout`, `ship.level`, `world.mineCount` — the
 // same getter the room's `/metrics` minesLivePeak feed reads — and
 // `world.takes`, the weapon-weighting ledger itself). Nothing here writes to
 // the sim, and nothing in server/src imports it.
 //
-// Determinism: pure over the collected samples, fixed iteration orders (GUN_IDS,
+// Determinism: pure over the collected samples, fixed iteration orders (SHIFT_IDS,
 // ascending level, insertion-ordered bot ids), fixed-decimal formatting.
 
-import { GUN_IDS, WEAPON_SLOTS } from '@salvo/shared';
+import { SHIFT_IDS, WEAPON_SLOTS } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import type { MatchSample } from './runner.js';
 import type { BotSample } from './botMetrics.js';
@@ -31,8 +31,8 @@ export const HULL_REPAIR_ID = 'hullRepair';
 /** One bot's pool-shaped reading for one match. */
 export interface PoolBotSample {
   id: string;
-  /** The gun this bot mounted (`ship.gun`). */
-  gun: string;
+  /** The Shift this bot's seat picked (`ship.shift` — Story 10.4, was the seat gun). */
+  shift: string;
   /** `levelEmpty[n - 1]` = EMPTY Q/E/R slots at the tick the bot reached level
    *  n (sampled when `ship.level` changes, before any pick at that level). A
    *  level RESET (`World.redeployEconomy` zeroes `ship.level` on a redeploy)
@@ -49,12 +49,6 @@ export interface PoolBotSample {
 export interface PoolMatchSample {
   /** Peak of `world.mineCount` over the active phase, sampled every tick. */
   peakMines: number;
-  /** Mean of `world.fogCoverageEstimate` (the realized SOLID fogged share of
-   *  the live ring — density ≥ ½, amendment 178; the thin edge below that is
-   *  extra, ≈ 10 points at a 22 % dial) over the active phase, sampled every
-   *  tick (Story 9.10 — a share, never a position); 0 for a match with no
-   *  live tick. */
-  fogCoverage: number;
   /** Weapon line id -> BOTS that took copy 1 of it this match (off
    *  `world.takes`, the weighting's own ledger), sorted by line id. */
   takes: Record<string, number>;
@@ -96,9 +90,6 @@ function notePoolTrack(track: PoolTrack, ship: Pick<ShipRecord, 'loadout' | 'lev
 export class PoolCollector {
   private readonly tracks = new Map<string, PoolTrack>();
   private peakMines = 0;
-  /** Running sum + count of the fog coverage samples (Story 9.10). */
-  private fogCoverageSum = 0;
-  private fogCoverageSamples = 0;
 
   constructor(botIds: readonly string[]) {
     for (const id of botIds) this.tracks.set(id, { levelEmpty: [], finalEmpty: null, lastLevel: 0 });
@@ -107,8 +98,6 @@ export class PoolCollector {
   observe(world: World, activatedAt: number): void {
     if (activatedAt === 0) return;
     this.peakMines = Math.max(this.peakMines, world.mineCount);
-    this.fogCoverageSum += world.fogCoverageEstimate;
-    this.fogCoverageSamples += 1;
     // EVERY lifecycle, not just afloat: the harness observes after the whole
     // tick, so a weapon fitted or a level reached on the tick a bot SINKS is
     // only visible on the sinking hull. Its build is frozen from then on, so
@@ -123,15 +112,14 @@ export class PoolCollector {
   result(world: World): PoolMatchSample {
     const bots: PoolBotSample[] = [];
     // An UNSAMPLED track (never read in the active phase) is skipped outright,
-    // so every readout — the gun mix and the pure-gunboat share alike — counts
+    // so every readout — the Shift mix and the pure-gunboat share alike — counts
     // over the same population of bots that were actually read.
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
       if (ship === undefined || track.finalEmpty === null) continue;
-      bots.push({ id, gun: ship.gun, levelEmpty: track.levelEmpty.slice(), finalEmpty: track.finalEmpty });
+      bots.push({ id, shift: ship.shift, levelEmpty: track.levelEmpty.slice(), finalEmpty: track.finalEmpty });
     }
-    const fogCoverage = this.fogCoverageSamples === 0 ? 0 : this.fogCoverageSum / this.fogCoverageSamples;
-    return { peakMines: this.peakMines, fogCoverage, takes: this.botTakes(world), bots };
+    return { peakMines: this.peakMines, takes: this.botTakes(world), bots };
   }
 
   /** `world.takes` restricted to this lobby's bots (a captain in a mixed lobby
@@ -149,17 +137,17 @@ export class PoolCollector {
 
 // --- aggregation -------------------------------------------------------------
 
-export interface GunMixRow {
-  gun: string;
+export interface ShiftMixRow {
+  shift: string;
   bots: number;
-  /** Share of all bots that mounted this gun. */
+  /** Share of all bots whose seat picked this Shift. */
   share: number | null;
-  /** Mean final placement over this gun's bots that HAVE one (null if none). */
+  /** Mean final placement over this Shift's bots that HAVE one (null if none). */
   meanPlacement: number | null;
   wins: number;
-  /** This gun's wins over ALL wins in the run. */
+  /** This Shift's wins over ALL wins in the run. */
   winShare: number | null;
-  /** This gun's wins over this gun's bots. */
+  /** This Shift's wins over this Shift's bots. */
   winRate: number | null;
 }
 
@@ -176,16 +164,13 @@ export interface LevelEmptyRow {
 export interface PoolReadouts {
   matches: number;
   bots: number;
-  gunMix: GunMixRow[];
+  shiftMix: ShiftMixRow[];
   weaponlessAtLevel: LevelEmptyRow[];
   pureGunboat: { bots: number; share: number | null };
   heal: { hands: number; offeredHands: number; taken: number; takeRate: number | null };
   levelsWasted: { earned: number; wasted: number; share: number | null };
   weaponSpread: { matches: number; meanDistinctLines: number | null; meanTopLineShare: number | null };
   peakMines: { matches: number; mean: number | null; max: number | null };
-  /** The fog field's realized coverage per match (Story 9.10) — peakMines'
-   *  shape over each match's mean share. */
-  fogCoverage: { matches: number; mean: number | null; max: number | null };
 }
 
 /** A ratio that is honestly UNDEFINED on an empty denominator (never NaN). */
@@ -210,19 +195,19 @@ export function joinBots(matches: readonly MatchSample[]): Joined[] {
   return out;
 }
 
-function gunOrder(rows: readonly Joined[]): string[] {
-  const extra = [...new Set(rows.map((r) => r.pool.gun))].filter((g) => !(GUN_IDS as readonly string[]).includes(g)).sort();
-  return [...GUN_IDS, ...extra];
+function shiftOrder(rows: readonly Joined[]): string[] {
+  const extra = [...new Set(rows.map((r) => r.pool.shift))].filter((g) => !(SHIFT_IDS as readonly string[]).includes(g)).sort();
+  return [...SHIFT_IDS, ...extra];
 }
 
-export function gunMix(rows: readonly Joined[]): GunMixRow[] {
+export function shiftMix(rows: readonly Joined[]): ShiftMixRow[] {
   const totalWins = rows.filter((r) => r.bot?.placement === 1).length;
-  return gunOrder(rows).map((gun) => {
-    const mine = rows.filter((r) => r.pool.gun === gun);
+  return shiftOrder(rows).map((shift) => {
+    const mine = rows.filter((r) => r.pool.shift === shift);
     const placed = mine.flatMap((r) => (r.bot?.placement == null ? [] : [r.bot.placement]));
     const wins = placed.filter((p) => p === 1).length;
     return {
-      gun,
+      shift,
       bots: mine.length,
       share: shareOf(mine.length, rows.length),
       meanPlacement: mean(placed),
@@ -293,14 +278,13 @@ export function buildPoolReadouts(matches: readonly MatchSample[]): PoolReadouts
   return {
     matches: pools.length,
     bots: rows.length,
-    gunMix: gunMix(rows),
+    shiftMix: shiftMix(rows),
     weaponlessAtLevel: weaponlessAtLevel(rows),
     pureGunboat: { bots: gunboats, share: shareOf(gunboats, rows.length) },
     heal: healTake(rows),
     levelsWasted: levelsWasted(rows),
     weaponSpread: weaponSpread(pools),
     peakMines: peakOf(pools.map((p) => p.peakMines)),
-    fogCoverage: peakOf(pools.map((p) => p.fogCoverage)),
   };
 }
 
@@ -313,12 +297,12 @@ const num = (f: number | null, digits: number): string => (f === null ? 'n/a' : 
 export function renderPoolReadouts(p: PoolReadouts): string[] {
   const lines = [
     `POOL READOUTS (measurements, no bars; ${p.bots} bot-matches over ${p.matches} matches):`,
-    '  gun mix:',
+    '  Shift mix:',
   ];
-  const gunW = Math.max(...p.gunMix.map((g) => g.gun.length));
-  for (const g of p.gunMix) {
+  const shiftW = Math.max(...p.shiftMix.map((g) => g.shift.length));
+  for (const g of p.shiftMix) {
     lines.push(
-      `    ${g.gun.padEnd(gunW)}  bots ${String(g.bots).padStart(4)} (${pct(g.share)})  mean placement ${num(g.meanPlacement, 2)}  wins ${g.wins} (${pct(g.winShare)} of wins, ${pct(g.winRate)} win rate)`,
+      `    ${g.shift.padEnd(shiftW)}  bots ${String(g.bots).padStart(4)} (${pct(g.share)})  mean placement ${num(g.meanPlacement, 2)}  wins ${g.wins} (${pct(g.winShare)} of wins, ${pct(g.winRate)} win rate)`,
     );
   }
   lines.push('  weaponless at level (share of bots reaching level n with >=1 | all 3 Q/E/R slots empty):');
@@ -332,7 +316,6 @@ export function renderPoolReadouts(p: PoolReadouts): string[] {
     `  levels wasted (banked, never spent): ${p.levelsWasted.wasted} of ${p.levelsWasted.earned} earned (${pct(p.levelsWasted.share)})`,
     `  weapon-line spread per lobby: mean distinct lines taken ${num(p.weaponSpread.meanDistinctLines, 2)} | mean top-line share of first-copy takes ${pct(p.weaponSpread.meanTopLineShare)}`,
     `  peak live mines per match: mean ${num(p.peakMines.mean, 2)} | max ${num(p.peakMines.max, 0)}`,
-    `  fog coverage per match (SOLID share of the live ring, density >= 1/2): mean ${pct(p.fogCoverage.mean)} | max ${pct(p.fogCoverage.max)}`,
   );
   return lines;
 }

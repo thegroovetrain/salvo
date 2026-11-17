@@ -11,36 +11,38 @@ import type { Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
-  DEFAULT_GUN,
+  DEFAULT_SHIFT,
+  EQUIPMENT_IS_WEAPON,
   MSG,
+  SLOT_BOOST,
+  abilityCode,
   MULLIGAN_CHOICE,
   NO_CARDS,
   boostedKinematics,
   draftedKinematics,
   CATALOG,
   cardBehaviors,
-  classShift,
+  effectiveHullSight,
+  effectiveSight,
   effectiveStats,
   equipmentReloadMs,
   hullEnvelope,
   hullSilhouette,
-  consumableSlotFor,
-  isConsumableId,
+  abilityFromCode,
+  equipmentMaxAmmo,
   isOutside,
-  isWeaponItem,
-  slotMaxAmmo,
   slotsWithCards,
-  SLOT_COUNT,
-  FOG_NO_CUT,
   type Island,
+  type InputMsg,
   type ContactBody,
   type DeniedView,
+  type AbilityId,
+  type CooldownAbilityId,
   type EffectiveStats,
   type EquipmentId,
-  type GunId,
-  type SlotItemId,
+  type ShiftId,
+  type IndexBonus,
   type GameMap,
-  type HullId,
   type OwnShip,
   type ResultsMsg,
   type ShipClassId,
@@ -51,72 +53,112 @@ import { createGameState, type GameState } from './state.js';
 import { applyCamera, createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom, stepZoom, type Point } from './render/camera.js';
-import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, isDroneHull, setColorblindAssist, setHullFlashGate } from './render/ships.js';
+import { ShipView, setHullFlashGate } from './render/ships.js';
+import { relationOf, relationStroke, relationStyle, type Relation } from './render/relationColor.js';
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
-import { setAggroFlashGate } from './render/aggro.js';
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
-import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
-import { Projectiles, type OwnFire } from './render/projectiles.js';
-import { FiringUX, type BroadsideArcs } from './render/firing.js';
-import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
-import { clickInArc, weaponReachU } from './render/weaponArc.js';
+import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
+import { Projectiles, ownReachFromStats, type OwnFire } from './render/projectiles.js';
+import { FiringUX, type BroadsideArcs, type MainBatteryView } from './render/firing.js';
+import { AimPreview, computeAimPreview, ownBurstRadius, previewTint, type PreviewShip } from './render/aimPreview.js';
+import { batteryClampMark, clickInArc, isTorpedoItem, mainBatteryAim, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
-import { Decoys } from './render/decoys.js';
+import { Drops } from './render/drops.js';
+import { HullBrackets } from './render/brackets.js';
+import { SplashPegs } from './render/pegs.js';
+import { renderChartMarks } from './render/chartMarks.js';
+import { Beacons, BEACON_COLOR } from './render/beacons.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
 import { FoulZones } from './render/foulZones.js';
 import { Smoke } from './render/smoke.js';
 import { Countermeasure } from './render/countermeasure.js';
 import { FogFieldView } from './render/fogField.js';
+import { smokeDiscsInto, type RainEye, type SmokeDiscSlot } from './render/rainSight.js';
 import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, fogZoomStale, hullSightSoftness, type FogHole } from './render/fog.js';
+import { FlashBursts } from './render/flashBurst.js';
+import { FlashWhiteout, whiteoutModel, type WhiteoutScreen } from './ui/flashWhiteout.js';
 import { Radar } from './render/radar.js';
+import { RadarDisplay } from './render/radarDisplay.js';
 import { Zone } from './render/zone.js';
-import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
-import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
+import { amberPulseWinner, freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
+import { consoleAbilityKey, consoleRowKey, createFlashBudget, FLASH_ELEMENTS, type FlashBudget } from './render/flashBudget.js';
 import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './render/hud.js';
-import { hpGlobeHoldsLit, railFraction } from './render/hpGlobe.js';
-import { detentIndexOf, type HelmGlobeInput } from './render/helmGlobe.js';
-import { HudBar, hudBarTopInset, type HudBarView } from './render/hudBar.js';
+import {
+  ABILITY_KINDS,
+  WEAPON_ROW_KINDS,
+  consoleHit,
+  consoleLayout,
+  rowSlot,
+  type ConsoleHit,
+  type ConsoleLayout,
+} from './render/console/layout.js';
+import {
+  abilityModels,
+  consoleReadouts,
+  detentIndexOf,
+  helmKinematics,
+  hoverPreview,
+  hullAmberChannel,
+  hullFraction,
+  hullHoldsLit,
+  NO_SHIFT_WINDOW,
+  shiftWindowFor,
+  weaponRowModels,
+  type PreviewMarks,
+  type Readout,
+  type ShiftWindow,
+} from './render/console/readouts.js';
+import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
+import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
-import { type HotbarView } from './render/hotbar.js';
-import { slotForCard } from './render/equipmentInfo.js';
-import { xpStripView } from './render/xpStrip.js';
-import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
+import {
+  followSpectateTarget,
+  pickSpectateTarget,
+  shouldEngageFreePan,
+  spectatePan,
+  wheelZoom,
+  type SpectateFollow,
+} from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
-import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
+import { isClickDenied, DeniedPulse, DenialDedup, abilitySource, denialSource } from './render/deniedFire.js';
+import { HOTBAR_SQUARE_COUNT, abilityAtSquare, abilitySquare, squareOfAbility } from './render/hotbarSquares.js';
 import type { ToneFloor } from './render/gunneryFeed.js';
+import { GrindCue } from './audio/grindCue.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import {
   KeyboardInput,
-  beltPressDenied,
-  refitCloseStamp,
-  refitGraceActive,
+  cooldownAbilityDenied,
   slotHoldsAbility,
   type Axes,
   type KeyboardHooks,
 } from './input/keyboard.js';
 import {
-  UpgradeMenu,
   canLatchSpend,
   frontOfferSignature,
-  mulliganLanded,
   offerView,
-  shouldAutoOpen,
+  pickableChoice,
+  redrawState,
   spendOutcome,
   type OfferView,
-  type RedrawState,
   type SpendLatch,
-} from './ui/upgradeMenu.js';
+} from './ui/offerCore.js';
+import { OfferGroup } from './ui/offerGroup.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, hornPressVerdict, shouldConsumePrime } from './sim/inputSampler.js';
 import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
+import { OwnBattery } from './sim/ownBattery.js';
+import { OwnLaunchers } from './sim/ownLaunchers.js';
+import { predictTorpedoClick, stepOwnLaunchers, torpedoClickPrediction } from './sim/ownLaunchersTick.js';
+import { OPEN_LATCHES, latchHolds, latchOnOwnFrame, latchPress, latchRelease, type AbilityLatches } from './sim/abilityLatch.js';
+import { batteryClickPrediction, batteryWouldFire, predictBatteryClick, stepOwnBattery, type OwnBatteryGate } from './sim/ownBatteryTick.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
 import { collapseLanding, makeRequeue } from './app/requeue.js';
@@ -138,13 +180,14 @@ import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { ContactBodies } from './sim/contactBodies.js';
+import { BeaconBodies, beaconViewsFrom, isBeaconBodyId, type BeaconPlane, type BeaconView } from './sim/beaconView.js';
 import { ContactFx } from './render/contactFx.js';
 import { bleedSpeed } from './sim/contactBleed.js';
 import { InputSampler, type Aiming } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import {
   loadSavedClass,
-  loadSavedGun,
+  loadSavedShift,
   loadSavedMode,
   loadSavedName,
   saveMode,
@@ -159,7 +202,7 @@ import { injectTheme } from './ui/theme.js';
 import { epochLatchReset, heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
 import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
-import { fleetSizeName, pushKillLine } from './ui/killFeed.js';
+import { pushKillLine } from './ui/killFeed.js';
 import { pushUpgradeToast } from './ui/upgradeToast.js';
 import {
   closeResultsAsSpectate,
@@ -171,8 +214,8 @@ import {
   type ResultsOwn,
   type ResultsView,
 } from './ui/results.js';
-import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction, wheelScrollsSurface } from './ui/settings.js';
-import { effectiveScale, motionIntensity, scaleFactor, settings } from './settings/store.js';
+import { SettingsOverlay, canAbandon, escapeAction, wheelScrollsSurface, type OpenSurfaces } from './ui/settings.js';
+import { aimColorTint, hudScale, motionIntensity, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
   afloatCount,
@@ -192,9 +235,9 @@ import {
   type ScoreState,
 } from './score.js';
 import { Audio } from './audio/context.js';
+import { EngineMix, sinkingProgress, speedFraction, type EngineFrame, type RemoteHull } from './audio/engineMix.js';
 import {
   audioCues,
-  stormEnterEdge,
   telegraphTone,
   INITIAL_CUE_STATE,
   type AudioCueState,
@@ -245,6 +288,13 @@ interface Game {
   /** The predictor's contact bodies (Story 9.5), rebuilt every render frame
    *  from the poses the contact renderer draws (sim/contactBodies.ts). */
   contactBodies: ContactBodies;
+  /** THE RADIO BEACONS (Story 10.8): this frame's live beacons, derived once
+   *  per render frame from the public schema (sim/beaconView.ts) — drawn by
+   *  `beacons` and handed to the predictor as immovable bodies by
+   *  `beaconBodies`. The array is reused frame to frame. */
+  beaconViews: BeaconView[];
+  beaconBodies: BeaconBodies;
+  beacons: Beacons;
   /** HULL CONTACT sparks + the grind scrape (render/contactFx.ts, Story 9.5) —
    *  render-only, read off the predictor's last live tick. */
   contactFx: ContactFx;
@@ -263,16 +313,20 @@ interface Game {
   nameplates: NameplateLayer;
   projectiles: Projectiles;
   firing: FiringUX;
-  /** ORDNANCE AIM PREVIEW (render/aimPreview.ts): blast circles at the true
-   *  burst point, travel lines for every projectile weapon, the homing
+  /** ORDNANCE AIM PREVIEW (render/aimPreview.ts): the main battery's true-size
+   *  dispersion oval (Story 11.1), blast circles at the true burst point,
+   *  travel lines for every other projectile weapon, the homing
    *  acquisition band, and the mine's placement rings. Owner-private, drawn
    *  from own stats + the local map — nothing new crosses the wire. */
   aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
-  /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced from
-   *  FrameMsg.decoys, the mines precedent (Story 1.8). */
-  decoys: Decoys;
+  /** AIRDROPS (render/drops.ts, Story 10.9) — synced from FrameMsg.drops on the
+   *  fogged `dropWorld` layer; sight-only. */
+  drops: Drops;
+  /** Story 11.8: corner brackets on small hulls + own splash pegs (render/chartMarks.ts). */
+  brackets: HullBrackets;
+  pegs: SplashPegs;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -284,8 +338,19 @@ interface Game {
    *  FrameMsg.foulZones in the lit zones' layer; faded per render frame,
    *  nothing breathes. A hazard only: never a fog hole, never a cull-keep. */
   foulZones: FoulZones;
+  /** FLASH SHELLS burst discs (render/flashBurst.ts, epic-10 amendment 5(d)) —
+   *  spawned by roomBindings for a burst of a known flash round, aged per
+   *  render frame on the frame clock. */
+  flashBursts: FlashBursts;
+  /** THE WHITEOUT (ui/flashWhiteout.ts, epic-10 amendment 5(c)) — one DOM
+   *  element above every rung, driven per frame by `updateDazzle`. */
+  whiteout: FlashWhiteout;
   fog: Fog;
   radar: Radar;
+  /** THE RADAR DISPLAY (Story 11.2, R19): own-ship range rings in hm, the
+   *  compass scale, the heading line and the sweep's crisp line — driven per
+   *  frame off the radar's anchor and beam (`renderRadarDisplay`). */
+  radarDisplay: RadarDisplay;
   /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
    *  disclosed out to 412.5u and the plume must read past the sight bubble. */
@@ -299,9 +364,10 @@ interface Game {
    *  layer (above contact hulls, below radar paints and the own hull — Eric
    *  2026-10-12); one spraypaint bitmap per cloud, advanced per render frame. */
   countermeasure: Countermeasure;
-  /** THE FOG FIELD (render/fogField.ts, Story 9.10) — the rolling fog drawn
-   *  on the `fog` chart layer (under every hull) from the welcome's `fogSeed`
-   *  and the schema's `fogCut`; masked by the flash-rung halo + island LOS. */
+  /** THE FOG FIELD (render/fogField.ts, Story 9.10; the storm-eye rain since
+   *  Story 11.6) — drawn on the `fog` chart layer (under every hull) from the
+   *  welcome's `fogSeed`, the schema's `zoneStartT` and the live zone ring;
+   *  masked by the flash-rung halo + island LOS. */
   fogField: FogFieldView;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
@@ -315,16 +381,24 @@ interface Game {
   zone: Zone;
   hud: Hud;
   /**
-   * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
-   * that replaced the three corners: the HP globe, the eleven-slot row (the
-   * five weapon squares, then the framed belt of six consumables, Story 9.11 — the loadout surface, its full state grammar, hover
-   * tooltip and key-equivalent slot clicks), the helm globe and the XP strip
-   * with its banked-level chip. Shown only while conning a hull in-match.
+   * THE BATTLE CONSOLES (Story 10.10, epic-10 amendments 16 / 17) — the SHIP
+   * console on the left edge (hull, the six indices, the helm, the level) and
+   * the WEAPONS console on the right (five row-buttons, then C · V · Shift).
+   * They replaced the bottom-centre HUD bar. Shown only while conning a hull.
    */
-  hudBar: HudBar;
-  /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
-   *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
-  upgradeMenu: UpgradeMenu;
+  shipConsole: ShipConsole;
+  weaponsConsole: WeaponsConsole;
+  /** Are the consoles on screen this frame (they route presses only then)? */
+  consolesShown: boolean;
+  /** THE OFFER GROUP (ui/offerGroup.ts) — the always-live corner cards that
+   *  replaced the Tab refit band. No lockout: it suspends nothing (R3). */
+  offerGroup: OfferGroup;
+  /** The offer card under the pointer (its line id), or null — written by the
+   *  offer group's hover, read by both consoles' preview (R18). */
+  hoverLine: string | null;
+  /** The consoles' memoised inputs: the layout (per viewport / countdown /
+   *  row growth), the readouts (per own-stats fold) and the hover marks. */
+  consoleCache: ConsoleCache;
   /** The ESC-toggled settings overlay (ui/settings.ts, Story 2.3). A FOCUSED
    *  overlay: while it is open every sim key and canvas click is suppressed —
    *  and the simulation still never pauses. */
@@ -343,9 +417,6 @@ interface Game {
    *  '' = vacant (also the pre-join value, so a mid-match join announces the
    *  sitting holder once — which is the register doing its job). */
   bountyPrev: string;
-  /** render/ships.ts hue-table revision last applied to the own hull, so a live
-   *  colorblind-assist toggle forces the latched own color to re-resolve. */
-  hueRev: number;
   /** The UI-scale FACTOR currently applied to the Pixi HUD root + the DOM var. */
   uiScale: number;
   /**
@@ -376,7 +447,7 @@ interface Game {
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */
-  spectate: { freePan: boolean; visualsSet: boolean; sinkSettled: boolean };
+  spectate: { visualsSet: boolean; sinkSettled: boolean; follow: SpectateFollow };
   /** A trip back to the menu is already scheduled/underway (a reload, or Story
    *  6.3's in-place teardown). Either way this session is over: it is what stops
    *  the socket close behind an exit from starting a second one. */
@@ -430,8 +501,7 @@ interface Game {
   /** This frame's denied-fire pulse is DEGRADED (its onset was over budget). The
    *  on-water arc/marker draws its flat denied red either way — that mark is the
    *  denial's only visual channel and is never motion-gated, so it IS its own
-   *  degraded form — and the hotbar chip this pulse also drives drops its bloom
-   *  (render/hotbar.ts `degradedSkin`). */
+   *  degraded form. */
   deniedDegraded: boolean;
   /** THE `denied` CUE'S TONE FLOOR (the twin walk, amendment 60) — ONE shared
    *  floor across every `denied` call site (weapon click, predicted ability
@@ -444,6 +514,10 @@ interface Game {
    *  Story 1.10: predicted denials mark their key; a matching server denial
    *  is suppressed; an unmatched one fires the feedback late-but-explicit. */
   denialDedup: DenialDedup;
+  /** The C / V press latch (sim/abilityLatch.ts, Story 10.5 review gate): an
+   *  accepted press of a cooldown ability refuses further presses of it until
+   *  the server's word (the stamp on an own frame, or a denial) arrives. */
+  abilityLatch: AbilityLatches;
   /** One-shot latch: an UNMATCHED server denial landed on a WEAPON slot since
    *  the last render frame — consumed by renderFiring into the full denied
    *  pulse (arc/reticle red), the same visual a predicted denied click drives. */
@@ -470,32 +544,6 @@ interface Game {
    *  aggregate budget for THAT slot's element key — three slots denying at once
    *  is three separate elements, not one over-budget one). */
   abilityDegraded: boolean[];
-  /** One-shot latch PER LOADOUT SLOT: an ability press was predicted READY on
-   *  the optimistic press edge (the boost-prediction precedent) — consumed into
-   *  the matching activatedPulse for the hotbar's ≤80ms ACTIVATED pop. */
-  abilityActivatedPress: boolean[];
-  /** Rate-limited ACTIVATED pop per loadout slot — the same 80ms/300ms register
-   *  as the denied pulse (DESIGN.md specs the flash in ms, not frames). */
-  activatedPulse: DeniedPulse[];
-  /** This frame's activated-pop state per loadout slot (read by the hotbar). */
-  activatedFlash: boolean[];
-  /** One-shot latch PER LOADOUT SLOT: a boon landed on that slot's category
-   *  (Story 2.9, amendment 51) — consumed into the matching fitPulse. */
-  fitPress: boolean[];
-  /** Rate-limited FIT pulse per loadout slot — the SAME 80ms/300ms register as
-   *  the denied and activated pulses (one DeniedPulse driver per slot, so two
-   *  fits in one refit window can't share a rate floor). */
-  fitPulse: DeniedPulse[];
-  /** This frame's fit-flash state per loadout slot (read by the hotbar). */
-  fitFlash: boolean[];
-  /** The RANK-WIDE fit channel: a shipwide INTEL/SHIP boon belongs to no single
-   *  slot, so the whole stack flashes once on the same 80ms/300ms register. */
-  fitFramePress: boolean;
-  fitFramePulse: DeniedPulse;
-  fitFrameFlash: boolean;
-  /** That rank-wide flash is DEGRADED this frame (over budget on its own
-   *  element key) — it still draws, at the flat degraded weight. */
-  fitFrameDegraded: boolean;
   /**
    * THE OWN-FIRE LATCH (Story 2.9, sim/ownFire.ts): the weapon behind the click
    * we just made. The `shell`/`torp` wire shape is deliberately constant-free —
@@ -507,6 +555,11 @@ interface Game {
   ownFire: OwnFireLatch;
   /** Tone player (audio/context.ts). */
   audio: Audio;
+  /** Story 10.13: the engines, the sink fade and the per-frame edge cues
+   *  (audio/engineMix.ts), driven once per render frame by updateShipAudio. */
+  engineMix: EngineMix;
+  /** Story 10.13: the hull-contact scrape's sound (audio/grindCue.ts). */
+  grindCue: GrindCue;
   /**
    * Host ad-SDK seam (portal/portalAdapter.ts), always safeAdapter-wrapped so
    * every call here is safe to fire and forget. The implementation is ADSENSE
@@ -607,7 +660,7 @@ interface Game {
   analyticsEndSent: boolean;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
-  /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
+  /** Own-ship storm-membership last frame — feeds the continuous storm bed (Story 10.13). */
   wasInStorm: boolean;
   /**
    * THIS FRAME'S HULL SIGHT-BOUNDARY FEATHER (this cycle) — the spatial alpha
@@ -620,6 +673,19 @@ interface Game {
    * at `NO_SOFTENING` for the frames before either has run.
    */
   hullSoftness: HullSoftness;
+  /**
+   * THIS FRAME'S RAIN EYE (Story 11.6, render/rainSight.ts) — the observer the
+   * contact hulls' A+D look marches the rain from: the own hull's pose through
+   * this frame's rain AND the held smoke clouds (Eric 2026-11-14: smoke
+   * occludes like rain, the owner blinded too), or null (no pose, neither rain
+   * nor smoke, or spectating). A per-frame field for the same reason as
+   * `hullSoftness`; both renderers set it.
+   */
+  rainEye: RainEye | null;
+  /** The smoke discs `rainEye` carries, refilled in place each frame from the
+   *  held clouds (render/rainSight.ts `smokeDiscsInto`), and their slot pool. */
+  smokeDiscs: SmokeDiscSlot[];
+  smokeDiscPool: SmokeDiscSlot[];
   /**
    * Own hull fraction last frame, for THE BAND STINGS' downward-crossing edge
    * (Story 4.7, audio/tones.ts `hpBandEdge`) — the `wasInStorm` idiom, one field
@@ -656,21 +722,24 @@ interface Game {
   lastTickRelease: number;
   /** Own ship class — the localStorage guess, corrected by the first server frame. */
   ownClass: ShipClassId;
-  /** Own personal-hue INDEX last applied to the hull/wake (Story 1.12): null until
-   *  the roster syncs (the amber-hollow fallback the hull boots on). updateOwnColor
-   *  recolors when this changes. */
-  ownHueIndex: number | null;
   /** Story 1.13: true once the OWN nameplate's text/color have resolved + been
-   *  set (latched, mirroring ownHueIndex) — the plate persists thereafter and is
-   *  only positioned/alpha'd per frame. */
+   *  set (latched) — the plate persists thereafter and is only positioned/
+   *  alpha'd per frame. */
   ownPlated: boolean;
   /**
    * Cached effectiveStats(ownClass, own fitted boons) — THE client-side stat
    * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
    * firing-arc gun range). Starts at the guessed class with zero boons;
-   * applyOwnStats() swaps it whenever you.cls or you.cards changes.
+   * applyOwnStats() swaps it whenever you.cls, you.cards or you.ib changes.
    */
   ownStats: EffectiveStats;
+  /** THE OWN BATTERY (Story 10.4): the predicted turrets + secondaries heat,
+   *  stepped per sim tick and corrected per own frame (sim/ownBattery.ts). */
+  ownBattery: OwnBattery;
+  /** THE OWN TORPEDO LAUNCHERS (Story 10.6): the predicted launcher angles and
+   *  tube clocks, stepped per sim tick and corrected per own frame
+   *  (sim/ownLaunchers.ts). Empty while no torpedo is held. */
+  ownLaunchers: OwnLaunchers;
   /**
    * Slot-aligned equipment ids of the OWN loadout — slotsWithBoons(you.cls,
    * ownStats, resolved boons): the hull's base loadoutFor fit with every
@@ -679,36 +748,44 @@ interface Game {
    * split (slotHoldsAbility), the HUD chip row, and the pre-frame ammo
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */
-  ownSlots: readonly (SlotItemId | null)[];
-  /**
-   * performance.now() when the refit window last CLOSED (-Infinity until it
-   * ever has — so a fresh match is never inside the grace). For
-   * CLIENT_CONFIG.refit.closeGraceMs afterwards the digits `1`-`4` are inert:
-   * they mean two different things either side of that close (pick a card /
-   * fire a belt square), and the key that spent the last banked level is still
-   * held when the window goes away (Story 8.7, ruling 8).
-   */
-  refitClosedAt: number;
-  /** The refit window's visibility on the PREVIOUS render frame — the other
-   *  half of the one watcher that owns both of its edges (`watchRefitWindow`). */
-  refitWasOpen: boolean;
-  /**
-   * THE ONE FREE REDRAW, already spent this match (Story 8.10, amendment 60).
-   * Set when the mulligan in flight is acked (the front offer changed at an
-   * unchanged bank — `mulliganLanded`), cleared on every match-phase edge and
-   * fresh at every join. The server is the authority; this is only what the
-   * button's pip draws, and a client that guessed wrong self-corrects at the
-   * next phase edge.
-   */
-  mulliganUsed: boolean;
-  /**
-   * The refit window has already opened ITSELF this match epoch (amendment 59)
-   * — a latch, never a numeric rise, so a reconnect mid-countdown still opens
-   * and a player who closed it with Tab is never re-opened. Set on the ATTEMPT:
-   * if `handleRefitToggle` refuses (another surface is up), that is the one
-   * attempt this epoch gets.
-   */
-  autoOpenedEpoch: boolean;
+  ownSlots: readonly (EquipmentId | null)[];
+}
+
+/** The consoles' memoised inputs (see `Game.consoleCache`). */
+interface ConsoleCache {
+  /** The fold the readouts were taken off (identity — `applyOwnStats` swaps it). */
+  stats: EffectiveStats | null;
+  slots: readonly (EquipmentId | null)[] | null;
+  /** The Shift window the readouts were taken under (a frozen constant —
+   *  compared by identity, so a window opening/closing redraws). */
+  window: ShiftWindow;
+  readouts: readonly Readout[];
+  layout: ConsoleLayout | null;
+  weapons: WeaponsConsoleLayout | null;
+  layoutKey: string;
+  previewLine: string | null;
+  previewStats: EffectiveStats | null;
+  previewWindow: ShiftWindow;
+  preview: PreviewMarks | null;
+  /** The weapons console's denied flags, reused frame to frame. */
+  denied: { rows: boolean[]; abilities: boolean[] };
+}
+
+function freshConsoleCache(): ConsoleCache {
+  return {
+    stats: null,
+    slots: null,
+    window: NO_SHIFT_WINDOW,
+    readouts: [],
+    layout: null,
+    weapons: null,
+    layoutKey: '',
+    previewLine: null,
+    previewStats: null,
+    previewWindow: NO_SHIFT_WINDOW,
+    preview: null,
+    denied: { rows: WEAPON_ROW_KINDS.map(() => false), abilities: ABILITY_KINDS.map(() => false) },
+  };
 }
 
 /** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
@@ -722,6 +799,24 @@ function toggleMode(g: Game): void {
 }
 
 /** Own-ship pose for this render frame, per the active mode. */
+/**
+ * THE RADAR DISPLAY's frame (Story 11.2, R19): anchored on the radar's own
+ * anchor — the own render pose — and hidden whenever the radar's beam is
+ * (no pose, the start line, a spectator: `Radar.beamAngle` is null).
+ */
+function renderRadarDisplay(g: Game, pose: RenderPose | null): void {
+  const screen = g.stage.app.screen;
+  g.radarDisplay.update({
+    own: pose,
+    beam: g.radar.beamAngle,
+    ownScreen: pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter,
+    zoom: g.camera.zoom,
+    viewW: screen.width,
+    viewH: screen.height,
+    radarU: g.radar.radarRangeU,
+  });
+}
+
 function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
   if (g.state.mode === 'predict') {
     if (!g.predictor.isInitialized) return null;
@@ -734,21 +829,18 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
 /**
  * Slot-aligned equipment ids of the own loadout — the client-side, read-only
  * view of the shared derivation (Story 1.6, grown boons in 2.5, re-cut in 8.5):
- * the NINE-slot base fit (the seat's gun in slot 0, the boost in slot 1, seven
+ * the NINE-slot base fit (the main battery in slot 0, the seat's Shift in slot 1, seven
  * empties) with every fitted card's slot effects replayed over it
  * (`slotsWithCards` — the SAME per-effect function the server applies
  * incrementally, so slot ids agree by construction). Zero cards ≙ plain
  * `loadoutFor`.
  *
- * SLOT 0 IS REPLAYED FROM THE SEAT'S GUN (Story 8.14, epic-8 amendment 95):
- * `slotsWithCards(…, gun)` hands the seat's gun to the shared `loadoutFor`,
- * which resolves it through `MOUNTED_GUN` — exactly the derivation the server
- * fits and re-fits the slot from — so neither side ever assumes the deck gun's
- * module. Since Story 8.15 each gun mounts its OWN module.
+ * SLOT 0 IS THE MAIN BATTERY on every captain (Story 10.4 — the seat's gun
+ * pick is gone). SLOT 1 IS REPLAYED FROM THE SEAT'S SHIFT (Story 10.4 — the
+ * captain's pick, no longer the hull's): the same `shift` the server fits
+ * slot 1 from (`OwnShip.shift`).
  *
- * SLOT 1 IS REPLAYED FROM THE HULL'S SHIFT (Story 8.15, amendment 89(c)):
- * `classShift(cls)` — the same read the server fits slot 1 from — so the Mine
- * Layer's square holds INSTANT RELOAD and the Battleship's HUNKER (was DAMAGE CUT until Story 9.9).
+ * (The kit squares and their seat kit left with the kit — Story 10.5.)
  *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
  * fact about their PICKS, never about their hardware, so the replay is the only
@@ -758,10 +850,10 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
 function slotIdsFor(
   stats: EffectiveStats,
   cards: readonly string[],
-  cls: ShipClassId,
-  gun: GunId = DEFAULT_GUN,
-): (SlotItemId | null)[] {
-  return slotsWithCards(stats, cards, CATALOG, false, gun, classShift(cls)).map((s) => s.equipmentId);
+  _cls: ShipClassId,
+  shift: ShiftId = DEFAULT_SHIFT,
+): (EquipmentId | null)[] {
+  return slotsWithCards(stats, cards, CATALOG, shift).map((s) => s.equipmentId);
 }
 
 /**
@@ -773,14 +865,10 @@ function slotIdsFor(
 function ownAmmo(
   you: OwnShip | null,
   stats: EffectiveStats,
-  slots: readonly (SlotItemId | null)[],
+  slots: readonly (EquipmentId | null)[],
 ): (WeaponAmmo | null)[] {
-  // `slotMaxAmmo` (Story 8.7, ruling 16) routes EITHER kind of slot content: a
-  // consumable's pool is its catalog `cap`, an equipment's is its stats row.
-  // Never `equipmentMaxAmmo` directly any more — that record is keyed by
-  // EquipmentId and a belt slot's id is not in it.
   return (
-    you?.ammo ?? slots.map((id) => (id === null ? null : { n: slotMaxAmmo(stats, id), reloadMsLeft: 0 }))
+    you?.ammo ?? slots.map((id) => (id === null ? null : { n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 }))
   );
 }
 
@@ -799,16 +887,6 @@ function boostUntilNow(g: Game): number {
   return g.state.net.you?.boostUntil ?? 0;
 }
 
-/**
- * hp — SHIELD BLOCK's remaining absorb off the server's own-ship (Story 8.16).
- * The `shield` key is ABSENT when no shield is up (the conditional-spread wire
- * rule), so a missing seat — or a missing `you` — reads 0. Server-
- * authoritative, never predicted (the `repairHp` precedent).
- */
-function ownShieldHp(you: OwnShip | null): number {
-  return you?.shield?.hp ?? 0;
-}
-
 /** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
 function ownStatus(g: Game): OwnStatus {
   const you = g.state.net.you;
@@ -823,7 +901,6 @@ function ownStatus(g: Game): OwnStatus {
     // and `hp` already self-syncs every frame, so the HUD's only job is to show
     // what is coming.
     repairHp: you?.repairHp ?? 0,
-    shield: ownShieldHp(you), // SHIELD BLOCK's remaining absorb (Story 8.16)
     ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
     stats,
@@ -851,8 +928,8 @@ function ownStatus(g: Game): OwnStatus {
 }
 
 /**
- * FINDING A: the single entry point for BOTH spend paths (digit picks via
- * handleRefitPick, and the UpgradeMenu card-click callback). Ignores a
+ * FINDING A: the single entry point for BOTH spend paths (Tab+digit picks and
+ * the offer group's card clicks — both via handleOfferPick). Ignores a
  * second spend while one is already in flight — otherwise two rapid spends
  * within one server-tick+RTT (digit 1 then digit 2, or two card clicks) both
  * read the SAME client-side front offer, and the second lands after the
@@ -863,7 +940,7 @@ function ownStatus(g: Game): OwnStatus {
  *
  * Both gates live in the pure `canLatchSpend` — a second spend in flight, and a
  * pick that lands with NO own ship in the mirror (the frame that dropped `you`
- * has arrived but the band's hide is one rAF away): the latter would latch a
+ * has arrived but the group's hide is one rAF away): the latter would latch a
  * pts:0 / empty-signature snapshot that no later frame can ever satisfy, so it
  * is guaranteed to time out and fire a spurious denied pulse. Nothing is
  * spendable in that state, so the pick is dropped without even sending.
@@ -889,7 +966,7 @@ function sendLatchedSpend(g: Game, choice: number): void {
  * back and draw another, once, while the match is in countdown.
  *
  * Gated on the VIEW's own `unspent` — which already carries the phase, the
- * offer's existence and the spent latch — and then on the very same spend latch
+ * offer's existence and the server's used flag (`you.rd`) — and then on the spend latch
  * a card pick uses, because the server processes both through `spendPoint` and
  * two in flight at once would race each other's offer. The sentinel travels as
  * `SpendMsg.choice`, the one negative the wire carries again (PV 55).
@@ -916,7 +993,9 @@ function markSpendAcked(g: Game): void {
 /**
  * Clear the spend latch once spendOutcome() says it is no longer 'pending' —
  * the server ACKED it (markSpendAcked) or the bank shrank / the offer queue
- * shifted ('success'), or the own ship is gone / the fallback timeout elapsed
+ * shifted, or — for a REDRAW — the own row's `rd` reads used (Story 10.7 review
+ * gate: the receipt even for an identical hand) ('success'), or the own ship is
+ * gone / the fallback timeout elapsed
  * ('failed'). A pts INCREASE with an unchanged
  * front offer HOLDS the latch: Story 2.6's passive banking makes that routine
  * mid-flight, and the old "changed in ANY way" check released on it — re-opening
@@ -932,141 +1011,52 @@ function markSpendAcked(g: Game): void {
  *
  * Returns the card index to PULSE (a failed spend) or null. The pulse itself is
  * deliberately NOT fired here: releasing the latch flips `locked` false, which
- * makes the very next upgradeMenu.update() rebuild the card row — and a pulse
+ * makes the very next offerGroup.update() rebuild the cards — and a pulse
  * painted before that rebuild would be thrown away with the old buttons. The
- * caller pulses AFTER the update (see the render loop).
+ * caller pulses AFTER the update (see syncOfferGroup).
  */
 function updateSpendLatch(g: Game): number | null {
   const inFlight = g.spendInFlight;
   if (!inFlight) return null;
-  const now = performance.now();
-  const outcome = spendOutcome(inFlight, g.state.net.you, now);
+  const outcome = spendOutcome(inFlight, g.state.net.you, performance.now());
   if (outcome === 'pending') return null;
-  // A MULLIGAN's ack is the front offer changing at an unchanged bank (Story
-  // 8.10 — the server queues `pt`, never `bn`), which is exactly what
-  // `mulliganLanded` reads off the same classification: the pip fills here and
-  // nowhere else, so it can never contradict the latch.
-  if (mulliganLanded(inFlight, g.state.net.you, now)) g.mulliganUsed = true;
   g.spendInFlight = null;
   return outcome === 'failed' ? inFlight.choice : null;
 }
 
 /**
- * Per-frame refit-band sync (called from the render loop). Order is load-bearing:
+ * Per-frame OFFER GROUP sync (Story 10.10, called from the render loop). Order
+ * is load-bearing:
  *   1. clear the spend latch once it lands or times out — so a just-cleared
  *      latch un-dims the cards immediately, on this frame;
- *   2. live-swap the band to the next queued offer, auto-closing at 0 levels or
- *      on spectate (currentOfferView → null force-hides);
- *   3. only THEN pulse a REJECTED pick — the un-dim in (2) rebuilds the card
- *      row, and a pulse painted before it would be discarded with the old
- *      buttons — and only into a band that is actually ON SCREEN: the latch
- *      outlives the window (a TAB close, or the you-gone force-hide in (2)),
- *      and pulsing a hidden band paints nothing while consuming the 300ms
- *      same-source floor, swallowing the next honest denial.
- *
- * Step 4 is the WINDOW'S OWN EDGES (Story 8.7, rulings 8-9) — read after (2),
- * so the auto-close that happens inside it is seen on this very frame.
+ *   2. render the group from this frame's view (null hides it: nothing banked,
+ *      no offer, spectating, sinking) at the spine's offer rect;
+ *   3. only THEN pulse a REJECTED pick — the un-dim in (2) rebuilds the cards,
+ *      and a pulse painted before it would be discarded with the old buttons —
+ *      and only into a group that is on screen.
+ * There is no window and no lockout (R3): nothing opens, nothing is suspended.
  */
-function syncRefitBand(g: Game): void {
+function syncOfferGroup(g: Game): void {
   const deniedCard = updateSpendLatch(g);
-  tryAutoOpenRefit(g); // step 1b (Story 8.10): the window may open ITSELF here
-  g.upgradeMenu.update(currentOfferView(g));
-  watchRefitWindow(g);
-  if (deniedCard !== null && g.upgradeMenu.visible) g.upgradeMenu.pulseDenied(deniedCard);
+  g.offerGroup.update(currentOfferView(g), consoleLayoutNow(g).offer, g.uiScale);
+  if (deniedCard !== null && g.offerGroup.visible) g.offerGroup.pulseDenied(deniedCard);
 }
 
 /**
- * THE WINDOW OPENS ITSELF, ONCE PER MATCH (Story 8.10, amendment 59): the first
- * frame that carries the countdown's level-zero offer with the window closed
- * opens it, and nothing after that does.
- *
- * It goes through `handleRefitToggle` — the very path TAB takes — so the
- * surface-stacking guard (never over settings or results) and the bank chip's
- * re-arm are shared rather than re-stated here. The latch is set on the ATTEMPT:
- * if the toggle refuses because another surface is up, that was this epoch's
- * one attempt, which is the conservative direction (a window that keeps trying
- * would fight the surface the player is actually reading).
- *
- * Read BEFORE the per-frame `update()`, so the window it opens renders this
- * frame rather than one behind.
- */
-function tryAutoOpenRefit(g: Game): void {
-  const open = shouldAutoOpen({
-    latched: g.autoOpenedEpoch,
-    phase: publicState(g).matchPhase ?? 'waiting',
-    visible: g.upgradeMenu.visible,
-    hasOffer: currentOfferView(g) !== null,
-  });
-  if (!open) return;
-  g.autoOpenedEpoch = true;
-  handleRefitToggle(g);
-}
-
-/**
- * THE ONE WATCHER over the refit window's visibility, and it is one on purpose:
- * the window closes by FIVE different paths (TAB, ESC, the last spend emptying
- * the bank, entering spectate, the you-gone force-hide) and opens by two, but
- * all of them move the SAME boolean — so watching that boolean once covers
- * every path, present and future, while a stamp written at each close site
- * would be five places to forget.
- *
- * The two edges carry the two rulings:
- *   • CLOSED (true → false): stamp `refitClosedAt`, which arms the digits'
- *     inert grace (ruling 8 — the key that picked the last card must not fall
- *     through onto the belt);
- *   • OPENED (false → true): end every live mouse HOLD (ruling 9). The modal's
- *     lockout already drops new presses, but a stream that was already running
- *     kept its hold — and the prime-revert it owes — open behind the window.
- *     The QUEUED ability presses are deliberately left alone: an already-queued
- *     press is a press, and it still rides its input.
- */
-function watchRefitWindow(g: Game): void {
-  const open = g.upgradeMenu.visible;
-  if (open && !g.refitWasOpen) g.mouse.endHolds();
-  g.refitClosedAt = refitCloseStamp(g.refitWasOpen, open, performance.now(), g.refitClosedAt);
-  g.refitWasOpen = open;
-}
-
-/**
- * True while the refit window's close grace still swallows the digits (Story
- * 8.7, ruling 8) — the `resultsKeysArmed` shape, on the other side of its
- * comparison: the grace is `[closedAt, closedAt + closeGraceMs)`, so a digit at
- * the edge itself fires.
- *
- * ITS CALLER OBSERVES THE EDGE FIRST (review patch P3). TAB and ESC hide the
- * window SYNCHRONOUSLY inside their own keydown handlers, so a digit pressed in
- * that same task turn — before any rAF — used to see a window already closed
- * and a grace not yet stamped, and fell straight through onto the belt. The
- * chokepoint's hook therefore runs `watchRefitWindow` before asking this, which
- * is safe because the watcher is idempotent and the render frame still runs it.
- */
-function refitInGrace(g: Game | null): boolean {
-  return g !== null && refitGraceActive(performance.now(), g.refitClosedAt, CLIENT_CONFIG.refit.closeGraceMs);
-}
-
-/**
- * The spend view for THIS frame (null = nothing to show → menu auto-hides).
- * The fourth flag is the third state (Story 5.2, amendment 10): the refit goes
+ * The spend view for THIS frame (null = nothing to show → the group hides).
+ * The fourth flag is the third state (Story 5.2, amendment 10): the offer goes
  * INERT for the whole sinking window — "once sinking, you're done" — while the
  * weapons, the abilities and the horn stay live. This is the ONE seam that
- * closes it, and it is enough: TAB (handleRefitToggle), every digit and card
- * pick (handleRefitPick) and the per-frame band sync (syncRefitBand) all read
- * the refit's state through here.
+ * closes it, and it is enough: every Tab+digit and card pick (handleOfferPick)
+ * and the per-frame sync (syncOfferGroup) read the offer's state through here.
  */
 function currentOfferView(g: Game): OfferView | null {
   const view = baseOfferView(g);
-  return view === null ? view : { ...view, redraw: redrawState(g) };
-}
-
-/**
- * The REDRAW button's state this frame (Story 8.10, amendment 60) — the one
- * seam where the MATCH PLANE reaches the refit view. `offerView()` is a pure
- * projection of `you` and must stay phase-agnostic, so the countdown-only rule
- * lives here beside every other read of the polled schema.
- */
-function redrawState(g: Game): RedrawState {
-  if ((publicState(g).matchPhase ?? 'waiting') !== 'countdown') return 'hidden';
-  return g.mulliganUsed ? 'spent' : 'unspent';
+  if (view === null) return view;
+  // The one seam where the MATCH PLANE reaches the refit view (Story 8.10,
+  // amendment 60): `offerView()` stays phase-agnostic, so the countdown-only
+  // rule is applied here; the pip reads the server's `you.rd` (Story 10.7, R4).
+  return { ...view, redraw: redrawState(publicState(g).matchPhase ?? 'waiting', g.state.net.you) };
 }
 
 /** The phase-free half of `currentOfferView` — everything that is a fact about
@@ -1086,53 +1076,19 @@ function baseOfferView(g: Game): OfferView | null {
 }
 
 /**
- * TAB — toggle the refit modal (Story 2.1, amendment 1). Opens ONLY when a
- * banked point exists (the existing visibility rule: currentOfferView is null
- * at 0 pts / while spectating — at 0 pts nothing happens); TAB again closes
- * without choosing. Digit picks route through handleRefitPick below.
+ * A PICK — Tab + digit 1–4 or a click on an offer card (Story 10.10, R3): pick
+ * card `choice` and spend. There is NO window to check: the group is always
+ * live while a level is banked, and a pick never suspends anything. The group
+ * rides the queue (amendment 36 — the last spend empties the bank, which makes
+ * currentOfferView() null and hides it). EVERY CHOICE IS AN OFFER INDEX (Story
+ * 8.8), bounded by the offer it was dealt — a SHORT offer shows fewer cards, so
+ * a digit past its count does nothing. A GREYED CARD SENDS NOTHING (Story 8.7,
+ * ruling 10): the client refuses it first, with no MSG.spend, no latch and no
+ * denied pulse. `pickableChoice` is the whole gate, and a locked view (a spend
+ * in flight) is inert.
  */
-function handleRefitToggle(g: Game): void {
-  // No stacking, either direction (amendment 23): the refit modal never opens
-  // over the settings overlay or the results screen. (The chokepoint already
-  // swallows TAB under a focused overlay; this is the policy-side guard.)
-  if (!g.upgradeMenu.visible && !canOpenSurface('refit', openSurfaces(g))) return;
-  const view = currentOfferView(g);
-  if (!view) {
-    g.upgradeMenu.hide();
-    return;
-  }
-  // Opening the refit window re-arms the banked-level chip's breath (amendment
-  // 1's binding replacing the old SPACE touch); closing it deliberately does not.
-  if (!g.upgradeMenu.visible) g.hudBar.rearmBank();
-  g.upgradeMenu.toggle(view);
-}
-
-/**
- * A digit 1–4 pressed WHILE the modal is open (the chokepoint enforces the
- * refit-or-nothing rule; digit meaning was evaluated against modal state at
- * its own keydown): pick card `choice` and spend. The window STAYS OPEN
- * (amendment 36 — it rides the queue; the last spend closes it by emptying the
- * bank, which makes currentOfferView() null). All four digits are live against
- * the ratified four-card offer; a choice past the offer's actual length (a
- * short offer from a small catalog) falls off the end → nothing. A locked view
- * (spend in flight) is inert, exactly like the cards.
- */
-function handleRefitPick(g: Game, choice: number): void {
-  if (!g.upgradeMenu.visible) return;
-  const view = currentOfferView(g);
-  if (!view || view.locked) return;
-  // EVERY CHOICE IS AN OFFER INDEX (Story 8.8). The DAMAGE CONTROL rail and its
-  // reserved negative sentinel are gone — healing is a card you stock and fire
-  // from the belt — so the bound below is the whole of the addressing rule.
-  if (choice < 0 || choice >= view.options.length) return;
-  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The line is
-  // at its cap, or a weapon has no free Q/E/R slot — the server would refuse it
-  // as a silent no-op — so the client refuses it first, with no MSG.spend, no
-  // spend latch and NO denied pulse. The refusal is already on screen (the card
-  // is dim, its chip dashed; a weapon's foot reads SLOTS FULL); a pulse would be the
-  // game shouting a fact the player is looking at, and a latch would spend 1.5s
-  // waiting for a reply that is never coming.
-  if (view.options[choice]?.greyed) return;
+function handleOfferPick(g: Game, choice: number): void {
+  if (!pickableChoice(currentOfferView(g), choice)) return;
   trySpend(g, choice);
 }
 
@@ -1147,21 +1103,22 @@ function resultsKeysArmed(g: Game): boolean {
   return performance.now() - g.resultsShownAt >= CLIENT_CONFIG.results.keyGraceMs;
 }
 
-/** The surfaces the uniform ESC law arbitrates between, topmost-first. */
-function openSurfaces(g: Game): { results: boolean; refit: boolean; settings: boolean } {
-  return { results: resultsVisible(), refit: g.upgradeMenu.visible, settings: g.settingsOverlay.visible };
+/** The surfaces the uniform ESC law arbitrates between, topmost-first (Story
+ *  10.10 retired the refit surface, R3). */
+function openSurfaces(g: Game): OpenSurfaces {
+  return { results: resultsVisible(), settings: g.settingsOverlay.visible };
 }
 
 /**
  * ESC — THE uniform topmost-close law (amendment 23; the decision itself is the
  * pure `escapeAction`). It closes the topmost open surface — results modal
- * (identically to pressing SPECTATE), then the refit modal, then the settings
- * overlay — and only when NOTHING is open does it toggle settings on. ESC never
+ * (identically to pressing SPECTATE), then the settings overlay — and only
+ * when NOTHING is open does it toggle settings on. ESC never
  * returns to port and settings never stacks over another surface.
  *
- * The results arming grace still binds: inside it an ESC the player aimed at the
- * refit modal must not dismiss the just-shown results screen, so the close is
- * simply skipped (the modal stays up and the next ESC lands honestly).
+ * The results arming grace still binds: inside it an ESC the player aimed at
+ * something else must not dismiss the just-shown results screen, so the close
+ * is simply skipped (the modal stays up and the next ESC lands honestly).
  */
 function handleEscape(g: Game): void {
   const action = escapeAction(openSurfaces(g), g.state.spectating);
@@ -1169,8 +1126,7 @@ function handleEscape(g: Game): void {
     if (resultsKeysArmed(g)) closeResultsAsSpectate();
     return;
   }
-  if (action === 'closeRefit') g.upgradeMenu.hide();
-  else if (action === 'closeSettings') g.settingsOverlay.close();
+  if (action === 'closeSettings') g.settingsOverlay.close();
   else if (action === 'reopenResults') reopenResults(g);
   else openSettingsOverlay(g);
 }
@@ -1206,8 +1162,10 @@ function handleConfirm(g: Game): void {
 }
 
 
-/** The public plane fields this client polls off the room schema. */
-interface PublicState {
+/** The public plane fields this client polls off the room schema. The
+ *  radio-beacon fields (Story 10.8: `beaconCycle`, `beaconCount`, `bcnN…`)
+ *  come in through `BeaconPlane` (sim/beaconView.ts). */
+interface PublicState extends BeaconPlane {
   zoneState?: string;
   zoneStartT?: number;
   zoneCurCx?: number;
@@ -1216,9 +1174,6 @@ interface PublicState {
   zoneNextCx?: number;
   zoneNextCy?: number;
   zoneNextR?: number;
-  /** THE FOG CUT (Story 9.10) — match-wide weather: the noise threshold the
-   *  fog field is drawn at; FOG_NO_CUT (9) = no fog. Never spatial. */
-  fogCut?: number;
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
@@ -1232,7 +1187,7 @@ interface PublicState {
     size: number;
     get(id: string): { name?: string; color?: number; kills?: number; alive?: boolean } | undefined;
     /** MapSchema iteration (roster scans: live-contestant count for placement).
-     *  `color` carries the drone sentinel, so placement can exclude drones. */
+     *  */
     forEach(fn: (meta: { id?: string; alive?: boolean; color?: number }) => void): void;
   };
 }
@@ -1306,9 +1261,8 @@ const HELD_AXES: Axes = { throttle: 0, rudder: 0 };
  * the instant the gun goes, having never seen them acknowledged on the ladder.
  * Idempotent with the server's own spawn event, which calls the same function.
  *
- * LATCHES: the refit window's one auto-open and the one free redraw (Story
- * 8.10) ride the SAME edge — see `epochLatchReset` in ui/phase.ts for why that
- * is the only edge any of the four belong on.
+ * (The refit window's one auto-open latch rode this edge until Story 10.10
+ * retired the window — the offer group is simply on screen at the countdown.)
  */
 function updateMatchEpoch(g: Game): void {
   const phase = publicState(g).matchPhase ?? 'waiting';
@@ -1318,17 +1272,6 @@ function updateMatchEpoch(g: Game): void {
   if (!epochLatchReset(prev, phase)) return;
   g.score = freshScore();
   resetOwnOrders(g);
-  // THE OPENING'S TWO LATCHES (Story 8.10, amendments 59-60; the 8.10 review,
-  // P3) reset HERE, on the same edge as the score — not on every phase edge.
-  // The window's one auto-open and the one free redraw are per MATCH, and a
-  // new match's countdown can only ever follow the previous match's live edge
-  // (active → finished → waiting → countdown), so this arms both in time for
-  // the next start line; a fresh `Game` per join arms them at join. Resetting
-  // on every edge re-armed the auto-open on the `countdown → waiting` edge of
-  // a CANCELLED countdown, and the window flung itself open again at the
-  // re-arm. See ui/phase.ts `epochLatchReset`.
-  g.autoOpenedEpoch = false;
-  g.mulliganUsed = false;
 }
 
 /** Roster name lookup (Story 1.13): the synced callsign or null — NEVER a
@@ -1341,103 +1284,25 @@ function rosterNameOrNull(g: Game, id: string): string | null {
 }
 
 /**
- * Personal-hue INDEX (0..19) for a roster id (Story 1.12), or null for a roster
- * miss or a not-yet-synced entry. The source of truth for own + contact hull
- * colors and the ordnance-marker tint.
- *
- * A FLEET HULL RESOLVES NULL HERE STRUCTURALLY (Story 5.6, amendment 39): it has
- * no roster row at all, so it takes the same path a not-yet-synced captain does
- * — and that is correct, because `contactStyle` routes a drone HULL ID to the
- * greys before it ever looks at an index.
+ * A ship id's RELATION to this client (Story 10.4, Eric's ruling R6 —
+ * render/relationColor.ts): own for our session id, enemy for everyone else.
+ * The source of truth for every hull, wake, nameplate, kill-feed and contact-FX
+ * color.
  */
-function rosterColor(g: Game, id: string): number | null {
-  const c = publicState(g).players?.get(id)?.color;
-  // The single chokepoint: ANY value outside a real wheel index (0..19) — the
-  // schema's unassigned-hue default, a malformed byte, an absent entry —
-  // resolves to null, which keeps every downstream PLAYER_HUES[idx] lookup in
-  // range.
-  return typeof c === 'number' && Number.isInteger(c) && c >= 0 && c < PLAYER_HUES.length ? c : null;
+function relationFor(g: Game, id: string): Relation {
+  return relationOf(id, g.state.net.sessionId);
 }
 
-/**
- * TRUE IFF `id` NAMES A PvE FLEET HULL — read off `Contact.cls` via the shared
- * `isDroneHull` predicate (Story 5.6, amendment 39).
- *
- * THE 255-SENTINEL CHANNEL IS GONE. The client used to detect drones through
- * TWO independent channels — a drone hull id on the contact, and the
- * `REGATTA_NO_HUE` roster hue — and taking fleet ships off the roster deleted
- * the second. Amendment 38 named that cost explicitly when it was ruled; this
- * function is where the remaining channel is centralised so no call site has to
- * know that history.
- *
- * IT READS THE HULL MEMO, NOT THE LIVE CONTACT (Story 5.6 follow-up ruling).
- * `classOf` goes undefined the tick a contact is pruned, which made a fleet hull
- * you sailed past and then MINED unidentifiable — and that is a Mine Layer's
- * ordinary playstyle rather than an edge case. `everSeenClassOf` remembers what
- * we actually observed and never forgets it; see its own note in
- * net/snapshots.ts for why this asserts nothing we did not see, and for the two
- * things it deliberately still refuses to guess.
- *
- * IT IS THE SECOND ANSWER, NOT THE FIRST (Eric ruling 2026-08-14). For OUR OWN
- * kills the wire now names the victim outright — `SunkEvent.vcls` — and carries
- * the SIZE with it, because *the size is the payout*. The memo keeps the case
- * `vcls` cannot reach: a fleet sinking we WITNESSED but were not credited with.
- * A hull that is neither our kill nor ever seen still answers `false`, and its
- * line still reads `UNKNOWN VESSEL` — we genuinely do not know what it was.
- */
-function isDroneId(g: Game, id: string): boolean {
-  const hull = g.contacts.everSeenClassOf(id);
-  return hull !== undefined && isDroneHull(hull);
-}
-
-/**
- * Kill-feed / MATCH LOG name for a vessel id — ONE resolver, shared by BOTH
- * surfaces (review-gate fix, Eric ruling 2026-08-14: *"if you actually die to
- * a drone, I DO want to see that in the end-game report... You SHOULD be
- * embarrassed"* — and, in the same ruling, *"SUNK BY SMALL DRONE is both
- * funnier and strictly more informative"* than plain `DRONE`, since the size
- * IS the payout, ¼/½/¾ of a level).
- *
- * A fleet hull sizes itself off the SAME ever-seen memo `isDroneId` reads —
- * `SMALL DRONE` / `MEDIUM DRONE` / `LARGE DRONE` via `fleetSizeName`; plain
- * `DRONE_PLATE_TEXT` is a defensive fallback only, unreachable today because
- * every hull id `isDroneHull` admits also has a `droneSizeOf` size — the two
- * predicates are kept in lockstep by construction, not by this call site.
- * Everyone else gets the synced roster callsign or null (the feed prints
- * `UNKNOWN_VESSEL`; the log omits the line). The hull half comes from the
- * memo, so a trap sprung long after the target aged out of sight still sizes.
- *
- * NAMEPLATES STAY UNSIZED — plain `DRONE`, by deliberate, separate ruling; do
- * not route this resolver into render/nameplates.ts.
- *
- * STEPS 2-3 OF THE VICTIM'S RESOLUTION ORDER (and the ONLY step for a
- * killer). Step 1 is `SunkEvent.vcls` — our own credited kill — which
- * outranks this and is ALSO sized, via the same `fleetSizeName`; step 4 is the
- * feed's `UNKNOWN_VESSEL`. All four resolve at the one place that holds the
- * event — net/roomBindings.ts `victimNameRef` — and THIS function is what
- * both the feed's killer name and the MATCH LOG's `killerName` call, so a
- * fleet hull that sank you can never read sized on one surface and plain on
- * the other.
- */
-function feedName(g: Game, id: string): string | null {
-  const hull = g.contacts.everSeenClassOf(id);
-  if (hull !== undefined && isDroneHull(hull)) return fleetSizeName(hull) ?? DRONE_PLATE_TEXT;
-  return rosterNameOrNull(g, id);
-}
-
-/** Kill-feed name color for a vessel id: the bright personal hue for a captain,
- *  drone-outline for a fleet hull, null for a roster miss (the feed leaves the
- *  name in text-secondary). */
+/** Kill-feed name color for a vessel id: the captain's RELATION stroke (Story
+ *  10.4), null for a roster miss (the feed leaves the name in text-secondary). */
 function feedColor(g: Game, id: string): number | null {
-  if (isDroneId(g, id)) return CLIENT_CONFIG.colors.droneOutline; // drone grey
-  const c = publicState(g).players?.get(id)?.color;
-  if (typeof c !== 'number') return null; // roster miss
-  return PLAYER_HUES[c] ?? null; // captain's personal hue
+  if (publicState(g).players?.get(id) === undefined) return null; // roster miss
+  return relationStroke(relationFor(g, id));
 }
 
 /**
  * THE BOUNTY REGISTER's payload (Story 4.6) — the holder's callsign + raw
- * personal hue, or null.
+ * relation color, or null.
  *
  * NULL ON A ROSTER MISS, deliberately: the whole segment (separator included)
  * is then omitted rather than printing `☠︎ UNKNOWN VESSEL` as a permanent
@@ -1500,55 +1365,15 @@ function updateBounty(g: Game): void {
   }
   if (t.self) {
     pushUpgradeToast(bountyToastLine());
-    g.audio.play('bounty');
+    g.audio.playCue('bounty');
   }
-}
-
-/** Ordnance-marker tint for a firer id (mine/decoy/lit-zone `by`): the pilot's
- *  bright personal hue for every observer, or null while the roster hasn't synced
- *  it (or the firer left) — the renderer paints the amber fallback and retries
- *  per frame until the hue resolves (render/hueLatch.ts). The `?? amber` on the
- *  resolved branch is belt-and-braces: rosterColor already guarantees idx is in
- *  range, so PLAYER_HUES[idx] is never undefined here. */
-function ordnanceHue(g: Game, by: string): number | null {
-  const idx = rosterColor(g, by);
-  return idx === null ? null : PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.amber;
-}
-
-/**
- * Recolor the own hull the moment the own roster hue is first known (Story
- * 1.12): the roster schema can sync AFTER the first rendered frame, so the hull
- * boots on the amber fallback and swaps to the personal hue here. Cheap
- * idempotent poll — redraws only when the resolved index actually changes.
- *
- * THE WAKE NO LONGER LATCHES HERE. Story 4.12 made wake a property of every
- * visible hull rather than a UI element behind the own one (amendment 199), so
- * its tint is resolved PER SOURCE, per frame, off the same roster this reads —
- * see `wakeHulls`. A latch for one of twenty sources would have been the odd
- * one out.
- */
-function updateOwnColor(g: Game): void {
-  const idx = rosterColor(g, g.state.net.sessionId);
-  // Story 2.3: a colorblind-assist toggle swaps the whole hue table, so the
-  // LATCHED own color has to re-resolve even though the roster index is
-  // unchanged — the revision counter is that edge.
-  const rev = hueRevision();
-  if (idx === g.ownHueIndex && rev === g.hueRev) return;
-  // A hue-table swap also invalidates the LATCHED own nameplate (its text color
-  // is the personal hue's text-safe variant), so drop the latch and let
-  // updateOwnPlate re-resolve it on this same frame.
-  if (rev !== g.hueRev) g.ownPlated = false;
-  g.ownHueIndex = idx;
-  g.hueRev = rev;
-  const style = hullStyle(idx);
-  g.ownView.setColors(style.stroke, style.fill);
 }
 
 /**
  * Own truesight nameplate (Story 1.13): resolve + latch the own callsign plate
  * once the roster syncs the own name + hue (the SAME roster source as the hull
  * color — own callsign comes from the roster, never localStorage), then float it
- * above the own hull at screen space, full alpha. Own is never a drone. The
+ * above the own hull at screen space, full alpha. The
  * caller (renderOwn) runs this after camera.update so the projection matches the
  * hull; the plate hides whenever the hull hides (spectate / forceSnap gap).
  */
@@ -1569,12 +1394,134 @@ function ownWreckPose(g: Game): RenderPose | null {
 function updateOwnPlate(g: Game, pose: RenderPose): void {
   const id = g.state.net.sessionId;
   if (!g.ownPlated) {
-    const r = latchPlate(false, rosterNameOrNull(g, id), rosterColor(g, id), false);
+    const r = latchPlate(false, rosterNameOrNull(g, id), relationStroke('own'));
     if (r.plate) g.nameplates.set(id, r.plate.text, r.plate.color);
     g.ownPlated = r.latched;
   }
   const sc = g.camera.worldToScreen(pose);
   g.nameplates.place(id, sc.x, plateScreenY(sc.y, g.ownClass, g.camera.zoom, CLIENT_CONFIG.nameplate.padPx), 1);
+}
+
+/** The engine telegraph's click (Story 10.13): one recipe, pitched up for
+ *  ringing ahead and down for astern; the legacy tone keeps its own pair. */
+function telegraphCue(dir: number): { pitch: number; fallback: ReturnType<typeof telegraphTone> } {
+  const { telegraphAheadPitch, telegraphAsternPitch } = CLIENT_CONFIG.audio;
+  return { pitch: dir > 0 ? telegraphAheadPitch : telegraphAsternPitch, fallback: telegraphTone(dir) };
+}
+
+/** The hull-contact scrape (Story 10.13): ContactFx asks every 120 ms while
+ *  grinding and says when the scrape ends; audio/grindCue.ts starts a ~1.5 s
+ *  shot every `grindCuePeriodMs` (overlapping into one continuous scrape whose
+ *  level follows the bleed) and stops the live shots at the end. */
+function contactFx(stage: Stage, cue: GrindCue): ContactFx {
+  return new ContactFx(stage.layers.burstFx, (gain) => cue.play(gain), () => cue.end());
+}
+
+/**
+ * STOP AND HOLD THE SHIP AUDIO (Story 10.13 review P1 / P4 / P5): the engines,
+ * the storm bed, the klaxon, the grind and the sink insert — on a session
+ * teardown, a lost room, a hidden tab or a dropped connection. `resumeShipAudio`
+ * undoes it (edge detectors re-seeded); a teardown never resumes.
+ */
+function haltShipAudio(g: Game): void {
+  g.engineMix.halt();
+  g.grindCue.end();
+  g.audio.setSinkFade(null, { immediate: true });
+}
+
+function resumeShipAudio(g: Game): void {
+  if (document.hidden || g.returning) return; // the hidden-tab / teardown halt still holds
+  g.engineMix.resume();
+}
+
+/** Halt the ship audio while the tab is hidden (the rAF loop does not run, so
+ *  nothing would ever release it) and resume on return. Returns a disposer. */
+function bindAudioVisibility(g: Game): () => void {
+  const onChange = (): void => {
+    if (document.hidden) haltShipAudio(g);
+    else if (!g.reconnecting) resumeShipAudio(g);
+  };
+  document.addEventListener('visibilitychange', onChange);
+  return () => document.removeEventListener('visibilitychange', onChange);
+}
+
+/** Story 10.13: this frame's ship audio (audio/engineMix.ts decides). */
+function updateShipAudio(g: Game, now: number): void {
+  g.engineMix.update(shipAudioFrame(g, now));
+}
+
+/**
+ * The ENGINE FRAME, from state the client already holds and draws: the own
+ * engine while a hull is conned (alive or sinking, start line and countdown
+ * included — `helmAxes` is the dead helm there), the hulls in the contact
+ * store (the true-sight gate), the drawn ballistics and the beacon set.
+ * The listener is the own hull while we have one, else the camera centre —
+ * roomBindings' `listenerPos` rule.
+ */
+function shipAudioFrame(g: Game, now: number): EngineFrame {
+  const { spectating, matchOver, net } = g.state;
+  const you = net.you;
+  const conned = !spectating && !matchOver && conningFlag(you, now, spectating) === true ? you : null;
+  const plane = publicState(g); // ONE snapshot for the beacon cycle and the views (review P14)
+  return {
+    own: conned ? ownEngine(g, conned.speed, now) : null,
+    boostConfirmed: boostConfirmed(conned, now),
+    sinking01: ownSinking01(g, now),
+    sinkCleared: spectating || matchOver || you?.alive === true,
+    // Review P9: the bus is held closed only by a death in the LIVE match.
+    sinkLatchable: plane.matchPhase === 'active',
+    ...listenerOf(g, conned),
+    hulls: remoteHulls(g, now),
+    drawn: g.projectiles.drawnBallistics(now),
+    beaconCycle: plane.beaconCycle,
+    beaconAfloat: beaconAfloat(g.beaconViews),
+    inStorm: g.wasInStorm,
+    matchOver,
+  };
+}
+
+/** The SERVER-confirmed boost window (review P11) — the surge's edge; the
+ *  continuous engine keeps the predicted one. */
+function boostConfirmed(conned: OwnShip | null, now: number): boolean {
+  return conned !== null && now < (conned.boostUntil ?? 0);
+}
+
+/** Where the player listens from: the conned hull, else the camera centre. */
+function listenerOf(g: Game, conned: OwnShip | null): Pick<EngineFrame, 'listener' | 'listenerKind'> {
+  return conned ? { listener: { x: conned.x, y: conned.y }, listenerKind: 'own' } : { listener: g.camera.center, listenerKind: 'camera' };
+}
+
+/** Any beacon afloat this frame — or null with no beacon data at all (P14). */
+function beaconAfloat(views: readonly BeaconView[]): boolean | null {
+  return views.length === 0 ? null : views.some((v) => v.phase === 'afloat');
+}
+
+/** 0..1 through the own sinking window, or null when not sinking. */
+function ownSinking01(g: Game, now: number): number | null {
+  const you = g.state.net.you;
+  if (!you || !isSinkingNow(you, now, g.state.spectating)) return null;
+  return sinkingProgress(you.sinkingUntil ?? now, now, CONFIG.ship.sinkingWindowMs);
+}
+
+function ownEngine(g: Game, speed: number, now: number): EngineFrame['own'] {
+  return {
+    cls: g.ownClass,
+    throttle: helmAxes(g).throttle,
+    speed01: speedFraction(speed, g.ownStats.kinematics.maxSpeed),
+    boost: now < boostUntilNow(g),
+  };
+}
+
+/** The contact store's hulls at the contact renderer's sample time. */
+function remoteHulls(g: Game, now: number): RemoteHull[] {
+  const out: RemoteHull[] = [];
+  const at = now - CLIENT_CONFIG.net.interpDelayMs;
+  for (const id of g.contacts.ids()) {
+    const p = g.contacts.get(id)?.sampleAt(at);
+    const cls = g.contacts.classOf(id);
+    if (p && cls !== undefined) out.push({ id, cls, x: p.x, y: p.y, speed: p.speed });
+  }
+  return out;
 }
 
 /** Countdown-tick (last 5s) + match-start audio cues, edge-detected off the
@@ -1604,9 +1551,9 @@ function updateMatchAudioCues(g: Game, now: number): void {
   const result = audioCues(g.audioCueState, phase, sec, g.resumeCueSeed);
   g.audioCueState = result.state;
   if (known) g.resumeCueSeed = false;
-  if (result.tick) g.audio.play('tick');
+  if (result.tick) g.audio.playCue('countdownTick');
   if (result.matchStart) {
-    g.audio.play('matchStart');
+    g.audio.playCue('matchStart');
     g.portal.matchStart(); // same once-per-match live edge as the audio cue
     // The server clears its cloud store at the practice → match boundary
     // (world.ts resetForMatchStart); the client HOLDS every cloud it has seen
@@ -1616,7 +1563,7 @@ function updateMatchAudioCues(g: Game, now: number): void {
     g.state.net.heldClouds.clear();
     g.state.net.clouds = [];
     g.countermeasure.clear();
-    g.fogField.clear(); // the server's resetForMatchStart resets its cut to no fog too
+    g.fogField.clear(); // the zone is idle again at match start: no rain until it starts
   }
 }
 
@@ -1741,9 +1688,9 @@ function ownScore(g: Game): PersonalScore {
 }
 
 /**
- * The modal's OWN-IDENTITY block (Story 5.3): callsign · class in the personal
- * hue, plus the build it is reviewing. Every field is already in hand — the
- * roster for name/hue, and `net.you` for class/cards/gun/ammo, which is NEVER
+ * The modal's OWN-IDENTITY block (Story 5.3): callsign · class in the own
+ * relation color, plus the build it is reviewing. Every field is already in
+ * hand — the roster for the name, and `net.you` for class/cards/ammo, which is NEVER
  * cleared on death (roomBindings: "the wreck's last pose survives the entire
  * spectate period"), so this costs no wire and no PROTOCOL_VERSION bump.
  * Null when either half is unresolved: the modal then simply omits the line.
@@ -1751,20 +1698,17 @@ function ownScore(g: Game): PersonalScore {
 function ownResultsIdentity(g: Game): ResultsOwn | null {
   const you = g.state.net.you;
   const name = rosterNameOrNull(g, g.state.net.sessionId);
-  const idx = rosterColor(g, g.state.net.sessionId);
-  if (!you || name === null || idx === null) return null;
+  if (!you || name === null) return null;
   return {
     name,
     cls: you.cls,
-    hue: PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.droneOutline,
+    hue: relationStroke('own'),
     cards: you.cards ?? [],
     // THE LOADOUT BLOCK (Story 8.21) reads the SAME replayed loadout and fold
     // the hotbar paints from: `applyOwnStats` rewrites `g.ownSlots` and
     // `g.ownStats` in the frame handler that advances `net.you`, so they are
     // coherent with it at death and at game end alike — no second fold.
-    gun: you.gun,
     slots: g.ownSlots,
-    ammo: you.ammo,
     stats: g.ownStats,
   };
 }
@@ -1782,7 +1726,6 @@ function handleSunkObserved(
   g: Game,
   victimId: string,
   killerId: string | null,
-  killerCls: HullId | undefined,
 ): void {
   g.score = recordSunk(
     g.score,
@@ -1793,23 +1736,13 @@ function handleSunkObserved(
       victimId,
       victimName: rosterNameOrNull(g, victimId),
       killerId,
-      victimIsDrone: isDroneId(g, victimId),
       // The MATCH LOG's stamp and killer name (Story 5.3, amendment 28). Both
       // are resolved HERE, at fold time, because both are perishable: the T+
       // clock only means anything at the moment the sinking is observed, and a
       // killer who leaves the roster later would no longer resolve to a name.
-      // `feedName`, not `rosterNameOrNull` (review-gate fix, Story 5.6
-      // follow-up): a PvE fleet hull has no roster row, so the roster lookup
-      // alone always resolved null and the MATCH LOG printed "SUNK BY UNKNOWN
-      // VESSEL" for a designed, common outcome of this feature while the kill
-      // feed — already on `feedName` — correctly read "DRONE SANK <you>". Both
-      // surfaces must agree about the same event.
-      // `?? fleetSizeName(killerCls)` (Story 7.6): the same second step the kill
-      // feed's killerNameRef takes, for a fleet killer this client never saw.
-      // Without it the feed would read `SUNK BY SMALL DRONE` while the modal's
-      // MATCH LOG read `SUNK BY UNKNOWN VESSEL` for the identical event.
+      // The same resolver the kill feed uses, so both surfaces agree.
       tMs: ownMatchTime(g),
-      killerName: killerId === null ? null : feedName(g, killerId) ?? fleetSizeName(killerCls),
+      killerName: killerId === null ? null : rosterNameOrNull(g, killerId),
     },
     g.state.net.sessionId,
   );
@@ -1939,6 +1872,7 @@ function resetOwnOrders(g: Game): void {
   // a still-marked (slot, seq), suppressing a genuine later server denial as an
   // echo.
   g.denialDedup.clear();
+  g.abilityLatch = OPEN_LATCHES;
 }
 
 /** The elimination modal: personal score + placement, SPECTATE + RETURN TO PORT. */
@@ -2009,7 +1943,8 @@ function presentResults(g: Game, view: ResultsView): void {
   // `showMatchResults`), so a single latch here needs no second detector to
   // drift against. Latched because a spectating survivor reaches it twice.
   sendMatchEndOnce(g);
-  g.upgradeMenu.hide();
+  g.offerGroup.hide();
+  g.whiteout.hide(); // the score screen is never under white (gate fix F7)
   g.settingsOverlay.close();
   g.keyboard.clearKeys();
   g.resultsShownAt = performance.now();
@@ -2264,13 +2199,14 @@ function endSession(g: Game): void {
   hideResults(); // an elimination modal must not survive the teardown
   destroyResultsAd(); // ...nor the ad column beside it (this exit has no reload)
   hideBanner();
-  g.upgradeMenu.hide();
+  g.offerGroup.hide();
   g.settingsOverlay.close();
 }
 
 /** The room connection ended (server disposal, network death, or own leave). */
 function handleRoomLeave(g: Game): void {
   if (g.returning) return; // we initiated it; the exit is already on its way
+  haltShipAudio(g); // Story 10.13 review P1: no more frames are coming — nothing may drone on
   g.returning = true;
   g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
   // THE RESUME-RETRY LOOP GUARD (Story 6.7). Both branches below end in
@@ -2302,6 +2238,7 @@ function setupViewport(
   nowServer: () => number,
   fireLocked: () => boolean,
   onSlotPress: (p: ScreenPoint) => boolean,
+  overConsole: (p: ScreenPoint) => boolean,
 ): {
   camera: Camera;
   keyboard: KeyboardInput;
@@ -2313,19 +2250,18 @@ function setupViewport(
     defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
     closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
     ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-    followRate: CLIENT_CONFIG.camera.followRate,
-    leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
-    leadMax: CLIENT_CONFIG.camera.leadMax,
-    keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
+    // Story 11.8: a zoom-in this close to the own ship stays FOLLOW.
+    homeRadiusPx: CLIENT_CONFIG.camera.homeRadiusPx,
     // The intel waypoint (epic-9 amendment 208): the radar sweep disc.
     intelRadiusU: CONFIG.vision.radar,
     // Event-driven center jumps glide (amendment 208 ruling 10).
     slideEaseRate: CLIENT_CONFIG.camera.slideEaseRate,
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
-  // The bar's top inset in REAL px: the UI scale is 1 until applyUiScale runs,
-  // which re-feeds it whenever the scale changes.
-  camera.setBottomInset(hudBarTopInset());
+  // NO BOTTOM INSET (Story 10.10): the consoles stand at the SIDES, and the only
+  // chrome left on a horizontal edge is the chrome bar at the TOP — nothing
+  // covers the bottom of the water any more, so the intel waypoint frames the
+  // radar disc against the full viewport (the camera's inset defaults to 0).
 
   // THE in-match keyboard chokepoint (Story 2.1): one keydown listener owns
   // every sim key through the hooks built in keyboardHooks() below.
@@ -2334,20 +2270,22 @@ function setupViewport(
   // Inject the server-clock estimate so pointerdown can stamp an honest fire
   // time (D1). Lazy thunk: MouseInput is built before the clock exists, so it
   // resolves gRef.clock at click time, never captures it (serverNow() returns
-  // 0 pre-ready → the fireT "no claim" sentinel). `fireLocked` is the full
-  // combat lockout — the refit modal, and (Story 6.1) the held start line;
-  // attach() takes the game canvas so ONLY
+  // 0 pre-ready → the fireT "no claim" sentinel). `fireLocked` is the combat
+  // lockout — the held start line and the focused overlays (Story 10.10: an
+  // offer never locks anything); attach() takes the game canvas so ONLY
   // canvas-target pointerdowns ever fire (DOM chrome clicks never do) and the
   // canvas contextmenu is suppressed.
-  // `onSlotPress` is the hotbar gate (Story 2.2): a canvas press over a slot is
-  // that slot's key-equivalent action and is swallowed, never a shot.
-  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress);
+  // `onSlotPress` is the console gate (Story 2.2 / 10.10): a canvas press over a
+  // row-button or an ability button is its key-equivalent action and is
+  // swallowed, never a shot. `overConsole` is its side-effect-free twin (review
+  // gate C3a): the right button's secondaries are swallowed over a console.
+  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress, overConsole);
   mouse.attach(stage.app.canvas);
 
-  // Guessed-class hull until the first frame confirms/corrects it; boots on the
-  // amber-hollow fallback and recolors to the own personal hue once the roster
-  // syncs (Story 1.12 — see updateOwnColor).
-  const ownView = new ShipView(FALLBACK_STYLE, cls);
+  // Guessed-class hull until the first frame confirms/corrects it, in the OWN
+  // relation color from the first frame (Story 10.4, R6 — nothing to resolve).
+  const own = relationStyle('own');
+  const ownView = new ShipView(own, cls);
   ownView.gfx.visible = false;
   stage.layers.ownShip.addChild(ownView.gfx); // own hull above cloud + paints (Eric 2026-10-12)
 
@@ -2360,9 +2298,9 @@ function setupViewport(
 
 /** Predictor seeded with the guessed class config (first frame confirms/swaps it). */
 function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
-  const spec = CONFIG.shipClasses[cls];
-  const p = new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
-  p.setOwnMass(spec.hp); // the zero-card fold; applyOwnStats re-sets it from effectiveStats
+  const base = effectiveStats(CONFIG.shipClasses[cls]); // the zero-card fold
+  const p = new Predictor({ radius: map.radius, islands: map.islands }, base.kinematics, hullSilhouette(cls));
+  p.setOwnMass(base.armor); // mass = ARMOR (Story 10.3); applyOwnStats re-sets it from effectiveStats
   return p;
 }
 
@@ -2412,7 +2350,7 @@ function conningNow(g: Game | null): boolean | undefined {
  * 80-300ms after the last one played the tone with no visual at all.
  */
 function playDenied(g: Game): void {
-  if (g.deniedToneFloor.request(performance.now())) g.audio.play('denied');
+  if (g.deniedToneFloor.request(performance.now())) g.audio.playCue('denied');
 }
 
 /**
@@ -2439,43 +2377,50 @@ function flashSlotDenied(g: Game, slot: number): void {
 }
 
 /**
- * Would this belt press be refused by a rule the client already holds (Story
- * 8.8 — today only a HULL REPAIR square at full hull or on a sinking hull)?
- * The hull's OWN numbers: `ownStats.maxHp` is the effectiveStats fold the HP
- * globe reads, and `sinking` is the same third-state predicate every control
- * gate uses. A null Game (the brief construction gap) refuses nothing.
+ * Would this `C` / `V` press be refused by a rule the client already holds
+ * (Story 10.5 — `cooldownAbilityDenied`, the re-home of Story 8.8's belt
+ * guard)? The hull's OWN numbers: `ownStats.maxHp` is the fold the HP globe
+ * reads, the cooldown stamp is the own block's (never predicted), read against
+ * the same server-clock estimate every other `…Until` field uses, and a
+ * sinking — or no longer conning — hull cannot press at all. A null Game (the
+ * brief construction gap) refuses nothing.
  */
-function beltPressRefused(g: Game | null, slot: number): boolean {
+function cooldownPressRefused(g: Game | null, id: CooldownAbilityId): boolean {
   if (g === null) return false;
+  // A press of this ability already accepted and awaiting the server's word
+  // (sim/abilityLatch.ts): refused like a cooling press, never sent again.
+  if (latchHolds(g.abilityLatch, id)) return true;
   const you = g.state.net.you;
-  return beltPressDenied(
-    g.ownSlots[slot] ?? null,
-    you?.hp ?? 0,
-    g.ownStats.maxHp,
-    isSinkingNow(you, g.clock.serverNow(), g.state.spectating),
-  );
+  const now = g.clock.serverNow();
+  return cooldownAbilityDenied(id, {
+    hp: you?.hp ?? 0,
+    maxHp: g.ownStats.maxHp,
+    sinking: isSinkingNow(you, now, g.state.spectating) || conningNow(g) === false,
+    now,
+    readyAt: id === 'repair' ? you?.repairReadyAt : you?.smokeReadyAt,
+  });
 }
 
 /**
  * THE chokepoint's hook table (Story 2.1) — every in-match key action routed
  * over the late-bound Game (`getG` is the gRef late-binding — null only during
  * the brief construction gap). P and M fold in here (the old ad-hoc window
- * listener is gone); TAB/ESC/digits drive the refit modal; X/Z step the alive
- * zoom; Q/E/R (weapon slots 2-4 since Story 8.5) and Shift (the boost, slot 1)
- * consult the own loadout — weapon-vs-ability via `isWeaponItem` only (Story
- * 8.7, ruling 1: a belt slot's content may be a CONSUMABLE line id) —
- * and a weapon key on an EMPTY slot DENIES on the client (onEmptySlotDenied).
+ * listener is gone); TAB + 1–4 picks an offer card (Story 10.10); X/Z step the alive
+ * zoom; Q/E/R (weapon slots 2-4 since Story 8.5) and Shift (slot 1) consult
+ * the own loadout — weapon-vs-ability via `EQUIPMENT_IS_WEAPON` only — and a
+ * weapon key on an EMPTY slot DENIES on the client (onEmptySlotDenied); C / V
+ * (Story 10.5) press their cooldown ability through the same FIFO.
  */
 function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
   const withG = (fn: (g: Game) => void) => (): void => {
     const g = getG();
     if (g) fn(g);
   };
-  /** The ONE per-slot refusal mark — a denied chip flash + the denial tone. The
-   *  three refusals below all speak it: a press against the full FIFO, an EMPTY
-   *  square, and (Story 8.8) a stocked square the client already knows is
-   *  blocked. A player should learn one mark for "that key did nothing", not
-   *  three. */
+  /** The ONE per-square refusal mark — a denied chip flash + the denial tone.
+   *  The three refusals below all speak it: a press against the full FIFO, an
+   *  EMPTY square, and (Story 10.5) a `C` / `V` press the client already knows
+   *  is refused. A player should learn one mark for "that key did nothing",
+   *  not three. */
   const denySlot = (slot: number): void => {
     const g = getG();
     if (g) flashSlotDenied(g, slot);
@@ -2490,7 +2435,7 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       // conning a live ship is a successful W/S input: three of them retire the
       // helm key glyphs for good (Story 2.4, amendment 26).
       if (labeled) recordHelmInput('ws', live);
-      if (live) audio.play(telegraphTone(dir));
+      if (live) audio.playCue('telegraph', telegraphCue(dir));
     },
     // Every labeled rudder press that reaches a LIVE helm counts toward the A/D
     // pair's fade (suppressed presses never arrive here at all).
@@ -2500,42 +2445,32 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
     },
     isSlotFitted: (slot) => (getG()?.ownSlots[slot] ?? null) !== null,
-    onAbility: (slot, actSeq) => {
+    onAbility: (id, actSeq) => {
       const g = getG();
-      if (g) handleAbilityPress(g, slot, actSeq);
+      if (g) handleAbilityPress(g, id, actSeq);
     },
     // A press against the full FIFO is DROPPED WITH FEEDBACK (Story 2.1 closes
     // the silent-drop debt). No dedup marking: the press never rides an input,
     // so no server echo can ever arrive for it.
-    onAbilityCapped: denySlot,
+    onAbilityCapped: (id) => denySlot(squareOfAbility(id)),
     // A WEAPON key (or a hotbar click) on an EMPTY slot — Story 8.5, epic-8
     // amendment 26. CLIENT-ONLY BY RULING: the pulse and the tone play, and
     // NOTHING is sent. The server's `'empty-slot'` denial stays server-internal
     // (a fair client can no longer reach it), so no wire denial reason was
     // added and there is nothing to dedup against.
     onEmptySlotDenied: denySlot,
-    // A STOCKED square the client already knows the server would refuse — and
-    // it says so in the SAME grammar an empty one uses (see beltPressRefused):
-    // one pulse, one tone, nothing on the wire.
-    isPressDenied: (slot) => beltPressRefused(getG(), slot),
-    onPressDenied: denySlot,
+    // A `C` / `V` press the client already knows the server would refuse
+    // (cooling, a repair on a full hull — Story 10.5): the SAME grammar an
+    // empty square uses, one pulse, one tone, nothing on the wire.
+    isAbilityDenied: (id) => cooldownPressRefused(getG(), id),
+    onAbilityDenied: (id) => denySlot(abilitySquare(id)),
     // F — the foghorn (Story 4.5). The chokepoint has already edge-gated the
-    // press and applied the refit-modal suspension; everything else is here.
+    // press and applied the overlay suspension; everything else is here.
     onFoghorn: withG(handleFoghornPress),
-    // Slot keys / clicks AND the refit digits suspend under ANY open surface —
-    // the refit modal as ever, plus (Story 2.3) the settings overlay and the
-    // results modal, which are focused overlays.
+    // Slot keys / clicks suspend under a FOCUSED OVERLAY (Story 2.3: settings,
+    // results) — and since Story 10.10 (R3) under nothing else: an offer
+    // pending suspends no key.
     isModalOpen: () => modalOpen(getG()),
-    // THE DIGITS' DEAD ZONE (Story 8.7, ruling 8). `1`-`4` pick a card with the
-    // window open and fire a BELT square with it closed, so the frames right
-    // after a close are the one place those two meanings can collide: the
-    // captain who spends their last banked level on `1` is still holding that
-    // key when the window goes away. For the grace it is swallowed — prevented,
-    // but neither picking nor firing. One watcher (watchRefitWindow) stamps the
-    // close; this only asks how long ago it was.
-    // The close edge is observed HERE, at the digit's own keydown (P3) — see
-    // refitInGrace; the watcher is idempotent, so this costs nothing.
-    isRefitGrace: () => { const g = getG(); if (g !== null) watchRefitWindow(g); return refitInGrace(g); },
     // ...and the SLOT KEYS alone also suspend at the held start line (Story
     // 6.1, amendment 8). Its own hook rather than a wider `isModalOpen`,
     // because the FOGHORN must survive the lock: Eric named movement, weapons
@@ -2543,12 +2478,12 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     isCombatLocked: () => combatLocked(getG()),
     // Focused-overlay rule (amendment 21 + the committed AC): while the settings
     // overlay or the results modal is up EVERY sim key is suppressed — helm
-    // included, unlike the refit modal — and only ESC/Enter still route.
+    // included — and only ESC/Enter still route.
     isOverlayFocused: () => overlayFocused(getG()),
-    onRefitToggle: withG(handleRefitToggle),
+    // TAB + 1–4 (R3): a pick, with no window to check — the group is live.
     onRefitPick: (choice) => {
       const g = getG();
-      if (g) handleRefitPick(g, choice);
+      if (g) handleOfferPick(g, choice);
     },
     onEscape: withG(handleEscape),
     onConfirm: withG(handleConfirm),
@@ -2556,6 +2491,8 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       const g = getG();
       if (g) handleZoomStep(g, dir);
     },
+    // SPACE — CAMERA HOME (Story 11.8): FOLLOW the own (or watched) ship again.
+    onCameraHome: withG((g) => g.camera.home()),
     onMute: withG(toggleMute),
     // P — THE NETCODE A/B TOGGLE, DEV-ONLY (NFR17, Story 7-8). The keyboard
     // chokepoint drops the binding under the same build-time constant; this is
@@ -2569,17 +2506,18 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
   };
 }
 
-/** True while ANY surface that suspends slot keys/clicks is open. */
+/** True while ANY surface that suspends slot keys/clicks is open — since Story
+ *  10.10 (R3: no combat lockout, no refit window) the focused overlays alone. */
 function modalOpen(g: Game | null): boolean {
-  return g !== null && (g.upgradeMenu.visible || overlayFocused(g));
+  return overlayFocused(g);
 }
 
 /**
- * THE FULL COMBAT LOCKOUT — the refit modal's shipped lockout, now ALSO the
- * held start line (Story 6.1, amendment 8). While it holds, a canvas
- * pointerdown counts no click (input/mouse.ts drops it before the counter ever
- * moves) and the slot keys, the refit digits and F are swallowed at the
- * keyboard chokepoint.
+ * THE COMBAT LOCKOUT — the held start line (Story 6.1, amendment 8) and the
+ * focused overlays; NEVER an offer (Story 10.10, R3 — the refit window's
+ * lockout is gone with the window). While it holds, a canvas pointerdown
+ * counts no click (input/mouse.ts drops it before the counter ever moves) and
+ * the slot keys are swallowed at the keyboard chokepoint.
  *
  * REUSED RATHER THAN INVENTED, and the reuse is the point: this lockout is
  * already specified as *"feedback-free by design"* — a swallowed press, never a
@@ -2592,8 +2530,7 @@ function modalOpen(g: Game | null): boolean {
  * one shot request, so clicks banked against a locked trigger would otherwise
  * cash in as a free shot on the frame the match went live.
  *
- * The helm is deliberately NOT part of it (the refit modal leaves helm/zoom/M/P
- * live and so does this) — the start line's movement lock is `helmAxes`, which
+ * The helm is deliberately NOT part of it — the start line's movement lock is `helmAxes`, which
  * has to reach the PREDICTOR as well as the wire.
  */
 function combatLocked(g: Game | null): boolean {
@@ -2606,14 +2543,12 @@ function overlayFocused(g: Game | null): boolean {
 }
 
 /**
- * An ability-activation keypress landed. As of Story 7-5 wave 2 the SPEED BOOST
- * is the only equipment left on this path: the MINE left it in Story 2.8
- * (amendment 45) and the DECOY BUOY consumable (Story 8.16) is click-placed in
- * the same rear sector, so both prime instead. The keyboard has QUEUED
- * the press (it rides
- * a later input, drained one-per-tick so the server's one-ability-per-tick gate
- * fires each in turn) — the server decides. Here the client only predicts the
- * verdict, at PRESS time, keyed on the pressed slot:
+ * An ability-activation keypress landed — the Shift (slot 1), or since Story
+ * 10.5 (2026-11-05, epic-10 amendment 11) `C` HULL REPAIR / `V` SMOKE, which
+ * hold no slot. The keyboard has QUEUED the press (it rides a later input,
+ * drained one-per-tick so the server's one-ability-per-tick gate fires each in
+ * turn) — the server decides. Here the client only predicts the verdict, at
+ * PRESS time, for the Shift keyed on its slot:
  *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
  *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
  *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
@@ -2622,13 +2557,25 @@ function overlayFocused(g: Game | null): boolean {
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
- *    double press within RTT can't extend it). A click-placed DECOY BUOY
- *    (Story 8.16) needs no press-time cue either: its placement tone rides the
- *    decoy reconcile's own-spawn hook (fired on the confirmed OWN decoy, gated
- *    by DecoyView `own` so it never misfires on someone else's) — the same
- *    hook the mine's placement tone still rides from the Mines reconcile.
+ *    double press within RTT can't extend it).
  */
-function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
+function handleAbilityPress(g: Game, id: AbilityId, actSeq: number): void {
+  // `C` / `V` (Story 10.5): the client's known refusals already ran at the key
+  // (`isAbilityDenied`), so a press that reaches here is predicted READY —
+  // nothing is predicted (the cooldown stamp and the effect both arrive with
+  // the server's frame; Story 10.10 retired the hotbar's ACTIVATED pop).
+  if (id !== 'shift') {
+    g.abilityLatch = latchPress(g.abilityLatch, id); // shut until the server answers
+    return;
+  }
+  handleShiftPress(g, actSeq);
+}
+
+/** The Shift's press (slot 1): the pool-based verdict and the optimistic
+ *  boost window — Story 1.6's path, unchanged but for the
+ *  dedup source (the ability, Story 10.5). */
+function handleShiftPress(g: Game, actSeq: number): void {
+  const slot = SLOT_BOOST;
   const you = g.state.net.you;
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
@@ -2650,28 +2597,23 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
     if (deniedFeedbackHasNoTwin(g.state.spectating, conningNow(g))) return;
     g.abilityDeniedPress[slot] = true;
     // Story 1.10 exactly-one-feedback: this predicted denial IS the feedback
-    // (chip flash above + the denial tone) — mark its (slot, actSeq) key so
-    // the server's matching denial echo is suppressed, never doubled.
-    g.denialDedup.markPredicted(slot, actSeq);
+    // (chip flash above + the denial tone) — mark its (ability, actSeq) key
+    // (Story 10.5: the wire names the ability) so the server's matching denial
+    // echo is suppressed, never doubled.
+    g.denialDedup.markPredicted(abilitySource(abilityCode('shift')), actSeq);
     playDenied(g);
     return;
   }
-  // Predicted READY: fire the hotbar's ACTIVATED pop on this optimistic press
-  // edge (the boost-prediction precedent — the slot must acknowledge the press
-  // now, not a round trip later). It decays straight into the cooling grammar.
-  g.abilityActivatedPress[slot] = true;
+  // Predicted READY (Story 10.10 retired the hotbar's ACTIVATED pop on this
+  // edge; the Shift button reads the predicted boost window below).
   const id = g.ownSlots[slot];
   // `actSeq` is the value THIS press will ride once the keyboard drains it onto
   // an input (it may sit behind other queued presses); the optimistic boost
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'boost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
-  // The other two class Shifts (Story 8.15) predict NOTHING beyond the generic
-  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and HUNKER's
+  // The other two class Shifts (Story 8.15) predict NOTHING: INSTANT RELOAD's refilled pools and HUNKER's
   // `hunkerUntil` window both arrive with the server's frame — neither moves
   // the hull, so there is no motion to hide a round trip behind.
-  // A click-placed decoy has no press-time cue: its placement tone rides the
-  // decoy reconcile's own-spawn hook (the mine precedent), so it fires on the
-  // confirmed OWN decoy and never on anyone else's.
 }
 
 /**
@@ -2729,29 +2671,26 @@ function handleFoghornPress(g: Game): void {
 }
 
 /**
- * The UpgradeMenu's card-click callback: same late-binding as keyboardHooks
- * (gRef isn't assigned until after the Game object literal below), routed
- * through handleRefitPick so a CLICK IS KEY-EQUIVALENT BY CONSTRUCTION — the
- * same FINDING A latch, the same greyed-card refusal, the same denied
- * pulse — and, like a digit pick, a click LEAVES THE WINDOW OPEN (amendment 36).
- * The gun can never fire off it: MouseInput only counts canvas-target clicks,
- * and the modal lockout holds besides.
+ * The offer group's hooks (Story 10.10), late-bound over gRef like the keyboard
+ * hooks: a card CLICK is the same pick Tab+digit makes (handleOfferPick — the
+ * same latch, the same greyed refusal, the same denied pulse); REDRAW is
+ * `tryMulligan`; the hovered card's line is the consoles' preview (R18). The
+ * gun can never fire off a card: MouseInput only counts canvas-target clicks.
  */
-function onSpendClick(getG: () => Game | null): (choice: number) => void {
-  return (choice) => {
-    const g = getG();
-    if (!g) return;
-    handleRefitPick(g, choice);
-  };
-}
-
-/** The REDRAW button's press (Story 8.10) — the same late-bound shape as
- *  `onSpendClick`: the deps are read at press time, never captured at
- *  construction. */
-function onRedrawClick(getG: () => Game | null): () => void {
-  return () => {
-    const g = getG();
-    if (g) tryMulligan(g);
+function offerGroupHooks(getG: () => Game | null): ConstructorParameters<typeof OfferGroup>[0] {
+  return {
+    onPick: (choice) => {
+      const g = getG();
+      if (g) handleOfferPick(g, choice);
+    },
+    onRedraw: () => {
+      const g = getG();
+      if (g) tryMulligan(g);
+    },
+    onHover: (line) => {
+      const g = getG();
+      if (g) g.hoverLine = line;
+    },
   };
 }
 
@@ -2762,56 +2701,17 @@ function onRedrawClick(getG: () => Game | null): () => void {
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<
   Game,
-  | 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityDegraded' | 'abilityActivatedPress'
-  | 'activatedPulse' | 'activatedFlash' | 'fitPress' | 'fitPulse' | 'fitFlash' | 'fitFramePress'
-  | 'fitFramePulse' | 'fitFrameFlash' | 'fitFrameDegraded'
+  'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityDegraded'
 > {
   return {
-    abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
-    abilityPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
-    abilityFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    // Per hotbar SQUARE (Story 10.5 — the loadout slots, then `C` / `V`).
+    abilityDeniedPress: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
+    abilityPulse: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => new DeniedPulse()),
+    abilityFlash: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
     // Story 4.8: the budget verdict that rides each slot's flash (per-slot, so
     // one over-budget slot never flattens another's mark).
-    abilityDegraded: Array.from({ length: SLOT_COUNT }, () => false),
-    // Story 2.2: the mirror-image ACTIVATED channel (per-slot latch + pulse +
-    // this-frame flag), driven off the optimistic ability-press edge.
-    abilityActivatedPress: Array.from({ length: SLOT_COUNT }, () => false),
-    activatedPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
-    activatedFlash: Array.from({ length: SLOT_COUNT }, () => false),
-    // Story 2.9: the same three-part shape again for the FIT channel, driven off
-    // the server's `bn` receipt (never predicted — a fit is the server's word).
-    fitPress: Array.from({ length: SLOT_COUNT }, () => false),
-    fitPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
-    fitFlash: Array.from({ length: SLOT_COUNT }, () => false),
-    fitFramePress: false,
-    fitFramePulse: new DeniedPulse(),
-    fitFrameFlash: false,
-    fitFrameDegraded: false,
+    abilityDegraded: Array.from({ length: HOTBAR_SQUARE_COUNT }, () => false),
   };
-}
-
-/**
- * An OWN decoy buoy just appeared in the reconcile (render/decoys' own-spawn
- * hook, Story 8.16): play its placement cue. The hook only ever fires for
- * decoys we own, so someone else's decoy can never sound our drop. It latches
- * nothing — a decoy has no lifetime and no ACTIVE window.
- */
-function onOwnDecoy(audio: Audio): void {
-  audio.play('placeDecoy');
-}
-
-/**
- * A card landed: latch its FIT flash (Story 2.9). The card resolves to the slot
- * carrying the equipment it addresses; a shipwide ladder (or any card no fitted
- * slot owns) falls through to the rank-wide frame pulse, so no fit is ever
- * presentation-silent (FR22).
- */
-function latchFitFlash(g: Game, cardId: string): void {
-  // A consumable's square is FIXED (Story 9.2): flash the kind's own square even
-  // when the stack was at zero a frame ago (`ownSlots` has not replayed yet).
-  const slot = isConsumableId(cardId) ? consumableSlotFor(cardId) : slotForCard(g.ownSlots, cardId);
-  if (slot === null) g.fitFramePress = true;
-  else g.fitPress[slot] = true;
 }
 
 /**
@@ -2821,7 +2721,8 @@ function latchFitFlash(g: Game, cardId: string): void {
  * Shift) reads the server's self-private `you.hunkerUntil` — no prediction,
  * the window arrives with the frame — so the Shift square takes the boost's
  * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
- * goes straight to the cooldown wipe. Everything else has no window.
+ * goes straight to the cooldown wipe. Everything else (the `C` / `V`
+ * cooldown abilities included — Story 10.5) has no window.
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
@@ -2851,12 +2752,6 @@ function armWorldFlashBudget(g: Game, camera: Camera, budget: FlashBudget): void
   const gate = new WorldFlashGate(budget, camera);
   g.effects.setFlashGate(gate);
   setHullFlashGate(gate);
-  // Story 5.6: the aggro bracket's ACQUIRE pop is an on-water one-shot at a
-  // world position, so it claims the same aggregate budget by the same rule
-  // (amendment 241 keeps world one-shots outside the tier system and answers
-  // them to render/flashBudget.ts). Over budget it loses the pop and keeps the
-  // bracket, which is the only part that carries information.
-  setAggroFlashGate(gate);
 }
 
 function buildGame(
@@ -2872,10 +2767,9 @@ function buildGame(
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
   // setupViewport args: the chokepoint hooks, the lazy server-clock thunk for the mouse's
-  // pointerdown fire-time stamp (D1, resolved at click time), and the refit-modal lockout.
-  // The mouse's fire lockout covers EVERY suspending surface (Story 2.3): the
-  // refit modal as ever, plus the settings overlay and the results modal.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleHotbarPress(gRef, p));
+  // pointerdown fire-time stamp (D1, resolved at click time), the combat lockout
+  // (the start line + the focused overlays), and the console press gate + its twin.
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleConsolePress(gRef, p), (p) => consoleCovers(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
   // The `plate` CHART LAYER, not a root — over terrain and hulls, under the
   // reticle; screen-space via applyCamera's inverse (render/stage.ts).
@@ -2900,6 +2794,9 @@ function buildGame(
   // path (radar.render(null, ...)) never casts.
   const fogField = new FogFieldView(stage.layers.fog);
   radar.setEyeReachSource(fogField);
+  // ...and its rain clutter reads the same frame (Story 11.6): each march step
+  // paints the swept sector's clutter under the real returns (render/radarClutter.ts).
+  radar.setClutterSource(fogField);
   // A far cloud's radar-delivery hold ages by FRAME time (net/clock.ts frameNow),
   // so a lagging server never blinks a return it is still delivering.
   const clock = new ServerClock();
@@ -2908,6 +2805,10 @@ function buildGame(
   // the same radius the reveal frames; it never changes within a match.
   camera.setMapRadius(map.radius);
 
+  // Story 10.13 review P1: a new Game starts from a clean bus (a previous
+  // session's latched sink insert must not silence this one).
+  audio.setSinkFade(null, { immediate: true });
+  const grindCue = new GrindCue((gain) => audio.playCue('ramGrind', { gain }), CLIENT_CONFIG.audio.grindCuePeriodMs);
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
@@ -2916,18 +2817,18 @@ function buildGame(
     contacts: new ContactStore(),
     predictor: makePredictor(map, cls),
     contactBodies: new ContactBodies(),
-    contactFx: new ContactFx(stage.layers.burstFx, (gain) => audio.play('grind', { gain })),
+    beaconViews: [],
+    beaconBodies: new BeaconBodies(),
+    beacons: new Beacons(stage.layers.beaconChart, stage.layers.beaconWorld),
+    contactFx: contactFx(stage, grindCue),
+    grindCue,
     lastBleedMs: -Infinity,
     camera,
     keyboard,
     mouse,
     sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
     ownView,
-    // Story 5.6: the aggro bracket's two stings. The renderer detects the edge
-    // (it is the only thing holding per-hull lock state) and calls back with the
-    // TRANSITION; the sound stays here, on the data flow's audio side, so
-    // render/ never reaches into audio/.
-    contactViews: new ContactViews(stage.layers.ship, nameplates, (kind) => audio.play(kind === 'acquired' ? 'aggroLock' : 'aggroRelease'), (x, y) => countermeasure.coverAt(x, y)),
+    contactViews: new ContactViews(stage.layers.ship, nameplates, (x, y) => countermeasure.coverAt(x, y)),
     nameplates,
     // NO TRAIL CALLBACK ANY MORE (cycle-69 review gate, P10): a fish's water is
     // the one shared wake ribbon, pulled by `wakeHulls` from
@@ -2941,8 +2842,10 @@ function buildGame(
     effects,
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
-    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
-    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => onOwnDecoy(audio)),
+    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.playCue('mineDrop')),
+    drops: new Drops(stage.layers.dropWorld),
+    brackets: new HullBrackets(stage.layers.chartMark),
+    pegs: new SplashPegs(stage.layers.chartMark),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     foulZones: new FoulZones(stage.layers.litZone),
@@ -2953,18 +2856,22 @@ function buildGame(
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
+    flashBursts: new FlashBursts(stage.layers.burstFx), // fog-immune, under the HUD
+    whiteout: new FlashWhiteout(document.body),
     radar,
+    radarDisplay: new RadarDisplay(stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
-    hudBar: new HudBar(stage.layers.hud),
-    // The third hook is the countdown footer's REDRAW press (Story 8.10),
-    // late-bound over gRef exactly like the card click beside it.
-    upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef), flashBudget, onRedrawClick(() => gRef)),
+    shipConsole: new ShipConsole(stage.layers.hud),
+    weaponsConsole: new WeaponsConsole(stage.layers.hud),
+    consolesShown: false,
+    offerGroup: new OfferGroup(offerGroupHooks(() => gRef), flashBudget),
+    hoverLine: null,
+    consoleCache: freshConsoleCache(),
     settingsOverlay,
     score: freshScore(),
     scorePhase: 'waiting',
     bountyPrev: '',
-    hueRev: hueRevision(),
     uiScale: 1,
     spendInFlight: null,
     fogZoomTimer: null,
@@ -2973,29 +2880,30 @@ function buildGame(
     // first frame drawn at a guessed zoom would flash the wrong line weight.
     room: conn.room, mapRadius: map.radius, islands: map.islands, mapChart: buildMap(map, stage.layers, camera.zoom),
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
-    spectate: { freePan: false, visualsSet: false, sinkSettled: false },
+    spectate: { visualsSet: false, sinkSettled: false, follow: { id: null } },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     requeue: makeGameRequeue(() => gRef), disposers: [],
     shake: new ShakeDriver(),
     flashBudget,
     deniedPulse: new DeniedPulse(), deniedFlash: false, deniedDegraded: false,
-    denialDedup: new DenialDedup(), serverDeniedClick: false,
+    denialDedup: new DenialDedup(), serverDeniedClick: false, abilityLatch: OPEN_LATCHES,
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
+    engineMix: new EngineMix(audio),
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
-    hullSoftness: NO_SOFTENING,
+    hullSoftness: NO_SOFTENING, rainEye: null, smokeDiscs: [], smokeDiscPool: [],
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
-    ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
+    ownClass: cls, ownPlated: false, // unresolved until the roster syncs the own name (1.13)
+    ownBattery: new OwnBattery(cls),
+    ownLaunchers: new OwnLaunchers(cls),
+    // The kit is DEFAULT_KIT only until the first own-ship frame replaces it
+    // with the seat's own (Story 10.1 — the wire, never localStorage).
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
-    refitClosedAt: -Infinity, refitWasOpen: false,
-    // Story 8.10: both are per-MATCH latches, and a fresh Game is built per
-    // join — so a join is already a reset, and `updateMatchEpoch` owns every
-    // later one.
-    mulliganUsed: false, autoOpenedEpoch: false,
   };
   gRef = g;
+  armSmokeReach(g);
   armWorldFlashBudget(g, camera, flashBudget);
   // Coast returns (amendment 69) read the HEIGHT RASTER the client already
   // rebuilt from the map seed — pure presentation, never on the wire. It is the
@@ -3003,6 +2911,7 @@ function buildGame(
   // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setHeightRaster(map.heightRaster);
+  g.radar.setMapRadius(map.radius); // the beam stops at the board's edge (Story 11.2)
   // NO WAKE SEAM INTO THE RADAR (epic-9 amendment 210): the server discloses
   // every wake segment its beam crosses, sight bubble included, so the scope
   // paints wire `wk` rows only and never reads the emitter's ribbons.
@@ -3011,7 +2920,7 @@ function buildGame(
   // 2026-10-12: "if I can't see it because of an island … don't render it").
   g.countermeasure.setIslands(g.islands);
   g.fogField.setIslands(g.islands); // ...and so does the fog haze (Story 9.10)
-  g.fogField.setSeed(welcome.fogSeed, welcome.mapRadius); // the shared fog field, derived from the welcome's seed, spinning about the ocean center over the SERVER's radius (the wire value, not the regenerated map's — equal by construction, authoritative here)
+  g.fogField.setSeed(welcome.fogSeed, welcome.mapRadius); // the shared rain field, derived from the welcome's seed over the SERVER's radius (the wire value, not the regenerated map's — equal by construction, authoritative here); its eye rides the live ring (setZone, per frame)
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -3021,6 +2930,23 @@ function buildGame(
   // would still reach handlers closed over the destroyed game and paint match
   // chrome over the fresh port. Registered here, at the moment it is created.
   g.disposers.push(bindGameRoom(g, conn));
+  // Story 10.13 review P1: the ship audio lives on the SHARED Audio, so every
+  // teardown that runs the disposers (endSession — the reload-free requeue)
+  // must stop it, and the tab-hidden halt rides beside it.
+  g.disposers.push(() => haltShipAudio(g));
+  g.disposers.push(bindAudioVisibility(g));
+  // The whiteout lives OUTSIDE the Pixi app (document.body, the top DOM rung),
+  // so the reload-less exit must take it off by name; the discs are Pixi.
+  g.disposers.push(() => {
+    g.whiteout.destroy();
+    g.flashBursts.clear();
+  });
+  // Story 11.8 review: the chart marks' pooled / spare Graphics and the pegs'
+  // shared contexts, which an app destroy (children) would not reach.
+  g.disposers.push(() => {
+    g.brackets.destroy();
+    g.pegs.destroy();
+  });
   return g;
 }
 
@@ -3050,6 +2976,7 @@ function sameKinematics(a: EffectiveStats['kinematics'], b: EffectiveStats['kine
 function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
   return (
     a.sightRange !== b.sightRange ||
+    a.hullSightRange !== b.hullSightRange ||
     a.radarRange !== b.radarRange ||
     a.sweepPeriodMs !== b.sweepPeriodMs
   );
@@ -3063,7 +2990,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun: GunId): void {
+function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], shift: ShiftId, bonus: IndexBonus): void {
   // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
@@ -3083,20 +3010,21 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // take the client down. Cards are the ONLY stat modifier, and this is the same
   // call the server caches; since 8.1 the fold counts copies per line and walks
   // the CATALOG's order, so the wire list's order cannot move a number.
-  const stats = effectiveStats(spec, cards);
+  // The exhausted hull's BONUS POINTS (`you.ib`, Story 10.7 R5) ride the same
+  // call, exactly as the server folds `ShipRecord.indexBonus`.
+  const stats = effectiveStats(spec, cards, undefined, bonus);
   g.ownStats = stats;
-  // Own loadout follows the authoritative class + cards + SEAT GUN (Story
-  // 1.6 / 2.5, slot 0 since 8.14):
+  // Own loadout follows the authoritative class + cards + SEAT SHIFT (Story
+  // 1.6 / 2.5, slot 1 since 10.4):
   // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
-  g.ownSlots = slotIdsFor(stats, cards, cls, gun);
-  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). A consumable square
-  // empties itself: the last copy of a stocked kind is spent and the square
-  // goes to ZERO-STOCK (dashed). A prime left standing on it would swallow every click that follows
-  // — the wire carries a slot holding nothing, the server denies it, and the
-  // player has no way to see why. The gun is slot 0 and is never null, so this
-  // is a no-op for every fit that does not take a primed slot away.
+  g.ownSlots = slotIdsFor(stats, cards, cls, shift);
+  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8): a prime left standing on
+  // a slot that holds nothing would swallow every click that follows — the
+  // wire carries a slot holding nothing, the server denies it, and the player
+  // has no way to see why. The gun is slot 0 and is never null, so this is a
+  // no-op for every fit that does not take a primed slot away.
   if ((g.ownSlots[g.keyboard.primedSlot] ?? null) === null) g.keyboard.revertToGun();
   // Boost numbers ride the same stats swap: the DURATION off the stats row (it
   // is a whitelisted stat path), the FACTOR straight off CONFIG — the +25 % is a
@@ -3106,9 +3034,10 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
   // per tick in the SAME boost-then-hooks order the server steps with.
   g.predictor.setBoons(cardBehaviors(cards));
-  // ...and the hull pass's own MASS (Story 9.5): the effective max hull, the
-  // same number the server's resolver splits the push by.
-  g.predictor.setOwnMass(stats.maxHp);
+  // ...and the hull pass's own MASS (Story 9.5): the ARMOR index since Story
+  // 10.3 (ruling 2 — mass = ARMOR), the same number the server's resolver
+  // splits the push by. HUNKER's temporary bonus adds no mass.
+  g.predictor.setOwnMass(stats.armor);
   // Story 2.9 — the OWN doctrine modes fan out to the on-water renderer, which
   // is how our own ordnance gets its identity from LAUNCH (an enemy's has to
   // earn it from observable behavior). Deliberately ABOVE the vision-change
@@ -3122,28 +3051,30 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
     lightTorpedo: stats.equipment.lightTorpedo.homingTurnRate > 0,
     heavyTorpedo: stats.equipment.heavyTorpedo.homingTurnRate > 0,
   });
+  // Story 11.2: an own track's lifetime comes from its own weapon's reach /
+  // its own fish's run (the owner is not always sent his own boom).
+  g.projectiles.setOwnReach(ownReachFromStats(stats));
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
   }
   if (classChanged) {
     g.ownView.setHullId(cls);
+    g.ownBattery.reset(cls); // Story 10.4: a new hull's turrets start at rest, loaded
+    g.ownLaunchers.reset(cls); // Story 10.6: the launchers come back with the next own frame
     // The wake tracker needs no class hook: a class change respawns the hull,
     // and `WakeSources` re-provisions a source whose class moved (its ring
     // capacity is derived from that class's top speed).
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
-  // the haze halo is the wounded-smoke flash rung (6/12) off the same live intel range
-  g.countermeasure.setHaloU(hazeHaloU(stats.radarRange));
-  g.fogField.setHaloU(hazeHaloU(stats.radarRange)); // the fog haze ends at the same rung
-  g.fog.setSightRange(stats.sightRange, stats.radarRange);
-  // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
-  // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
-  // reveals and corrects it within (Story 4.9). Projectiles derives the second
-  // from this same number — adding a `setDetectRange` here would be a second
-  // source of truth.
-  g.projectiles.setSightRange(stats.sightRange, stats.radarRange);
+  // the haze halo is the wounded-smoke / muzzle-flash reach (its own fact, Story 11.2)
+  g.countermeasure.setHaloU(hazeHaloU());
+  g.fogField.setHaloU(hazeHaloU()); // the fog haze ends at the same reach
+  // The fog-of-war hole is the PLAIN-HULL reach (Story 11.2, R20).
+  g.fog.setSightRange(stats.sightRange, stats.radarRange, stats.hullSightRange);
+  // The projectile culls read the named eye reaches (shells / torpedoes,
+  // Story 11.2) under the whiteout law, never a stat — nothing to plumb here.
   // The hole radius may have moved: rebake the fog against the current viewport
   // at the current zoom (exactly what the resize handler does). The camera no
   // longer follows radar (Story 9.8 ruling 127: framings are absolute spans).
@@ -3179,13 +3110,15 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
 function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
   return bindRoom(conn, {
     ...g,
-    onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
+    // A spawn (or a reconnect's re-seat) is always FOLLOW on the new hull:
+    // snapTo alone keeps PANNED (Story 11.8 review).
+    onOwnSpawn: (x, y) => g.camera.respawnAt({ x, y }),
     // Story 4.5: the SPECTATOR foghorn path's vantage point. A spectator's honk
     // arrives as a position (the free camera has no server-known one to take a
     // bearing from), so the bearing is derived from wherever the camera is at
     // the instant it lands — read live, never captured.
     cameraCenter: () => g.camera.center,
-    onOwnStats: (cls, cards, gun) => applyOwnStats(g, cls, cards, gun),
+    onOwnStats: (cls, cards, shift, bonus) => applyOwnStats(g, cls, cards, shift, bonus),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),
@@ -3209,18 +3142,20 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // The FEED's name lookup is the nullable resolver, NOT rosterName: a
     // departed vessel must render the feed's neutral UNKNOWN_VESSEL label
     // (roomBindings.handleSunk), never the raw-session-id fallback — the same
-    // rule the score card already applies (handleSunkObserved below). Story 5.6
-    // routes it through `feedName` so a PvE fleet hull — which has no roster row
-    // at all any more (amendment 39) — reads `DRONE` rather than falling into
-    // that neutral label.
-    names: (id) => feedName(g, id),
-    // Story 1.12 personal-hue resolvers (roster-driven): kill-feed name color +
-    // ordnance-marker firer tint.
+    // rule the score card already applies (handleSunkObserved below).
+    names: (id) => rosterNameOrNull(g, id),
+    // The kill-feed name color (Story 10.4: the relation color).
     colors: (id) => feedColor(g, id),
-    ordnanceHue: (by) => ordnanceHue(g, by),
+    // Story 10.4: the own turrets + secondaries heat, corrected per own frame.
+    ownBattery: g.ownBattery,
+    ownLaunchers: g.ownLaunchers, // Story 10.6: the own launchers, corrected per own frame
+    // Story 10.5 review gate: the C / V press latch reads every own frame.
+    onOwnFrame: (you) => {
+      g.abilityLatch = latchOnOwnFrame(g.abilityLatch, you, g.clock.serverNow());
+    },
     // Every observed sinking feeds the personal-score accumulator; our own
     // sinking in a live match opens the elimination modal (amendments 22/23).
-    onSunkObserved: (victimId, killerId, killerCls) => handleSunkObserved(g, victimId, killerId, killerCls),
+    onSunkObserved: (victimId, killerId) => handleSunkObserved(g, victimId, killerId),
     // The `bn` fitted event is the spend latch's ack (Story 2.7 review): mark
     // the latch in flight so it releases as a SUCCESS even when a same-frame
     // passive bank + an identical re-roll hide every other landing signal.
@@ -3229,18 +3164,21 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // toast, no tone — because the window opens itself on it. Read per event
     // off the polled plane through the same `atStartLine` every other lock uses.
     heldAtStartLine: () => atStartLine(g),
-    // Story 2.9: the fitted boon's CATEGORY decides which slot flashes (amendment
-    // 51 — the visible change is slot-side). A shipwide INTEL/SHIP line owns no
-    // slot, so the whole stack takes one rank-wide pulse instead.
-    onBoonFitted: (cardId) => latchFitFlash(g, cardId),
+    // Story 2.9's per-slot / rank-wide FIT flash retired with the hotbar
+    // (Story 10.10): the consoles draw no FIT flash. A fit still never lands
+    // silent (FR22) — the `◆ … FITTED` receipt toasts it and the console's
+    // readouts change in place.
+    onBoonFitted: () => {},
     // Story 2.9: the click-time own-fire latch (see ownFireWeapon) — the only
     // honest way to tell an own CANNON shell from an own GUN shell, since the
     // ballistic wire shape says neither.
     ownFireWeapon: () => ownFireWeapon(g),
     ownStreamWeapon: () => g.ownFire.claimStream(g.clock.serverNow()), // Story 8.15: every own MG shell
+    ownSinkAlarm: () => g.engineMix.klaxonSinkStart(), // Story 10.13 review P10
     // The own-burst ring's EFFECTIVE radius (undefined = keep the CONFIG base,
     // which is what every burst we cannot honestly claim as ours renders at).
     ownBurstRadius: (own) => ownBurstRadius(g.ownStats, own),
+    flashBursts: g.flashBursts, // a known FLASH SHELLS round bursts as the disc
     // The owner-private mine rings: our live effective radii + our clock. The
     // acquisition ring exists only while we actually hold the doctrine.
     ownMineRings: (t) => ownMineRingParams(g, t),
@@ -3274,10 +3212,12 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     onDrop: () => {
       g.reconnecting = true;
       showBanner('RECONNECTING…');
+      haltShipAudio(g); // Story 10.13 review P5: frames stop — release, and re-seed on resume
     },
     onReconnect: () => {
       g.reconnecting = false;
       hideBanner();
+      resumeShipAudio(g); // the first resumed frame only seeds every edge
       // The outage may have swallowed sunk events, so the observed-kill roll can
       // no longer be trusted: start it clean rather than report a wrong list.
       // The elimination LATCH and its placement survive, though — they were
@@ -3286,6 +3226,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
       g.score = scoreAfterReconnect(g.score);
       g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
       g.denialDedup.clear(); // paired with the queue drop — no reused (slot, seq)
+      g.abilityLatch = OPEN_LATCHES; // a dropped press's answer may never come
     },
   });
 }
@@ -3297,7 +3238,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * Story 4.12).
  *
  * Own predicted pose first (or nothing, spectating), then every contact —
- * captains and drones alike, at the SAME interp-delayed time the hull renderer
+ * every captain, at the SAME interp-delayed time the hull renderer
  * samples them at, so the foam lands on the hull the player can see rather than
  * ~100ms ahead of it.
  *
@@ -3309,8 +3250,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * ruling (amendment 123), not papered over.
  *
  * Each source carries its own tint, resolved off the SAME roster the hull's
- * silhouette reads (`contactStyle` → drone grey for the 255 sentinel, the
- * personal hue otherwise), so a wake is never a different colour from the ship
+ * silhouette reads (the relation color), so a wake is never a different colour from the ship
  * that made it.
  *
  * AND EVERY LIVE TORPEDO IS A SOURCE TOO (cycle-69 review gate, P10). A fish's
@@ -3328,13 +3268,15 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
       id: g.state.net.sessionId,
       x: pose.x, y: pose.y, heading: pose.heading, speed: pose.speed,
       cls: g.ownClass,
-      color: hullStyle(g.ownHueIndex).stroke,
+      color: relationStroke('own'),
       // Mirrors the server's `World.wakeTopSpeed` so the two ring buffers are
       // provisioned alike; through the ONE shared hook, so the proportional
       // boost (amendment 55) is read off the post-fold cap on both sides and a
       // SPEED card lengthens both rings or neither. The full wake-draft lift
       // is folded on top through its own shared hook (Story 8.19), exactly as
       // `wakeTopSpeed` folds it — a drafting, boosted hull is the true ceiling.
+      // The boost ceiling is the Shift's own factor (the speed buoy's tail
+      // left with the buoys — Story 10.5).
       maxSpeedU: draftedKinematics(
         boostedKinematics(own.kinematics, CONFIG.boost.factor, true),
         CONFIG.wake.draft.lift,
@@ -3349,7 +3291,7 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
     if (s === null || s === undefined || cls === undefined) continue;
     out.push({
       id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls,
-      color: contactStyle(cls, rosterColor(g, id)).stroke,
+      color: relationStroke(relationFor(g, id)),
     });
   }
   return out;
@@ -3405,10 +3347,14 @@ function renderOwn(
   // grammar — the cap may shrink, never grow.
   g.ownView.setSink(ownSettle(g.state.net.you, g.clock.serverNow()));
   g.ownView.update(pose.x, pose.y, pose.heading);
+  g.ownView.setTurretAngles(g.ownBattery.angles()); // Story 10.4: the predicted turrets
+  // Story 10.6: the predicted launchers, drawn with the tubes the own stats hold.
+  g.ownView.setLaunchers(g.ownLaunchers.angles(), g.ownStats.tubesPerLauncher);
+  driveCameraPan(g, frameDt, false); // Story 11.8: middle drag + held arrows
   g.camera.update(frameDt, pose);
   updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)
   // EVERY VISIBLE HULL LAYS A WAKE (amendment 199) — own predicted pose plus
-  // every truesight contact, drones included. Before Story 4.12 this passed the
+  // every truesight contact. Before Story 4.12 this passed the
   // own pose alone and enemy hulls glided across the water leaving nothing.
   g.effects.update(frameDt, now, wakeHulls(g, pose, now));
   g.lastOwn = { x: pose.x, y: pose.y };
@@ -3417,7 +3363,7 @@ function renderOwn(
   renderFiring(g, pose, status, aim, cursor, ownZones, nowMs);
   // ONE attention read per frame, taken AFTER renderFiring drove the denied
   // pulses and shared by every consumer (the chrome bar's amber ring segment and
-  // the HP globe here, the storm vignette back in renderAlive, the XP bank chip
+  // the hull gauge here, the storm vignette back in renderAlive, the bank chip
   // below): two reads — or one taken before the pulses were driven — could
   // disagree inside a single frame.
   const attn = frameAttention(g, status, inStorm, bar.ring.urgent, nowMs);
@@ -3425,36 +3371,24 @@ function renderOwn(
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP globe breathes on it).
   //
-  // THE BAR GOES FIRST (Story 8.6, ruling 10): the bar is the surface the
-  // player's eye is on, and it is laid out before the chrome that frames it.
-  // It no longer FEEDS the chrome — epic-8 amendment 38 re-hung IN STORM and the
-  // victim tells under the chrome bar, which hud.ts lays out itself, so no bar
-  // edge crosses this seam any more.
-  updateHudBar(g, status, pose, bar.ring.urgent, attn.freeze, now / 1000, nowMs);
+  // THE CONSOLES GO FIRST (the bar's rule, Story 8.6 ruling 10): they are the
+  // surfaces the player's eye is on, laid out before the chrome that frames them.
+  updateConsoles(g, status, pose, bar.ring.urgent, attn.freeze, now / 1000, nowMs);
   g.hud.update(status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
   return attn.tier1;
 }
 
 /**
- * THE HUD BAR, one call (Story 8.6). It shows while the player is CONNING a
- * hull in-match — the held start line and the dev/sandbox ready room included
- * (dimmed at the line, see `dim` in the view) and, Story 5.2, the WHOLE sinking
- * window: amendment 10 keeps every fitted slot activatable all the way down, so
- * the surface those slots live on stays on screen. It dies with the hull at
- * FOUNDER (spectate / reveal) and on return to port.
+ * THE BATTLE CONSOLES, one call (Story 10.10). They show while the player is
+ * CONNING a hull in-match — the held start line and the dev/sandbox ready room
+ * included (the weapons console dimmed at the line, see `dim`) and the WHOLE
+ * sinking window: amendment 10 keeps every fitted slot activatable all the way
+ * down, so the surfaces those slots live on stay on screen. They die with the
+ * hull at FOUNDER (spectate / reveal) and on return to port.
  *
- * THE XP STRIP RIDES WITH IT through the sinking window, which is a CHANGE from
- * the old bottom-left rail's `status.alive` gate (ruling 10, Eric's veto item):
- * the bar is ONE object, and splitting its visibility by member is exactly how
- * the three corners drifted apart. No promise is broken by that — `refitable`
- * requires `!sinking` as well as a materialized front offer (the server leaves
- * `you.offer` standing at sink-entry, so the offer alone would still read as
- * refitable), which empties the cue line: the strip reports the bank without
- * offering a TAB that opens nothing.
- *
- * Called after renderFiring so this frame's denied pulse is resolved.
+ * Called after renderFiring so this frame's denied pulses are resolved.
  */
-function updateHudBar(
+function updateConsoles(
   g: Game,
   status: OwnStatus,
   pose: RenderPose,
@@ -3464,154 +3398,261 @@ function updateHudBar(
   nowMs: number,
 ): void {
   if (!conning(status)) {
-    g.hudBar.hide();
+    hideConsoles(g);
     return;
   }
-  // Hover reads the pointer ONLY while it is inside the window (the aim path
-  // keeps using the last known position regardless — see MouseInput).
-  // Hover + hit-test run in the HUD's own (scaled) coordinate space, so the raw
-  // screen cursor is divided by the same factor the root container multiplies by.
-  const cursor = g.mouse.pointerInside ? hudPoint(g, g.mouse.screenPos) : null;
-  const view = hudBarView(g, status, pose, ringUrgent, freeze);
-  g.hudBar.update(view, hudWidth(g), hudHeight(g), cursor, nowSec, nowMs, g.uiScale);
+  const layout = consoleLayoutNow(g);
+  const shiftWin = shiftWindowNow(g);
+  const readouts = consoleReadoutsNow(g, shiftWin);
+  const preview = hoverMarksNow(g, shiftWin);
+  const frame: ConsoleFrame = { status, pose, readouts, preview, ringUrgent, freeze, nowSec, nowMs };
+  g.shipConsole.update(shipConsoleView(g, frame), layout.ship);
+  g.weaponsConsole.update(weaponsConsoleView(g, frame), g.consoleCache.weapons!);
+  g.consolesShown = true;
 }
 
-/** THE BAR'S WHOLE FRAME, assembled in ONE place: the four members' inputs
- *  derived here and nowhere else, so render/hudBar.ts stays a composer and
- *  never re-interprets own-ship state. */
-function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: boolean, freeze: boolean): HudBarView {
-  return {
-    slots: hotbarView(g, status),
-    hp: {
-      hp: status.hp,
-      maxHp: status.stats.maxHp,
-      repairHp: status.repairHp,
-      shield: status.shield,
-      alive: status.alive,
-      sinking: status.sinking,
-    },
-    // THE AMBER COROLLARY's globe half. The fraction comes from `railFraction`
-    // — the same derivation the seam's Tier-1 read and the chrome bar's own
-    // resolution take — so the corollary and the tier can never disagree about
-    // which band the hull is in.
-    hpHold: hpGlobeHoldsLit(railFraction(status.hp, status.stats.maxHp), ringUrgent),
-    helm: helmGlobeView(g, status, pose),
-    xp: xpStripView(g.state.net.you ?? null, status.sinking),
-    freeze,
-    // Any suspending surface: the two slot groups dim to 38%, keys AND clicks
-    // off. Story 6.1 folds the held start line in through the same lockout the
-    // modal uses, so the fit stays legible at the line — you can read what you
-    // are sailing with — while reading unmistakably as not-yet-yours. The
-    // globes and the strip deliberately stay at full (ruling 9).
-    dim: combatLocked(g),
-  };
+/** One frame's shared console inputs. */
+interface ConsoleFrame {
+  status: OwnStatus;
+  pose: RenderPose;
+  readouts: readonly Readout[];
+  preview: PreviewMarks | null;
+  ringUrgent: boolean;
+  freeze: boolean;
+  nowSec: number;
+  nowMs: number;
 }
 
-/** The helm globe's inputs, derived exactly as the retired telegraph cluster
- *  derived them: the ORDERED detent off the helm axes' throttle (the dead-helm
- *  `HELD_AXES` at the start line included), the ACTUAL signed speed off the
- *  predicted pose, and the ladder's denominators off `EffectiveStats` — the
- *  boost's cap is applied inside the globe by the ONE shared speed mutator. */
-function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeInput {
+/** Both consoles gone with the hull (founder / spectate / port). */
+function hideConsoles(g: Game): void {
+  g.shipConsole.hide();
+  g.weaponsConsole.hide();
+  g.consolesShown = false;
+}
+
+/** A TRANSIENT pose gap: both consoles hidden, their breathing state kept. */
+function hideConsolesTransient(g: Game): void {
+  g.shipConsole.hideTransient();
+  g.weaponsConsole.hideTransient();
+  g.consolesShown = false;
+}
+
+/**
+ * EVERY CONSOLE NUMBER (O7), off the own fold — memoised on the fold's
+ * identity (`applyOwnStats` swaps `ownStats` / `ownSlots` together whenever the
+ * class, the cards, the Shift or the index bonus change), so a frame with
+ * nothing new reuses the same array and the consoles redraw nothing — and on
+ * the running Shift window (`shiftWindowNow`), so ENGINES / ARMOR move exactly
+ * when a Speed Boost / Hunker window opens or closes.
+ */
+function consoleReadoutsNow(g: Game, shiftWin: ShiftWindow): readonly Readout[] {
+  const c = g.consoleCache;
+  if (c.stats === g.ownStats && c.slots === g.ownSlots && c.window === shiftWin) return c.readouts;
+  c.stats = g.ownStats;
+  c.slots = g.ownSlots;
+  c.window = shiftWin;
+  c.readouts = consoleReadouts({ stats: g.ownStats, loadout: g.ownSlots, cards: g.state.net.you?.cards ?? NO_CARDS, cls: g.ownClass, window: shiftWin });
+  return c.readouts;
+}
+
+/**
+ * The fitted Shift's running window this frame — the same sources
+ * `activeWindows` reads: the fitted Shift slot, the prediction-aware
+ * `boostUntilNow` for Speed Boost, the server's self-private `you.hunkerUntil`
+ * for Hunker. A frozen constant
+ * (`shiftWindowFor`), so the per-frame path allocates nothing.
+ */
+function shiftWindowNow(g: Game): ShiftWindow {
+  const you = g.state.net.you;
+  if (!you) return NO_SHIFT_WINDOW;
+  const now = g.clock.serverNow();
+  return shiftWindowFor(g.ownSlots[SLOT_BOOST] ?? null, now < boostUntilNow(g), now < (you.hunkerUntil ?? 0));
+}
+
+/**
+ * THE LAYOUT (the pure spine), recomputed only when the logical viewport,
+ * the countdown flag (REDRAW in the offer group) or the offer position changes — the consoles and
+ * the offer group draw from, and the press gate hit-tests against, this ONE
+ * object.
+ */
+function consoleLayoutNow(g: Game): ConsoleLayout {
+  const c = g.consoleCache;
+  const w = hudWidth(g);
+  const h = hudHeight(g);
+  const countdown = (publicState(g).matchPhase ?? 'waiting') === 'countdown';
+  // The player's OFFER POSITION (R26) is in the key: a settings change re-lays.
+  const offerPos = settings.current.offerPos;
+  const key = `${w}|${h}|${countdown ? 1 : 0}|${offerPos}`;
+  if (c.layout !== null && key === c.layoutKey) return c.layout;
+  c.layoutKey = key;
+  c.layout = consoleLayout(w, h, { countdown, offerPos });
+  c.weapons = { ...c.layout.weapons, abilities: c.layout.abilities };
+  return c.layout;
+}
+
+/** THE HOVER PREVIEW (R18): the hovered offer card's marks — a REAL re-fold of
+ *  `effectiveStats` with the card (`hoverPreview`), memoised on (line, fold).
+ *  A REFUSED card (the shared `pickRefusal` over the replayed slot ids — the
+ *  refusal `offerView` greys it on) previews nothing: no amber lie. Both
+ *  re-folds carry the same Shift window, so an open window marks nothing. */
+function hoverMarksNow(g: Game, shiftWin: ShiftWindow): PreviewMarks | null {
+  const c = g.consoleCache;
+  if (c.previewLine === g.hoverLine && c.previewStats === g.ownStats && c.previewWindow === shiftWin) return c.preview;
+  c.previewLine = g.hoverLine;
+  c.previewStats = g.ownStats;
+  c.previewWindow = shiftWin;
+  const you = g.state.net.you;
+  c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT, window: shiftWin }, g.hoverLine, g.ownSlots) : null;
+  return c.preview;
+}
+
+/** The ship console's frame — the sources the HP globe, the helm globe and the
+ *  XP strip read, unchanged: the hull off `status`, the helm off the predicted
+ *  pose and the helm axes, the level verbatim off `you`. */
+function shipConsoleView(g: Game, f: ConsoleFrame): ShipConsoleView {
+  const { status, pose } = f;
+  const you = g.state.net.you;
   const axes = helmAxes(g);
+  const frac = hullFraction(status.hp, status.stats.maxHp);
+  // THE AMBER COROLLARY's hull half: held lit when the ring outranks it.
+  const hullWins = amberPulseWinner({ ring: f.ringUrgent, hullGauge: hullAmberChannel(frac) }) === 'hullGauge';
   return {
+    hp: status.hp,
+    maxHp: status.stats.maxHp,
+    repairHp: status.repairHp,
+    hullHold: hullHoldsLit(frac, hullWins),
+    readouts: f.readouts,
+    preview: f.preview,
     headingRad: pose.heading,
     speed: pose.speed,
     orderedDetent: detentIndexOf(axes.throttle),
     rudder: axes.rudder,
-    kin: status.stats.kinematics,
-    boostFactor: CONFIG.boost.factor,
-    boostActive: status.boostActive,
+    // The boost's cap through the ONE shared mutator, as the predictor steps it.
+    kin: helmKinematics(status.stats.kinematics, CONFIG.boost.factor, status.boostActive),
+    lvl: you?.lvl ?? 0,
+    xp: you?.xp ?? 0,
+    pts: you?.pts ?? 0,
+    freeze: f.freeze,
+    nowSec: f.nowSec,
+    nowMs: f.nowMs,
+    uiScale: g.uiScale,
   };
 }
 
-/**
- * Per-slot denied state for the hotbar: the per-slot latch (predicted ability
- * denials + unmatched SERVER denials on any slot — Story 1.10) OR, for the
- * SELECTED weapon, this frame's denied-fire click pulse. Same wiring the
- * retired chip row used, re-pointed at the hotbar's denied grammar.
- */
-function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
-  return g.abilityFlash.map((flash, slot) => {
-    const id = status.loadout[slot] ?? null;
-    // `isWeaponItem` over the SlotItemId (Story 8.7, ruling 1), never an
-    // EquipmentId-keyed index: a belt slot holds a consumable line id, and the
-    // click-placed one (the decoy, 8.16) is a weapon on this very split.
-    const isWeapon = id !== null && isWeaponItem(id);
-    return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
-  });
-}
-
-/**
- * The BUDGET VERDICT for each of those denied chips, in the same shape and off
- * the same two sources — so the flag can never describe a different pulse than
- * the flash beside it. A weapon-click denial lights BOTH the on-water arc and
- * the primed slot's chip; the arc's mark is already its own flat, never-motion-
- * gated form, so the chip is where that element's `'degrade'` verdict is
- * actually visible (bloom dropped, border and icon untouched).
- */
-function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
-  return g.abilityDegraded.map((degraded, slot) => {
-    const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && isWeaponItem(id); // the SlotItemId split — see hotbarDenied
-    return degraded || (isWeapon && slot === status.primedSlot && g.deniedDegraded);
-  });
-}
-
-/**
- * The slot stack's half of the bar's frame (the eleven squares, the key chips,
- * the wipe and the tooltip). `dim` is set here for shape's sake and
- * OVERWRITTEN by the HudBar from the bar-wide `dim` — one predicate, applied
- * once, to the exactly-two groups that carry it (ruling 9).
- */
-function hotbarView(g: Game, status: OwnStatus): HotbarView {
+/** The weapons console's frame — the sources the hotbar read: the loadout and
+ *  pools off `status`, the PREDICTED turrets / launchers / heat, the own racks
+ *  and cooldown stamps (never predicted) against the server-clock estimate. */
+function weaponsConsoleView(g: Game, f: ConsoleFrame): WeaponsConsoleView {
+  const { status } = f;
   return {
-    loadout: status.loadout,
-    ammo: status.ammo,
-    stats: status.stats,
-    // The HP globe's SHIP tooltip names the hull (epic-8 amendment 186).
-    cls: status.cls,
-    primedSlot: status.primedSlot,
-    denied: hotbarDenied(g, status),
-    deniedDegraded: hotbarDeniedDegraded(g, status),
-    activated: g.activatedFlash,
-    // Dim-not-grey is the shipped "this slot cannot act" register (hotbar
-    // amendment 16); no new one is invented, and no slot flashes DENIED,
-    // because no press gets through.
+    rows: weaponRowModels(weaponsInput(g, f)),
+    abilities: abilityModels(abilitiesInput(g, status)),
+    preview: f.preview,
+    nowSec: f.nowSec,
+    nowMs: f.nowMs,
+    motion: settings.current.motion,
+    uiScale: g.uiScale,
+    denied: consoleDenied(g, status),
+    // The held start line (and a focused overlay): the controls dim, keys AND
+    // clicks off — NEVER an offer (R3).
     dim: combatLocked(g),
-    motion: settings.current.motion, // gates the ACTIVATED/FIT pops + amplitudes
-    // Story 2.9 — the build, felt on the slot: the accrued list + `◆n` marks
-    // (server-authoritative `you.cards`, rendered verbatim), the ACTIVE ability
-    // windows (amendment 48), and this frame's fit flashes. `nowSec` is the
-    // shared server-clock estimate the ACTIVE outline breathes on.
-    cards: g.state.net.you?.cards ?? [],
-    activeMsLeft: activeWindows(g, status),
-    fit: g.fitFlash,
-    fitFrame: g.fitFrameFlash,
-    fitFrameDegraded: g.fitFrameDegraded,
-    nowSec: g.clock.serverNow() / 1000,
-    // Story 8.15 (UX-DR52): the live hold, for the machine gun's held-fire drain.
-    held: g.mouse.isHeld,
   };
 }
+
+/** The five rows' inputs (readouts.ts `WeaponsInput`). */
+function weaponsInput(g: Game, f: ConsoleFrame): Parameters<typeof weaponRowModels>[0] {
+  const { status } = f;
+  const you = g.state.net.you;
+  return {
+    stats: status.stats, cards: you?.cards ?? NO_CARDS, cls: status.cls, loadout: status.loadout, ammo: status.ammo,
+    turrets: g.ownBattery.turrets, launchers: g.ownLaunchers.states, racks: you?.racks ?? [],
+    sec: { heat: g.ownBattery.heat }, primedSlot: status.primedSlot, readouts: f.readouts,
+  };
+}
+
+/** The three buttons' inputs (readouts.ts `AbilitiesInput`). */
+function abilitiesInput(g: Game, status: OwnStatus): Parameters<typeof abilityModels>[0] {
+  const you = g.state.net.you;
+  return {
+    stats: status.stats, cards: you?.cards ?? NO_CARDS, shift: you?.shift ?? DEFAULT_SHIFT, nowMs: g.clock.serverNow(),
+    repairReadyAt: you?.repairReadyAt, smokeReadyAt: you?.smokeReadyAt,
+    shiftAmmo: status.ammo[SLOT_BOOST] ?? null, shiftActiveMsLeft: activeWindows(g, status)[SLOT_BOOST] ?? 0,
+  };
+}
+
+/** The square each ability button speaks for (C · V · Shift). */
+const ABILITY_BUTTON_SQUARE: readonly number[] = ABILITY_KINDS.map((k) => (k === 'shift' ? SLOT_BOOST : abilitySquare(k)));
+
+/**
+ * Per row-button / ability button denied state: the per-square latch
+ * (predicted ability denials + unmatched SERVER denials — Story 1.10) OR, for
+ * the SELECTED weapon, this frame's denied-fire click pulse. The hotbar's
+ * wiring, re-pointed at the consoles; written into the cache's reused arrays.
+ */
+function consoleDenied(g: Game, status: OwnStatus): { rows: boolean[]; abilities: boolean[] } {
+  const d = g.consoleCache.denied;
+  for (let i = 0; i < WEAPON_ROW_KINDS.length; i++) d.rows[i] = squareDenied(g, status, rowSlot(WEAPON_ROW_KINDS[i]));
+  for (let i = 0; i < ABILITY_KINDS.length; i++) d.abilities[i] = squareDenied(g, status, ABILITY_BUTTON_SQUARE[i]);
+  return d;
+}
+
+function squareDenied(g: Game, status: OwnStatus, square: number | null): boolean {
+  if (square === null) return false;
+  const id = status.loadout[square] ?? null;
+  const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+  return g.abilityFlash[square] === true || (isWeapon && square === status.primedSlot && g.deniedFlash);
+}
+
+/** The flash-budget element each per-square pulse claims (Story 10.10, O10):
+ *  a weapon row's `consoleRow(i)`, an ability button's `consoleAbility(i)`. */
+function squareFlashKey(square: number): string {
+  const ability = square === SLOT_BOOST ? 'shift' : abilityAtSquare(square);
+  if (ability !== null) return consoleAbilityKey(ABILITY_KINDS.indexOf(ability));
+  const row = WEAPON_ROW_KINDS.findIndex((k) => rowSlot(k) === square);
+  return consoleRowKey(row >= 0 ? row : square);
+}
+
+const SQUARE_FLASH_KEYS: readonly string[] = Array.from({ length: HOTBAR_SQUARE_COUNT }, (_, s) => squareFlashKey(s));
 
 /**
  * A pointerdown landed somewhere on the canvas (input/mouse.ts's injected
- * hotbar gate, amendment 11). If it fell on a hotbar ROW, hand it to the SAME
- * keyboard slot-action entry the slot keys use — ONE decision path: that method
- * already owns the modal suspension, the fail-closed fitted check, the ability
- * FIFO (cap feedback included), and the weapon prime toggle, so a click cannot
- * drift from its key. The press is reported SWALLOWED either way — over the
- * hotbar is never a shot, even when the action turns out inert (unfitted slot,
- * modal open). The HP GLOBE swallows too, with no action at all (Eric
- * 2026-09-30); the helm globe stays water. A press anywhere else returns false
- * and fires as ever.
+ * console gate, amendment 11). If it fell on a console, hand it to the SAME
+ * keyboard entry the keys use — ONE decision path (the suspension, the
+ * fail-closed fitted check, the ability FIFO, the prime toggle), so a click
+ * cannot drift from its key. The press is reported SWALLOWED either way — a
+ * console is never a shot. The ship console swallows with no action (as the HP
+ * globe did), and so do the MAIN BATTERY / SECONDARIES rows (LMB / RMB are
+ * their keys — O9). A press anywhere else returns false and fires as ever.
  */
-function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
-  if (!g) return false;
-  // A press on the HP GLOBE is swallowed with no slot action (Eric 2026-09-30):
-  // `hotbarPress` shares the hover's hit-test, so chrome is chrome both ways.
-  return g.hudBar.press(hudPoint(g, p), (slot) => g.keyboard.slotAction(slot));
+function handleConsolePress(g: Game | null, p: ScreenPoint): boolean {
+  const hit = consoleHitAt(g, p);
+  if (hit === null) return false;
+  consoleAction(g!.keyboard, hit);
+  return true;
+}
+
+/** Would a press at `p` be swallowed by a console? Acts on nothing (review
+ *  gate C3a — the right button's gate). */
+function consoleCovers(g: Game | null, p: ScreenPoint): boolean {
+  return consoleHitAt(g, p) !== null;
+}
+
+/** The console element under a raw screen point — only while the consoles are
+ *  on screen, against the very layout they were drawn from. */
+function consoleHitAt(g: Game | null, p: ScreenPoint): ConsoleHit | null {
+  if (g === null || !g.consolesShown || g.consoleCache.layout === null) return null;
+  return consoleHit(g.consoleCache.layout, hudPoint(g, p));
+}
+
+/** A console press IS its key: Q / E / R rows toggle their slot's prime, C / V
+ *  press their ability, the Shift button its slot; the rest swallow. */
+function consoleAction(keyboard: KeyboardInput, hit: ConsoleHit): void {
+  if (hit.kind === 'ability') {
+    if (hit.ability === 'shift') keyboard.slotAction(SLOT_BOOST);
+    else keyboard.abilityAction(hit.ability);
+    return;
+  }
+  if (hit.kind === 'slot' && hit.slot !== null && hit.row !== 'mainBattery') keyboard.slotAction(hit.slot);
 }
 
 /**
@@ -3647,11 +3688,9 @@ function claimPulseFlash(g: Game, key: string, pulse: DeniedPulse, live: boolean
  * ratified floor scopes as ELEMENTS (render/flashBudget.ts FLASH_ELEMENTS).
  *
  * Deliberately OUTSIDE renderFiring's alive gate: a dead press is denied too and
- * must still pulse, and a spend is legal while dead (the hotbar is simply hidden
- * there). The ACTIVATED pop and the per-slot FIT pulse are NOT claimed — the
- * story's element list names the denied pulses, the hotbar frame and the zone
- * reveal, and inventing budget membership for a channel is exactly the kind of
- * unratified widening the tier/budget split forbids.
+ * must still pulse, and a spend is legal while dead (the consoles are simply
+ * hidden there). Story 10.10 retired the hotbar's ACTIVATED pop and FIT pulse
+ * (nothing on the consoles drew them) and the FIT frame's budget key.
  */
 function drivePulses(g: Game, nowMs: number): void {
   for (let s = 0; s < g.abilityPulse.length; s++) {
@@ -3661,20 +3700,8 @@ function drivePulses(g: Game, nowMs: number): void {
     // denied visuals (nothing is aimed).
     g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
     g.abilityDeniedPress[s] = false;
-    g.abilityDegraded[s] = claimPulseFlash(g, hotbarSlotKey(s), g.abilityPulse[s], g.abilityFlash[s], nowMs, g.abilityDegraded[s]);
-    // The ACTIVATED pop rides the identical register (Story 2.2).
-    g.activatedFlash[s] = g.activatedPulse[s].update(g.abilityActivatedPress[s], nowMs);
-    g.abilityActivatedPress[s] = false;
-    // ...and so does the FIT flash (Story 2.9): the boon landing on this slot's
-    // family.
-    g.fitFlash[s] = g.fitPulse[s].update(g.fitPress[s], nowMs);
-    g.fitPress[s] = false;
+    g.abilityDegraded[s] = claimPulseFlash(g, SQUARE_FLASH_KEYS[s], g.abilityPulse[s], g.abilityFlash[s], nowMs, g.abilityDegraded[s]);
   }
-  g.fitFrameFlash = g.fitFramePulse.update(g.fitFramePress, nowMs);
-  g.fitFramePress = false;
-  g.fitFrameDegraded = claimPulseFlash(
-    g, FLASH_ELEMENTS.hotbarFrame, g.fitFramePulse, g.fitFrameFlash, nowMs, g.fitFrameDegraded,
-  );
 }
 
 function renderFiring(
@@ -3714,7 +3741,7 @@ function renderFiring(
   // clickInArc is always true for it), never on a slot-index literal.
   const slot = g.keyboard.primedSlot;
   const a = status.ammo[slot] ?? null;
-  const hasAmmo = !!a && a.n > 0;
+  const hasAmmo = slotHasRound(g, slot, a, aim, Math.hypot(cursor.x - pose.x, cursor.y - pose.y));
   // EFFECTIVE reload duration (per-weapon reload upgrades) from the OWN
   // loadout's slot id — a primed slot always holds a weapon (the ability path
   // never primes), so the null branch is defensive only.
@@ -3746,7 +3773,7 @@ function renderFiring(
   // denial-dedup marking come apart — and for a click-placed consumable they
   // came apart the same way, a predicted denial over a shot the server takes.
   const aimDist = Math.hypot(cursor.x - pose.x, cursor.y - pose.y);
-  const inArc = clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[slot] ?? null);
+  const inArc = slotAimInArc(g, slot, aim, aimDist);
   // Predicted denial (a fresh click that can't fire) OR an unmatched SERVER
   // weapon denial (Story 1.10 one-shot latch, consumed here) drives the same
   // rate-limited red pulse — the late server case replaces total silence.
@@ -3769,6 +3796,10 @@ function renderFiring(
   // derivations of one reach would let the marker and the burst circle disagree
   // about where the shell stops.
   const reachU = weaponReachU(status.stats, primedItem, pose, aim, aimDist, g.mapRadius, ownZones);
+  // Story 11.1 (R15 / R18 / R21): AIM COLOR tints every aim surface; AIM SIZE
+  // scales the reticle. (R19, F-A): the main battery's clamp marker — on the salvo center the oval is drawn at, from the
+  // SAME helper (`mainBatteryAim`) and the same pose the preview reads.
+  g.firing.setAimStyle(aimColorTint(settings.current.aimColor), settings.current.aimSize, mainBatteryView(g, pose, status, primedItem, aim, aimDist, ownZones));
   g.firing.update(
     pose,
     aim,
@@ -3778,8 +3809,63 @@ function renderFiring(
     g.deniedFlash,
     reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
     broadsideArcs(g, status), // the per-turret wedge display (Eric ruling 2026-08-27)
+    status.stats.torpedoLaunchers, // Story 10.6: the torpedo wedge is the held launchers' arcs
+    g.ownLaunchers.hullId, // R28: each wedge springs from its launcher's station on this hull
   );
-  renderAimPreview(g, pose, aim, aimDist, status, primedItem, inArc, reachU);
+  renderAimPreview(g, pose, aim, aimDist, status, primedItem, inArc, reachU, ownZones);
+}
+
+/** The pose the main battery's preview and clamp marker are resolved from: the
+ *  render position with the PREDICTED heading (the fire gate's heading). */
+function batteryPreviewPose(g: Game, pose: RenderPose): PreviewShip {
+  return { x: pose.x, y: pose.y, heading: predictedHeading(g), cls: g.ownClass };
+}
+
+/** The main battery's display inputs for the firing UX (Story 11.1, R19) — null unless the battery is the primed weapon. */
+function mainBatteryView(
+  g: Game,
+  pose: RenderPose,
+  status: OwnStatus,
+  primedItem: EquipmentId | null,
+  aim: number,
+  aimDist: number,
+  ownZones: readonly OwnZone[],
+): MainBatteryView | null {
+  if (primedItem !== 'mainBattery') return null;
+  const ship = batteryPreviewPose(g, pose);
+  const b = mainBatteryAim({
+    stats: status.stats,
+    hullId: ship.cls,
+    pose: ship,
+    aim,
+    aimDist,
+    turrets: g.ownBattery.turrets,
+    mapRadius: g.mapRadius,
+    ownLitZones: ownZones,
+  });
+  return { clamp: batteryClampMark(b) };
+}
+
+/** The bearing (and placement-reach) half of the click gate for the primed
+ *  slot: a TORPEDO asks the shared tube pick (Story 10.6, R16 — some held
+ *  launcher's arc holds the aim, measured from its own station); every other
+ *  weapon its `arcFor` descriptor (`clickInArc`). */
+function slotAimInArc(g: Game, slot: number, aim: number, aimDist: number): boolean {
+  const id = g.ownSlots[slot] ?? null;
+  if (isTorpedoItem(id)) return torpedoClickPrediction(g.ownLaunchers, true, ownBatteryPose(g), aim, aimDist).inArc;
+  return clickInArc(predictedHeading(g), aim, aimDist, id);
+}
+
+/** Does the primed slot have a round? The pool count off the server's ammo —
+ *  except the MAIN BATTERY (Story 10.4), which is "loaded" when the shared pick
+ *  would fire a PREDICTED turret for this aim (a ready turret whose arc holds
+ *  it — arc-only fire, epic-10 amendment 10): the same read the sim-tick click
+ *  prediction makes. */
+function slotHasRound(g: Game, slot: number, a: WeaponAmmo | null, aim: number, aimDist: number): boolean {
+  if (g.ownSlots[slot] === 'mainBattery') return batteryWouldFire(g.ownBattery, ownBatteryPose(g), aim, aimDist);
+  // Story 10.6 (R16): a torpedo is "loaded" exactly when the shared tube pick fires.
+  if (isTorpedoItem(g.ownSlots[slot] ?? null)) return torpedoClickPrediction(g.ownLaunchers, true, ownBatteryPose(g), aim, aimDist).loaded;
+  return !!a && a.n > 0;
 }
 
 /**
@@ -3823,13 +3909,14 @@ function renderAimPreview(
   aim: number,
   aimDist: number,
   status: OwnStatus,
-  primedId: SlotItemId | null,
+  primedId: EquipmentId | null,
   legal: boolean,
   gunReachU: number,
+  ownZones: readonly OwnZone[],
 ): void {
   const model = computeAimPreview({
     id: primedId,
-    ship: { x: pose.x, y: pose.y, heading: predictedHeading(g), cls: g.ownClass },
+    ship: batteryPreviewPose(g, pose),
     aim,
     aimDist,
     stats: status.stats,
@@ -3837,8 +3924,11 @@ function renderAimPreview(
     islands: g.islands,
     legal,
     gunReachU,
+    ownLitZones: ownZones, // the main battery measures its reach from the firing turret (F-A)
+    turrets: g.ownBattery.turrets, // Story 10.4: the predicted turrets the next salvo picks from
+    launchers: g.ownLaunchers.states, // Story 10.6: the predicted launchers the next torpedo picks from
   });
-  g.aimPreview.update(model, previewTint(primedId));
+  g.aimPreview.update(model, previewTint(primedId, aimColorTint(settings.current.aimColor)));
 }
 
 /**
@@ -3872,8 +3962,9 @@ function clickPrediction(
   aim: number,
   aimDist: number,
 ): { alive: boolean; loaded: boolean; inArc: boolean } {
-  const you = g.state.net.you;
-  const a = you?.ammo[primedSlot] ?? null;
+  const picked = pickedClickPrediction(g, primedSlot, aim, aimDist);
+  if (picked !== null) return picked;
+  const a = g.state.net.you?.ammo[primedSlot] ?? null;
   return {
     // Story 5.2: WIDENED through the sinking window — a click from a sinking
     // hull genuinely fires (the server's gate re-opens for it), so it must also
@@ -3894,12 +3985,73 @@ function clickPrediction(
 }
 
 /**
- * THE STREAM LATCH (Story 8.15): a sampled input carrying `held: true` with the
- * MACHINE GUN mounted stamps the non-consuming stream claim, so every own
- * `w: 'mg'` reveal inside the window reads as ours (sim/ownFire.ts).
+ * The click verdict of the two weapons whose shot is a shared PICK over a
+ * predicted mount state, or null for every other slot:
+ *  - STORY 10.4: the MAIN BATTERY fires when the shared pick names a ready
+ *    turret whose arc holds the aim (arc-only fire, epic-10 amendment 10) —
+ *    read off the predicted turrets — and is never out of arc as a weapon;
+ *  - STORY 10.6 (R16): a TORPEDO's verdict is the shared tube pick over the
+ *    predicted launchers — out of every held launcher's arc is the bearing
+ *    denial, an arc with no loaded tube the reload denial.
  */
-function stampOwnStream(g: Game, held: boolean): void {
-  if (held && g.ownSlots[0] === 'machineGun') g.ownFire.holdStream(g.clock.serverNow());
+function pickedClickPrediction(
+  g: Game,
+  primedSlot: number,
+  aim: number,
+  aimDist: number,
+): { alive: boolean; loaded: boolean; inArc: boolean } | null {
+  const id = g.ownSlots[primedSlot] ?? null;
+  const alive = conningNow(g) ?? false;
+  if (id === 'mainBattery') return batteryClickPrediction(g.ownBattery, alive, ownBatteryPose(g), aim, aimDist);
+  if (isTorpedoItem(id)) return torpedoClickPrediction(g.ownLaunchers, alive, ownBatteryPose(g), aim, aimDist);
+  return null;
+}
+
+/**
+ * THE STREAM LATCH (Story 8.15; Story 10.4): a sampled input carrying
+ * `sec: true` — the SECONDARIES held on the right button — stamps the
+ * non-consuming stream claim, so every own `w: 'mg'` reveal inside the window
+ * reads as ours (sim/ownFire.ts).
+ */
+function stampOwnStream(g: Game, sec: boolean): void {
+  if (sec) g.ownFire.holdStream(g.clock.serverNow());
+}
+
+/**
+ * THE OWN BATTERY'S GATE this tick (review gate C1) — the server's two answers:
+ * the turret angles chase the aim only while AFLOAT; the secondaries run on the
+ * real right-button level while the hull is afloat OR SINKING (`conningNow`,
+ * the widened flag every control gate reads) AND the weapons lock is not
+ * holding (`atStartLine` — the held start line, the client's mirror of the
+ * server's frozen room; the same lockout `combatLocked` drops clicks on).
+ */
+function ownBatteryGate(g: Game): OwnBatteryGate {
+  return {
+    afloat: g.state.net.you?.alive === true,
+    weaponsLive: conningNow(g) === true && !atStartLine(g),
+  };
+}
+
+/** The pose the own battery steps from: the PREDICTED hull (the pose the
+ *  outgoing input will be applied to), else the last server echo. */
+function ownBatteryPose(g: Game): { x: number; y: number; heading: number } | null {
+  if (g.state.mode === 'predict' && g.predictor.isInitialized) return g.predictor.predicted;
+  return g.state.net.you ?? null;
+}
+
+/** A torpedo click predicted FIREABLE starts the shared pick's tube clock at
+ *  the held torpedo's folded reload (Story 10.6). */
+function predictOwnTorpedo(
+  g: Game,
+  primedSlot: number,
+  p: { alive: boolean; loaded: boolean },
+  aim: number,
+  aimDist: number,
+  seq: number,
+): void {
+  const id = g.ownSlots[primedSlot] ?? null;
+  if (!p.alive || !p.loaded || !isTorpedoItem(id)) return;
+  predictTorpedoClick(g.ownLaunchers, ownBatteryPose(g), aim, aimDist, equipmentReloadMs(g.ownStats, id), seq);
 }
 
 /**
@@ -3920,20 +4072,12 @@ function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: 
 }
 
 /**
- * The EQUIPMENT in a slot, or null — THE narrowing seam for every reader that
- * indexes an `EquipmentId`-keyed record with a slot's content (Story 8.7,
- * ruling 1). A belt slot holds a CONSUMABLE line id, which is not in the arc
- * table, the range table or the own-fire latch, so it narrows to null here
- * rather than being cast into a record that has no row for it.
- *
- * NOT a "can this fire" predicate: a click-placed consumable (the DECOY BUOY,
- * Story 8.16) is a weapon on the ability/click split and still has no equipment
- * row. What this answers is strictly "is this slot's content something the
- * equipment tables know about".
+ * The EQUIPMENT in a slot, or null for an empty one (or an index off the
+ * loadout). Every slot holds an `EquipmentId` since the kit retired (Story
+ * 10.5), so this is a plain read kept as the one named seam its callers use.
  */
 function ownWeaponAt(g: Game, slot: number): EquipmentId | null {
-  const id = g.ownSlots[slot] ?? null;
-  return id === null || isConsumableId(id) ? null : id;
+  return g.ownSlots[slot] ?? null;
 }
 
 /**
@@ -3957,13 +4101,23 @@ function armPrimeRevert(g: Game, clickSeq: number): void {
   if (g.mouse.releasedClickSeq === clickSeq) g.keyboard.consumeReleaseRevert(clickSeq);
 }
 
-function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, fireSeq: number): void {
+function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, wire: Pick<InputMsg, 'fireSeq' | 'seq'>): void {
+  const fireSeq = wire.fireSeq;
   const clickSeq = g.mouse.clickCount;
   const newClick = clickSeq !== g.lastTickClick;
   g.lastTickClick = clickSeq;
   if (!newClick) return;
   const p = clickPrediction(g, primedSlot, aim, aimDist);
   latchOwnFire(g, primedSlot, p);
+  // Story 10.4: a predicted main-battery shot starts the picked turret's reload
+  // locally, tagged with this input's seq (a frame older than it keeps the
+  // reload — review gate C2; the acking frame corrects it).
+  if (p.alive && p.loaded && g.ownSlots[primedSlot] === 'mainBattery') {
+    predictBatteryClick(g.ownBattery, ownBatteryPose(g), aim, aimDist, g.ownStats.equipment.mainBattery.reloadMs, wire.seq);
+  }
+  // Story 10.6: a predicted torpedo shot starts the picked tube's clock locally
+  // (one click, one torpedo), tagged with this input's seq like the battery's.
+  predictOwnTorpedo(g, primedSlot, p, aim, aimDist, wire.seq);
   // ARM, DON'T REVERT (Story 8.5, ruling 9 / UX-DR42). The PREDICATE still
   // decides here, at pointerdown, where the fire input and its D1 fire-time
   // stamp are built — nothing about the shot moved. What moved is the revert
@@ -4022,6 +4176,7 @@ function consumePrimeOnRelease(g: Game): void {
  * a weapon slot — the arc/reticle red pulse a predicted denied click drives.
  */
 function handleServerDenial(g: Game, d: DeniedView): void {
+  releaseAbilityLatch(g, d);
   if (g.state.spectating) return; // no live conning UI to feed back into
   // A denial for a pre-death press is moot once sunk: renderFiring discards
   // serverDeniedClick on a dead frame, so play the whole path only while there
@@ -4030,18 +4185,90 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   // where the arc, the reticle and the hotbar are all still rendering — and
   // where a denial (an empty pool, an out-of-arc torpedo) is now routine.
   if (conningNow(g) === false) return;
-  if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
+  // Story 10.5: an ABILITY denial dedupes on (act, seq) and flashes its
+  // ability's square; a click denial on (slot, seq) and its slot.
+  if (!g.denialDedup.serverDenied(denialSource(d), d.seq)) return; // predicted echo — already fed back
   playDenied(g);
+  const ability = d.act === undefined ? null : abilityFromCode(d.act);
+  if (ability !== null) {
+    g.abilityDeniedPress[squareOfAbility(ability)] = true;
+    return;
+  }
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
-  // `isWeaponItem` (ruling 1), not `EQUIPMENT_IS_WEAPON`: a belt slot's content
-  // is a consumable line id, which that record has no row for.
   const id = g.ownSlots[d.slot] ?? null;
   // Only pulse the arc/reticle when the DENIED slot is the one currently primed
   // — renderFiring pulses whatever slot is primed at render time, so a torpedo
   // denial arriving ~RTT late (prime already consumed, reverted to gun) would
   // otherwise flash the GUN's reticle. The per-slot chip flash + tone above are
   // already slot-correct; the arc pulse is the only slot-sensitive piece.
-  if (id !== null && isWeaponItem(id) && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+  if (id !== null && EQUIPMENT_IS_WEAPON[id] && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+}
+
+/** A server denial of a `C` / `V` press is that press's answer: open its latch
+ *  (sim/abilityLatch.ts) before any feedback guard, so a denial that plays no
+ *  feedback still frees the key. */
+function releaseAbilityLatch(g: Game, d: DeniedView): void {
+  const ability = d.act === undefined ? null : abilityFromCode(d.act);
+  if (ability === null || ability === 'shift') return;
+  g.abilityLatch = latchRelease(g.abilityLatch, ability);
+}
+
+/**
+ * The own hull's FLASH SHELLS mark (Story 8.17; restored by Story 10.9; the
+ * whiteout since Eric 2026-10-29, epic-10 amendment 5): read VERBATIM off the
+ * victim-private `you.dazzledUntil` — never predicted, never interpolated. No
+ * own ship (death / spectate / the pre-first-frame gap) holds no mark (0).
+ */
+function dazzleUntil(g: Game): number {
+  return g.state.net.you?.dazzledUntil ?? 0;
+}
+
+/**
+ * THE DAZZLE CHAIN (the 8.17 shape, re-cut for the whiteout, epic-10
+ * amendment 5): ONE mark `(dazzledUntil, serverNow)` fanned out to every
+ * client mirror of the server's truesight, every frame —
+ *   • the FOG hole (`fogHoleRadiusU`), rebaked only when its QUANTIZED radius
+ *     moves (Fog.setDazzle reports staleness: ~60 steps over the 8.5 s clear);
+ *   • the RADAR's sight radius (`sightHoleU` — the dim mask's anchor, the
+ *     cloud return gate's bubble, the hull feather's radius);
+ *   • the PROJECTILE cull's ENEMY rings (the server corrects an enemy's
+ *     ballistics only inside `sightOf(me, now)`, which IS the clear circle;
+ *     own tracks keep the undazzled ring);
+ *   • and THE WHITEOUT overlay over the whole screen (`renderWhiteout`).
+ * All resolve the radius through the shared `effectiveSight(stats, until,
+ * now)` — the function the server's `sightOf` calls — never a local curve.
+ * The radar, the projectiles and the overlay are set UNCONDITIONALLY and
+ * before the fog's changed-flag early-return: that flag guards the expensive
+ * rebake and nothing else. Radar RANGE is never touched: a flash blinds, it
+ * does not deafen.
+ */
+function updateDazzle(g: Game, now: number, pose: Point | null): void {
+  const until = dazzleUntil(g);
+  g.radar.setDazzle(until, now);
+  g.projectiles.setDazzle(until, now);
+  renderWhiteout(g, until, now, pose);
+  if (!g.fog.setDazzle(until, now)) return;
+  g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
+}
+
+/**
+ * THE WHITEOUT's frame (ui/flashWhiteout.ts): the clear circle centred on the
+ * own hull's screen position — the fog hole's own anchor rule, screen centre
+ * through a forceSnap gap so one missing pose never flashes the screen clear —
+ * at the camera's composed zoom. The soft edge drops at motion `off`.
+ * Spectating hides it outright (renderSpectate), and so does a visible results
+ * modal (gate fix F7): the results message lands one server message before
+ * the first `finished` spec frame, so a render can run between the two with
+ * `spectating` still false — the score screen must never sit under white.
+ */
+function renderWhiteout(g: Game, until: number, now: number, pose: Point | null): void {
+  if (resultsVisible()) {
+    g.whiteout.hide(); // never white over the score screen (gate fix F7)
+    return;
+  }
+  const at = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+  const screen: WhiteoutScreen = { x: at.x, y: at.y, pxPerU: g.camera.zoom };
+  g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen, g.whiteout.carriedAlpha), screen, motionIntensity(settings.current.motion) > 0);
 }
 
 /**
@@ -4167,7 +4394,9 @@ function updateZone(
 function playHpSting(g: Game, status: OwnStatus, nowMs: number): void {
   const frac = ownHpFrac(status);
   const cue = hpStingCueAt(g.wasHpFrac, frac, nowMs, g.hpStingFloor);
-  if (cue) g.audio.play(cue);
+  // Story 10.13: the KLAXON (Eric's pick) sounds the edge — one blast under
+  // half, three under a quarter (audio/klaxon.ts); the stings are its fallback.
+  if (cue) g.engineMix.klaxonEdge(cue === 'hpCritical' ? 'critical' : 'hurt');
   g.wasHpFrac = frac;
 }
 
@@ -4200,12 +4429,12 @@ function anyDeniedLive(g: Game, nowMs: number): boolean {
  *  NULL IS NOT ZERO: with no hull (no maxHp — spectate, the respawn gap) the HP
  *  input is `null`, never 0, or a missing hull would pin every Tier-2 channel
  *  lit and freeze the Tier-3 chip for the rest of the match. The fraction itself
- *  comes from the rail's own `railFraction`, so the seam and the band the player
- *  sees are the same number. */
+ *  comes from the hull gauge's own `hullFraction`, so the seam and the band the
+ *  player sees are the same number. */
 function ownTier1(g: Game, status: OwnStatus, nowMs: number): boolean {
   const maxHp = status.stats.maxHp;
   return tier1Active({
-    hpFrac: maxHp > 0 ? railFraction(status.hp, maxHp) : null,
+    hpFrac: maxHp > 0 ? hullFraction(status.hp, maxHp) : null,
     deniedLive: anyDeniedLive(g, nowMs),
   });
 }
@@ -4254,7 +4483,8 @@ function renderAlive(
   // revealed by our flare (projectiles) and clear our own fog over them (fog).
   const ownZones = ownActiveZones(g.state.net.litZones, g.state.net.sessionId, now);
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
-  if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
+  // Story 10.13: the one-shot storm warning is retired (Eric: a CONTINUOUS storm
+  // bed instead); `wasInStorm` now feeds the bed (updateShipAudio, next frame).
   g.wasInStorm = inStorm;
   // The 50%/25% band alarms (Story 4.7) — same edge idiom. The two HP-driven
   // channels here are deliberately NOT symmetric through the sinking window
@@ -4287,14 +4517,22 @@ function renderAlive(
     tier1 = ownTier1(g, status, nowMs);
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
+    g.mouse.consumePanDrag(); // no camera pan this gap: the drag's delta is discarded, not banked
     // No frame renders here — the bar must not linger, nor route clicks. This
     // gap is TRANSIENT (the pose returns next frame), so the XP chip's breathing
     // state survives it: a full hide() would reset it and re-arm a decayed
     // chip's 10s window off a gap the player never saw (see hideTransient).
-    g.hudBar.hideTransient();
+    hideConsolesTransient(g);
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
   updateContactFx(g, pose, nowMs);
+  // AHEAD OF THE RADAR AND THE PROJECTILES ON PURPOSE (FLASH SHELLS, restored
+  // by Story 10.9): the fog hole, the radar's sight radius and the enemy
+  // projectile cull rings are one dazzle-scaled radius, and both read it
+  // during their render — a flip adopted after them would leave them one frame
+  // behind the fog and the server. Camera zoom (which the fog rebake reads)
+  // was updated in renderOwn.
+  updateDazzle(g, now, pose);
   // Own pose feeds the projectile cull; own active zones keep a shell revealed
   // by our flare from being culled (exactly-once — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -4329,6 +4567,7 @@ function renderAlive(
   // instead of replaying a whole revolution of crossings at once.
   if (atStartLine(g)) g.radar.render(null, now, null);
   else g.radar.render(pose, now, g.camera.worldView, g.camera.screenWorldRect);
+  renderRadarDisplay(g, pose);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -4338,9 +4577,11 @@ function renderAlive(
   g.smoke.render(now);
   g.fire.render(now); // flames age on the same server clock (cycle 162)
   // The chevron ray originates at the own hull's screen position — same rule
-  // as the fog hole just below, and for the same reason: the camera's forward
-  // lead means screen centre is NOT where the hull sits (review fix).
-  const foghornOrigin = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+  // as the fog hole just below: in a panned or slid view the screen centre is
+  // NOT where the hull sits (review fix). An off-screen hull (Story 11.8's free
+  // camera) is clamped onto the screen first, so every bearing still reaches
+  // the edge on its own side instead of collapsing to the centre.
+  const foghornOrigin = pose ? clampToChevronBox(g, g.camera.worldToScreen(pose)) : g.camera.screenCenter;
   renderFoghorn(g, now, foghornOrigin);
   // ALERTS (Story 9.11): the mines advance the ONE shared alert clock first, so
   // every enemy mine and every other captain's zone below breathes on the same
@@ -4348,6 +4589,7 @@ function renderAlive(
   // timestamp expiry, the PHOSPHOR burning zones too (white fire, flickering),
   // each zone tinted own white / another's by that clock.
   g.mines.render(now / 1000);
+  g.drops.render(now / 1000);
   g.litZones.render(now, now / 1000);
   g.burnZones.render(now, now / 1000);
   g.foulZones.render(now, now / 1000); // ...and the weed sways (motion-gated)
@@ -4355,20 +4597,52 @@ function renderAlive(
   // marched it above, through setCloudSource, as one more return source) —
   // seen by eye only inside the flash-rung halo centred on the own hull (session 5)
   g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
-  // the rolling fog: the schema's cut eased, the density raster refreshed on its
-  // cadence, the wisps scrolled (motion-gated); seen by eye only inside the same halo
-  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
-  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect, 'alive'); // no pose yet → nothing drawn
+  // the rain: the density raster refreshed on its cadence from this frame's
+  // storm eye, the wisps scrolled (motion-gated); seen by eye only inside the same halo
+  updateAliveFogField(g, frameDt, now, pose); // no pose yet → nothing drawn
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
   g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
   // ...and everything that renders ABOVE that fog carries its feather itself:
-  // the hull, its aggro bracket, and — since this cycle's lift — its NAMEPLATE.
+  // the hull and — since this cycle's lift — its NAMEPLATE.
   // Built from the SAME pose, the same effective sight radius and the same owned
   // zones the two lines above use, so the surfaces cannot disagree about where
   // the bubble ends.
   g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
+  g.rainEye = rainEyeFor(g, pose, now, ownZones);
+}
+
+/** The alive rain raster: about the own hull, or the screen once it is panned
+ *  off (the off-screen test reads the shake-free rect — Story 11.8 review). */
+function updateAliveFogField(g: Game, frameDt: number, now: number, pose: RenderPose | null): void {
+  const motionOn = motionIntensity(settings.current.motion) > 0;
+  g.fogField.update(frameDt * 1000, now, motionOn, pose, g.camera.screenWorldRect, 'alive', g.camera.steadyWorldRect);
+}
+
+/**
+ * The own hull through this frame's rain, smoke and distance haze (Story 11.6),
+ * or null with no pose. The haze rides the own EFFECTIVE reaches — the shared
+ * whiteout-scaled `effectiveSight` / `effectiveHullSight`, the functions the
+ * server's eye gates call (Eric 2026-11-15: crisp to sight, gone at hull
+ * sight). `lit` = the own live star-shell zones: a hull inside one is lit from
+ * above (the server's `ownZoneCovers`) and gets no eye.
+ */
+function rainEyeFor(g: Game, pose: Point | null, now: number, lit: readonly OwnZone[]): RainEye | null {
+  if (!pose) return null;
+  const frame = g.fogField.frameAt(now);
+  const smoke = smokeDiscsInto(g.state.net.clouds ?? [], now, g.smokeDiscPool, g.smokeDiscs);
+  const until = dazzleUntil(g);
+  const sightU = effectiveSight(g.ownStats, until, now);
+  const hullSightU = effectiveHullSight(g.ownStats, until, now);
+  return { frame, smoke, lit, sightU, hullSightU, x: pose.x, y: pose.y };
+}
+
+/** The radar's eye-reach fan reads the SAME held clouds `rainEyeFor` does (Story 11.6), into its own scratch. */
+function armSmokeReach(g: Game): void {
+  const pool: SmokeDiscSlot[] = [];
+  const out: SmokeDiscSlot[] = [];
+  g.fogField.setSmokeSource((tMs) => smokeDiscsInto(g.state.net.clouds ?? [], tMs, pool, out));
 }
 
 // --- spectate rendering ----------------------------------------------------------
@@ -4444,12 +4718,15 @@ function enterSpectateVisuals(g: Game): void {
   }
   g.firing.hide();
   g.aimPreview.hide(); // nothing is aimed from a sunk hull
-  g.hudBar.hide(); // the whole bar dies with the hull at FOUNDER (Story 8.6)
-  g.upgradeMenu.hide(); // the refit modal never lingers into spectate
+  hideConsoles(g); // both consoles die with the hull at FOUNDER
+  g.offerGroup.hide(); // the offer group never lingers into spectate
   // Hand the zoom to the spectate factor: the alive user zoom resets to the
   // base framing so the spectate wheel path behaves exactly as it always has.
   // Any debounced zoom re-bake still in flight dies with it (fog is off here).
   g.camera.resetUserZoom();
+  g.camera.home(); // Story 11.8: spectate starts on the watched ship (FOLLOW)
+  g.mouse.cancelPanDrag(); // ...with no alive-phase drag carried across
+  g.camera.setSpectating(true); // ...and slides on the spectate ring waypoint
   cancelZoomFogRebake(g);
   // THE REVEAL FRAMING (Story 5.3, amendment 25). Ordered AFTER resetUserZoom
   // deliberately: that call clears the alive user zoom and must not cancel the
@@ -4473,57 +4750,58 @@ function enterSpectateVisuals(g: Game): void {
   // Reset the denial dedup with the queue drop (Story 1.10): a dropped press
   // must not leave a marked (slot, seq) the next life's press can reuse.
   g.denialDedup.clear();
+  g.abilityLatch = OPEN_LATCHES;
 }
 
 /**
- * THE REVEAL FRAMES THE OCEAN, WHICH MEANS THE CENTRE MOVES TOO (review
- * finding). `beginReveal` sets a zoom FACTOR and nothing else, so on its own the
- * camera pulled back while still trailing your killer — and a killer even a few
- * hundred units off-centre cropped a slice of the map straight off the screen,
- * which is not "the whole ocean" by any reading of the AC or mockup F2. The map
- * disc is centred on the origin by construction (`sim/map.ts` spans
- * [-radius, +radius] on both axes), so the reveal's centre target is (0, 0).
+ * THE SPECTATE CAMERA (Story 11.8 — the alive model): FOLLOW the watched ship
+ * (your killer while afloat, else any hull; with nobody to watch the anchor
+ * holds) until the player pans — WASD (the shipped spectate pan), the arrows or
+ * the middle drag — which is PANNED; Space returns to the watched ship.
  *
- * It EASES on the same exponential the follow uses rather than snapping, so the
- * pull-back and the drift to centre are one motion; at `motion: off` the camera
- * arrives immediately, matching the zoom's own snap (amendment 26 — the setting
- * costs the travel, never the framing). Releasing the reveal (any manual wheel
- * or pan) hands the centre straight back to follow-your-killer.
+ * THE REVEAL NEEDS NO CENTRE OF ITS OWN any more (Story 5.3, amendment 25):
+ * it animates the zoom out to the whole-board fit, and the strategic slide
+ * (render/cameraSlide.ts) puts the drawn centre on the board centre at that
+ * span whatever the anchor is, gliding there as the zoom eases — at `motion:
+ * off` the zoom snaps and the centre with it (amendment 26). Any pan or wheel
+ * releases the reveal, exactly as before.
  */
-function updateRevealCamera(g: Game, frameDt: number): void {
-  // speed 0 is load-bearing, not filler: the camera's forward LEAD is derived
-  // from the followed target's speed, and any lead would push the map disc
-  // off-centre — the exact thing this function exists to prevent.
-  const center = { x: 0, y: 0, heading: 0, speed: 0 };
-  if (motionIntensity(settings.current.motion) <= 0) {
-    g.camera.snapTo(center);
-    return;
-  }
-  g.camera.update(frameDt, center);
-}
-
-/** Follow-your-killer by default; any WASD press hands the camera to free pan. */
 function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
-  // Spectate pan reads the HELD WASD state (panAxes), not the driving axes():
-  // its "throttle" is live W/S for up/down panning, not the (reset) telegraph order.
-  //
-  // FREE-PAN IS TESTED BEFORE THE REVEAL, NOT AFTER. Taking the camera by hand
-  // is exactly what releases the reveal (amendment 25), so a WASD press has to
-  // reach `camera.pan` — which is what clears the target. Gating the reveal
-  // first would have made the mode unreleasable by keyboard: the wheel would
-  // still escape it (its own listener calls setZoomFactor) but WASD never would.
-  const axes = g.keyboard.panAxes();
-  if (shouldEngageFreePan(axes)) g.spectate.freePan = true;
-  // Otherwise the reveal owns the camera while it is live — centre included.
-  if (!g.spectate.freePan && g.camera.revealing) return updateRevealCamera(g, frameDt);
-  if (g.spectate.freePan) {
-    const d = spectatePan(axes, frameDt, g.camera.zoomFactor);
-    g.camera.pan(d.dx, d.dy);
-    return;
-  }
+  driveCameraPan(g, frameDt, true);
   const target = pickSpectateTarget(g.state.killerId, [...g.contacts.ids()]);
   const pose = target ? g.contacts.get(target)?.sampleAt(now - CLIENT_CONFIG.net.interpDelayMs) : null;
-  if (pose) g.camera.update(frameDt, pose);
+  // A switch of watched hull glides; a missing sample holds (Story 11.8 review).
+  followSpectateTarget(g.camera, g.spectate.follow, target, pose ?? null, frameDt);
+}
+
+/**
+ * THE CAMERA PAN (Story 11.8, Eric 2026-11-15), once per frame before the
+ * camera update: the middle drag's screen delta (1:1 under the cursor) and the
+ * held pan keys at spectate's shipped screen-constant rate (`spectatePan` over
+ * the composed zoom factor). The arrows pan in both phases; `wasd` adds the
+ * spectate WASD pan (alive, WASD steers). Either enters PANNED (camera.pan).
+ */
+function driveCameraPan(g: Game, frameDt: number, wasd: boolean): void {
+  const drag = g.mouse.consumePanDrag();
+  if (drag.x !== 0 || drag.y !== 0) g.camera.panScreen(drag.x, drag.y);
+  const axes = panKeyAxes(g, wasd);
+  if (!shouldEngageFreePan(axes)) return;
+  const d = spectatePan(axes, frameDt, g.camera.composedFactor);
+  g.camera.pan(d.dx, d.dy);
+}
+
+/** The held pan-key axes: the arrows, plus WASD while spectating, each axis
+ *  clamped to [-1, 1] (W and ↑ together pan at one speed). */
+function panKeyAxes(g: Game, wasd: boolean): Axes {
+  const a = g.keyboard.arrowPanAxes();
+  if (!wasd) return a;
+  const w = g.keyboard.panAxes();
+  return { throttle: unitClamp(a.throttle + w.throttle), rudder: unitClamp(a.rudder + w.rudder) };
+}
+
+/** `v` clamped to [-1, 1]. */
+function unitClamp(v: number): number {
+  return Math.max(-1, Math.min(1, v));
 }
 
 /**
@@ -4563,11 +4841,15 @@ function driveOwnWreckSettle(g: Game, now: number): void {
 
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
+  g.whiteout.hide(); // a spectator has no hull to be flashed (epic-10 amendment 5)
   // A spectator has no hull and no bubble, and the fog overlay is off entirely
   // here — so there is no feather to mirror and every hull (and every plate that
   // now rides the same product) draws at full strength, exactly as it did before
   // either moved above the fog.
   g.hullSoftness = NO_SOFTENING;
+  // ...and no observer to see through the rain from: a spectator's frames are
+  // unfogged and the reveal follows no captain, so no hull dissolves (Story 11.6).
+  g.rainEye = null;
   // No hull, so no band edge exists to be crossed (Story 4.7): dropping the
   // remembered fraction to null keeps a death from reading as a crossing into
   // critical, and re-arms both stings for the next life for free.
@@ -4606,6 +4888,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // alive path, and paints nothing either way: with no own pose there is no
   // observer to freeze a paint against, so no source opens (Story 4.10).
   g.radar.render(null, now, null);
+  renderRadarDisplay(g, null);
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
   g.fire.render(now); // ...and the flames on every tier-2 one
   // Spectator origin is the camera centre — honkBearing (roomBindings.ts)
@@ -4613,11 +4896,11 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // bearing must agree (review fix).
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
   g.mines.render(now / 1000); // the shared alert clock, first (Story 9.11)
+  g.drops.render(now / 1000); // spectators see every drop
   g.litZones.render(now, now / 1000); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
   g.countermeasure.render(now); // ...and every countermeasure cloud
-  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
   g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, null, g.camera.screenWorldRect, 'spectate'); // ...and the whole fog field, unmasked
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
@@ -4630,7 +4913,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
 
 /**
  * THE UI-scale seam. The accessibility scale multiplies the Pixi HUD ROOT
- * (`stage.layers.hud` — the vitals + hotbar container) and divides the layout
+ * (`stage.layers.hud` — the consoles' container) and divides the layout
  * inputs fed to it, so every screen-space HUD element grows/shrinks together
  * while staying anchored to the real viewport corners. It must NEVER touch
  * `app.stage`: the WORLD is not chrome, and scaling it would change how much
@@ -4639,15 +4922,13 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
  * The fullscreen out-of-zone vignette (`layers.vignette`) is deliberately its
  * own sibling layer and is left alone: it is a full-viewport wash, not chrome.
  * DOM HUD-tier chrome follows through the `--hc-ui-scale` var (ui/theme.ts).
+ * The factor is the VIEWPORT factor × the settings tier (`hudScale`, epic-10
+ * amendment 18 R25), so a resize re-evaluates it every frame.
  */
 function applyUiScale(g: Game): void {
-  const factor = scaleFactor(effectiveScale(settings.current, g.stage.app.screen.width));
+  const factor = hudScale(settings.current, g.stage.app.screen.width, g.stage.app.screen.height);
   if (factor === g.uiScale) return;
   g.uiScale = factor;
-  // The bar scales with the HUD layer, so its real-px inset does too
-  // (amendment 208: the intel waypoint keeps the radar disc above it). The
-  // moved flag is ignored: the ring-fed fog hysteresis (feedCameraRing) re-bakes.
-  g.camera.setBottomInset(hudBarTopInset() * factor);
   g.stage.layers.hud.scale.set(factor);
   setUiScaleVar(factor);
 }
@@ -4680,6 +4961,14 @@ function hudHeight(g: Game): number {
  * function — own pose if one rendered this frame, camera centre otherwise
  * (a forceSnap gap); renderSpectate passes the camera centre outright.
  */
+/** `p` clamped into the chevron's inset rectangle (px) — the box every
+ *  chevron ray is cast against, so a clamped origin reaches its own edge. */
+function clampToChevronBox(g: Game, p: ScreenPoint): ScreenPoint {
+  const { width, height } = g.stage.app.screen;
+  const i = Math.min(CLIENT_CONFIG.foghorn.chevron.insetPx, width / 2, height / 2);
+  return { x: Math.max(i, Math.min(width - i, p.x)), y: Math.max(i, Math.min(height - i, p.y)) };
+}
+
 function renderFoghorn(g: Game, now: number, origin: ScreenPoint): void {
   g.foghorn.render(now, origin.x, origin.y, g.stage.app.screen.width, g.stage.app.screen.height);
 }
@@ -4729,8 +5018,9 @@ function tickAiming(g: Game, aim: number, aimDist: number, primedSlot: number): 
     slot: primedSlot,
     fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
     actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
-    actSlot: g.keyboard.actSlot,
-    held: g.mouse.consumeHeld(), // Story 8.15: the machine gun's stream level (live hold OR a latched tap)
+    act: g.keyboard.act,
+    held: g.mouse.consumeHeld(), // Story 8.15: the held-fire level (live hold OR a latched tap)
+    sec: g.mouse.consumeSec(), // Story 10.4: the secondaries level — right button (live hold OR a latched tap)
   };
 }
 
@@ -4747,11 +5037,6 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // sinking captain is emphatically not spectating (frames.ts's
       // `spectates()` is `isSunk`-based, so the window stays fogged and keeps
       // `you`), so helm, aim and trigger keep riding the wire all the way down.
-      // The window's edges, observed BEFORE this tick's mouse hold is sampled
-      // (review patch P3): a stream that was live when the refit opened could
-      // otherwise contribute one more sample before the next render frame ran
-      // `endHolds()`. Idempotent — the render frame still runs it too.
-      watchRefitWindow(g);
       if (g.state.spectating) return;
       const { aim, aimDist } = tickAim(g);
       // THE RELEASE EDGE RUNS FIRST, before the wire slot is read: a hold that
@@ -4766,17 +5051,24 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // Drain exactly ONE queued ability press onto this tick's wire counters
       // (FINDING A): the server fires one ability per tick, so multiple presses
       // in one 50ms window must ride successive inputs — consume before reading
-      // actSeq/actSlot so this input carries the drained press (if any).
+      // actSeq/act so this input carries the drained press (if any).
       g.keyboard.consumeActivation();
       const input = g.sampler.sample(helmAxes(g), tickAiming(g, aim, aimDist, primedSlot));
-      consumePrimeOnFire(g, primedSlot, aim, aimDist, input.fireSeq);
-      stampOwnStream(g, input.held);
       // This tick's server-time estimate rides into the pending ring so a later
       // replay re-evaluates the boost gate at the identical per-tick time.
       if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());
+      // Story 10.4 — the server's step order: the hull moves, THEN the turrets
+      // reload and snap to this input's aim (no traverse — Story 11.1 R16),
+      // THEN fire control reads them, so a turret that finishes reloading this
+      // tick counts this tick.
+      stepOwnBattery(g.ownBattery, ownBatteryPose(g), input, ownBatteryGate(g));
+      // Story 10.6: the launchers step beside the turrets, before fire control (R13: always).
+      stepOwnLaunchers(g.ownLaunchers, ownBatteryPose(g), input, ownBatteryGate(g).afloat);
+      consumePrimeOnFire(g, primedSlot, aim, aimDist, input);
+      stampOwnStream(g, input.sec);
     },
     render: (alpha, frameDt) => {
-      applyUiScale(g); // no-op unless the stored tier or the viewport gate moved
+      applyUiScale(g); // no-op unless the stored tier or the viewport moved
       // THE frame's monotonic timestamp, sampled EXACTLY once: every one-shot
       // pulse driven this frame and every reader of those pulses (the attention
       // seam → the storm vignette's hold) must see the same instant, or a
@@ -4785,13 +5077,17 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const nowMs = performance.now();
       const now = g.clock.serverNow();
       const zv = zoneView(g, now);
+      g.fogField.setZone(zv.state === 'idle' ? null : zv.startT, zv.cur.cx, zv.cur.cy); // the rain's eye rides the live ring (Story 11.6)
       const mu = matchUxFromRoom(g, now);
       updateMatchEpoch(g); // score epoch + the start line's release edge
       updateBounty(g); // the throne's claim register + the self toast/tone (4.6)
       updateEliminationUx(g); // converge the placement, then open a deferred modal at founder
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);
-      updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
+      renderBeacons(g, now); // public: the same for a captain and a spectator
+      // Story 10.13: engines, sink fade, boost / beacon / torpedo edges — AFTER
+      // the beacon views are derived, so the cue reads this frame's set (P14).
+      updateShipAudio(g, now);
       // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
       // cycle-69 review gate P11): a spectator's frames are UNFOGGED, so every
       // ribbon laid while dead was observed with no sight bubble and no island
@@ -4800,21 +5096,23 @@ function makeCallbacks(g: Game): LoopCallbacks {
       g.effects.setSpectating(g.state.spectating);
       if (g.state.spectating) renderSpectate(g, frameDt, now, nowMs, zv, mu);
       else renderAlive(g, alpha, frameDt, now, nowMs, zv, mu);
-      syncRefitBand(g);
+      g.flashBursts.render(nowMs); // FLASH SHELLS discs age on the frame clock they spawned on
+      syncOfferGroup(g);
       g.contactViews.render(
         g.contacts,
         now - CLIENT_CONFIG.net.interpDelayMs,
         g.clock.frameNow(), // staleness by FRAME time — a lagging server never drops a delivered hull
         frameDt * 1000,
-        (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
+        (id) => relationFor(g, id), // Story 10.4: per-contact relation color
         // `plateFrame` — Story 1.13: per-contact truesight nameplate (hoisted,
         // reused). `hullSoftness` — this frame's sight-boundary feather, set by
         // whichever of the two renderers above just ran (this cycle: hulls draw
         // ABOVE the fog now, so they carry its feather themselves). Kept on one
         // line so this callback stays inside its line budget.
-        plateFrame, g.hullSoftness,
+        plateFrame, g.hullSoftness, g.rainEye,
       );
       feedContactBodies(g, now);
+      renderChartMarks(g, g.camera.zoom, now); // Story 11.8: brackets, chart icons, splash pegs
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot, g.stage.layers.plate);
     },
   };
@@ -4835,9 +5133,22 @@ function feedContactBodies(g: Game, now: number): void {
     p.setContacts(NO_CONTACT_BODIES);
     return;
   }
-  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId));
+  const beacons = g.beaconBodies.build(g.beaconViews); // Story 10.8: solid beacons, immovable
+  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId, beacons));
 }
 const NO_CONTACT_BODIES: readonly ContactBody[] = [];
+
+/**
+ * THE RADIO BEACONS (Story 10.8), once per render frame after the camera
+ * moved: derive this frame's live set from the public schema against the
+ * server clock (sim/beaconView.ts — the shared lifecycle, never re-derived),
+ * then draw it (render/beacons.ts). The pulse is decoration: it alone reads
+ * the motion setting.
+ */
+function renderBeacons(g: Game, now: number): void {
+  beaconViewsFrom(publicState(g), now, g.beaconViews);
+  g.beacons.render(g.beaconViews, now, g.camera.zoom, motionIntensity(settings.current.motion));
+}
 
 /**
  * HULL CONTACT legibility for this frame (Story 9.5, amendment 79): the
@@ -4854,7 +5165,7 @@ function updateContactFx(g: Game, pose: RenderPose | null, nowMs: number): void 
         x: pose.x,
         y: pose.y,
         heading: pose.heading,
-        color: hullStyle(g.ownHueIndex).stroke,
+        color: relationStroke('own'),
         halfBeamU: env.beam / 2,
         halfLengthU: env.length / 2,
       }
@@ -4881,8 +5192,8 @@ function stampContactBleeding(g: Game, live: boolean, nowMs: number): void {
 
 /** The other hull's color for a strike spark — the color its hull is drawn in. */
 function contactFxColor(g: Game, id: string): number {
-  const cls = g.contacts.classOf(id);
-  return cls === undefined ? hullStyle(rosterColor(g, id)).stroke : contactStyle(cls, rosterColor(g, id)).stroke;
+  if (isBeaconBodyId(id)) return BEACON_COLOR; // a radio beacon's own linework (Story 10.8)
+  return relationStroke(relationFor(g, id));
 }
 
 /**
@@ -4972,7 +5283,7 @@ function sendNeutralInput(g: Game): void {
     g.mouse.clickCount,
     g.mouse.lastClickT,
     g.keyboard.actSeq, // a gap-press activates NOW, not on refocus (mirrors fireSeq)
-    g.keyboard.actSlot,
+    g.keyboard.act,
   );
   if (g.state.mode === 'predict') g.predictor.localTick(msg, g.clock.serverNow());
 }
@@ -5010,24 +5321,26 @@ function bindVisibility(game: Game): () => void {
  * rigid under them. It costs nothing on the anti-cheat side for the same reason
  * it never did — zoom reveals no water the server has not already sent.
  */
-function applyUserZoom(g: Game, next: number): void {
+function applyUserZoom(g: Game, next: number, sx: number, sy: number): void {
   if (!canUserZoom(g.state.spectating, conningNow(g))) return;
   const before = g.camera.userZoom;
-  g.camera.setUserZoom(next);
+  // THE STRATEGIC ZOOM (Story 11.8): out about the anchor, in toward (sx, sy).
+  g.camera.zoomUserAbout(sx, sy, next);
   if (g.camera.userZoom === before) return;
   scheduleZoomFogRebake(g);
 }
 
-/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). While
- *  SPECTATING it zooms at the LAST KNOWN cursor (Eric 2026-10-14), or at the
- *  screen centre before any pointermove has reported one. */
+/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook): at
+ *  the LAST KNOWN cursor (Eric 2026-10-14; alive too since Story 11.8), or at
+ *  the screen centre before any pointermove has reported one (NaN → centre). */
 function handleZoomStep(g: Game, dir: 1 | -1): void {
+  const sx = g.mouse.hasPosition ? g.mouse.screenPos.x : NaN;
+  const sy = g.mouse.hasPosition ? g.mouse.screenPos.y : NaN;
   if (g.state.spectating) {
-    const at = g.mouse.hasPosition ? g.mouse.screenPos : g.camera.screenCenter;
-    spectateZoomAt(g, at.x, at.y, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
+    spectateZoomAt(g, sx, sy, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
     return;
   }
-  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.aliveZoomDetents));
+  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.aliveZoomDetents), sx, sy);
 }
 
 /**
@@ -5035,8 +5348,10 @@ function handleZoomStep(g: Game, dir: 1 | -1): void {
  * spectate mode, as well. In this case, the zoom in/out should be localized
  * around my mouse cursor (since my ship has sunk/is otherwise nonexistent)."*).
  * The range is the alive range (Camera.spectateZoomLimits — close framing in,
- * the whole-map fit out, the ring fit a waypoint — amendment 142) and the world point under (sx, sy) stays put
- * (Camera.zoomAbout). No fog re-bake: the fog is off for the whole spectate.
+ * the whole-map fit out, the ring fit a waypoint — amendment 142) and the
+ * strategic-zoom rules of Story 11.8 apply (Camera.zoomAbout: out about the
+ * anchor, in toward (sx, sy)). No fog re-bake: the fog is off for the whole
+ * spectate.
  */
 function spectateZoomAt(g: Game, sx: number, sy: number, next: number): void {
   g.camera.zoomAbout(sx, sy, next);
@@ -5119,7 +5434,7 @@ function bindWheelZoom(game: Game): () => void {
       return;
     }
     const amount = -e.deltaY * CLIENT_CONFIG.zoom.wheelRate;
-    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.aliveZoomDetents));
+    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.aliveZoomDetents), e.clientX, e.clientY);
   };
   window.addEventListener('wheel', onWheel, { passive: true });
   return () => window.removeEventListener('wheel', onWheel);
@@ -5153,16 +5468,6 @@ function abandonMatch(): void {
   if (!g) return;
   hideResults(); // an elimination modal must not survive the teardown
   returnToPort(g);
-}
-
-/**
- * Push the settings that RENDER code can't read per-frame onto their consumers.
- * Volumes/mute reach audio through its own store subscription; motion and UI
- * scale are read live at their callsites; the colorblind remap is a table swap
- * at the render/ships.ts chokepoint, so it lands here.
- */
-function applyRenderSettings(): void {
-  setColorblindAssist(settings.current.colorblind);
 }
 
 /** Toggle master mute (M key), persisted through the settings store. */
@@ -5264,7 +5569,7 @@ function startHomeLiveness(home: HomeHandle, countMe = true): void {
  * human leaves the room simply disposes. The field earns its keep for DUO/TRIO,
  * where a collapse is real and re-queueing into Standard would be wrong.
  */
-let lastDeploy: { name: string; cls: ShipClassId; gun: GunId; mode: DeployMode } | null = null;
+let lastDeploy: { name: string; cls: ShipClassId; shift: ShiftId; mode: DeployMode } | null = null;
 
 /** Did the live session come through a private lobby (cycle 167)? Read only by
  *  the collapse requeue, which sends a private captain home instead of into the
@@ -5314,7 +5619,7 @@ async function requeueToPort(autoQueue = true): Promise<void> {
     // Re-seed the DOM chrome's UI scale off the new viewport, exactly as boot
     // does — the in-match value was last written by applyUiScale, and only the
     // game loop refreshes it.
-    setUiScaleVar(scaleFactor(effectiveScale(settings.current, shell.stage.app.screen.width)));
+    setUiScaleVar(hudScale(settings.current, shell.stage.app.screen.width, shell.stage.app.screen.height));
     // THE HANDOFF IS INSIDE THE TRY (review gate). This is the last step of the
     // requeue chain and the only one with nothing behind it: a throw out of
     // enterPort/showHome would reject a `void`-ed promise, leaving the player
@@ -5346,33 +5651,38 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   const { start: startAmbient, stop: stopAmbient } = makeAmbient(shell.stage);
   const home = showHome(
     shell.version,
-    (name, cls, gun) => {
+    (name, cls, shift) => {
       shell.audio.resume(); // must happen inside the PLAY click's user-gesture handler
       // FUNNEL: mode_pick. This closure runs only AFTER home's `deploy()` has
       // cleared its busy and no-class guards, so "a press that actually
       // deploys" is structural — a press that opens the class bay instead
       // never reaches here, and neither does the machine-driven auto-requeue.
       analytics.modePick('standard');
-      void startGame(shell, home, stopAmbient, name, cls, 'standard', gun);
+      void startGame(shell, home, stopAmbient, name, cls, 'standard', shift);
     },
     () => shell.settingsOverlay.toggle(),
     // SOLO VS AI (Story 6.5): same deploy identity, queue-free door.
-    (name, cls, gun) => {
+    (name, cls, shift) => {
       shell.audio.resume(); // same user-gesture rule as the SOLO primary
       analytics.modePick('soloVsAi'); // FUNNEL: mode_pick, same guard story
-      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', gun);
+      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', shift);
     },
     // PRIVATE LOBBIES (cycle 167): CREATE / JOIN — the flow is app/privateLobby.ts.
     {
-      onCreate: (name, cls, gun) => {
+      onCreate: (name, cls, shift) => {
         shell.audio.resume(); // same user-gesture rule as the other doors
-        void createPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun });
+        void createPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift });
       },
-      onJoin: (name, cls, gun) => {
+      onJoin: (name, cls, shift) => {
         shell.audio.resume();
-        openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun });
+        openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, shift });
       },
     },
+    // Story 10.13: the class bay's HORN chip previews the horn once. The click
+    // is a user gesture, so the context may be created here.
+    // Review P16 / P17: sound only once the context runs (a not-running one
+    // drops cues), and a new pick stops the previous preview.
+    (horn) => void shell.audio.resume().then(() => shell.audio.previewHorn(horn)),
   );
   homeRef = home;
   startAmbient(); // the backdrop, once the menu the player came for is up
@@ -5390,17 +5700,17 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     // deploy, which the lifecycle does not allow; it takes the saved hull rather
     // than inventing one — and the queue, which is the only door a collapse can
     // arrive from today.
-    const { name, cls, gun, mode } = lastDeploy ?? {
+    const { name, cls, shift, mode } = lastDeploy ?? {
       name: '',
       cls: loadSavedClass(),
-      gun: loadSavedGun(),
+      shift: loadSavedShift(),
       // Story 6.6: the persisted mode, so a reload between the deploy and the
       // collapse still re-enters the door the player actually chose.
       mode: loadSavedMode() ?? 'standard',
     };
     // Eric ruling 2026-08-17: re-enter the mode the player last chose, not
     // always Standard. (Unreachable for `soloVsAi` — see `lastDeploy`.)
-    void startGame(shell, home, stopAmbient, name, cls, mode, gun);
+    void startGame(shell, home, stopAmbient, name, cls, mode, shift);
     return;
   }
   // THE CONSENT CARD IS DELETED (Story 7.4, Eric ruling 2026-08-19). Nothing is
@@ -5470,7 +5780,7 @@ async function startGame(
   name: string,
   cls: ShipClassId,
   mode: DeployMode = 'standard',
-  gun: GunId = DEFAULT_GUN,
+  shift: ShiftId = DEFAULT_SHIFT,
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
@@ -5490,7 +5800,7 @@ async function startGame(
     startHomeLiveness(home); // another tab is at sea; this home stays live + informed
     return;
   }
-  lastDeploy = { name, cls, gun, mode }; // what the auto-requeue re-deploys with
+  lastDeploy = { name, cls, shift, mode }; // what the auto-requeue re-deploys with
   markPrivateSession(false);
   saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
   // Every deploy opens on CONNECTING… now, the auto-requeue included: the
@@ -5529,8 +5839,7 @@ async function startGame(
             },
           },
       solo,
-      gun, // Story 8.15: the captain's gun pick, frozen at queue as the seat's `gun`
-    );
+      shift); // Story 10.4: the captain's Shift pick, frozen at queue as the seat's `shift`
   } catch (err) {
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
     // (tertiary, not denied) and never reaches the console.
@@ -5690,7 +5999,7 @@ async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'faile
   }
   // What the auto-requeue would re-deploy with, had we come through the home.
   const mode = loadSavedMode() ?? 'standard';
-  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), gun: loadSavedGun(), mode };
+  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), shift: loadSavedShift(), mode };
   // `loadSavedClass()` is a GUESS and is meant to be: `buildGame` seeds the
   // predictor and the hull view from it, and the very first frame's `you.cls`
   // replaces every derived stat through `applyOwnStats` — the same desync
@@ -5810,9 +6119,6 @@ async function startStagedScene(
  *     BEFORE the menu existed — half a second of nothing on screen. Deferring
  *     past the frame that paints the menu buys that back at no cost to the
  *     picture, which nobody is looking at yet.
- * The ordering fixes a third defect for free: `applyRenderSettings()` (which
- * installs the colorblind palette) now runs BEFORE the scene resolves any hull
- * colour, so a menu opened with the assist on is built in the right hues.
  */
 function makeAmbient(stage: Stage): { start: () => void; stop: () => void } {
   let ambient: AmbientScene | null = null;
@@ -5946,9 +6252,7 @@ async function main(): Promise<void> {
   // Live effect: every stored setting is applied at boot and re-applied on every
   // change, so a reload restores exactly what the player left (the AC's
   // "takes effect live, persists across reload").
-  applyRenderSettings();
-  setUiScaleVar(scaleFactor(effectiveScale(settings.current, stage.app.screen.width)));
-  settings.subscribe(applyRenderSettings);
+  setUiScaleVar(hudScale(settings.current, stage.app.screen.width, stage.app.screen.height));
 
   // THE READABILITY GATE's staged worst-case scene (Story 4.8, amendment 242),
   // and since Story 7.1 the NFR1 frame-budget subject as well. Reachable from

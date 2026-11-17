@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SLOT_COUNT } from '@salvo/shared';
+import { ABILITY_IDS, CONFIG, SLOT_COUNT, abilityCode } from '@salvo/shared';
 import {
   InputStore,
   clampFireTime,
+  foldKinematics,
   sanitizeInput,
   neutralInput,
   AIM_DIST_MAX,
@@ -10,6 +11,7 @@ import {
   INPUT_RATE_WINDOW_MS,
   type FireTimeClaim,
 } from '../game/inputs.js';
+import { World } from '../game/world.js';
 
 const valid = (seq = 1) => ({
   seq,
@@ -21,9 +23,10 @@ const valid = (seq = 1) => ({
   slot: 0,
   fireT: 850,
   actSeq: 5,
-  actSlot: 2,
+  act: abilityCode('repair'),
   hornSeq: 7,
   held: true,
+  sec: true,
 });
 
 describe('sanitizeInput — validation table', () => {
@@ -58,7 +61,7 @@ describe('sanitizeInput — validation table', () => {
     ['boolean fireSeq (old wire shape)', { ...valid(), fireSeq: true }],
     ['string aimDist', { ...valid(), aimDist: '240' }],
     ['slot out of range (12)', { ...valid(), slot: 12 }],
-    ['slot just past the last index', { ...valid(), slot: SLOT_COUNT }], // SLOT_COUNT (eleven since Story 9.2): SLOT_COUNT - 1 is the last
+    ['slot just past the last index', { ...valid(), slot: SLOT_COUNT }], // SLOT_COUNT (five since Story 10.5): SLOT_COUNT - 1 is the last
     ['negative slot', { ...valid(), slot: -1 }],
     ['fractional slot', { ...valid(), slot: 1.5 }],
     ['NaN slot', { ...valid(), slot: NaN }],
@@ -79,14 +82,16 @@ describe('sanitizeInput — validation table', () => {
     ['fractional actSeq', { ...valid(), actSeq: 1.5 }],
     ['string actSeq', { ...valid(), actSeq: '5' }],
     ['boolean actSeq', { ...valid(), actSeq: true }],
-    ['missing actSlot', { ...valid(), actSlot: undefined }],
-    ['actSlot out of range (12)', { ...valid(), actSlot: 12 }],
-    ['actSlot just past the last index', { ...valid(), actSlot: SLOT_COUNT }], // SLOT_COUNT (eleven since Story 9.2): SLOT_COUNT - 1 is the last
-    ['negative actSlot', { ...valid(), actSlot: -1 }],
-    ['fractional actSlot', { ...valid(), actSlot: 1.5 }],
-    ['NaN actSlot', { ...valid(), actSlot: NaN }],
-    ['Infinity actSlot', { ...valid(), actSlot: Infinity }],
-    ['string actSlot', { ...valid(), actSlot: '1' }],
+    // Story 10.5 (epic-10 amendment 11): `act` — the ABILITY CODE — must be
+    // one `abilityFromCode` names; anything else drops the whole message.
+    ['missing act', { ...valid(), act: undefined }],
+    ['act past the last ability', { ...valid(), act: ABILITY_IDS.length }],
+    ['negative act', { ...valid(), act: -1 }],
+    ['fractional act', { ...valid(), act: 0.5 }],
+    ['NaN act', { ...valid(), act: NaN }],
+    ['Infinity act', { ...valid(), act: Infinity }],
+    ['string act', { ...valid(), act: '1' }],
+    ['boolean act', { ...valid(), act: true }],
     // Story 4.5 foghorn counter: validated EXACTLY as actSeq (finite int >= 0),
     // whole message dropped on anything malformed — the same sanitize law.
     ['missing hornSeq', { ...valid(), hornSeq: undefined }],
@@ -104,6 +109,13 @@ describe('sanitizeInput — validation table', () => {
     ['numeric held (0)', { ...valid(), held: 0 }],
     ['string held', { ...valid(), held: 'true' }],
     ['object held', { ...valid(), held: {} }],
+    // Story 10.4: the SECONDARIES level is a required boolean on the same terms.
+    ['missing sec', { ...valid(), sec: undefined }],
+    ['null sec', { ...valid(), sec: null }],
+    ['numeric sec (1)', { ...valid(), sec: 1 }],
+    ['numeric sec (0)', { ...valid(), sec: 0 }],
+    ['string sec', { ...valid(), sec: 'true' }],
+    ['object sec', { ...valid(), sec: {} }],
   ];
   it.each(rejects)('drops %s', (_label, raw) => {
     expect(sanitizeInput(raw, 0)).toBeNull();
@@ -150,18 +162,25 @@ describe('sanitizeInput — validation table', () => {
     }
   });
 
-  it('accepts the actSeq sentinel (0) and positive counters verbatim; every in-range actSlot', () => {
+  it('accepts the actSeq sentinel (0) and positive counters verbatim; every ability code (Story 10.5)', () => {
     expect(sanitizeInput({ ...valid(), actSeq: 0 }, 0)?.actSeq).toBe(0);
     expect(sanitizeInput({ ...valid(), actSeq: 42 }, 0)?.actSeq).toBe(42);
-    for (let actSlot = 0; actSlot < SLOT_COUNT; actSlot++) {
-      expect(sanitizeInput({ ...valid(), actSlot }, 0)?.actSlot).toBe(actSlot);
+    for (const id of ABILITY_IDS) {
+      expect(sanitizeInput({ ...valid(), act: abilityCode(id) }, 0)?.act).toBe(abilityCode(id));
     }
+    expect(neutralInput().act).toBe(abilityCode('shift'));
   });
 
   it('accepts BOTH held levels verbatim, and the neutral input is released (Story 8.15)', () => {
     expect(sanitizeInput({ ...valid(), held: true }, 0)?.held).toBe(true);
     expect(sanitizeInput({ ...valid(), held: false }, 0)?.held).toBe(false);
     expect(neutralInput().held).toBe(false);
+  });
+
+  it('accepts BOTH secondaries levels verbatim, and the neutral input is released (Story 10.4)', () => {
+    expect(sanitizeInput({ ...valid(), sec: true }, 0)?.sec).toBe(true);
+    expect(sanitizeInput({ ...valid(), sec: false }, 0)?.sec).toBe(false);
+    expect(neutralInput().sec).toBe(false);
   });
 
   it('accepts the hornSeq sentinel (0) and positive counters verbatim (Story 4.5)', () => {
@@ -298,6 +317,46 @@ describe('InputStore', () => {
     expect(store.submit('a', valid(1), 0)).toBe(false);
   });
 
+  it('an input past the cap still lands its helm and aim, latest-wins, and advances the ack — its activations are shed and nothing is queued', () => {
+    const store = new InputStore();
+    for (let i = 1; i <= INPUT_RATE_CAP; i++) store.submit('a', valid(i), 0);
+    const held = store.get('a')!;
+    store.drainIntents('a');
+    // Past the cap: a released rudder, a new aim point, a click, an ability
+    // press, a horn, a new slot and both levels let go.
+    const over = { ...valid(INPUT_RATE_CAP + 1), rudder: 0, throttle: -1, aim: 1.5, aimDist: 90, fireSeq: 9, actSeq: 9, hornSeq: 9, slot: 1, fireT: 990, held: false, sec: false };
+    expect(store.submit('a', over, 0)).toBe(false);
+    const now = store.get('a')!;
+    expect(now).toEqual(foldKinematics(held, sanitizeInput(over, INPUT_RATE_CAP)!));
+    expect([now.rudder, now.throttle, now.aim, now.aimDist]).toEqual([0, -1, 1.5, 90]); // the helm and the aim point are the newest
+    expect([now.fireSeq, now.actSeq, now.hornSeq, now.slot, now.fireT]).toEqual([held.fireSeq, held.actSeq, held.hornSeq, held.slot, held.fireT]); // every activation field is the last accepted one
+    expect([now.held, now.sec]).toEqual([false, false]); // a release is honoured
+    expect(store.ackFor('a')).toBe(INPUT_RATE_CAP + 1);
+    expect(store.drainIntents('a')).toEqual([]); // nothing to evaluate: no press rides a shed input
+    expect(now).not.toBe(held); // replaced, never mutated (ship.input shares the reference)
+  });
+
+  it('a shed input can release a held level but never start one', () => {
+    const store = new InputStore();
+    for (let i = 1; i <= INPUT_RATE_CAP; i++) store.submit('a', { ...valid(i), held: false, sec: false }, 0);
+    store.submit('a', { ...valid(INPUT_RATE_CAP + 1), held: true, sec: true }, 0);
+    expect([store.get('a')!.held, store.get('a')!.sec]).toEqual([false, false]);
+  });
+
+  it('a flood is still capped: however many messages one window carries, at most INPUT_RATE_CAP are queued for intent evaluation and no click past the cap is in force', () => {
+    const store = new InputStore();
+    const FLOOD = INPUT_RATE_CAP * 25;
+    let accepted = 0;
+    for (let i = 1; i <= FLOOD; i++) {
+      // every message is a new click, spread over one window of arrival time
+      if (store.submit('a', { ...valid(i), fireSeq: i }, ((i - 1) / FLOOD) * (INPUT_RATE_WINDOW_MS - 1))) accepted += 1;
+    }
+    expect(accepted).toBe(INPUT_RATE_CAP);
+    expect(store.drainIntents('a')).toHaveLength(INPUT_RATE_CAP);
+    expect(store.get('a')!.fireSeq).toBe(INPUT_RATE_CAP); // the last ACCEPTED click, not the flood's last
+    expect(store.ackFor('a')).toBe(FLOOD);
+  });
+
   it('remove() forgets the client', () => {
     const store = new InputStore();
     store.submit('a', valid(9), 0);
@@ -310,8 +369,78 @@ describe('InputStore', () => {
   it('neutralInput is a fresh zeroed input (fireT 0 = the no-claim sentinel)', () => {
     const a = neutralInput();
     expect(a).toEqual({
-      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
     });
     expect(neutralInput()).not.toBe(a);
+  });
+
+  it('releaseHeld drops BOTH levels off the stored input, keeping seq, helm and aim (Story 10.4)', () => {
+    const store = new InputStore();
+    store.submit('a', valid(4), 0);
+    store.releaseHeld('a');
+    const after = store.get('a')!;
+    expect(after.held).toBe(false);
+    expect(after.sec).toBe(false);
+    expect(after.seq).toBe(4);
+    expect(after.aim).toBe(valid(4).aim);
+    // A secondaries-only hold is released too.
+    const s2 = new InputStore();
+    s2.submit('b', { ...valid(1), held: false, sec: true }, 0);
+    s2.releaseHeld('b');
+    expect(s2.get('b')!.sec).toBe(false);
+  });
+});
+
+describe('the input rate cap counts ARRIVALS, not sim time (Story 11.2 follow-up)', () => {
+  // A sim that steps slower than real time: 10 s of arrivals at 20 inputs a
+  // second while the World advances ONE second. On the sim clock that is 200
+  // messages in one rate window — the cap sheds all but the first
+  // INPUT_RATE_CAP; on the arrival clock it is an honest 20 Hz stream.
+  const HZ = 20;
+  const SECONDS = 10;
+  const SIM_STEPS = Math.round(1000 / CONFIG.tick.simDtMs);
+
+  function slowSim(): { w: World; id: string; sent: number } {
+    const w = new World(11, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    const id = 'cap';
+    w.addShip(id, 'CAP', 'captain', undefined, undefined, undefined);
+    const total = HZ * SECONDS;
+    for (let n = 1; n <= total; n++) {
+      const arrivedAt = (n * 1000) / HZ; // the room's clock: real time
+      const input = {
+        ...neutralInput(),
+        seq: n,
+        throttle: 1,
+        rudder: arrivedAt >= 5000 ? 0 : 1, // the rudder is released at 5 s
+        fireSeq: arrivedAt >= 6000 ? 1 : 0, // one click at 6 s
+      };
+      w.submitInput(id, input, arrivedAt);
+      // the sim crawls: one step for every (total / SIM_STEPS) arrivals
+      if (n % (total / SIM_STEPS) === 0) w.step();
+    }
+    return { w, id, sent: total };
+  }
+
+  it('a 20 Hz client is never shed while the sim crawls: the released rudder is in force, the click is in force, and the ack is the last input sent', () => {
+    const { w, id, sent } = slowSim();
+    expect(sent).toBeGreaterThan(INPUT_RATE_CAP); // the old sim-time window would have capped this run
+    expect(w.now).toBe(SIM_STEPS * CONFIG.tick.simDtMs); // one second of sim time under ten of arrivals
+    const stored = w.inputs.get(id)!;
+    expect(stored.rudder).toBe(0);
+    expect(stored.fireSeq).toBe(1);
+    expect(w.inputs.ackFor(id)).toBe(sent);
+    expect(w.ships.get(id)!.input.rudder).toBe(0); // and the hull is steering it
+    expect(w.ships.get(id)!.lastFireSeq).toBe(1); // the click was evaluated the step it arrived in, not shed
+  });
+
+  it('with no arrival clock given the sim clock is the arrival clock (a bot submits once per step)', () => {
+    const w = new World(12, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('bot', 'BOT', 'captain', undefined, undefined, undefined);
+    for (let n = 1; n <= INPUT_RATE_CAP * 3; n++) {
+      expect(w.submitInput('bot', { ...neutralInput(), seq: n })).toBe(true); // one per step: 20 a sim second, under the cap
+      w.step();
+    }
   });
 });

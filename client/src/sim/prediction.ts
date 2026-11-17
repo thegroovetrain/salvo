@@ -76,8 +76,9 @@
 // — runs the HULL pass (sim/contactPass.ts: the shared `resolveHullContacts`
 // over the own hull + the sighted contacts main.ts hands over each render
 // frame via setContacts) BEFORE the land pass, the server's own order. The
-// own mass is `effectiveStats().maxHp` (setOwnMass); a contact's is its class
-// base hp, because its upgrades are private — the share error is bounded by
+// own mass is `effectiveStats().armor` (setOwnMass — mass = ARMOR since Story
+// 10.3, ruling 2); a contact's is its class base ARMOR, because its upgrades
+// are private — the share error is bounded by
 // the overlap depth and the reconcile folds it away. With no contacts held the
 // pass is skipped and every tick is byte-identical to the pre-9.5 one. The
 // live tick's own rows (`ownContacts`) and its land result (`lastLand`) feed
@@ -97,6 +98,7 @@ import {
   stepShip,
   wrapAngle,
   CONFIG,
+  DEFAULT_CLASS_ID,
   HOOK_REGISTRY,
   SHIP_CLASS_IDS,
   type ContactBody,
@@ -113,6 +115,7 @@ import {
 } from '@salvo/shared';
 import { lerp, lerpAngle } from '../util/math.js';
 import { HullContactPass } from './contactPass.js';
+import { hullBaseKinematics } from './hullKinematics.js';
 
 /** Collision inputs the predictor shares with the server sim (radius + rocks). */
 export interface CollisionMap {
@@ -313,16 +316,17 @@ export class Predictor {
 
   constructor(
     private readonly map: CollisionMap,
-    private kin: ShipConfig = CONFIG.shipClasses.torpedoBoat.kinematics,
-    private localPoly: readonly Vec2[] = hullSilhouette('torpedoBoat'),
+    private kin: ShipConfig = hullBaseKinematics(DEFAULT_CLASS_ID),
+    private localPoly: readonly Vec2[] = hullSilhouette(DEFAULT_CLASS_ID),
     private readonly dt: number = CONFIG.tick.simDtMs / 1000,
     /** Hook registry the kinematics fold runs against — injectable for tests
      *  (parity suites), the empty shared HOOK_REGISTRY in production. */
     private readonly hookRegistry: HookRegistry = HOOK_REGISTRY,
   ) {
-    // The seeded class's base hull until applyOwnStats calls setOwnMass with
-    // the effectiveStats fold (the default kinematics are the torpedo boat's).
-    this.hull.ownMass = CONFIG.shipClasses.torpedoBoat.hp;
+    // The seeded class's base ARMOR (its mass, Story 10.3) until applyOwnStats
+    // calls setOwnMass with the effectiveStats fold (the default kinematics
+    // are the default hull's zero-card fold).
+    this.hull.ownMass = CONFIG.shipClasses[DEFAULT_CLASS_ID].index.armor;
   }
 
   /**
@@ -375,9 +379,10 @@ export class Predictor {
     this.hull.set(bodies);
   }
 
-  /** The own hull's mass for the hull pass: `effectiveStats().maxHp`. */
-  setOwnMass(maxHp: number): void {
-    this.hull.ownMass = maxHp;
+  /** The own hull's mass for the hull pass: `effectiveStats().armor` (mass =
+   *  ARMOR since Story 10.3). */
+  setOwnMass(armor: number): void {
+    this.hull.ownMass = armor;
   }
 
   /** The own hull's id (the session id) — orients the hull-pass pair rows. */
@@ -554,6 +559,21 @@ export class Predictor {
     if (this.optimisticBoost !== null && ackedActSeq >= this.optimisticBoost.actSeq) {
       this.optimisticBoost = null;
     }
+    this.adoptWindows(you);
+    const replayed = this.replayFrom(you);
+    if (!this.ready) {
+      this.adopt(replayed);
+      this.ready = true;
+      return;
+    }
+    this.reconcile(replayed);
+  }
+
+  /** Adopt every authoritative per-hull window and fold input off the frame's
+   *  `you` — BEFORE the replay (see each line's reason). Lifted out of
+   *  onServerState so the reconcile stays under the complexity ceiling as the
+   *  `you`-derived fields accumulate. */
+  private adoptWindows(you: ServerKinematics): void {
     this.authBoostUntil = you.boostUntil ?? 0;
     // The slow window is authoritative-only (see authSlowedUntil): adopting it
     // BEFORE the replay is what makes the replayed ticks re-make the same
@@ -577,13 +597,6 @@ export class Predictor {
     // key is a hull in no wake, so the replay runs at 0, never at the last
     // wake's lift held over.
     this.setDraft(you.draft ?? 0);
-    const replayed = this.replayFrom(you);
-    if (!this.ready) {
-      this.adopt(replayed);
-      this.ready = true;
-      return;
-    }
-    this.reconcile(replayed);
   }
 
   /**
@@ -712,6 +725,8 @@ export class Predictor {
    * what keeps a replay across a slow window self-consistent.
    */
   private tickKin(t: number, seq: number): ShipConfig {
+    // STAGE ONE: the Shift's boost on the RATED kinematics — the speed buoy's
+    // tail left with the buoys (2026-11-05, Story 10.5, epic-10 amendment 11).
     const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
     const slowed = slowedKinematics(boosted, this.authSlowFactor, this.slowActiveAt(t));
     const fouled = slowedKinematics(slowed, CONFIG.foulingShell.slowFactor, this.foulActiveAt(t));

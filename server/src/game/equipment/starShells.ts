@@ -14,9 +14,8 @@
 //
 // The old PHOSPHOR and DAZZLE doctrine verbs are DELETED (amendment 134): a
 // lit zone only ever LIGHTS. PHOSPHOR SHELLS is its own weapon row
-// (equipment/phosphorShells.ts); FLASH SHELLS became a consumable and was
-// itself replaced by the FOULING SHELL in Story 9.4
-// (equipment/consumables/foulingShell.ts). Same fire flow as the gun (360°,
+// (equipment/phosphorShells.ts); FLASH SHELLS and the FOULING SHELL are
+// special-shell slot weapons since Story 10.5 (equipment/burstShells.ts). Same fire flow as the gun (360°,
 // clamp at the system's effective range, muzzle-or-target spawn,
 // makeBallistic with D1 fireT); range = the gun's BASE range
 // (stats.equipment.starShells.rangeU, radar-derived). Pure over a ShipRecord's
@@ -34,9 +33,9 @@ import { burstPoint, muzzleOrTarget } from './guns.js';
  * Star-shell fire control against one slot pool: 0 or 1 flare. The ONLY
  * denial is an empty pool ('no-ammo' — the 20s cooldown); there is no arc.
  * The flare's hit rule IS the lit circle: burstRadius = the effective lit
- * radius, so an interceptor already inside the would-be lit circle still
- * bursts the flare at its target (zone where aimed); damage is the tier's
- * number from the OWNER's effective row (amendment 130).
+ * radius. It ARCS over every ship and island (Eric 2026-11-13, epic-11
+ * amendment 8), so it always bursts at its target (zone where aimed); damage
+ * is the tier's number from the OWNER's effective row (amendment 130).
  */
 function fireStarShell(
   ship: ShipRecord,
@@ -61,11 +60,14 @@ function fireStarShell(
     targetX: target.x,
     targetY: target.y,
     burstRadius: litRadius, // the burst IS the lit circle
-    contactDamage: stars.damage, // an interceptor takes the tier damage (the broadside precedent) — and it still lights (World.resolveShell)
+    contactDamage: stars.damage, // unreachable since the flare arcs (below): nothing intercepts it
+    overShips: true,
+    overLand: true, // ARCING (Eric 2026-11-13, epic-11 amendment 8): over ships AND islands, straight to the click
     hits: CONFIG.starShells.hits, // AR44 target mask — no mine bit: lighting never clears a minefield
     family: 'cannon', // Story 8.15: a flare flies a gun-pattern shell — `w: 'cannon'`
     lit: { radius: litRadius, durationMs: stars.litDurationMs },
   });
+  shell.weapon = 'starShells'; // the gate's weapon POWER (CONFIG.armor.weaponPowerPerTier)
   return { shell, denial: null };
 }
 

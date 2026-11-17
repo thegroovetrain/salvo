@@ -7,10 +7,11 @@
 // oracles in perception.test.ts; wire fixtures in goldenFrames.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type GameEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
+import { CONFIG, dispersionAxes, type GameEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { circleIsland } from './islandFixture.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 /** World whose islands are cleared, for exact-geometry cases. */
 function bareWorld(seed = 1): World {
@@ -26,9 +27,10 @@ function place(
   x: number,
   y: number,
   heading = 0,
-  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+  hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -67,7 +69,7 @@ function injectShell(w: World, overrides: Partial<ShellState> & { id: string; ow
 }
 
 function fire(w: World, id: string, slot: number, aim: number, aimDist: number, seq = 1): void {
-  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist, slot, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
 }
 
 const ofKind = <K extends GameEvent['k']>(events: readonly GameEvent[], k: K) =>
@@ -118,7 +120,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     // Aim a long shot (the gate reads the ship's stored input for the clicked
     // point), then fire with a time 200ms in the past: the spawned shell is
     // pre-stepped ~100u along its flight on the spawn tick.
-    a.input = { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+    a.input = { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     expect(w.sinkingActivationGate(a, 0, w.now - 200).ok).toBe(true);
     w.step();
     const mz = ofKind(w.tickEvents, 'mz');
@@ -152,7 +154,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
 
   it("the BROADSIDE (battleship weapon slot 2) flashes PER SHELL — R2.5's declared opt-out from the per-owner dedupe", () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0, 'battleship');
+    place(w, 'a', 0, 0, 0, 'yamato');
     // Story 8.5: the Battleship's seed fits `broadside` into the first WEAPON
     // slot (2) — the class fit that used to put it in slot 1 is gone.
     fire(w, 'a', 2, Math.PI / 2, 300); // abeam — inside the port beam sector
@@ -167,8 +169,9 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
 
   it('a torpedo launch emits NO mz — the ratified quiet weapon (amendment 20)', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
-    fire(w, 'a', 2, 0, 0); // TB weapon slot 2: the seeded bow torpedo, dead ahead
+    const a = place(w, 'a', 0, 0);
+    for (const l of a.launchers) l.a = Math.PI / 2; // trained on the beam (R28: never dead ahead)
+    fire(w, 'a', 2, a.state.heading + Math.PI / 2, 300); // TB weapon slot 2: the fitted torpedo, abeam (a positive aimDist names the area — Story 10.6)
     w.step();
     expect([...w.shells.values()][0]?.kind).toBe('torp'); // the launch really happened
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(0);
@@ -187,7 +190,10 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
     expect(acc.sp).toHaveLength(a.stats.equipment.gun.barrels);
     for (const sp of acc.sp) {
       expect(sp.id).toBe('a'); // the SHOOTER's id — the self-private gate key
-      expect(sp.x).toBeCloseTo(500, 4); // the true burst point (each track's own)
+      // The true burst point: each shell's own DISPERSED landing around the
+      // click (Story 11.1) — inside the ellipse, whose long semi-axis at
+      // twice the range bounds it.
+      expect(Math.hypot(sp.x - 500, sp.y)).toBeLessThanOrEqual(dispersionAxes(1000).alongU);
     }
     expect(acc.hc).toHaveLength(0);
   });
@@ -308,7 +314,7 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
 
   it('a tripped mine that resolves a victim sends one hc to the mine OWNER at the MINE position (amendment 18)', () => {
     const w = bareWorld();
-    place(w, 'o', 900, 900, 0, 'mineLayer'); // the owner, nowhere near the trap
+    place(w, 'o', 900, 900, 0, 'warspite'); // the owner, nowhere near the trap
     place(w, 'b', 4, 0); // hull sitting on the mine — trips it on the first scan
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     const acc = stepCollect(w, 5, (evs) => ofKind(evs, 'boom').length > 0);
@@ -319,7 +325,9 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
 
   it('a VICTIMLESS mine detonation (own gun shell landing on it) sends no hc — while the missing shell still splashes', () => {
     const w = bareWorld();
-    const o = place(w, 'o', 900, 900, 0, 'mineLayer'); // owner, alone on the water
+    // The CANNON row (Story 10.4: the drones' gun — it keeps its mine bit; a
+    // captain's main battery never touches a mine), mounted for the subject.
+    const o = mountDeckGun(place(w, 'o', 900, 900, 0, 'warspite'), 'gun'); // owner, alone on the water
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 300, y: 900, armedAt: 0, kind: 'naval', hp: 10 }); // own armed mine, 600u up-range
     fire(w, 'o', 0, Math.PI, 600); // click the mine's position — the volley lands on it (amendment 200)
     const acc = stepCollect(w, 60, () => w.mines.size === 0);

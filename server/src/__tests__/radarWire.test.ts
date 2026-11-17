@@ -15,15 +15,16 @@ import {
   CONFIG,
   coverageCellCount,
   coverageHas,
-  paintCoverage,
   wrapPositive,
   type BlipEvent,
   type FrameMsg,
   type HullCoverage,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+import { clearWater } from './rainFixture.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { wirePaint } from './paintFixture.js';
 
 // ---------- construction helpers (the perception.test idiom) ------------------
 
@@ -33,10 +34,10 @@ function bareWorld(seed = 50, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
-  return w;
+  return clearWater(w); // clear water: these cases are about reaches and the wire, not the weather (a World rains from the start line)
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: Parameters<World['addShip']>[3] = 'torpedoBoat'): ShipRecord {
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: Parameters<World['addShip']>[3] = 'bismarck'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
@@ -60,17 +61,18 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   const CELL = CONFIG.vision.radarCellU;
   const RETURN_KEYS = ['k', 't', 'gx', 'gy', 'w', 'h', 'bits'] as const satisfies readonly (keyof BlipEvent)[];
   const FORBIDDEN = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
-  // Placements sit 700-750 u out: past sight and inside the radar
-  // dropout's flat band, so every swept paint lands (Story 9.8, amendment
-  // 103 and ruling 121 — they were 400-450 u, which the twelfths ladder put
-  // inside sight).
+  // Placements sit 700-750 u out — any distance inside radar range serves:
+  // the radar paints at EVERY distance (amendment 210 — no inner edge) and
+  // every swept, unshadowed paint lands (the dropout roll is gone, Story
+  // 11.2). Which EYE tier a target also sits in is the gate test's business,
+  // below, and it derives its placements from CONFIG.
 
   it('a frame carries EXACTLY {k,t,gx,gy,w,h,bits} on every blip — no id, no position, no ext, no pose (amendment 152)', () => {
     const w = bareWorld(52);
     const a = place(w, 'a', 0, 0);
-    place(w, 'bb', 700, 0, 0.9, 'battleship');
-    place(w, 'tb', 0, 720, 2.1, 'torpedoBoat');
-    place(w, 'ml', -750, 0, -0.4, 'mineLayer');
+    place(w, 'bb', 700, 0, 0.9, 'yamato');
+    place(w, 'tb', 0, 720, 2.1, 'bismarck');
+    place(w, 'ml', -750, 0, -0.4, 'warspite');
     a.prevSweepAngle = 0; // one window sweeping the full circle minus ε
     a.sweepAngle = wrapPositive(-1e-9);
     const blips = blipsOf(buildFrame(w, 'a'));
@@ -80,9 +82,9 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // is `paintCoverage`, never the sharp rasterization) — matched exactly
     // once each, since the wire does not say which is which.
     const expected = [
-      paintCoverage('battleship', 700, 0, 0.9, CELL, w.now),
-      paintCoverage('torpedoBoat', 0, 720, 2.1, CELL, w.now),
-      paintCoverage('mineLayer', -750, 0, -0.4, CELL, w.now),
+      wirePaint(w, 'yamato', 700, 0, 0.9),
+      wirePaint(w, 'bismarck', 0, 720, 2.1),
+      wirePaint(w, 'warspite', -750, 0, -0.4),
     ];
     for (const ev of blips) {
       // Assert on the object's KEYS, order included (msgpack wire shape) — and
@@ -102,14 +104,14 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     const w = bareWorld(53);
     const a1 = place(w, 'a1', 0, 0);
     const a2 = place(w, 'a2', 120, -260);
-    const b = place(w, 'b', 700, 0, 1.1, 'battleship');
+    const b = place(w, 'b', 700, 0, 1.1, 'yamato');
     windowAround(a1, Math.atan2(b.state.y - a1.state.y, b.state.x - a1.state.x));
     windowAround(a2, Math.atan2(b.state.y - a2.state.y, b.state.x - a2.state.x));
     const seen1 = blipsOf(buildFrame(w, 'a1'));
     const seen2 = blipsOf(buildFrame(w, 'a2'));
     // Compare the footprint that matches b's true raster, which must appear
     // for BOTH observers, byte-identical — moving the observer moves nothing.
-    const truth = JSON.stringify(paintCoverage('battleship', 700, 0, 1.1, CELL, w.now));
+    const truth = JSON.stringify(wirePaint(w, 'yamato', 700, 0, 1.1));
     const of1 = seen1.filter((e) => JSON.stringify(maskOf(e)) === truth);
     const of2 = seen2.filter((e) => JSON.stringify(maskOf(e)) === truth);
     expect(of1).toHaveLength(1);
@@ -119,7 +121,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('a bow-on hull and a broadside hull of the same class produce DIFFERENT rects — the footprint points the way the hull does', () => {
     const w = bareWorld(54);
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 700, 0, 0, 'battleship'); // heading +x: long axis in x
+    const b = place(w, 'b', 700, 0, 0, 'yamato'); // heading +x: long axis in x
     windowAround(a, 0);
     const bowOn = blipsOf(buildFrame(w, 'a'))[0];
     b.state.heading = Math.PI / 2; // long axis in y
@@ -141,16 +143,16 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('ANTI-CHEAT (fail-proven): the footprint is UNCHANGED by granting boons or changing hp/damage state', () => {
     const w = bareWorld(55);
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 700, 0, 0.9, 'battleship');
+    const b = place(w, 'b', 700, 0, 0.9, 'yamato');
     windowAround(a, 0);
     const before = blipsOf(buildFrame(w, 'a'))[0];
     // Wound the target deep into the tier-2 smoke band AND grant it boons —
     // including shipHull, which moves maxHp and heals — none of which is hull
     // geometry or pose, so NONE of it may reach the footprint.
     b.hp = b.stats.maxHp * 0.1;
-    w.applyCard(b, 'hullPoints');
+    w.applyCard(b, 'armor');
     w.applyCard(b, 'deckGun');
-    w.applyCard(b, 'speed');
+    w.applyCard(b, 'engines');
     windowAround(a, 0);
     const after = blipsOf(buildFrame(w, 'a'))[0];
     expect(maskOf(after)).toEqual(maskOf(before));
@@ -163,21 +165,35 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
 
   it('the gate: a ship paints only when swept, at any range — a swept sighted ship is a contact AND a blip (amendment 210)', () => {
     const w = bareWorld(56);
-    const a = place(w, 'a', 0, 0);
-    place(w, 'in', 700, 0, 0.3); // beyond sight, swept — paints
-    place(w, 'out', 0, -700, 0.3); // beyond sight, unswept — silent
-    place(w, 'near', 100, 0, 0.3); // inside sight, swept — contact AND blip
+    // The placements, off the named reaches (Story 11.2): RADAR_ONLY is past
+    // the hull sight and inside radar; BAND is the haze band (a fading
+    // contact); NEAR is deep inside the class-and-name reach. The observer sits
+    // half of RADAR_ONLY west of the origin so every seat is on the board.
+    const V = CONFIG.vision;
+    const RADAR_ONLY = (V.hullSight + V.radar) / 2;
+    const BAND = (V.sight + V.hullSight) / 2;
+    const NEAR = V.sight / 4;
+    const OFF = 0.3; // rad — a bearing well outside the paint window
+    expect(RADAR_ONLY / 2).toBeLessThan(w.map.radius); // premise: on the water
+    const ax = -RADAR_ONLY / 2;
+    const a = place(w, 'a', ax, 0);
+    const at = { in: { x: ax + RADAR_ONLY, y: 0 }, out: { x: ax + RADAR_ONLY * Math.cos(OFF), y: RADAR_ONLY * Math.sin(OFF) }, mid: { x: ax + BAND, y: 0 }, near: { x: ax + NEAR, y: 0 } };
+    place(w, 'in', at.in.x, at.in.y, 0.3); // beyond the hull sight, swept — paints
+    place(w, 'out', at.out.x, at.out.y, 0.3); // beyond the hull sight, unswept — silent
+    place(w, 'mid', at.mid.x, at.mid.y, 0.3); // the haze band, swept — a contact AND a blip
+    place(w, 'near', at.near.x, at.near.y, 0.3); // inside the class reach, swept — contact AND blip
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     const blips = blipsOf(f);
-    expect(blips).toHaveLength(2);
-    expect(f.contacts.map((c) => c.id)).toEqual(['near']);
-    // The two footprints are exactly the two swept hulls' rasters, and the
-    // unswept ship leaks nowhere.
-    const expected = [paintCoverage('torpedoBoat', 700, 0, 0.3, CELL, w.now), paintCoverage('torpedoBoat', 100, 0, 0.3, CELL, w.now)];
+    expect(blips).toHaveLength(3);
+    // The eye holds the two hulls inside its hull sight — never the radar-only two.
+    expect(f.contacts.map((c) => c.id).sort()).toEqual(['mid', 'near']);
+    // The three footprints are exactly the three swept hulls' rasters, and
+    // the unswept ship leaks nowhere.
+    const expected = [at.in, at.mid, at.near].map((p) => wirePaint(w, 'bismarck', p.x, p.y, 0.3));
     expect(blips.map(maskOf)).toEqual(expect.arrayContaining(expected));
     const cellOfU = (v: number): number => Math.floor(v / CELL);
-    expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(0) - b.gx, cellOfU(-700) - b.gy))).toBe(false);
+    expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(at.out.x) - b.gx, cellOfU(at.out.y) - b.gy))).toBe(false);
   });
 });
 

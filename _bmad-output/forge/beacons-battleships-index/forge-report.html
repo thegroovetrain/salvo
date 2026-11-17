@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Forge Report — Beacons, Battleships, Index Model</title>
+<style>
+  :root { --ink:#1c1a17; --paper:#f6f1e7; --rule:#c9bda6; --accent:#8b1e1e; --muted:#6b6256; }
+  body { margin:0; background:#e9e2d3; color:var(--ink); font:16px/1.55 Georgia, "Times New Roman", serif; }
+  .sheet { max-width:880px; margin:32px auto; background:var(--paper); padding:48px 56px 64px; box-shadow:0 6px 28px rgba(0,0,0,.18); position:relative; }
+  h1 { font-size:30px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:34px 0 10px; border-bottom:1px solid var(--rule); padding-bottom:4px; text-transform:uppercase; letter-spacing:1.2px; color:var(--muted); }
+  .meta { color:var(--muted); font-size:14px; margin-bottom:24px; }
+  .seal { position:absolute; top:36px; right:40px; width:160px; height:160px; transform:rotate(-12deg); }
+  ul { padding-left:22px; } li { margin:6px 0; }
+  .lock li::marker { content:"🔒 "; }
+  .kill li::marker { content:"✕ "; color:var(--accent); }
+  .weak li::marker { content:"⚠ "; }
+  .premise { border-left:4px solid var(--accent); padding:10px 16px; margin:12px 0; background:#fff8e8; }
+  .premise b { display:block; margin-bottom:4px; }
+  .personas { display:grid; grid-template-columns:1fr 1fr; gap:10px 24px; font-size:15px; }
+  .personas div { padding:6px 0; border-bottom:1px dotted var(--rule); }
+  .personas b { display:block; }
+  .small { font-size:13px; color:var(--muted); }
+  code { font-family: Menlo, monospace; font-size:13px; background:#eee6d6; padding:1px 4px; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <svg class="seal" viewBox="0 0 200 200" aria-label="HARDENED seal">
+    <defs><radialGradient id="wax" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#b8302c"/><stop offset=".7" stop-color="#7d1a17"/><stop offset="1" stop-color="#4f0e0c"/></radialGradient></defs>
+    <path d="M100 8 C130 4 160 20 178 48 C196 78 194 118 176 146 C158 176 124 196 96 192 C60 188 28 166 14 132 C0 98 10 58 36 32 C54 14 78 10 100 8 Z" fill="url(#wax)" stroke="#3a0a08" stroke-width="2"/>
+    <circle cx="100" cy="100" r="72" fill="none" stroke="#f1d3b0" stroke-width="2.5" stroke-dasharray="4 3"/>
+    <circle cx="100" cy="100" r="60" fill="none" stroke="#f1d3b0" stroke-width="1.2"/>
+    <text x="100" y="92" text-anchor="middle" font-family="Georgia, serif" font-size="22" font-weight="bold" fill="#f6e3c8" letter-spacing="2">HARDENED</text>
+    <text x="100" y="114" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#f6e3c8" letter-spacing="1.5">BMAD FORGE</text>
+    <text x="100" y="132" text-anchor="middle" font-family="Georgia, serif" font-size="10" fill="#f6e3c8">2026-11-03</text>
+  </svg>
+
+  <h1>Forge Report</h1>
+  <div class="meta">Beacons, Battleships, Index Model — the 2026-11-03 brainstorm as one slice<br>
+  Participant: Eric · Mode: attack, then a room of eight independent agents · Workspace: <code>_bmad-output/forge/beacons-battleships-index/</code></div>
+
+  <h2>Outcome</h2>
+  <p><b>Hardened, on the second pass.</b> The first pass closed after six questions without challenging a premise; Eric reopened it. The second pass put six unchallenged premises in front of eight independent agents, who returned one verdict: every premise was cracked or dead as written, and the common fault was that nothing had been named as broken. Eric then ruled each premise in his own words. The slice stands, reshaped: the beacon pot splits, the index model's costs are accepted and ramming rethought, all four hulls are battleships on purpose with a Rudder stat, the airdrops are flavor, and healing stays scarce.</p>
+
+  <h2>Sequencing</h2>
+  <p>The whole slice goes to correct-course as one piece, later, not this session. The beacons-first Story 10.2 cut from the first pass is withdrawn.</p>
+
+  <h2>The six premises, attacked and ruled</h2>
+  <div class="premise"><b>1. Drones are an anti-pattern.</b> Room: the record held one sentence ("fairly uninteresting") and no match data. <i>Eric:</i> they work as built; the map feels busy, you can't tell player from drone, you still hunt them, and they don't pull players into conflict with each other. Beacons are a hypothesis to test. Guards are the fallback.</div>
+  <div class="premise"><b>2. Beacons give four verbs.</b> Room: max-min placement puts each beacon equidistant from two captains; full-rate sharing and a blessed standoff make "sit and truce" the only verb. <i>Eric:</i> the pot splits. King-of-the-hill rejected. Build 8/4/2; 6/4/2 tabled.</div>
+  <div class="premise"><b>3. The index model fixes something.</b> Room split: a hidden multiply and dead ramming mass, or a readout rename. The "ARMOR card worth halves" claim was wrong (the gate nets Armor minus Power). Ramming mass = max hull was verified. <i>Eric:</i> it is both a tuning ruler and readability; costs accepted; ramming mass is probably Armor; the HUD shows whole-number percentages only.</div>
+  <div class="premise"><b>4. Four battleships belong here.</b> Room: the fast-and-fragile verb (1.29× speed, 2× turn, 300 hp) has no hull; Iowa is a quicker tank. <i>Eric:</i> gone on purpose; stats decide glass vs beef; Rudder is a new stat for turn rate.</div>
+  <div class="premise"><b>5. 156 airdrops are decisions.</b> Room: a drop is a sixth of a card; a 1,000 u detour costs half a card of passive time; nobody turns. <i>Eric:</i> keep 156 as flavor; the hoarder style is dropped.</div>
+  <div class="premise"><b>6. Dropping the kit five days after building it.</b> Room: no recorded failure; a timer heal silently overturns "healing scarcity prices recklessness." <i>Eric:</i> too many buttons, not broken; healing stays scarce with a long Hull Repair cooldown.</div>
+
+  <h2>Also locked</h2>
+  <ul class="lock">
+    <li>Lasting ship identity is layout only; stats are a head start cards and drops may erase.</li>
+    <li>Secondaries uniform on every hull; rhythm belongs to the player; mines hurt by secondaries only.</li>
+    <li>Airdrops paint on radar by imprint. Passive healing and the HULL POINTS ladder die.</li>
+    <li>Right click is secondaries-or-cancel, intended.</li>
+  </ul>
+
+  <h2>Rejected</h2>
+  <ul class="kill">
+    <li>Scaling cards, wider offsets, Reload out of the index. Per-hull secondaries, three ships, a destroyer/cruiser/battleship mix.</li>
+    <li>Nearest-hull beacons. Drops worth a card, fewer-bigger-exclusive, drops with a downside.</li>
+    <li>Passive healing beside Hull Repair. Any shell pops a mine.</li>
+  </ul>
+
+  <h2>Weak points that survived</h2>
+  <ul class="weak">
+    <li>Bismarck and Warspite are one ship once the head start fades.</li>
+    <li>Equal DPS is paper-equal; the tank wins straight trades ~1.7×. Intended.</li>
+    <li>Shift free pick has dominant pairs; numbers after staging.</li>
+    <li>The kit retire undoes Stories 10.1/10.9.</li>
+  </ul>
+
+  <h2>Who pressure-tested it</h2>
+  <div class="personas">
+    <div><b>🃏 Wildcard — Option Generator</b>Named the options never tabled: guarded beacons, ship types with real names, show effective HP.</div>
+    <div><b>📏 Level — Claim Checker</b>Found the one-sentence drone record and the kit's missing failure; called the index a readout rename, and was right about the armor curve.</div>
+    <div><b>🪵 Splinter — Consensus Challenger</b>Priced the tradeoffs: the witness rule, the stall loop, the uncapped armor hoarder.</div>
+    <div><b>🛑 Killjoy — Loop Stopper</b>Collapsed seven reports into one memo, named the two real disagreements, ranked the premises, wrote the one question.</div>
+    <div><b>🎲 Samus Shepard — Game Designer</b>Asked what the player feels at 1:30 (parked) and why press-when-lit is a reflex, not a choice.</div>
+    <div><b>🏛️ Cloud Dragonborn — Game Architect</b>Named the load-bearing walls: STEP_ORDER rows, the witness dial, the bots' forager posture; the placement rule built for fairness, not contest.</div>
+    <div><b>🎮 Indie — Game Solo Dev</b>Found ramming mass = max hull; argued for the one-line test before the big lift; counted the drops.</div>
+    <div><b>🔬 Dr. Quinn — Master Problem Solver</b>Found density as the drones' real sin and "does a beacon pay less when shared" as the word every verb hangs on.</div>
+  </div>
+  <p class="small">First pass voices (voiced, not spawned): John, Winston, Mary, Amelia, Murat, "Dutch", "Ines".</p>
+
+  <h2>Next</h2>
+  <ul><li><code>gds-correct-course</code> on the whole slice, with <code>forged-idea.md</code> as the brief. Not this session.</li></ul>
+</div>
+</body>
+</html>

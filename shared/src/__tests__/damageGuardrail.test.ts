@@ -27,13 +27,16 @@
 // flare deals 10 → 20 across its ladder, under the same per-shell law). Pure
 // CONFIG/catalog pins — they fail the moment a retune or a
 // catalog step drifts across a line.
+//
+// THE DRONES RETIRED (Story 10.8, 2026-11-06): the drone-hp pins, the small
+// drone's farming trade and the PvE exchange-rate guard went with them; the
+// class-hull scope above stands.
 
 import { describe, it, expect } from 'vitest';
 import {
   BOON_STAT_PATHS,
   CATALOG,
   CONFIG,
-  DRONE_SIZE_IDS,
   LINE_IDS,
   SHIP_CLASS_IDS,
   boostedKinematics,
@@ -52,20 +55,16 @@ function maxStackFor(path: string): LineId[] {
 }
 
 const classHps = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp);
-const droneHps = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].hp);
 // The one-hit-kill LAW protects player-piloted CLASS hulls only (Story 5.6 —
-// see the file header). Drone hp is tracked separately below, deliberately
-// NOT folded into this floor.
+// see the file header).
 const minHullHp = Math.min(...classHps);
-const minDroneHp = Math.min(...droneHps);
 
-const classSpeeds = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].kinematics.maxSpeed);
-const droneSpeeds = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].kinematics.maxSpeed);
-const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
+const classSpeeds = SHIP_CLASS_IDS.map((c) => effectiveStats(CONFIG.shipClasses[c]).kinematics.maxSpeed);
+const maxHullSpeed = Math.max(...classSpeeds);
 
 /** Stats under N copies of one catalog line (the max-stack computation). */
 const stacked = (id: LineId, n = CATALOG[id].cap) =>
-  effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(n).fill(id));
+  effectiveStats(CONFIG.shipClasses.iowa, new Array<LineId>(n).fill(id));
 
 describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, Story 5.6)', () => {
   it('gun burst / contact damage cannot one-hit the lightest hull; bodyblock is the lighter outcome', () => {
@@ -87,20 +86,6 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
     // total is deliberately outside it, exactly as a multi-barrel gun CLICK is
     // (see 'THE LAW IS PER SHELL' below).
     expect(CONFIG.broadside.damage).toBeLessThan(minHullHp);
-  });
-
-  it('every drone hull is lighter than every class hull, so drones are not floor-eligible', () => {
-    // Drones are ALL lighter than every pickable class hull. That does NOT
-    // make the small drone "the lightest hull on the water" for GUARDRAIL
-    // purposes — fleet hulls are PvE fodder (amendment 33) and are
-    // deliberately NOT protected by the one-hit-kill law. minHullHp is
-    // therefore the CLASS floor, not the drone floor.
-    for (const droneHp of droneHps) {
-      for (const classHp of classHps) {
-        expect(droneHp).toBeLessThan(classHp);
-      }
-    }
-    expect(minDroneHp).toBeLessThan(minHullHp);
   });
 });
 
@@ -128,41 +113,6 @@ describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendmen
   });
 });
 
-describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 34; epic-6 amendment 24)', () => {
-  it('the GUN — the fleet-clearing weapon — still cannot one-shot even the smallest drone', () => {
-    // This is the one that must hold: the gun is the weapon the TTK ladder is
-    // written against (3/4/5 shots = 15/20/25s), so a one-shot here would
-    // collapse the whole envelope rather than reward a build.
-    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // one SHELL never one-shots it
-  });
-
-  it('EVERY heavier player weapon one-shots a small drone at BASE — INTENDED, and the Mine Layer case is the point', () => {
-    // Eric ruling 2026-08-16: *"if you wanna spend mines to clear drones, do
-    // it. My players actually found that the minelayer is a fleet-killing
-    // machine, and it being able to aggro and mine pve ships can secure it an
-    // XP bonus to rely on in fights."*
-    //
-    // At 60hp the base mine (55) fell just short and only a STACKED mine
-    // cleared the bar. At 45 it clears at base, so the Mine Layer's fleet-
-    // farming play works out of the box instead of needing a card first. That
-    // is a RATIFIED buff, not an accepted cost — do not "restore" the gap.
-    //
-    // Note this does NOT touch amendment 36 clause 3: a mine hit still does
-    // not aggro its victim. The Mine Layer pulls aggro with its GUN and leads
-    // hulls over the field, which is that rule working as designed.
-    // The cannon's 65 became the broadside's 20 PER SHELL (Story 7-5 wave 2),
-    // which no longer clears a 45hp small drone on its own — but a BARRAGE of 3
-    // does, and a barrage is the weapon's unit of fire. Pinned as the barrage
-    // so the Battleship's fleet-clearing is still guarded.
-    expect(CONFIG.broadside.damage * CONFIG.broadside.turrets).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 60 >= 45
-    expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp);
-    expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // the ruling
-    // The `stacked('mineDamage')` half of this pin is RETIRED with the card
-    // (Story 7-5 wave 1): TNT FILLER is deleted, so 55 IS the mine's damage at
-    // every build and the base clause above is now the whole statement.
-  });
-});
-
 // NARROWED, NOT WEAKENED (Story 7-5 wave 1, completed by wave 2). ALL FOUR
 // damage ladders this describe was written for are now DELETED — Eric: *"The
 // gun is absurdly powerful and does not need damage bonuses"* took three of
@@ -172,51 +122,19 @@ describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming e
 // nothing left to sweep: a future damage line lands under the law
 // automatically, on the day it lands, instead of needing a new pin.
 describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; player-classes-only scope per Story 5.6)', () => {
-  it('EVERY damage path, max-stacked from the catalog, stays UNDER the 300hp lightest CLASS hull', () => {
-    // Swept from the catalog rather than listed, so a new damage card is
-    // covered the day it lands and a deleted one needs no edit here. Catalog
-    // v3 widened the sweep: every `equipment.<id>.damage` path the GENERATED
-    // whitelist carries is checked, built or not.
-    const damagePaths = BOON_STAT_PATHS.filter((p) => p.endsWith('.damage'));
-    const read = (st: EffectiveStats, path: string): number => {
-      const [, id, field] = path.split('.');
-      return (st.equipment as unknown as Record<string, Record<string, number>>)[id][field];
-    };
-    expect(damagePaths.length).toBeGreaterThanOrEqual(9);
-    for (const path of damagePaths) {
-      const s2 = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path));
-      expect(read(s2, path), path).toBeLessThan(minHullHp);
-    }
-    // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN, the FOUR
-    // torpedo / mine lines, FLAK (all as retuned by Eric 2026-10-16, Story
-    // 9.12), and since Story 8.17 STAR SHELLS and PHOSPHOR SHELLS (Eric
-    // 2026-09-29, amendments 130/131). FOULING MINES is deliberately absent —
-    // its 10 hp is FIXED at every tier (epic-8 amendment 81) — and so is the
-    // BROADSIDE, whose 15 per shell is fixed at every tier (amendment 133),
-    // and since Story 9.12 the MACHINE GUN, whose 5 per shell is flat.
-    expect(damagePaths.filter((p) => maxStackFor(p).length > 0).sort()).toEqual([
-      'equipment.captiveMines.damage',
-      'equipment.flak.damage',
-      'equipment.gun.damage',
-      'equipment.heavyTorpedo.damage',
-      'equipment.lightTorpedo.damage',
-      'equipment.navalMines.damage',
-      'equipment.phosphorShells.damage',
-      'equipment.starShells.damage',
-    ]);
-  });
 
-  it('the torpedo / mine damage endpoints (base + the authored steps) all stay under the 300hp floor', () => {
-    // Story 9.12 (Eric 2026-10-16): the four stepped lines top out at
-    // 120 / 135 / 135 / 135 — no single torpedo or mine one-shots a captain at
-    // any build (a two-tube salvo is a multi-shell case the per-shell law
-    // deliberately does not govern). The endpoint is DERIVED: the line's
-    // tier-I base plus every authored damage step.
+  it('the torpedo / mine damage endpoints (base + the authored steps) all stay under the lightest hull', () => {
+    // Story 10.3 (Eric 2026-11-04, rulings 5–6): no single torpedo or mine
+    // one-shots a captain at any build (a two-tube salvo is a multi-shell case
+    // the per-shell law deliberately does not govern). The endpoint is
+    // DERIVED: the line's tier-I base plus every authored damage step.
     const tops = [
       ['lightTorpedo', CONFIG.lightTorpedo.damage],
       ['heavyTorpedo', CONFIG.torpedo.damage],
       ['navalMines', CONFIG.mine.damage],
       ['captiveMines', CONFIG.captiveMines.damage],
+      ['foulingMines', CONFIG.foulingMines.damage],
+      ['supercavTorpedo', CONFIG.supercavTorpedo.damage],
     ] as const;
     for (const [id, base] of tops) {
       const path = `equipment.${id}.damage`;
@@ -224,15 +142,10 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
         .flat()
         .filter((e) => e.kind === 'stat' && e.path === path)
         .reduce((sum, e) => sum + (e as { add: number }).add, 0);
-      const got = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path)).equipment[id].damage;
+      const got = effectiveStats(CONFIG.shipClasses.iowa, maxStackFor(path)).equipment[id].damage;
       expect(got, path).toBe(base + steps);
       expect(got, path).toBeLessThan(minHullHp);
     }
-    // FOULING MINES trades damage for the slow: its base hp per hit at every tier.
-    expect(
-      effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.foulingMines.cap).fill('foulingMines'))
-        .equipment.foulingMines.damage,
-    ).toBe(CONFIG.foulingMines.damage);
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
@@ -247,8 +160,8 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     expect(stacked('deckGun').equipment.gun.damage).toBeLessThan(minHullHp);
     // Every other damage endpoint IS its base this cycle — pinned so a silent
     // re-add is visible.
-    const bs = effectiveStats(CONFIG.shipClasses.battleship);
-    const tb = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+    const bs = effectiveStats(CONFIG.shipClasses.yamato);
+    const tb = effectiveStats(CONFIG.shipClasses.iowa);
     expect(bs.equipment.broadside.damage).toBe(CONFIG.broadside.damage);
     expect(tb.equipment.gun.damage).toBe(CONFIG.gun.damage);
     expect(tb.equipment.heavyTorpedo.damage).toBe(CONFIG.torpedo.damage);
@@ -274,7 +187,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // DECK GUN ladder at its cap.
     const perShell = stacked('deckGun').equipment.gun.damage;
     expect(barrels).toBe(CONFIG.gun.barrels); // fixed at every tier
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.gun.barrels).toBe(barrels);
+    expect(effectiveStats(CONFIG.shipClasses.iowa).equipment.gun.barrels).toBe(barrels);
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
     // And this is the consequence Eric was shown and ACCEPTED: a fully
     // max-stacked triple mount whose three overlapping bursts all connect
@@ -325,9 +238,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // barrels × damage at V = 2 × 13 = 26 — the small-drone one-click is GONE
     // again (every drone size takes two or more maxed clicks). The ceiling is
     // read from the fold; a future barrel or damage change moves it visibly.
-    expect(perShell * barrels).toBeLessThan(minDroneHp); // the maxed click no longer one-clicks a small drone
-    expect(perShell * barrels).toBeLessThan(CONFIG.drones.medium.hp);
-    expect(perShell * barrels).toBeLessThan(CONFIG.drones.large.hp);
+    // (The drone-hp pins left with the drones, Story 10.8, 2026-11-06.)
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 
@@ -408,7 +319,7 @@ describe('mine blast geometry guardrail', () => {
     for (const id of ['navalMines', 'foulingMines'] as const) {
       const maxed = maxStackFor(`equipment.${id}.blastRadius`);
       expect(maxed.length, id).toBeGreaterThan(0);
-      const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
+      const s = effectiveStats(CONFIG.shipClasses.iowa, maxed);
       expect(s.equipment[id].blastRadius, id).toBeGreaterThan(CONFIG[id === 'navalMines' ? 'mine' : id].blastRadius);
       expect(s.equipment[id].triggerRadius, id).toBeLessThan(s.equipment[id].blastRadius);
     }
@@ -420,7 +331,7 @@ describe('mine blast geometry guardrail', () => {
     // trip ring rides its TIER, not its blast (epic-8 amendment 84d) — so the
     // line grows the reach of the trap while the bang stays 32 u at every rung.
     for (const n of [1, 3, 5]) {
-      const row = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(n).fill('captiveMines'))
+      const row = effectiveStats(CONFIG.shipClasses.iowa, new Array<LineId>(n).fill('captiveMines'))
         .equipment.captiveMines;
       expect(row.blastRadius, `x${n}`).toBe(CONFIG.captiveMines.blastRadius);
       expect(row.triggerRadius, `x${n}`).toBeGreaterThan(row.blastRadius);
@@ -440,7 +351,7 @@ describe('star-shell tell guardrail', () => {
   it('the STAR SHELLS ladder grows litRadius (amendment 130), and the maxed radius stays inside BASE radar range', () => {
     const maxed = maxStackFor('equipment.starShells.litRadius');
     expect(maxed).toEqual(new Array<LineId>(5).fill('starShells'));
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
+    const s = effectiveStats(CONFIG.shipClasses.iowa, maxed);
     expect(s.equipment.starShells.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.1 ** 4, 9);
     expect(s.equipment.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
@@ -455,107 +366,25 @@ describe('star-shell tell guardrail', () => {
 // ordnance never damages the own hull (Story 8.4, no friendly fire), so a firer
 // that re-catches its own fish takes nothing for it.
 describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired)', () => {
-  it('THE LIGHT TORPEDO IS SLOWER THAN EVERY HULL — allowed, and deliberate (FR53)', () => {
-    // 45 u/s at tier I and 55 at tier V, against class hulls of 45/40/35 that
-    // boost to 56.25/50/43.75. A Torpedo Boat can outrun its own light fish at
-    // every build, which is fine on two counts: FR7's outrun law is retired
-    // (Eric 2026-09-11, AR49) and own ordnance NEVER damages the own hull
-    // (Story 8.4, no friendly fire), so re-catching your own fish is not a
-    // self-damage hazard. The light torpedo buys its arc and its cadence, not
-    // its speed.
-    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.lightTorpedo;
-    const maxed = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(5).fill('lightTorpedo'))
-      .equipment.lightTorpedo;
-    // At tier I it merely MATCHES the fastest base hull (the Torpedo Boat's
-    // 45) — so a TB at full ahead is never outrun by it — and a SPEED-capped,
-    // boosted TB (71.875) outruns even the maxed fish.
-    expect(base.speed).toBeLessThanOrEqual(maxHullSpeed);
-    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
-    expect(boostedKinematics(capped.kinematics, CONFIG.boost.factor, true).maxSpeed)
-      .toBeGreaterThan(maxed.speed);
-    expect(maxed.speed).toBeLessThan(CONFIG.torpedo.speed); // always under the heavy's
+  it('the light torpedo stays under the heavy at every tier (FR53: it buys its arc and its cadence, not its speed)', () => {
+    // THE OLD FACT MOVED WITH THE HULLS (Story 10.4): against the scaffold
+    // classes (45 / 40 / 35 u/s) the tier-I light torpedo merely matched the
+    // fastest hull; the four battleships are slower than all of them, so it
+    // outruns every base hull now. Neither reading was ever a law (FR7's
+    // outrun rule is retired, Eric 2026-09-11, AR49; own ordnance never
+    // damages the own hull), so no hull speed is pinned here.
+    for (let n = 0; n <= 5; n += 1) {
+      const row = effectiveStats(CONFIG.shipClasses[SHIP_CLASS_IDS[0]], new Array<LineId>(n).fill('lightTorpedo'))
+        .equipment.lightTorpedo;
+      expect(row.speed, `x${n}`).toBeLessThan(CONFIG.torpedo.speed);
+    }
   });
 
-  it('the SUPERCAV consumable is the fastest thing afloat, by a wide margin (amendment 74)', () => {
+  it('the SUPERCAV is the fastest thing afloat, by a wide margin (amendment 74)', () => {
     // 195 u/s against a 45 u/s top hull: a straight-runner that trades homing
-    // and a reload for reach-in-a-hurry. It is a CONSUMABLE, so the number
-    // lives in CONFIG and no stat row carries it.
+    // for reach-in-a-hurry. No tier steps the speed (Story 10.5), so the
+    // CONFIG number is its speed at every build.
     expect(CONFIG.supercavTorpedo.speed).toBeGreaterThan(maxHullSpeed);
     expect(CONFIG.supercavTorpedo.damage).toBeLessThan(minHullHp);
-  });
-});
-
-// --- The PvE exchange rate (epic-5 amendment 45) ------------------------------
-//
-// THE GUARDRAIL AMENDMENT 33 FAILED TO APPLY, and the one that actually caught
-// the 6/8/10 fleet gun. A PvE kill is only a faucet if the XP it pays exceeds
-// what the damage taken COSTS TO UNDO — and undoing damage has a hard price in
-// the same currency: one HULL REPAIR copy restores instantHp + regenHp, and a
-// copy is a card, which is what a banked level buys. So the honest test of a
-// PvE damage profile is an EXCHANGE RATE, never a dps or a time-to-kill.
-// (It was a level spent directly on the heal until Story 8.8 made the heal a
-// card; the arithmetic — one level, one heal's worth of hp — is unchanged.)
-//
-// Eric's derivation, 2026-08-14: an unupgraded gun (15) needs 4 shots to sink a
-// 60hp small hull; on a 5s reload that is 20 seconds, in which the drone fires
-// back 4 times. At 6 damage that is 24 hp taken for a quarter-level earned —
-// and 24 hp costs about half a level to repair. Every size was NET NEGATIVE:
-// farming correctly and winning left a captain BEHIND one who ignored the
-// fleet entirely, which is a broken faucet rather than a hard fight.
-describe('the PvE farm must PAY — damage taken costs less to repair than the kill earns', () => {
-  const HEAL_HP = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp; // 100 per HULL REPAIR copy
-  const TIERS = [
-    ['small', 'droneSmall'],
-    ['medium', 'droneMedium'],
-    ['large', 'droneLarge'],
-  ] as const;
-
-  // The CAPTAIN's click: `barrels` shells of `damage` each (two barrels at
-  // every tier since Story 9.12, Eric 2026-10-16), read through the fold —
-  // never CONFIG.gun.damage alone, which is one SHELL.
-  const captainGun = effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.gun;
-  const clickDamage = captainGun.damage * captainGun.barrels;
-
-  it('a solo duel with each fleet size is XP-POSITIVE after repair costs', () => {
-    // 100 since balance cycle 1 (instantHp + regenHp both 25 → 50, doubled in
-    // step with hull hp). CONSEQUENCE RECORDED RATHER THAN ABSORBED: a level now
-    // buys twice the repair, so the level-cost of PvE damage HALVED and farming
-    // is materially cheaper to sustain than it was when this bar was derived.
-    // The bar itself still holds — and now holds by a wider margin.
-    for (const [size, hullId] of TIERS) {
-      const drone = CONFIG.drones[size];
-      // Clicks the captain needs, on the base gun (every barrel's shell
-      // landing); the drone answers on its own reload for exactly as long as
-      // that takes.
-      const shotsToKill = Math.ceil(drone.hp / clickDamage);
-      const duelMs = shotsToKill * captainGun.reloadMs;
-      const volleysBack = Math.floor(duelMs / drone.gun.reloadMs);
-      const damageTaken = volleysBack * drone.gun.damage;
-
-      const levelsEarned = CONFIG.xp.droneTierLevels[hullId];
-      const levelsToRepair = damageTaken / HEAL_HP;
-
-      expect(levelsToRepair).toBeLessThan(levelsEarned);
-    }
-  });
-
-  it('and the OLD 6/8/10 gun fails this same test at the PRE-DOUBLING heal — the pin is not vacuous', () => {
-    // THE COUNTERFACTUAL IS ANCHORED TO THE OLD HEAL (50 hp/level) ON PURPOSE.
-    // At today's 100 hp/level the old 6/8/10 drone gun clears the bar too (the
-    // small tier costs 0.18 levels to repair against 0.25 earned), so measuring
-    // it against the CURRENT heal would make this guard vacuous — it would pass
-    // no matter how weak the counterfactual was. That the guard had to be
-    // re-anchored IS the finding: doubling the paid heal halved the level-cost
-    // of PvE damage, which loosened the faucet this whole describe-block exists
-    // to keep honest. Flagged for a ruling; not silently accepted.
-    const PRE_DOUBLING_HEAL = 50;
-    const OLD = { small: 6, medium: 8, large: 10 } as const;
-    for (const [size, hullId] of TIERS) {
-      const drone = CONFIG.drones[size];
-      const shotsToKill = Math.ceil(drone.hp / clickDamage);
-      const volleysBack = Math.floor((shotsToKill * captainGun.reloadMs) / drone.gun.reloadMs);
-      const damageTaken = volleysBack * OLD[size];
-      expect(damageTaken / PRE_DOUBLING_HEAL).toBeGreaterThan(CONFIG.xp.droneTierLevels[hullId]);
-    }
   });
 });

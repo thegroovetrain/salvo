@@ -113,7 +113,7 @@ function activate(h: Harness): void {
 }
 
 function input(seq: number, throttle: number, rudder = 0): unknown {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
 }
 
 // --- dropPolicy --------------------------------------------------------------
@@ -314,7 +314,7 @@ describe('deferred teardown (grace window)', () => {
     activate(h);
     // One click (fireSeq 1) fires once; the SAME held value must not fire again.
     expect(
-      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false }),
+      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false }),
     ).toBe(true);
     step(h); // click consumed this tick (lastFireSeq catches up)
     const shellsAfterClick = h.w.shells.size;
@@ -332,7 +332,7 @@ describe('deferred teardown (grace window)', () => {
 // and stub allowReconnection with a spy returning a controllable promise.
 
 interface WiringRoom {
-  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void; forgetHeldClouds: (id: string) => void };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
@@ -344,17 +344,18 @@ function wiringRoom(opts: {
   ship?: { lifecycle: ShipLifecycle };
   lastResults?: ResultsMsg;
   reconnectPromise?: Promise<unknown>;
-}): { room: WiringRoom; allow: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> } {
+}): { room: WiringRoom; allow: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn>; forget: ReturnType<typeof vi.fn> } {
   const release = vi.fn();
+  const forget = vi.fn();
   const allow = vi.fn(() => opts.reconnectPromise ?? new Promise<unknown>(() => undefined));
   const room = new ArenaRoom() as unknown as WiringRoom;
   const ships = new Map<string, { lifecycle: ShipLifecycle }>();
   if (opts.ship) ships.set('a', opts.ship);
-  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'] };
+  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'], forgetHeldClouds: forget as unknown as WiringRoom['world']['forgetHeldClouds'] };
   room.match = { phase: opts.phase };
   room.lastResults = opts.lastResults ?? null;
   room.allowReconnection = allow as unknown as WiringRoom['allowReconnection'];
-  return { room, allow, release };
+  return { room, allow, release, forget };
 }
 
 const RESUMABLE = CloseCode.ABNORMAL_CLOSURE; // 1006, in RECONNECTABLE_CLOSE_CODES
@@ -431,6 +432,19 @@ describe('ArenaRoom.onDrop wiring', () => {
     expect(newClient.send).not.toHaveBeenCalled();
   });
 
+  it('(e) Story 11.2 review gate, F3: the captain\'s plain-hull visits are ended at the drop and AGAIN at the resume — no perception pass runs for it in between, so no handle may link a sighting before the gap to one after it', async () => {
+    const { room, forget } = wiringRoom({
+      phase: 'active',
+      ship: { lifecycle: LIFECYCLE_ALIVE },
+      reconnectPromise: Promise.resolve({ send: vi.fn() }),
+    });
+    room.onDrop(CLIENT, RESUMABLE);
+    expect(forget.mock.calls).toEqual([['a']]); // at the drop, before the grace
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(forget.mock.calls).toEqual([['a'], ['a']]); // and at the resume
+  });
+
   it('(d3) a rejected reconnection promise is swallowed (no unhandled rejection)', async () => {
     const { room } = wiringRoom({
       phase: 'active',
@@ -442,6 +456,89 @@ describe('ArenaRoom.onDrop wiring', () => {
     await Promise.resolve();
     // If the .catch() were missing, the rejected promise above would surface as
     // an unhandledRejection and fail the suite.
+  });
+});
+
+// --- no captain re-enters a countdown (Story 10.7 review) ---------------------
+// The opening and the one redraw are latched on the SHIP RECORD
+// (`openingGranted`, `mulliganed`), and addShip builds a fresh record with both
+// clear — so the walls that keep a captain from collecting a second opening are
+// about records, not sessions. This suite drives the REAL World + Match through
+// the real ArenaRoom onDrop -> onLeave / onDrop -> resume -> onReconnect paths
+// (core calls onLeave right after an onDrop that held nothing, and onReconnect
+// instead of onJoin on a resume) and pins the two walls that live here:
+//   - a COUNTDOWN drop holds no seat and the leaver's record is gone at once,
+//     so there is no pending reconnection to come back through;
+//   - an ACTIVE resume keeps the SAME record — its redraw latch and its offer
+//     ride through untouched, and no fresh record (with fresh latches) exists.
+// The third wall (a boarding room is never unlocked) is match.test.ts's.
+
+interface DropRoom {
+  world: World;
+  match: Match;
+  state: { players: Map<string, unknown>; mapSeed: number; mapRadius: number };
+  allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
+  onDrop(client: { sessionId: string }, code?: number): void;
+  onLeave(client: { sessionId: string }, code?: number): void;
+  onReconnect(client: ResumeClientLike): void;
+}
+
+interface ResumeClientLike {
+  sessionId: string;
+  state: ClientState;
+  send: ReturnType<typeof vi.fn>;
+  leave: ReturnType<typeof vi.fn>;
+}
+
+/** The setup() harness's World + Match, behind a bare ArenaRoom whose
+ *  allowReconnection is a spy resolving to `resumed` (or never settling). */
+function dropRoom(ids: string[], resumed?: ResumeClientLike): { h: Harness; room: DropRoom; allow: ReturnType<typeof vi.fn> } {
+  const h = setup(ids);
+  const allow = vi.fn(() => (resumed ? Promise.resolve(resumed) : new Promise<unknown>(() => undefined)));
+  const room = new ArenaRoom() as unknown as DropRoom;
+  room.world = h.w;
+  room.match = h.m;
+  room.state = { players: h.players, mapSeed: 1, mapRadius: h.w.map.radius };
+  room.allowReconnection = allow as unknown as DropRoom['allowReconnection'];
+  return { h, room, allow };
+}
+
+describe('no captain re-enters a countdown', () => {
+  it('a countdown drop holds no seat and removes the leaver’s record at once', () => {
+    // Three captains, so one drop leaves the countdown standing (>= minHumans).
+    const { h, room, allow } = dropRoom(['a', 'b', 'c']);
+    expect(h.m.phase).toBe('countdown');
+    expect(h.w.ships.get('c')!.openingGranted).toBe(true);
+    room.onDrop({ sessionId: 'c' }, RESUMABLE);
+    expect(allow).not.toHaveBeenCalled(); // no reconnection is pending
+    room.onLeave({ sessionId: 'c' }, RESUMABLE); // core's follow-up to a held-nothing drop
+    expect(h.m.phase).toBe('countdown');
+    expect(h.w.ships.has('c')).toBe(false);
+    expect(h.players.has('c')).toBe(false);
+  });
+
+  it('an active resume keeps the SAME record, its redraw latch and its offer', async () => {
+    const resumed: ResumeClientLike = { sessionId: 'a', state: ClientState.JOINING, send: vi.fn(), leave: vi.fn() };
+    const { h, room, allow } = dropRoom(['a', 'b'], resumed);
+    const record = h.w.ships.get('a')!;
+    expect(h.w.mulligan(record)).toBe(true); // the one redraw, spent in the countdown
+    activate(h);
+    const shipsBefore = h.w.ships.size;
+    const offer = record.offer;
+    expect(offer).not.toBeNull(); // the redrawn hand rode activation onto live water
+    expect(record.mulliganed).toBe(true);
+
+    room.onDrop({ sessionId: 'a' }, RESUMABLE);
+    expect(allow).toHaveBeenCalledTimes(1); // the seat is held
+    await Promise.resolve(); // flush the resume's .then
+    await Promise.resolve();
+    room.onReconnect(resumed);
+
+    expect(h.w.ships.size).toBe(shipsBefore);
+    expect(h.w.ships.get('a')).toBe(record);
+    expect(record.mulliganed).toBe(true);
+    expect(record.openingGranted).toBe(true);
+    expect(record.offer).toBe(offer);
   });
 });
 
@@ -537,15 +634,14 @@ describe('ArenaRoom.onReconnect (Story 6.7 — the welcome re-send)', () => {
     expect(sent[1]).not.toBe(sent[0]);
   });
 
-  it('THE SECOND-HULL REGRESSION: a resume adds no ship, no roster row, no hue draw', () => {
+  it('THE SECOND-HULL REGRESSION: a resume adds no ship and no roster row', () => {
     const room = resumeRoom();
     const c = resumeClient('alice');
     room.clients.push(c);
-    room.onJoin(c, { name: 'ALICE', cls: 'battleship' });
+    room.onJoin(c, { name: 'ALICE', cls: 'yamato' });
     const shipsAfterJoin = room.world.ships.size;
     const record = room.world.ships.get('alice');
     const meta = room.state.players.get('alice');
-    const hue = meta?.color;
     expect(shipsAfterJoin).toBe(1);
     expect(record).toBeDefined();
 
@@ -555,10 +651,9 @@ describe('ArenaRoom.onReconnect (Story 6.7 — the welcome re-send)', () => {
     // sharing its id (which would silently reset pose, hp, boons and class).
     expect(room.world.ships.size).toBe(shipsAfterJoin);
     expect(room.world.ships.get('alice')).toBe(record);
-    // The roster is untouched: one row, same object, same personal hue.
+    // The roster is untouched: one row, same object.
     expect(room.state.players.size).toBe(1);
     expect(room.state.players.get('alice')).toBe(meta);
-    expect(room.state.players.get('alice')?.color).toBe(hue);
   });
 
   it('is TOTAL — a throwing send is swallowed, because core answers a throw by ABORTING the resume', () => {

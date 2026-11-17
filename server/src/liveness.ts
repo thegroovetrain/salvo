@@ -49,6 +49,7 @@
 
 import { matchMaker, createEndpoint } from 'colyseus';
 import { CONFIG, type LivenessPayload } from '@salvo/shared';
+import { queueFillSettings } from './rooms/queueFill.js';
 
 /** Room names, mirroring app.config.ts's `gameServer.define` calls. */
 export const ARENA_ROOM = 'arena';
@@ -159,11 +160,11 @@ function humansOf(room: RoomRecord): number {
  * so PLAYERS ONLINE and LIVE GAMES vanished even though the arena counts were
  * perfect).
  */
-function queueOf(room: RoomRecord): LivenessPayload['queue'] {
+function queueOf(room: RoomRecord, queueMin: number): LivenessPayload['queue'] {
   const bag = bagOf(room.metadata);
   return {
     pooled: num(bag, 'pooled') ?? clientsOf(room),
-    min: num(bag, 'min') ?? CONFIG.match.minHumans,
+    min: num(bag, 'min') ?? queueMin,
     cap: num(bag, 'cap') ?? CONFIG.map.playerCap,
     deadlineAt: num(bag, 'deadlineAt'),
   };
@@ -178,14 +179,17 @@ function queueOf(room: RoomRecord): LivenessPayload['queue'] {
  * keeps accepting it, but nothing WE serve is ever null — because the only
  * thing a client could do with a null block is hardcode the threshold, and a
  * front page that says `NEEDS 2 TO START` from a client-side literal starts
- * lying the day `CONFIG.match.minHumans` is retuned. The empty-server case is
- * the single most-viewed state this route exists for; it must be answered by
- * the same authority that answers the busy one.
+ * lying the day the arm minimum moves. The empty-server case is the single
+ * most-viewed state this route exists for; it must be answered by the same
+ * authority that answers the busy one — so `min` is the EFFECTIVE arm minimum
+ * a queue room would publish (`queueMin`, from queueFill.ts: 1 with the
+ * standard queue's bot fill on, CONFIG.match.minHumans with it off — Story
+ * 10.11, epic-10 amendment 20).
  */
-function emptyQueue(): LivenessPayload['queue'] {
+function emptyQueue(queueMin: number): LivenessPayload['queue'] {
   return {
     pooled: 0,
-    min: CONFIG.match.minHumans,
+    min: queueMin,
     cap: CONFIG.map.playerCap,
     deadlineAt: null,
   };
@@ -207,6 +211,9 @@ function emptyQueue(): LivenessPayload['queue'] {
  * - `queue` = the Standard queue, or `emptyQueue()` when no queue room exists —
  *   which is the NORMAL empty state, since the room autoDisposes with its last
  *   captain, and reads identically to a pool of zero.
+ * - `queueMin` = the queue's effective arm minimum (queueFill.ts), used
+ *   wherever no queue room published one. An INPUT like `homeViewers`; the
+ *   default reads the switch, and tests pass it explicitly.
  * - `modes` = the per-mode split, for operators only (deliberately not on the
  *   home screen). ARENAS ONLY — see the header: queued captains are in neither
  *   bucket, and neither are home viewers, so the two do not sum to
@@ -216,6 +223,7 @@ export function foldLiveness(
   rooms: readonly RoomRecord[],
   nowMs: number,
   homeViewers = 0,
+  queueMin = queueFillSettings().armMinimum,
 ): LivenessPayload {
   const modes = {
     standard: { players: 0, games: 0 },
@@ -243,10 +251,10 @@ export function foldLiveness(
       // never locked and has no maxClients, so joinOrCreate always pools into
       // it); taking the first keeps a hypothetical second from publishing a
       // second countdown the client would have no way to choose between.
-      queue = queueOf(room);
+      queue = queueOf(room, queueMin);
     }
   }
-  return { playersOnline, liveGames, queue: queue ?? emptyQueue(), modes, serverNow: nowMs };
+  return { playersOnline, liveGames, queue: queue ?? emptyQueue(queueMin), modes, serverNow: nowMs };
 }
 
 // --- home-screen presence ----------------------------------------------------

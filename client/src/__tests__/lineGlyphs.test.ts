@@ -1,6 +1,6 @@
 // Cycle 162 — THE ICON PASS (Eric 2026-10-01): every card line has its OWN
 // glyph. The refit card and How-to-Play feed `glyphPaths` a LINE id, so the
-// one lookup must answer every one of the 25 `LINE_IDS` but the stub DEPTH
+// one lookup must answer every one of the `LINE_IDS` but the stub DEPTH
 // CHARGE, with no two lines drawn alike and every point inside the unit box.
 
 import { describe, it, expect } from 'vitest';
@@ -36,7 +36,14 @@ describe('one glyph per card line (cycle 162)', () => {
     expect(glyphPaths('deckGun')).toEqual(glyphPaths('gun'));
   });
 
+  // Story 10.6: the HULL REPAIR and SMOKE SCREEN ladders improve the `C` / `V`
+  // abilities, so each card wears its ability square's drawing.
+  it('the two ability ladders draw their ability\'s glyph', () => {
+    expect(glyphPaths('hullRepair')).toEqual(glyphPaths('repair'));
+    expect(glyphPaths('smokeScreen')).toEqual(glyphPaths('smoke'));
+  });
+
   it('a ship ladder reaches the DOM surface as an svg', () => {
-    expect(equipmentGlyphSvg('hullPoints', 24)?.tagName.toLowerCase()).toBe('svg');
+    expect(equipmentGlyphSvg('armor', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });

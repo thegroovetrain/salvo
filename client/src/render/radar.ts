@@ -70,7 +70,7 @@
 // render/radarDim.ts owns the curve; render/textures.ts draws it.
 //
 // ON A FOGGED BEARING THE RAMP SLIDES INWARD (epic-9 amendment 210, Eric
-// 2026-10-21): each bearing's ramp starts where the observer's fog-tolled EYE
+// 2026-10-21): each bearing's ramp starts where the observer's EYE (through rain and smoke)
 // actually ends on it, by the `dim.fogLift` dial, so a return the fog hid from
 // the eye is not muted as though it were in plain sight. The fan comes from an
 // `EyeReachSource` (main.ts hands over the FogFieldView once) and is re-cast
@@ -138,13 +138,15 @@
 // of SLICES, so the scope carries a fading trail behind the beam rather than a
 // fixed number of marks per track.
 //
-// Range rings (documented choice): the plan calls for CIC-style range rings;
-// own-ship-centered beats map-centered for readability, so ONE ring at
-// exactly sightRange and ONE at exactly radarRange follow the own ship here
-// (kept subtle). The faint map-centered rings in map.ts remain as the chart
-// grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
+// Range rings: since Story 11.2 (Eric 2026-11-12, R19) the own-ship rings, the
+// compass scale, the heading line and the sweep's crisp line are the radar
+// DISPLAY (render/radarDisplay.ts), driven off this scope's anchor and beam
+// (`beamAngle`); this module keeps the sweep's afterglow sprite. The old
+// unlabeled sight / radar rings here and the map-centered chart rings in
+// map.ts are gone. Thin Pixi adapter; the math lives in phosphor.ts and
+// radarHeatmap.ts.
 
-import { BufferImageSource, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { BufferImageSource, Container, Rectangle, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
@@ -155,6 +157,7 @@ import {
   sampleHeight,
   wrapPositive,
   type BlipEvent,
+  type FogFrame,
   type HeightRaster,
   type HullCoverage,
   type WakeBlipEvent,
@@ -163,7 +166,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
 import type { ScreenWorldRect } from './camera.js';
-import { fogHoleRadiusU } from './fog.js';
+import { eyeHoleRadiusU, type DazzleClock } from './fog.js';
 import { blipAlpha, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
   FULL_TURN,
@@ -196,6 +199,9 @@ import { wakeLitFloor } from './radarSources.js';
 import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './cloudReturnGate.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 import { dimFanSlides } from './radarDim.js';
+import { maskPassRect, usableScreen, viewAsScreen } from './maskPass.js';
+import { ClutterTrack, clutterReachU, type ClutterFrameSource } from './radarClutter.js';
+import { RAIN_CLUTTER_DEFAULTS } from './rainClutter.js';
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -229,6 +235,14 @@ function maxSlices(): number {
  *  two apart by something better than list order. */
 export const DIM_MASK_LABEL = 'radarDimMask';
 
+/** Scene-graph label of the radar layer's masked-pass bounds carrier (Story
+ *  11.2 follow-up) — a child of the blip layer that draws nothing. */
+export const PASS_CLIP_LABEL = 'radarPassClip';
+
+/** Texels a side the camera-less heat window may reach (`windowFor`): the
+ *  smallest MAX_TEXTURE_SIZE WebGL 2 guarantees. */
+export const HEAT_FALLBACK_MAX_CELLS = 2048;
+
 /** The eye-reach fan's length from the `dim.reachRays` dial: a whole, non-negative
  *  count (a negative dial would throw out of `new Float32Array`; a non-finite one
  *  reads as 0 — no fan, the radial mask). */
@@ -236,8 +250,6 @@ function rayCount(n: number): number {
   return Math.max(0, Math.floor(Number.isFinite(n) ? n : 0));
 }
 
-const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
-const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral linework
 
 /** A `return` echo whose OBSERVER-RELATIVE geometry (the range its intensity
  *  attenuates over) is not resolved yet: the wire coverage footprint alone,
@@ -250,6 +262,15 @@ const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral 
 interface PendingEcho {
   cov: HullCoverage;
   t: number;
+}
+
+/** Where an echo is marched FROM, and the antenna range that bounds the
+ *  march: the own hull at `radarRange` (the radar buoy's second origin went
+ *  with the buoys — 2026-11-05, Story 10.5, epic-10 amendment 11). */
+interface EchoOrigin {
+  x: number;
+  y: number;
+  rangeU: number;
 }
 
 /** A `wk` wake segment waiting on an own pose, exactly as `PendingEcho` is —
@@ -313,16 +334,19 @@ export interface CloudReturnSource {
 }
 
 /** Where the dim mask's eye-reach fan comes from (render/fogField.ts
- *  `FogFieldView.eyeReachFan`): fills `out` with the fog-tolled eye reach per
- *  bearing (ray k at k·2π/N, world axes) and returns it, or null when there is
- *  no fog to toll — the mask then stays radial. */
+ *  `FogFieldView.eyeReachFan`): fills `out` with the eye's reach through the
+ *  rain per bearing (ray k at k·2π/N, world axes; shared `fogDepthReachFan`
+ *  under `fogMaxDepth`) and returns it, or null when there is no rain — the
+ *  mask then stays radial. */
 export interface EyeReachSource {
   eyeReachFan(ox: number, oy: number, sightU: number, tMs: number, out: Float32Array): Float32Array | null;
 }
 
 export class Radar {
   private readonly sweep: Sprite;
-  private readonly rings: Graphics;
+  /** This frame's beam angle (rad), or null while the sweep is hidden — the
+   *  radar DISPLAY's one input from here (render/radarDisplay.ts). */
+  private beam: number | null = null;
   /** THE ELEVATION AUTHORITY (cycle 59 ruling; amendment 129) — and, since cycle
    *  62, the whole of the client's terrain knowledge on this path: its land/water
    *  truth is the shipped coastline's own mask (`height > 0 ⟺ LAND`), so the
@@ -330,6 +354,8 @@ export class Radar {
    *  and never on the wire, so it carries ZERO disclosure. Null until
    *  `setHeightRaster` runs, in which case the field simply carries no terrain. */
   private heightRaster: HeightRaster | null = null;
+  /** See `setMapRadius`. */
+  private mapR = Number.NaN;
   /** THE PAINT LIST (ruling R1) — marched slices, re-rasterized in full
    *  every frame. */
   private readonly paints: MarchSlice[] = [];
@@ -405,12 +431,24 @@ export class Radar {
    *  sprite's `boundsArea` cut from it — see `clipHeat`. */
   private screen: ScreenWorldRect | null = null;
   private readonly heatClip = new Rectangle();
+  /** The dim-masked pass's bounds, set as `blipLayer.boundsArea` — see
+   *  `dimPassRect`. */
+  private readonly passClip = new Rectangle();
+  /** The child that carries `passClip` as its `boundsArea` — see `dimPassRect`. */
+  private readonly passCarrier = new Container({ label: PASS_CLIP_LABEL });
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
   // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
   // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
+  /** The own hull's FLASH SHELLS mark against the server clock (Story 2.8;
+   *  the whiteout since Eric 2026-10-29, epic-10 amendment 5 — sight → the
+   *  shared `effectiveSight(…, until, now)` clear circle). The SAME clock `Fog`
+   *  carries, plumbed from the same place in main.ts (`updateDazzle`) — the dim
+   *  mask, the cloud return gate and the drawn fog hole are one radius, so
+   *  they cannot be allowed to disagree about the flash. */
+  private readonly dazzle: DazzleClock = { until: 0, now: 0 };
   /**
    * THE COUNTERMEASURE CLOUDS AS A RETURN SOURCE (Story 9.3 session 4, Eric
    * 2026-10-12: "Don't forget to composite it onto the radar layer so it can
@@ -423,6 +461,17 @@ export class Radar {
    * no cloud held) leaves the field exactly as it was.
    */
   private cloudSource: CloudReturnSource | null = null;
+  /**
+   * RAIN CLUTTER (Story 11.6 scope add, render/radarClutter.ts): the rain
+   * frame source (main.ts hands it the FogFieldView; null = no clutter, the
+   * default and every test that does not set one) and the pooled clutter
+   * slices — a list apart from `paints`, stamped under them (max-wins).
+   */
+  private clutterSource: ClutterFrameSource | null = null;
+  private readonly clutter = new ClutterTrack(
+    { ...RAIN_CLUTTER_DEFAULTS, cellU: CLIENT_CONFIG.blip.heatmap.cellU }, // = CONFIG.vision.radarCellU: one lattice
+    maxSlices() / 2 + 1, // persistSweeps revolutions of beam steps, + 1 (no wire-echo slack: clutter is quantum-only)
+  );
   /** See `setStaleClock`. */
   private staleClock: (() => number) | null = null;
 
@@ -445,16 +494,14 @@ export class Radar {
     // is deliberately NOT used: it drops the node out of the build entirely.
     this.dim.renderable = false;
     blipLayer.addChild(this.dim);
-
-    this.rings = new Graphics();
-    this.rings.visible = false;
+    blipLayer.addChild(this.passCarrier);
 
     this.sweep = new Sprite(bakeSweepTexture());
     this.sweep.anchor.set(0.5);
     this.sweep.blendMode = 'add';
     this.sweep.visible = false;
 
-    sweepLayer.addChild(this.rings, this.sweep);
+    sweepLayer.addChild(this.sweep);
     this.applyRanges();
   }
 
@@ -481,20 +528,52 @@ export class Radar {
    * source boundary any more (amendment 210: every return, inside the bubble or
    * beyond it, arrives on the wire; nothing is synthesized on either side).
    *
-   * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
-   * called rather than re-derived — because that is also, by construction, the
-   * effective-truesight number the server's own `sightOf` uses. Exposed for
-   * tests and for exactly that equality assertion.
+   * It is `eyeHoleRadiusU` — the class-and-name sight on the fog's re-bake
+   * quantum, called rather than re-derived — because that is, by construction,
+   * the effective-truesight number the server's own `sightOf` uses. (It was the
+   * fog hole itself until Story 11.2 moved the hole to the plain-hull reach.)
+   * Exposed for tests and for exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange });
+    return eyeHoleRadiusU({ sightRange: this.sightRange }, this.dazzle);
+  }
+
+  /**
+   * Adopt the own hull's FLASH SHELLS mark against the server clock — the
+   * radar half of the plumbing `Fog` has. Returns TRUE when `sightHoleU`
+   * actually moved (it is the fog's quantized radius, so at most once per
+   * `sightSteps` step), mirroring `Fog.setDazzle`'s changed-flag contract so one
+   * call site drives both; there is nothing to rebake here (the dim mask
+   * re-bakes off `sightHoleU` on the per-frame path, on a real change only),
+   * so the caller may ignore it.
+   * A flash never touches the RADAR range: it blinds, it does not deafen.
+   */
+  setDazzle(until: number, now: number): boolean {
+    const before = this.sightHoleU;
+    this.dazzle.until = until;
+    this.dazzle.now = now;
+    return this.sightHoleU !== before;
+  }
+
+  /** Is the flash mark currently held? Test/observation seam (mirrors `Fog`). */
+  get isDazzled(): boolean {
+    return this.dazzle.until > this.dazzle.now;
   }
 
   private applyRanges(): void {
-    this.rings.clear();
-    this.rings.circle(0, 0, this.sightRange).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
-    this.rings.circle(0, 0, this.radarRange).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
     this.sweep.scale.set(this.radarRange / SWEEP_TEXTURE_RADIUS);
+  }
+
+  /** This frame's beam angle (rad, world: the sweep sprite's rotation), or
+   *  null while the sweep is hidden (no own ship, no sweep sample yet, the
+   *  start line, a spectator) — the radar display hides with it. */
+  get beamAngle(): number | null {
+    return this.beam;
+  }
+
+  /** The observer's radar reach (u) — the radar display's outer ring. */
+  get radarRangeU(): number {
+    return this.radarRange;
   }
 
   /**
@@ -506,11 +585,12 @@ export class Radar {
    * pooled target). The heat sprite's `boundsArea` is therefore its own extent
    * ∩ the screen's world rect (in its local, one-texel-per-cell units): the
    * pass never exceeds the screen. Nothing off screen is visible, so no
-   * on-screen pixel changes. No rect (tests, ambient) → measured as before.
+   * on-screen pixel changes. The rect is `passScreen` (the screen, else the
+   * camera view); none (tests) → measured as before, and the mask is then off.
    */
   private clipHeat(sprite: Sprite, grid: HeatGrid): void {
-    const s = this.screen;
-    if (s === null || !Number.isFinite(s.x + s.y + s.w + s.h)) {
+    const s = this.passScreen();
+    if (s === null) {
       sprite.boundsArea = null as unknown as Rectangle; // Pixi tests truthiness
       return;
     }
@@ -580,6 +660,13 @@ export class Radar {
    */
   setHeightRaster(raster: HeightRaster | null): void {
     this.heightRaster = raster;
+  }
+
+  /** The map disk's radius (u): the beam's rays stop where they leave the
+   *  board (Story 11.2 — a rim ship marches no empty sea past the edge). NaN
+   *  (the default) leaves them running to the radar reach. */
+  setMapRadius(r: number): void {
+    this.mapR = r;
   }
 
   /** How many slices are live in the list (debug/tests). */
@@ -707,12 +794,9 @@ export class Radar {
   private resolvePending(): void {
     const own = this.own;
     if (own === null || this.pending.length === 0) return;
-    if (this.aground(own)) {
-      this.pending.length = 0; // an aground set makes no paints, from any source
-      return;
-    }
+    const ownAground = this.aground(own);
     for (const e of this.pending) {
-      const slice = this.marchEcho(own, e);
+      const slice = ownAground ? null : this.marchEcho({ x: own.x, y: own.y, rangeU: this.radarRange }, e);
       if (slice !== null) this.enrollSlice(slice);
     }
     this.pending.length = 0;
@@ -749,7 +833,7 @@ export class Radar {
    * amendment 127 intact through the change: a disclosed echo can be dimmed to
    * its speck and no further, ever.
    */
-  private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
+  private marchEcho(origin: EchoOrigin, e: PendingEcho): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const stamp: ShipStamp = new Map();
     stampCoverage(stamp, e.cov, hullSample(cfg.model));
@@ -757,11 +841,11 @@ export class Radar {
     // The footprint's own reach: half its rect diagonal covers every covered
     // cell at any orientation — echoArc turns it into the bearing window and
     // the radial slab the march has to walk.
-    const arc = echoArc(own, c.x, c.y, Math.hypot(e.cov.w, e.cov.h) * cfg.cellU);
+    const arc = echoArc(origin, c.x, c.y, Math.hypot(e.cov.w, e.cov.h) * cfg.cellU);
     const pad = arc.reach + 2 * cfg.cellU;
-    const reach = Math.max(this.radarRange, arc.dist + pad);
+    const reach = Math.max(origin.rangeU, arc.dist + pad);
     return marchSlice(
-      own,
+      origin,
       arc.centre - arc.half,
       arc.centre + arc.half,
       shipOnlyField(stamp, cfg.cellU, this.heightRaster),
@@ -907,6 +991,7 @@ export class Radar {
   /** Drop every live mark at once (entering spectate: contacts go live/unfogged). */
   clearBlips(): void {
     this.paints.length = 0;
+    this.clutter.clear();
     this.pending.length = 0;
     this.pendingWake.length = 0;
     this.sliceFrom = null;
@@ -983,6 +1068,8 @@ export class Radar {
     const plan = planMarch(this.sliceFrom ?? rot, rot, cfg.march);
     this.sliceFrom = plan.from;
     if (plan.owed <= 0) return;
+    const rain = this.clutterSource?.frameAt(serverNow) ?? null;
+    const clutterU = this.clutterReach(own, rain);
     const field = buildField({
       obs: own,
       raster: this.heightRaster,
@@ -993,9 +1080,11 @@ export class Radar {
     for (let k = 0; k < plan.owed; k++) {
       const from = this.sliceFrom ?? rot;
       const to = from + cfg.march.sliceRad;
-      const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg);
+      const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg, { diskR: this.mapR });
       if (slice !== null) this.enrollSlice(slice);
+      this.clutter.step({ frame: rain, ox: own.x, oy: own.y, from, to, t: serverNow, rangeU: clutterU, raster: this.heightRaster });
       this.sliceFrom = wrapPositive(to);
+      if (this.sliceFrom < from) this.clutter.wrapped(); // a new revolution rolls fresh clutter
     }
   }
 
@@ -1025,12 +1114,63 @@ export class Radar {
    */
   private updateDimMask(own: OwnPoint | null, serverNow: number): void {
     this.syncDimMask(own, serverNow);
-    if (own === null || !Number.isFinite(own.x + own.y)) {
-      this.blipLayer.mask = null;
+    const pass = own === null ? null : this.dimPassRect(own);
+    if (own === null || pass === null) {
+      this.unmask();
       return;
     }
     this.dim.position.set(own.x, own.y);
+    // The pass bounds go on BEFORE the mask, so not even the frame that attaches
+    // it can measure the ~22,700 u sprite (see `dimPassRect`).
+    this.passCarrier.boundsArea = this.passClip;
     if (this.blipLayer.mask !== this.dim) this.blipLayer.mask = this.dim;
+  }
+
+  /** Take the dim mask off, and its pass bounds with it. */
+  private unmask(): void {
+    this.blipLayer.mask = null;
+    this.passCarrier.boundsArea = null as unknown as Rectangle; // Pixi tests truthiness
+  }
+
+  /**
+   * THE MASKED PASS'S BOUNDS (Story 11.2 follow-up, ruling G1). Pixi sizes the
+   * dim-masked pass to `blipLayer`'s measured children ∩ the dim sprite's
+   * bounds, and its mask filter does NOT clip to the viewport. Two holes let the
+   * whole sprite through — `dim.spanU` is radar × 1.25 per side, ~22,700 u
+   * across at Story 11.2's reach, i.e. a 16,384² / 32,768² target with 4× MSAA:
+   *
+   *  - AN EMPTY LAYER IS NOT AN EMPTY PASS. With no paint the heat sprite is
+   *    hidden, the children measure nothing, and Pixi pushes that EMPTY
+   *    (±Infinity) bounds through its render-group matrix before intersecting
+   *    it with the mask — `0 × Infinity` is NaN, every NaN comparison picks the
+   *    mask's side, and the "intersection" comes out as the whole mask. That is
+   *    the first frame after the mask goes on (the lobby, and a match's first
+   *    paints), and any frame the scope is empty.
+   *  - The Story 9.8 clip (`clipHeat`) cut the heat sprite only when a screen
+   *    rect arrived; the lobby's ambient scene passed none.
+   *
+   * So `passCarrier` — a child that draws nothing — always measures exactly
+   * screen ∩ the dim sprite's frame (`maskPassRect`) while the mask is on: the
+   * layer is never empty, and the heat sprite is clipped to the same screen
+   * (`clipHeat`), so the pass never exceeds the screen on any frame, the first
+   * included. (Not `blipLayer.boundsArea`: Pixi adds a masked container's own
+   * `boundsArea` OUTSIDE the mask intersection, and the NaN above then unions
+   * it with the whole mask.) The screen is the caller's `screen` rect, else its
+   * `view`. Null — no rect to bound it by, or a non-finite pose — keeps the mask
+   * OFF: an undimmed scope beats an unbounded GPU allocation, the same
+   * degradation chosen for a NaN pose (see `updateDimMask`).
+   */
+  private dimPassRect(own: OwnPoint): Rectangle | null {
+    if (!Number.isFinite(own.x + own.y)) return null;
+    const screen = this.passScreen();
+    const halfU = Math.max(this.dim.width, this.dim.height) / 2;
+    return maskPassRect(screen, own.x, own.y, halfU, this.passClip) === null ? null : this.passClip;
+  }
+
+  /** The rect the masked pass and the heat sprite are clipped to: the caller's
+   *  screen rect, else its camera view, else none. */
+  private passScreen(): ScreenWorldRect | null {
+    return usableScreen(this.screen) ? this.screen : viewAsScreen(this.view);
   }
 
   /**
@@ -1192,6 +1332,26 @@ export class Radar {
     this.cloudSource = source;
   }
 
+  /** The rain clutter's bounded range this frame (render/radarClutter.ts
+   *  `clutterReachU`): 0 with no rain. */
+  private clutterReach(own: OwnPoint, rain: FogFrame | null): number {
+    if (rain === null) return 0;
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    return clutterReachU(own.x, own.y, this.view, this.radarRange, cfg.march.sliceRad, cfg.cellU, cfg.rainClutter);
+  }
+
+  /** Hand the scope the rain frame its clutter reads (main.ts passes the
+   *  FogFieldView). Null (the default) paints no clutter. */
+  setClutterSource(source: ClutterFrameSource | null): void {
+    this.clutterSource = source;
+    if (source === null) this.clutter.clear();
+  }
+
+  /** The live rain-clutter slices (debug/tests). */
+  get clutterSlices(): readonly MarchSlice[] {
+    return this.clutter.slices;
+  }
+
   /** Hand the scope the STALENESS clock (`ServerClock.frameNow`) the cloud
    *  return hold ages by. Null (the default, and every test) ages it by the
    *  frame's `serverNow`, which is the same thing on an on-time server. */
@@ -1225,13 +1385,12 @@ export class Radar {
   private updateSweep(own: OwnPoint | null, serverNow: number): number | null {
     const visible = own !== null && this.lastSweep !== null;
     this.sweep.visible = visible;
-    this.rings.visible = visible;
+    this.beam = null;
     if (!visible || own === null || this.lastSweep === null) {
       this.sliceFrom = null;
       return null;
     }
     this.sweep.position.set(own.x, own.y);
-    this.rings.position.set(own.x, own.y);
     const rot = sweepRotation(
       this.lastSweep.angle,
       this.lastSweep.t,
@@ -1239,6 +1398,7 @@ export class Radar {
       this.sweepPeriodMs,
     );
     this.sweep.rotation = rot;
+    this.beam = rot;
     return rot;
   }
 
@@ -1251,6 +1411,7 @@ export class Radar {
       if (blipAlpha(serverNow - this.paints[i].t, life) > 0) continue;
       this.paints.splice(i, 1);
     }
+    this.clutter.prune(serverNow, life);
   }
 
   /**
@@ -1268,7 +1429,7 @@ export class Radar {
   private hideHeat(): void {
     // The mask comes off with the surface: there is no own hull to anchor it to
     // on the frames this runs (amendment 181's teardown half).
-    this.blipLayer.mask = null;
+    this.unmask();
     if (this.heat === null) return;
     this.heat.sprite.visible = false;
     clearGrid(this.heat.grid);
@@ -1277,7 +1438,12 @@ export class Radar {
   private windowFor(own: OwnPoint | null): ViewRect | null {
     if (own === null) return null;
     if (this.view !== null) return this.view;
-    return { x: own.x, y: own.y, halfW: this.radarRange, halfH: this.radarRange };
+    // BOUNDED (Story 11.2 follow-up, G2): the camera-less fallback is a
+    // radar-ring square, and a radar upgrade must not grow its texture without
+    // limit — it is capped at HEAT_FALLBACK_MAX_CELLS texels a side (no clip
+    // today: 2 × 9,091 u / 9 u ≈ 2,021 cells).
+    const half = Math.min(this.radarRange, (HEAT_FALLBACK_MAX_CELLS * CLIENT_CONFIG.blip.heatmap.cellU) / 2 - 2 * CLIENT_CONFIG.blip.heatmap.cellU);
+    return { x: own.x, y: own.y, halfW: half, halfH: half };
   }
 
   /**
@@ -1311,7 +1477,7 @@ export class Radar {
     // own creation (amendment 83), so this call is handed no observer state and
     // the rasterizer has none to consult.
     anchorGrid(heat.grid, win.x, win.y);
-    heat.sprite.visible = this.paints.length > 0;
+    heat.sprite.visible = this.paints.length > 0 || this.clutter.slices.length > 0;
     if (!heat.sprite.visible) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const lifeMs = blipLifeMs(this.sweepPeriodMs);
@@ -1329,6 +1495,7 @@ export class Radar {
     // are MATERIALS in the field now, so there is one record type left and one
     // stamp for it.
     rasterize(heat.grid, this.paints, ctx);
+    this.clutter.stamp(heat.grid, serverNow, lifeMs, ctx.alphaFloor); // UNDER the returns: max-wins on strength
     quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
     this.clipHeat(heat.sprite, heat.grid);

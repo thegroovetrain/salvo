@@ -42,8 +42,9 @@ export interface NetState {
    *  until it dies, because delivery is per-sweep (Eric 2026-10-12: "If it's
    *  detected by my radar, I want my radar to paint it"); nothing new is
    *  disclosed by holding what was already sent. [] when none. Fed to the renderer
-   *  (render/countermeasure.ts); since 2026-10-12 the server hides nothing
-   *  behind smoke, so no client mirror reads it. */
+   *  (render/countermeasure.ts) and to SIGHT (Story 11.6: smoke occludes the
+   *  eye like rain — main.ts `rainEyeFor` and the radar's eye-reach fan read
+   *  it as sight discs, render/rainSight.ts `smokeDiscsInto`). */
   clouds: HeldCloud[];
   /** The HELD cloud set behind `clouds`, by id — net/roomBindings.ts merges
    *  every frame's clouds into it and expires them on the FRAME's server time;

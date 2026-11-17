@@ -30,15 +30,27 @@
 // triangle-with-a-torpedo and the rod of Asclepius are his own words.
 //
 // THREE TABLES, ONE LOOKUP. `GLYPHS` is keyed by `EquipmentId` (what a weapon
-// slot holds), `CONSUMABLE_GLYPHS` by consumable id (what a belt square holds),
-// and `LINE_GLYPHS` by the CARD LINES that are neither — the eight ship ladders
-// and the CANNON ladder (`deckGun`, drawn as the mounted `gun`). `glyphPaths`
-// asks them in that order (consumable → equipment → line), so the hotbar and
-// the results loadout (slot-item ids) and the refit card and How-to-Play (line
-// ids) all draw from the one source.
+// slot holds), `ABILITY_GLYPHS` by cooldown ability (the bar's `C` / `V`
+// squares — Story 10.5, 2026-11-05, epic-10 amendment 11: the consumable table
+// retired with the kit, its HULL REPAIR and SMOKE SCREEN drawings moved here
+// and its three weapons into `GLYPHS`), and `LINE_GLYPHS` by the CARD LINES
+// that are neither — the ship ladders and the CANNON ladder (`deckGun`, drawn
+// as the mounted `gun`). `glyphPaths` asks them in that order (ability →
+// equipment → line), so the hotbar and the results loadout and the refit card
+// and How-to-Play all draw from the one source.
 //
 // A line with NO glyph draws NOTHING and throws nothing — today that is only
 // the stub DEPTH CHARGE, which has no mechanism to draw.
+//
+// STORY 10.9 (2026-10-28) RESTORED ONE AND DREW FOUR: FLASH SHELLS comes back
+// with its 8.17 struck-through eye, and the four BUOYS draw the TINTED BEACON
+// family (Eric 2026-10-29, family C + the PULSE healing head): a monochrome
+// hull (waterline, can, mast) under a head FILLED in the kind's colour
+// (render/buoyMarks.ts — the one vocabulary the chart marker and the drop
+// preview share). They are the only glyphs with colour of their own: a `path`
+// part may carry `fill` (a filled outline in that colour) or `ink` (a line in
+// that colour, the head's cut) — every other part stays linework in the
+// caller's colour.
 //
 // STORY 9.4 (2026-10-12) DREW ONE, ERIC'S PICK from three rendered candidates
 // (epic-9 amendment 69): FOULING SHELL (a FOULED PROP — a three-bladed screw
@@ -66,16 +78,26 @@
 // are CUT (amendment 89e) and never had glyphs.
 
 import type { Graphics, StrokeInput } from 'pixi.js';
-import { isConsumableId, type EquipmentId, type LineId, type SlotItemId } from '@salvo/shared';
+import type { CooldownAbilityId, EquipmentId, LineId } from '@salvo/shared';
 
 /** A point in the unit glyph frame: (0,0) is the icon box's centre, ±1 its edge. */
 export type GlyphPoint = readonly [number, number];
 
 /** One primitive of a glyph's linework. `path` is an open polyline (a closed
  *  shape simply repeats its first point, exactly as the Pixi code always did);
- *  `circle` is the one curved primitive the set needs. */
+ *  `circle` is the one curved primitive the set needs.
+ *
+ *  A `path` with `fill` is instead a CLOSED outline filled in that colour, and
+ *  one with `ink` is a line stroked in that colour at `inkW` (unit frame) — the
+ *  buoy heads' own colours (Story 10.9). A plain part takes the caller's. */
 export type GlyphPart =
-  | { readonly kind: 'path'; readonly pts: readonly GlyphPoint[] }
+  | {
+      readonly kind: 'path';
+      readonly pts: readonly GlyphPoint[];
+      readonly fill?: number;
+      readonly ink?: number;
+      readonly inkW?: number;
+    }
   | { readonly kind: 'circle'; readonly c: GlyphPoint; readonly r: number };
 
 /** One glyph: its primitives, in draw order. */
@@ -303,53 +325,18 @@ const phosphorShells: GlyphPaths = [
   path([0.45, 0.8], [0.45, 0.45], [0.62, 0.05], [0.8, 0.45], [0.8, 0.8]),
 ];
 
-/**
- * The glyph table — TOTAL over `EquipmentId` since Story 8.15 built the last
- * two guns and the two new Shifts (the missile and the monitor, which never
- * had modules, are CUT). It stays typed `Partial` so a future id with no module
- * yet can land without inventing art; the lookup answers null for it.
- */
-const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
-  gun,
-  machineGun,
-  flak,
-  instantReload,
-  hunker,
-  // ONE GLYPH PER LINE (cycle 162, the icon pass): the heavy torpedo and the
-  // naval mine keep the family drawings they always had; the light torpedo and
-  // the captive and fouling mines got their own (above).
-  lightTorpedo,
-  heavyTorpedo: torpedo,
-  navalMines: mine,
-  captiveMines,
-  foulingMines,
-  boost,
-  broadside,
-  starShells,
-  phosphorShells, // Story 8.17 DRAFT (above)
-};
 
 /**
- * Shield block (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SHIELD OUTLINE —
- * a flat-topped heater shield, closed, with no inner mark. Deliberately not
- * HUNKER's halved hexagon: one absorbs, the other reduces (amendment 118).
+ * Flash shells (`dazzleShells` — Story 8.17 DRAFT, epic-8 amendment 135(j);
+ * deleted with its line in Story 9.4 and RESTORED with it by Story 10.9): a
+ * BLINDED EYE — a lens-shaped eye outline with its pupil, struck through by
+ * one diagonal. It says what the shell does to the hull it catches (sight cut
+ * to a quarter), and shares no shape with the star shell's rayed burst.
  */
-const shieldBlock: GlyphPaths = [
-  path([-0.72, -0.82], [0.72, -0.82], [0.72, 0.08], [0, 0.95], [-0.72, 0.08], [-0.72, -0.82]),
-];
-
-/**
- * Decoy buoy (Story 8.16 DRAFT, epic-8 amendment 124(f)): the on-water SPAR
- * BUOY marker (render/decoys.ts `BUOY_MARKER`) — waterline, mast, and a DIAMOND
- * radar-reflector daymark at the masthead — so the belt square and the float on
- * the chart share one shape. It has no round part at all, so Eric's *"the icon
- * needs to be distinguished from the mines a bit more"* (said of the deleted
- * radar buoy, whose glyph this was) still holds beside the spiked sphere.
- */
-const decoyBuoy: GlyphPaths = [
-  path([-0.75, 0.85], [0.75, 0.85]),
-  path([0, 0.85], [0, -0.28]),
-  path([0, -0.7], [0.42, -0.28], [0, 0.14], [-0.42, -0.28], [0, -0.7]),
+const dazzleShells: GlyphPaths = [
+  path([-0.95, 0], [-0.5, -0.42], [0, -0.55], [0.5, -0.42], [0.95, 0], [0.5, 0.42], [0, 0.55], [-0.5, 0.42], [-0.95, 0]),
+  circle(0, 0, 0.2),
+  path([-0.8, 0.8], [0.8, -0.8]),
 ];
 
 /**
@@ -407,35 +394,48 @@ const hullRepair: GlyphPaths = [
 ];
 
 /**
- * THE CONSUMABLE half of the table. EMPTY until Story 8.13, because no belt
- * line had a weapon behind it: a stocked square and a consumable card's icon
- * box both rendered blank, which was the honest answer for an id with no
- * module.
- *
- * THE SUPERCAV TORPEDO WAS THE FIRST ENTRY (epic-8 amendment 74), and since
- * cycle 162 it has its own drawing — a fish inside its cavity bubble — rather
- * than the torpedo family's. DEPTH CHARGE gets none: it is a STUB (amendment
- * 83), never dealt, with no mechanism to draw.
+ * The glyph table — TOTAL over `EquipmentId` since Story 8.15 built the last
+ * two guns and the two new Shifts (the missile and the monitor, which never
+ * had modules, are CUT). It stays typed `Partial` so a future id with no module
+ * yet can land without inventing art; the lookup answers null for it.
  */
-const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
-  supercavTorpedo, // cycle 162 DRAFT (above)
-  hullRepair, // cycle 162 — the rod of Asclepius (above)
-  // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
-  // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
-  shieldBlock,
-  decoyBuoy,
-  foulingShell, // FOULING SHELL — Story 9.4, Eric's pick 2026-10-12 (above)
-  countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
+const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
+  gun,
+  // STORY 10.4: the main battery fires the cannon's shell — it wears the
+  // cannon's glyph until the full UI pass draws its own.
+  mainBattery: gun,
+  machineGun,
+  flak,
+  instantReload,
+  hunker,
+  // ONE GLYPH PER LINE (cycle 162, the icon pass): the heavy torpedo and the
+  // naval mine keep the family drawings they always had; the light torpedo and
+  // the captive and fouling mines got their own (above).
+  lightTorpedo,
+  heavyTorpedo: torpedo,
+  navalMines: mine,
+  captiveMines,
+  foulingMines,
+  boost,
+  broadside,
+  starShells,
+  phosphorShells, // Story 8.17 DRAFT (above)
+  // STORY 10.5 (2026-11-05, epic-10 amendment 11): the three moved weapons
+  // are slot equipment again and keep the drawings they had as consumables.
+  supercavTorpedo,
+  dazzleShells,
+  foulingShell,
 };
 
-/** Hull points (cycle 162 DRAFT, drawn for ARMOR; renamed with the line in
- *  Story 9.6, amendment 93): three stacked hull plates, each offset from the
- *  one above like overlapping plating. */
-const hullPoints: GlyphPaths = [
-  [-0.95, -0.8, 0.55, -0.4],
-  [-0.75, -0.2, 0.75, 0.2],
-  [-0.55, 0.4, 0.95, 0.8],
-].map(([x0, y0, x1, y1]) => path([x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]));
+/** THE TWO COOLDOWN ABILITIES (Story 10.5): HULL REPAIR's rod of Asclepius
+ *  (cycle 162) and SMOKE SCREEN's cloud of pixels (Story 9.3, Eric's pick). */
+const ABILITY_GLYPHS: Readonly<Record<CooldownAbilityId, GlyphPaths>> = {
+  repair: hullRepair,
+  smoke: countermeasure,
+};
+
+// The HULL POINTS glyph (three stacked hull plates) sat here until Story 10.3
+// deleted the line (Eric 2026-11-04, epic-10 amendment 8).
 
 /** Armor — Story 9.7 (2026-10-13), Eric's pick from three rendered candidates
  *  (epic-9 amendment 116): an ANGLED ARMOR BELT — two slanted riveted plate
@@ -452,8 +452,9 @@ const armor: GlyphPaths = [
 /** Armor piercing — Story 9.9 (2026-10-15), Eric's pick from three rendered
  *  candidates (epic-9 amendment 160): a SHELL SPLITTING A PLATE — a short
  *  pointed shell nose entering a vertical plate that splits into a V at the
- *  point. Not the torpedo (no tail fins, no wake ticks), not ARMOR's belt. */
-const armorPiercing: GlyphPaths = [
+ *  point. Not the torpedo (no tail fins, no wake ticks), not ARMOR's belt.
+ *  Keyed `power` since Story 10.3 (Eric 2026-11-04, epic-10 amendment 8). */
+const power: GlyphPaths = [
   path([-0.95, -0.32], [-0.1, -0.32], [0.55, 0], [-0.1, 0.32], [-0.95, 0.32], [-0.95, -0.32]),
   path([-0.55, -0.32], [-0.55, 0.32]),
   path([0.45, -0.95], [0.45, -0.3], [0.9, -0.55]),
@@ -461,21 +462,17 @@ const armorPiercing: GlyphPaths = [
 ];
 
 /** Speed (cycle 162 DRAFT): a forward-pointing arrowhead with three motion
- *  lines trailing it — the middle one its shaft. Not BOOST's double chevron. */
-const speed: GlyphPaths = [
+ *  lines trailing it — the middle one its shaft. Not BOOST's double chevron.
+ *  Keyed `engines` (was `speed`) since Story 10.3 (epic-10 amendment 8). */
+const engines: GlyphPaths = [
   path([0.25, -0.55], [0.95, 0], [0.25, 0.55], [0.25, -0.55]),
   path([-0.95, -0.35], [-0.3, -0.35]),
   path([-0.8, 0], [0.25, 0]),
   path([-0.95, 0.35], [-0.3, 0.35]),
 ];
 
-/** Turning (cycle 162 DRAFT): a RUDDER — a tall blade widening aft, hung from
- *  a horizontal baseline, with a short tiller arm on its stock. */
-const turning: GlyphPaths = [
-  path([-0.9, -0.7], [0.9, -0.7]),
-  path([-0.2, -0.7], [0.2, -0.7], [0.5, 0.9], [-0.05, 0.9], [-0.2, -0.7]),
-  path([0, -0.7], [0, -0.95], [0.65, -0.95]),
-];
+// The TURNING / RUDDER glyph (a rudder blade on its stock) sat here until
+// Story 10.6 deleted the line (Eric 2026-11-05, R2).
 
 /** Radar sweep's fan origin (bottom-left of the box). */
 const FAN: GlyphPoint = [-0.75, 0.75];
@@ -486,8 +483,9 @@ function fanArc(r: number): GlyphPart {
 }
 
 /** Radar sweep (cycle 162 DRAFT): a DISH FAN — a centre dot, one sweep line and
- *  two concentric partial arcs. Not the star shell's burst, not a mine. */
-const radarSweep: GlyphPaths = [
+ *  two concentric partial arcs. Not the star shell's burst, not a mine. Keyed
+ *  `intel` (was `radarSweep`) since Story 10.3 (epic-10 amendment 8). */
+const intel: GlyphPaths = [
   circle(FAN[0], FAN[1], 0.1),
   path(FAN, [FAN[0] + 1.6 * Math.cos(-Math.PI / 3), FAN[1] + 1.6 * Math.sin(-Math.PI / 3)]),
   fanArc(0.8),
@@ -503,38 +501,107 @@ const reload: GlyphPaths = [
   path([-0.45, 0.9], [0.45, 0.9], [0, 0], [-0.45, 0.9]),
 ];
 
-/** Passive healing (Story 9.6, Eric's pick 2026-10-13, amendment 98): a flat baseline with one heartbeat spike — a pulse trace. Not HULL REPAIR's staff-and-serpent. */
-const passiveHealing: GlyphPaths = [path([-0.95, 0.2], [-0.5, 0.2], [-0.3, -0.7], [0.0, 0.9], [0.22, 0.2], [0.95, 0.2])];
+// The PASSIVE HEALING glyph (a heartbeat pulse trace, amendment 98) sat here
+// until Story 10.3 deleted the line (Eric 2026-11-04, epic-10 amendment 8).
+
+// --- STORY 10.6 (Eric 2026-11-05) — IMPLEMENTER DRAFTS for Eric's eye on the
+// rendered candidate page (the amendment 110 precedent). HULL REPAIR and
+// SMOKE SCREEN's ladders reuse their abilities' drawings (below, in
+// `LINE_GLYPHS`); the others were new (RANGE's left in Story 11.2).
+
+// The RANGE glyph (Story 10.6, a measured span) left with the RANGE line
+// (Story 11.2, 2026-11-12, R9).
+
+/** A launcher's deck mount (a ring) with tubes — boxes along ±x from its
+ *  centre `cx`, each `[yTop, yBottom]`, running to `x1`. */
+function launcherGlyph(cx: number, x1: number, tubes: readonly (readonly [number, number])[]): GlyphPaths {
+  return [
+    circle(cx, 0, 0.32),
+    ...tubes.map(([y0, y1]) => path([cx, y0], [x1, y0], [x1, y1], [cx, y1])),
+  ];
+}
+
+/** Aft torpedo launcher (Story 10.6 DRAFT, R6): one mount with its tube
+ *  pointing ASTERN (left — the torpedo glyphs point their noses right), and a
+ *  chevron at the muzzle marking the bearing. */
+const aftTorpedoLauncher: GlyphPaths = [
+  ...launcherGlyph(0.55, -0.6, [[-0.14, 0.14]]),
+  path([-0.62, -0.42], [-0.95, 0], [-0.62, 0.42]),
+];
+
+/** Second launcher tube (Story 10.6 DRAFT, R6): one mount with TWO parallel
+ *  tubes pointing ahead. */
+const secondLauncherTube: GlyphPaths = launcherGlyph(-0.55, 0.95, [[-0.4, -0.12], [0.12, 0.4]]);
+
+/** A mine rack: a rail at `y` with mines (small spheres) resting on it at
+ *  `xs`. */
+function rackGlyph(y: number, xs: readonly number[], r: number): GlyphPart[] {
+  return [path([-0.95, y], [0.95, y]), ...xs.map((x) => circle(x, y - r, r))];
+}
+
+/** Second mine rack (Story 10.6 DRAFT, R7): TWO racks, one over the other,
+ *  two mines on each. */
+const secondMineRack: GlyphPaths = [...rackGlyph(-0.15, [-0.42, 0.42], 0.24), ...rackGlyph(0.8, [-0.42, 0.42], 0.24)];
+
+/** Expanded mine racks (Story 10.6 DRAFT, R7): ONE rack holding three mines,
+ *  a plus over it — one more seat on each rack. */
+const expandedMineRacks: GlyphPaths = [
+  ...rackGlyph(0.55, [-0.6, 0, 0.6], 0.24),
+  path([-0.25, -0.62], [0.25, -0.62]),
+  path([0, -0.87], [0, -0.37]),
+];
 
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the eight ship ladders, and the CANNON ladder `deckGun`, which draws the
+ * the eight ship ladders, the four one-off WEAPON cards (Story 10.6), and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
 const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
-  hullPoints,
   armor,
-  armorPiercing,
-  speed,
-  turning,
-  radarSweep,
+  power,
+  engines,
+  intel,
   reload,
-  passiveHealing,
   deckGun: gun,
+  // Story 10.6 (Eric 2026-11-05): the three new SHIP ladders — the two
+  // ability ladders wear their ability's drawing (the `C` / `V` square's) —
+  // and the four one-off WEAPON cards. (RANGE's left with it, Story 11.2.)
+  hullRepair,
+  smokeScreen: countermeasure,
+  aftTorpedoLauncher,
+  secondLauncherTube,
+  secondMineRack,
+  expandedMineRacks,
 };
+
+// --- STORY 10.9 (Eric 2026-11-09) — THE WRECK CRATE's own glyph. The wreck
+// pickup is not one stat ("not limited to a specific type"), so it wears a
+// unique drawing, not an index line's: Eric's pick 'salvage' from the two
+// rendered candidates (the broken-hull draft is deleted).
+
+/** A crate (box with a cross-brace) lower left under a three-line star upper
+ *  right — the "any stat" mark. */
+const WRECK_GLYPH: GlyphPaths = [
+  path([-0.9, -0.1], [0.3, -0.1], [0.3, 0.9], [-0.9, 0.9], [-0.9, -0.1]),
+  path([-0.9, -0.1], [0.3, 0.9]),
+  path([0.15, -0.55], [0.95, -0.55]),
+  path([0.35, -0.9], [0.75, -0.2]),
+  path([0.35, -0.2], [0.75, -0.9]),
+];
 
 /**
  * THE one lookup, over slot content AND card lines (Story 8.7, ruling 1;
- * cycle 162). The id spaces stay DISJOINT — `GLYPHS` is keyed by `EquipmentId`
- * and a consumable entry in it would be a lie — so a consumable is answered
+ * cycle 162). The id spaces stay DISJOINT — a cooldown ability is answered
  * from its own table first, then an equipment row, then a card line that is
- * neither (a ship ladder, or the CANNON ladder). Null, never a throw: an id
- * with no art (the stub DEPTH CHARGE) is not a crash.
+ * neither (a ship ladder, or the CANNON ladder), then the one drop-only id
+ * `'wreck'` (Story 10.9). Null, never a throw: an id with no art (the stub
+ * DEPTH CHARGE) is not a crash.
  */
 export function glyphPaths(id: string): GlyphPaths | null {
-  if (isConsumableId(id)) return CONSUMABLE_GLYPHS[id] ?? null;
+  if (Object.hasOwn(ABILITY_GLYPHS, id)) return ABILITY_GLYPHS[id as CooldownAbilityId];
   if (Object.hasOwn(GLYPHS, id)) return GLYPHS[id as EquipmentId] ?? null;
+  if (id === 'wreck') return WRECK_GLYPH;
   return Object.hasOwn(LINE_GLYPHS, id) ? LINE_GLYPHS[id as LineId] ?? null : null;
 }
 
@@ -559,7 +626,7 @@ export function drawDashGlyph(g: Graphics, cx: number, cy: number, size: number,
  *  no crash, no word, no invented art). */
 export function drawEquipmentIcon(
   g: Graphics,
-  id: SlotItemId,
+  id: string,
   cx: number,
   cy: number,
   size: number,
@@ -568,17 +635,56 @@ export function drawEquipmentIcon(
   const parts = glyphPaths(id);
   if (parts === null) return;
   const r = size / 2;
+  const at = (p: GlyphPoint): [number, number] => [cx + p[0] * r, cy + p[1] * r];
   for (const part of parts) {
-    if (part.kind === 'circle') {
-      g.circle(cx + part.c[0] * r, cy + part.c[1] * r, part.r * r);
-      continue;
-    }
-    part.pts.forEach(([x, y], i) => {
-      if (i === 0) g.moveTo(cx + x * r, cy + y * r);
-      else g.lineTo(cx + x * r, cy + y * r);
-    });
+    if (part.kind === 'circle') g.circle(...at(part.c), part.r * r);
+    else if (isLinework(part)) tracePolyline(g, part.pts.map(at));
   }
   g.stroke(style);
+  const alpha = styleAlpha(style);
+  for (const part of parts) {
+    if (part.kind === 'path') paintTinted(g, part, at, r, alpha);
+  }
+}
+
+type PathPart = Extract<GlyphPart, { kind: 'path' }>;
+
+/** A part drawn in the CALLER's colour (no colour of its own). */
+function isLinework(part: PathPart): boolean {
+  return part.fill === undefined && part.ink === undefined;
+}
+
+/** moveTo/lineTo along already-placed points. */
+function tracePolyline(g: Graphics, pts: readonly (readonly [number, number])[]): void {
+  pts.forEach(([x, y], i) => {
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  });
+}
+
+/** The alpha a stroke style carries (1 when it names none) — a coloured head
+ *  dims with the glyph around it (a wipe, a zero-stock square, a blocked drop). */
+function styleAlpha(style: StrokeInput): number {
+  return typeof style === 'object' && style !== null && 'alpha' in style && typeof style.alpha === 'number'
+    ? style.alpha
+    : 1;
+}
+
+/** A part with a colour of its own: a filled outline, or an inked line. */
+function paintTinted(
+  g: Graphics,
+  part: PathPart,
+  at: (p: GlyphPoint) => [number, number],
+  r: number,
+  alpha: number,
+): void {
+  if (part.fill !== undefined) {
+    g.poly(part.pts.flatMap(at), true).fill({ color: part.fill, alpha });
+    return;
+  }
+  if (part.ink === undefined) return;
+  tracePolyline(g, part.pts.map(at));
+  g.stroke({ width: (part.inkW ?? 0) * r, color: part.ink, alpha, join: 'round', cap: 'butt' });
 }
 
 /** The SVG namespace — DOM `<svg>` children must be created in it or they
@@ -601,8 +707,22 @@ function svgPart(part: GlyphPart): SVGElement {
     return el;
   }
   const el = document.createElementNS(SVG_NS, 'path');
-  el.setAttribute('d', part.pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' '));
+  const d = part.pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' ');
+  el.setAttribute('d', part.fill === undefined ? d : `${d} Z`);
+  if (part.fill !== undefined) {
+    el.setAttribute('fill', svgHex(part.fill));
+    el.setAttribute('stroke', 'none');
+  } else if (part.ink !== undefined) {
+    el.setAttribute('stroke', svgHex(part.ink));
+    el.setAttribute('stroke-width', String(part.inkW ?? 0));
+    el.setAttribute('stroke-linejoin', 'round');
+  }
   return el;
+}
+
+/** 0xRRGGBB → `#rrggbb`. */
+function svgHex(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
 }
 
 /**

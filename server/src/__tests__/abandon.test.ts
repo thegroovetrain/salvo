@@ -91,7 +91,6 @@ describe('the departure scuttle (R3): a real sinking, credited to nobody', () =>
       expect(s.kills).toBe(b4.kills);
       expect(s.bankedLevels).toBe(b4.banked);
       expect(s.level).toBe(b4.level);
-      expect(s.pveKills).toEqual({});
     }
     expect(h.w.bountyId).toBe(''); // the throne never moves on a departure
   });

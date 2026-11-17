@@ -1,10 +1,25 @@
 import { afterEach, describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveSight, type BallisticEvent, type TorpedoUpdateEvent } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_CLASS_ID,
+  FLASH_WINDOW_MS,
+  effectiveStats,
+  mapRadius,
+  whiteoutReach,
+  type BallisticEvent,
+  type TorpedoUpdateEvent,
+} from '@salvo/shared';
 import {
   MAX_OWN_CLAIMS,
+  OWN_LIFETIME_SLACK_MS,
+  ownReachFromStats,
+  trackExpiresAt,
   Projectiles,
   cullRadiusSq,
+  revealReachU,
   trackCullRadiusSq,
   lookForReveal,
   shellCulledBeyondSight,
@@ -79,7 +94,7 @@ describe('Projectiles.render — the lit-zone reveal survives the beyond-sight c
   /** A shell already sitting on the 6/12 rung (radar × 6/12 — the flash rung,
    *  beyond sight's 4/12 + the cull margin; epic-9 amendment 103), still-forming
    *  its position. */
-  const FAR_X = (CONFIG.vision.radar * 6) / 12;
+  const FAR_X = CONFIG.vision.shellSight + 200; // past the enemy shell reach (Story 11.2)
   const farShell: BallisticEvent = { k: 'shell', id: 's1', x: FAR_X, y: 0, vx: 0, vy: 0, t: 0 };
 
   it('culls a beyond-sight shell with no zone, but keeps it inside an own zone', () => {
@@ -103,177 +118,231 @@ describe('Projectiles.render — the lit-zone reveal survives the beyond-sight c
   });
 });
 
-// --- Story 4.9 (THE EIGHTHS LADDER): torpedoes cull at DETECT, shells at SIGHT --
+// --- Story 11.2: the cull rings are the NAMED eye reaches ---------------------
 //
-// The server now stops revealing — and stops sending `torpU` corrections for —
-// an ENEMY torpedo at the DETECT rung (3/8 of intel range = `detectFactor` ×
-// the observer's own boon-widened sight), which is SHORTER than
-// the truesight ring shells still ride. Left sharing one cull, the client would
-// go on dead-reckoning an un-corrected fish across the gap the server
-// abandoned: the client inventing information it does not have. Shells DO NOT
-// MOVE — and neither does our OWN fish, whose owner path the server never stops
-// correcting at all (see the ownership describe further down).
+// The server reveals (and corrects) an ENEMY shell inside `shellSight` and an
+// ENEMY torpedo inside the much shorter `torpedoSight` — named hectometer facts
+// since Story 11.2 (the `detect` / `detectFactor` rung of the retired ladder
+// before). Left sharing one cull, the client would go on dead-reckoning an
+// un-corrected fish across the band the server abandoned. An OWN track is never
+// culled by eye reach: the server's owner path never consults a range, and the
+// firer knows where his own shell goes.
 
-describe('cullRadiusSq — two rings from ONE plumbed sight range', () => {
-  const SIGHT = CONFIG.vision.sight;
-
-  it('gives a shell the truesight ring (+ margin), byte-identical to before', () => {
-    expect(cullRadiusSq(SIGHT, 'shell')).toBe((SIGHT + 40) ** 2);
-  });
-
-  it('gives a torpedo the DETECT ring (+ the same margin)', () => {
-    expect(cullRadiusSq(SIGHT, 'torp')).toBeCloseTo((CONFIG.vision.detect + 40) ** 2, 6);
-    // ...and it is derived from `detectFactor` × the plumbed sight, never from
-    // a second copy of the rung (the shared pin `detect === sight * factor`).
-    expect(cullRadiusSq(SIGHT, 'torp')).toBe((SIGHT * CONFIG.vision.detectFactor + 40) ** 2);
-  });
-
-  it('keeps the torpedo ring inside or ON the shell ring — equal since the 4/8 rung (2026-10-08), never outside it', () => {
-    expect(cullRadiusSq(SIGHT, 'torp')).toBeLessThanOrEqual(cullRadiusSq(SIGHT, 'shell'));
-    expect(cullRadiusSq(SIGHT, 'torp')).toBe((SIGHT * CONFIG.vision.detectFactor + 40) ** 2);
-  });
-
-  it('scales BOTH rings with the observer — a smaller bubble shrinks them together', () => {
-    const narrow = SIGHT / 2;
-    expect(cullRadiusSq(narrow, 'shell')).toBe((narrow + 40) ** 2);
-    expect(cullRadiusSq(narrow, 'torp')).toBe((narrow * CONFIG.vision.detectFactor + 40) ** 2);
-    expect(cullRadiusSq(narrow, 'torp')).toBeLessThan(cullRadiusSq(SIGHT, 'torp'));
+describe('revealReachU / cullRadiusSq — one ring per kind, off the named reaches', () => {
+  it('a shell rides the shell reach and a torpedo the torpedo reach, each + the margin', () => {
+    expect(revealReachU('shell')).toBe(CONFIG.vision.shellSight);
+    expect(revealReachU('torp')).toBe(CONFIG.vision.torpedoSight);
+    expect(cullRadiusSq(revealReachU('shell'))).toBe((CONFIG.vision.shellSight + 40) ** 2);
+    expect(cullRadiusSq(revealReachU('torp'), 0)).toBe(CONFIG.vision.torpedoSight ** 2);
   });
 });
 
 describe('Projectiles.render — the torpedo cull is genuinely separate from the shell cull', () => {
   const own = { x: 0, y: 0 };
-  // The detect ring + margin at BASE stats: 247.5 + 40 = 287.5u.
-  const DETECT_CULL = CONFIG.vision.detect + 40;
-  const justInside = DETECT_CULL - 1;
-  const justOutside = DETECT_CULL + 1;
+  const TORP_CULL = CONFIG.vision.torpedoSight + 40;
+  const SHELL_CULL = CONFIG.vision.shellSight + 40;
+  const MAP_R = SHELL_CULL * 2; // the lifetime backstop never fires at render time 1
 
   const torpAt = (x: number): BallisticEvent => ({ k: 'torp', id: 't1', x, y: 0, vx: 0, vy: 0, t: 0 });
   const shellAt = (x: number): BallisticEvent => ({ k: 'shell', id: 's1', x, y: 0, vx: 0, vy: 0, t: 0 });
 
   const live = (ev: BallisticEvent, zones: OwnZone[] = []): number => {
-    const p = new Projectiles(900, new Container());
+    const p = new Projectiles(MAP_R, new Container());
     p.onShell(ev);
     p.render(1, own, zones);
     return p.liveCount;
   };
 
-  it('KEEPS a torpedo just inside the detect-derived radius', () => {
-    expect(live(torpAt(justInside))).toBe(1);
+  it('KEEPS an enemy torpedo just inside its ring and CULLS it just outside', () => {
+    expect(live(torpAt(TORP_CULL - 1))).toBe(1);
+    expect(live(torpAt(TORP_CULL + 1))).toBe(0);
   });
 
-  it('CULLS a torpedo just outside it', () => {
-    expect(live(torpAt(justOutside))).toBe(0);
-  });
-
-  it('a SHELL culls at ITS ring — truesight + 40, which since the 4/8 rung (2026-10-08) is the same radius the torpedo culls at', () => {
-    expect(live(shellAt(CONFIG.vision.sight + 40 - 1))).toBe(1);
-    expect(live(shellAt(CONFIG.vision.sight + 40 + 1))).toBe(0);
-    expect(live(shellAt(justOutside))).toBe(justOutside <= CONFIG.vision.sight + 40 ? 1 : 0); // two reads of ONE plumbed radius
+  it('a SHELL culls at ITS ring — and a shell where the fish ring ends is still drawn', () => {
+    expect(live(shellAt(SHELL_CULL - 1))).toBe(1);
+    expect(live(shellAt(SHELL_CULL + 1))).toBe(0);
+    expect(live(shellAt(TORP_CULL + 1))).toBe(1);
   });
 
   it('leaves the lit-zone exemption applying to torpedoes exactly as it does today', () => {
-    const zone: OwnZone = { x: justOutside, y: 0, r: 110, until: 10_000 };
-    expect(live(torpAt(justOutside), [zone])).toBe(1);
-  });
-
-  it('follows the ONE plumbed sight range — setSightRange moves both rings', () => {
-    const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight * 2, CONFIG.vision.radar); // a boon-widened bubble
-    p.onShell(torpAt(justOutside));
-    p.render(1, own, []);
-    expect(p.liveCount).toBe(1); // now well inside the widened detect ring
+    const zone: OwnZone = { x: TORP_CULL + 1, y: 0, r: 110, until: 10_000 };
+    expect(live(torpAt(TORP_CULL + 1), [zone])).toBe(1);
   });
 });
 
-// --- REVIEW FIX: the detect cull is for ENEMY fish ONLY ------------------------
-//
-// The server's owner path SHORT-CIRCUITS BEFORE the detect gate (signals.ts:
-// `shell.ownerId === me.id` in both ballisticSignal and torpedoUpdateSignal),
-// so the server never stops revealing OR correcting an owner's own torpedo at
-// any range. The cull's stated rationale — "the server stopped correcting it" —
-// is therefore FALSE on the owner path, and applying the detect ring to our own
-// fish silently cut the owner's own-fish render window from 370u to 287.5u. No
-// amendment rules on the owner's view of their own ordnance, so it stays where
-// it was before this story: the truesight ring.
-//
-// `own === 'heavyTorpedo'` is a GENUINE claim on this path and never a heuristic —
-// roomBindings.handleTorp only sets it against a live click-time torpedo latch
-// (the shell path's ratified 'gun' fallback has no torpedo analogue), which is
-// also why the same field already authorizes the burst ring.
-
-describe('Projectiles.render — the detect cull applies to ENEMY fish only (review fix)', () => {
+describe('Projectiles.render — an OWN track is never culled by eye reach (Story 11.2)', () => {
   const own = { x: 0, y: 0 };
-  const DETECT_CULL = CONFIG.vision.detect + 40; // 287.5u at base stats
-  const SIGHT_CULL = CONFIG.vision.sight + 40; // 370u at base stats
-  const torpAt = (x: number, id = 't1'): BallisticEvent => ({ k: 'torp', id, x, y: 0, vx: 0, vy: 0, t: 0 });
+  const FAR = CONFIG.vision.shellSight * 3; // well past every eye reach
+  const at = (k: 'shell' | 'torp', x: number, id = 'p1'): BallisticEvent => ({ k, id, x, y: 0, vx: 0, vy: 0, t: 0 });
 
-  const liveTorp = (x: number, mine: boolean): number => {
-    const p = new Projectiles(900, new Container());
-    p.onShell(torpAt(x), mine ? 'heavyTorpedo' : null, mine ? 'heavyTorpedo' : null);
+  const liveAt = (ev: BallisticEvent, claim: 'gun' | 'heavyTorpedo' | null): number => {
+    const p = new Projectiles(FAR * 2, new Container());
+    p.onShell(ev, claim, claim);
     p.render(1, own, []);
     return p.liveCount;
   };
 
-  it('KEEPS an OWN torpedo anywhere inside the truesight ring — the server never stopped correcting it', () => {
-    // (DETECT_CULL === SIGHT_CULL since the 4/8 rung, 2026-10-08, so the
-    // "past detect, inside sight" probe this test was born with is empty.)
-    expect(liveTorp(SIGHT_CULL - 1, true)).toBe(1);
-  });
-
-  it('...and still culls the own fish at ITS ring — truesight, exactly as before this story', () => {
-    expect(liveTorp(SIGHT_CULL + 1, true)).toBe(0);
-  });
-
-  it('CULLS an ENEMY torpedo at the very same distance — the fork is on OWNERSHIP', () => {
-    expect(liveTorp(DETECT_CULL + 1, false)).toBe(0);
-  });
-
-  it('leaves SHELLS on truesight for everyone — an own claim changes nothing there', () => {
-    const shellAt = (x: number): BallisticEvent => ({ k: 'shell', id: 's1', x, y: 0, vx: 0, vy: 0, t: 0 });
-    for (const claim of ['gun', null] as const) {
-      const p = new Projectiles(900, new Container());
-      p.onShell(shellAt(SIGHT_CULL + 1), claim, claim);
-      p.render(1, own, []);
-      expect(p.liveCount).toBe(0);
-    }
+  it('keeps an own shell and an own fish far past every eye reach; the same tracks unclaimed are culled', () => {
+    expect(liveAt(at('shell', FAR), 'gun')).toBe(1);
+    expect(liveAt(at('torp', FAR), 'heavyTorpedo')).toBe(1);
+    expect(liveAt(at('shell', FAR), null)).toBe(0);
+    expect(liveAt(at('torp', FAR), null)).toBe(0);
   });
 
   it('a RESURRECTED own fish keeps its ownership — spawnFromUpdate reads the claim tombstone', () => {
     // The homing-update path creates a track for an id we dropped. It cannot
     // know ownership from the `torpU` payload (which carries none, by design),
-    // so it reads the claim tombstone the reveal already recorded — the same
-    // map the burst ring consults, and for the same reason: the track dies long
-    // before the fact about it stops mattering. Left at `own: null` it would
-    // hand our own resurrected fish the ENEMY cull ring.
-    const p = new Projectiles(900, new Container());
-    p.onShell(torpAt(0), 'heavyTorpedo', 'heavyTorpedo');
-    p.render(1, { x: -100_000, y: 0 }, []); // observer teleport → the track is culled
+    // so it reads the claim tombstone the reveal already recorded. Left at
+    // `own: null` it would hand our own resurrected fish the ENEMY cull ring.
+    // The LIFETIME BACKSTOP retires the track (an own fish is no longer culled
+    // by eye reach) and keeps the claim tombstone: a dead own track to resurrect.
+    const p = new Projectiles(100, new Container());
+    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 10, vy: 0, t: 0 }, 'heavyTorpedo', 'heavyTorpedo');
+    const past = maxLifetimeMs(100, 10) + 1;
+    p.render(past, own, []);
     expect(p.liveCount).toBe(0);
-    p.onBallisticUpdate({ k: 'torpU', id: 't1', x: SIGHT_CULL - 1, y: 0, vx: 0, vy: 0, t: 0 });
-    p.render(1, own, []);
-    expect(p.liveCount).toBe(1); // ours → kept inside the truesight ring (equal to the detect ring since 2026-10-08)
+    p.onBallisticUpdate({ k: 'torpU', id: 't1', x: CONFIG.vision.torpedoSight * 4, y: 0, vx: 0, vy: 0, t: past });
+    p.render(past + 1, own, []);
+    expect(p.liveCount).toBe(1); // ours → kept past the enemy torpedo ring
   });
 });
 
-// --- the ENEMY rings are the shared effectiveSight ----------------------------
+// --- the ENEMY rings follow THE WHITEOUT LAW -----------------------------------
 //
-// The server's reveal ring for an enemy's ballistics is `sightOf(me, now)`, which
-// is the shared `effectiveSight`. Story 9.4 retired the FLASH SHELLS dazzle (the
-// `setDazzled` plumbing and its review-fix suites went with it); the contract that
-// remains is that the enemy ring is derived through that one function, and an own
-// track keeps the plain sight ring (never the detect ring).
+// The server's reveal ring for an enemy's ballistics is the named reach under the
+// shared whiteout law (`whiteoutReach`) — 0 through ramp + hold, then growing
+// linearly back to the full reach. A flashed observer that kept the full ring
+// would dead-reckon a track the server had stopped correcting.
 
-describe('trackCullRadiusSq — the enemy ring is the shared effectiveSight', () => {
-  const ranges = { sightRange: CONFIG.vision.sight * 1.5, radarRange: CONFIG.vision.radar };
+const { rampMs: RAMP, holdMs: HOLD, clearMs: CLEAR } = CONFIG.flashShells;
+/** A flash that hit at t = 0, read `e` ms in. */
+const flashAt = (e: number) => ({ until: FLASH_WINDOW_MS, now: e });
+const NONE = { until: 0, now: 0 };
+const MID_CLEAR = flashAt(RAMP + HOLD + CLEAR / 2);
 
-  it('an enemy shell culls at effectiveSight, an enemy fish at its detect fraction', () => {
-    expect(trackCullRadiusSq(ranges, 'shell', null)).toBe(cullRadiusSq(effectiveSight(ranges), 'shell'));
-    expect(trackCullRadiusSq(ranges, 'torp', null)).toBe(cullRadiusSq(effectiveSight(ranges), 'torp'));
+describe('trackCullRadiusSq — the enemy ring is the whited-out reach', () => {
+  it('undazzled, each enemy kind culls at its reach + the margin', () => {
+    expect(trackCullRadiusSq(NONE, 'shell', null)).toBe(cullRadiusSq(revealReachU('shell')));
+    expect(trackCullRadiusSq(NONE, 'torp', null)).toBe(cullRadiusSq(revealReachU('torp')));
   });
 
-  it('an own track rides the plain sight ring, for a fish too', () => {
-    expect(trackCullRadiusSq(ranges, 'torp', 'heavyTorpedo')).toBe(cullRadiusSq(ranges.sightRange, 'shell'));
+  it('WHILE A MARK IS PENDING the ring is the whited-out reach EXACTLY — no margin (gate fix F5)', () => {
+    for (const d of [flashAt(0), flashAt(RAMP + HOLD), MID_CLEAR]) {
+      for (const k of ['shell', 'torp'] as const) {
+        expect(trackCullRadiusSq(d, k, null)).toBe(whiteoutReach(revealReachU(k), d.until, d.now) ** 2);
+      }
+    }
+    expect(trackCullRadiusSq(flashAt(RAMP), 'shell', null)).toBe(0);
+    expect(trackCullRadiusSq(MID_CLEAR, 'shell', null)).toBeCloseTo((revealReachU('shell') / 2) ** 2, 6);
+  });
+
+  it('an own track is never culled by eye reach, flashed or not', () => {
+    for (const d of [NONE, flashAt(0), MID_CLEAR]) {
+      expect(trackCullRadiusSq(d, 'torp', 'heavyTorpedo')).toBe(Infinity);
+      expect(trackCullRadiusSq(d, 'shell', 'gun')).toBe(Infinity);
+    }
+  });
+});
+
+describe('Projectiles.setDazzle — both enemy cull rings follow the clear circle', () => {
+  const own = { x: 0, y: 0 };
+  const dzShell = whiteoutReach(revealReachU('shell'), MID_CLEAR.until, MID_CLEAR.now);
+  const dzTorp = whiteoutReach(revealReachU('torp'), MID_CLEAR.until, MID_CLEAR.now);
+  const MAP_R = CONFIG.vision.shellSight * 4;
+  const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
+
+  const live = (ev: BallisticEvent, d: { until: number; now: number }, claim: 'gun' | 'heavyTorpedo' | null = null): number => {
+    const p = new Projectiles(MAP_R, new Container());
+    p.setDazzle(d.until, d.now);
+    p.onShell(ev, claim, claim);
+    p.render(1, own, []);
+    return p.liveCount;
+  };
+
+  it('holds the mark as state (isDazzled while until > now)', () => {
+    const p = new Projectiles(900, new Container());
+    expect(p.isDazzled).toBe(false);
+    p.setDazzle(FLASH_WINDOW_MS, 0);
+    expect(p.isDazzled).toBe(true);
+    p.setDazzle(FLASH_WINDOW_MS, FLASH_WINDOW_MS);
+    expect(p.isDazzled).toBe(false);
+  });
+
+  it('shrinks the enemy SHELL ring to the clear circle — the same shell survives unflashed', () => {
+    expect(live(at('shell', dzShell - 1), MID_CLEAR)).toBe(1);
+    expect(live(at('shell', dzShell + 1), MID_CLEAR)).toBe(0);
+    expect(live(at('shell', dzShell + 1), NONE)).toBe(1);
+  });
+
+  it('shrinks the enemy TORPEDO ring by the same law', () => {
+    expect(live(at('torp', dzTorp - 1), MID_CLEAR)).toBe(1);
+    expect(live(at('torp', dzTorp + 1), MID_CLEAR)).toBe(0);
+    expect(live(at('torp', dzTorp + 1), NONE)).toBe(1);
+  });
+
+  it("KEEPS a flashed captain's OWN shell and fish", () => {
+    expect(live(at('shell', dzShell + 1), flashAt(0), 'gun')).toBe(1);
+    expect(live(at('torp', dzTorp + 1), flashAt(0), 'heavyTorpedo')).toBe(1);
+  });
+});
+
+describe('main.updateDazzle — the flash mark actually reaches all three mirrors AND the whiteout', () => {
+  // main.ts boots the whole app at module load and is never imported by a test
+  // (see foghorn.test.ts's note); this is the same SOURCE-SCAN technique. The
+  // bug being pinned is a plumbing omission, not a logic error, so the wiring
+  // itself is what has to be asserted.
+  const MAIN_TS = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+  const updateDazzle = MAIN_TS.slice(MAIN_TS.indexOf('function updateDazzle('));
+  const body = updateDazzle.slice(0, updateDazzle.indexOf('\n}'));
+
+  it('fans the one (until, now) mark out to radar, projectiles, the whiteout and fog', () => {
+    expect(body).toContain('g.radar.setDazzle(until, now)');
+    expect(body).toContain('g.projectiles.setDazzle(until, now)');
+    expect(body).toContain('renderWhiteout(g, until, now, pose)');
+    expect(body).toContain('g.fog.setDazzle(until, now)');
+  });
+
+  it("sets radar, projectiles and the whiteout BEFORE the fog's changed-flag early-return", () => {
+    const fogGate = body.indexOf('g.fog.setDazzle');
+    expect(fogGate).toBeGreaterThan(-1);
+    expect(body.indexOf('g.radar.setDazzle')).toBeLessThan(fogGate);
+    expect(body.indexOf('g.projectiles.setDazzle')).toBeLessThan(fogGate);
+    expect(body.indexOf('renderWhiteout(')).toBeLessThan(fogGate);
+  });
+
+  it('the whiteout frame is the pure whiteoutModel handed to the overlay', () => {
+    const fn = MAIN_TS.slice(MAIN_TS.indexOf('function renderWhiteout('));
+    const wb = fn.slice(0, fn.indexOf('\n}'));
+    // ...carrying the overlay's last alpha, so a re-flash ramps from the white on screen (gate fix F3).
+    expect(wb).toContain('g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen, g.whiteout.carriedAlpha)');
+  });
+
+  it('the RESULTS screen is never under white (gate fix F7): presentResults hides the overlay, and renderWhiteout keeps it hidden while the results modal is visible', () => {
+    // The results message lands one server message BEFORE the first `finished`
+    // spec frame (ArenaRoom broadcasts results inside the step, frames follow),
+    // so a render can run between them with `spectating` still false — the
+    // spectate hide alone leaves a window.
+    const pr = MAIN_TS.slice(MAIN_TS.indexOf('function presentResults('));
+    expect(pr.slice(0, pr.indexOf('\n}'))).toContain('g.whiteout.hide()');
+    const fn = MAIN_TS.slice(MAIN_TS.indexOf('function renderWhiteout('));
+    const wb = fn.slice(0, fn.indexOf('\n}'));
+    const gate = wb.indexOf('if (resultsVisible())');
+    expect(gate).toBeGreaterThan(-1);
+    expect(wb.slice(gate, wb.indexOf('\n', wb.indexOf('\n', gate) + 1))).toContain('g.whiteout.hide()');
+    expect(gate).toBeLessThan(wb.indexOf('g.whiteout.render('));
+  });
+
+  it('a spectator hides the whiteout', () => {
+    const fn = MAIN_TS.slice(MAIN_TS.indexOf('function renderSpectate('));
+    expect(fn.slice(0, fn.indexOf('\n}'))).toContain('g.whiteout.hide()');
+  });
+
+  it('runs BEFORE the projectile render, so the cull rings never lag the fog by a frame', () => {
+    const render = MAIN_TS.indexOf('g.projectiles.render(now, pose ?? undefined, ownZones)');
+    const dazzle = MAIN_TS.indexOf('updateDazzle(g, now, pose);');
+    expect(render).toBeGreaterThan(-1);
+    expect(dazzle).toBeGreaterThan(-1);
+    expect(dazzle).toBeLessThan(render);
   });
 });
 
@@ -463,26 +532,23 @@ describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
     expect(p.torpWakeHulls(2000)[0].y).toBeCloseTo(110, 9);
   });
 
-  it('re-creates a track the client already CULLED, and keeps it ours', () => {
+  it('re-creates a track the client already DROPPED, and keeps it ours', () => {
+    // Story 11.2: an own fish is never culled by eye reach, so the track dies by
+    // the lifetime backstop here — which keeps the claim tombstone.
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
-    // Our own fish, genuinely claimed at launch.
-    p.onShell(fish(), 'heavyTorpedo', 'heavyTorpedo');
-    // It runs out past even the OWN (sight-derived) ring and is culled.
-    const far = Math.sqrt(trackCullRadiusSq({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, 'torp', 'heavyTorpedo')) + 10;
-    p.onShell(fish({ id: 't1', x: far, y: 0, t: 0 })); // re-anchor it out there
-    p.render(0, { x: 0, y: 0 }, []);
+    p.onShell(fish(), 'heavyTorpedo', 'heavyTorpedo'); // our own fish, claimed at launch
+    const past = maxLifetimeMs(900, 60) + 1;
+    p.render(past, { x: 0, y: 0 }, []);
     expect(p.liveCount).toBe(0);
-    // The observer closes again and the server re-reveals it. `own` is null on
-    // this path — the reveal is nowhere near our hull, so roomBindings cannot
-    // claim it a second time — and the CLAIM TOMBSTONE is what keeps it ours.
-    const near = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'torp')) - 20; // inside the (now shared) ring
-    p.onShell(fish({ x: near, y: 0, t: 5000 }));
+    // The server re-reveals it. `own` is null on this path — the reveal is
+    // nowhere near our hull, so roomBindings cannot claim it a second time —
+    // and the CLAIM TOMBSTONE is what keeps it ours.
+    const far = CONFIG.vision.torpedoSight * 4; // well outside the ENEMY torpedo ring
+    p.onShell(fish({ x: far, y: 0, t: past }));
     expect(p.liveCount).toBe(1);
-    // An ENEMY fish at that distance would be culled on the next frame (it is
-    // outside the detect-derived ring); ours is not, because the server is
-    // still correcting it.
-    p.render(5000, { x: 0, y: 0 }, []);
+    // An ENEMY fish at that distance would be culled on the next frame; ours is
+    // not, because the server is still correcting it.
+    p.render(past, { x: 0, y: 0 }, []);
     expect(p.liveCount).toBe(1);
   });
 
@@ -519,8 +585,7 @@ describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
 
   it('...and a fish we never claimed stays an ENEMY track on re-reveal', () => {
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
-    const near = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'torp')) + 20;
+    const near = Math.sqrt(cullRadiusSq(revealReachU('torp'))) + 20;
     p.onShell(fish({ id: 'enemy', x: near, y: 0, t: 5000 }));
     p.render(5000, { x: 0, y: 0 }, []);
     expect(p.liveCount).toBe(0); // outside the enemy ring: dropped, as before
@@ -623,14 +688,10 @@ describe('Projectiles — own-shot claims outlive their sprites', () => {
     k: 'shell', id, x, y: 0, vx: 130, vy: 0, t: 0,
   });
 
-  it('answers ownFireOf for a track the SIGHT CULL has already retired', () => {
-    const p = new Projectiles(900, new Container());
-    p.onShell(shell('s1'), 'broadside', 'broadside');
-    p.render(10_000, { x: 5_000, y: 5_000 }); // far outside the bubble → culled
-    expect(p.liveCount).toBe(0);
-    expect(p.ownFireOf('s1')).toBe('broadside'); // ...the claim survives it
-  });
-
+  // ("answers ownFireOf for a track the SIGHT CULL has already retired" —
+  // DELETED 2026-11-12, Story 11.2: an own track is never culled by eye reach
+  // any more, so that retirement path no longer exists; the lifetime backstop
+  // below is the one that still drops an own sprite before its burst.)
   it('answers ownFireOf after the LIFETIME backstop retires the track', () => {
     const p = new Projectiles(900, new Container());
     p.onShell(shell('s1'), 'gun', 'gun');
@@ -694,5 +755,77 @@ describe('shell looks by the reveal family `w` (Story 8.15)', () => {
     expect(p.lookOf('c1')).toBe('shell');
     p.onShell({ k: 'shell', id: 'f1', x: 0, y: 0, vx: 500, vy: 0, t: 0, w: 'flak' });
     expect(p.lookOf('f1')).toBe('shell');
+  });
+});
+
+// --- STORY 11.2 (gate C1): AN OWN TRACK RETIRES ON THE FIRER'S OWN KNOWLEDGE ---
+//
+// The owner is not always sent his own boom (out of eye reach, behind an
+// island, in fog, flash-blinded), and an own track is never culled by eye
+// reach — so without its own bound it ghosted for the whole map-crossing
+// backstop. Contract: an own track lives exactly as long as its round can
+// travel (`reach / speed` from launch, plus `OWN_LIFETIME_SLACK_MS`), off the
+// own stats row; it is never culled before that; it stops feeding the wake on
+// expiry; a steer never extends it.
+describe('own track lifetime (Story 11.2, C1)', () => {
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
+  const reach = ownReachFromStats(stats);
+  const MAP = mapRadius(CONFIG.map.playerCap);
+  const farOwn = { x: -CONFIG.vision.torpedoSight * 10, y: 0 }; // the firer sailed far away: eye reach never applies
+
+  const ownFish = (): { p: Projectiles; endMs: number } => {
+    const p = new Projectiles(MAP, new Container());
+    p.setOwnReach(reach);
+    const row = stats.equipment.heavyTorpedo;
+    p.onShell({ k: 'torp', id: 'f', x: 0, y: 0, vx: row.speed, vy: 0, t: 0 }, 'heavyTorpedo', 'heavyTorpedo');
+    return { p, endMs: (row.runU / row.speed) * 1000 };
+  };
+
+  it('an own torpedo lives through its run and retires a few ticks after it — not at the map backstop', () => {
+    const { p, endMs } = ownFish();
+    expect(endMs + OWN_LIFETIME_SLACK_MS).toBeLessThan(maxLifetimeMs(MAP, stats.equipment.heavyTorpedo.speed));
+    p.render(endMs, farOwn, []);
+    expect(p.liveCount).toBe(1); // never culled for leaving eye reach
+    expect(p.torpWakeHulls(endMs)).toHaveLength(1);
+    const after = endMs + OWN_LIFETIME_SLACK_MS + 1;
+    expect(p.torpWakeHulls(after)).toHaveLength(0); // the wake pull runs BEFORE render: it must already stop
+    p.render(after, farOwn, []);
+    expect(p.liveCount).toBe(0);
+  });
+
+  it('a steer mid-run never extends an own fish past its launch-time run', () => {
+    const { p, endMs } = ownFish();
+    const mid = endMs / 2;
+    const v = stats.equipment.heavyTorpedo.speed;
+    p.onBallisticUpdate({ k: 'torpU', id: 'f', x: (v * mid) / 1000, y: 0, vx: 0, vy: v, t: mid });
+    p.render(endMs + OWN_LIFETIME_SLACK_MS + 1, farOwn, []);
+    expect(p.liveCount).toBe(0);
+  });
+
+  it('an own shell lives its own weapon reach / speed, then retires without a boom', () => {
+    const p = new Projectiles(MAP, new Container());
+    p.setOwnReach(reach);
+    const speed = CONFIG.mainBattery.shellSpeed;
+    p.onShell({ k: 'shell', id: 's', x: 0, y: 0, vx: speed, vy: 0, t: 0 }, 'mainBattery', 'mainBattery');
+    const endMs = (stats.equipment.mainBattery.rangeU / speed) * 1000;
+    p.render(endMs, farOwn, []);
+    expect(p.liveCount).toBe(1);
+    p.render(endMs + OWN_LIFETIME_SLACK_MS + 1, farOwn, []);
+    expect(p.liveCount).toBe(0);
+  });
+
+  it('an enemy track (and an own one before the first stats) keeps the map backstop', () => {
+    const v = stats.equipment.heavyTorpedo.speed;
+    expect(trackExpiresAt(0, v, null, reach, MAP)).toBe(maxLifetimeMs(MAP, v));
+    expect(trackExpiresAt(0, v, 'heavyTorpedo', {}, MAP)).toBe(maxLifetimeMs(MAP, v));
+  });
+
+  it("ownReachFromStats: each torpedo line's run, and the 'gun' fallback reaches at least every shell mount", () => {
+    expect(reach.heavyTorpedo).toBe(stats.equipment.heavyTorpedo.runU);
+    expect(reach.lightTorpedo).toBe(stats.equipment.lightTorpedo.runU);
+    expect(reach.supercavTorpedo).toBe(stats.equipment.supercavTorpedo.runU);
+    const shellMounts = ['mainBattery', 'broadside', 'flak', 'machineGun', 'starShells', 'phosphorShells', 'foulingShell', 'dazzleShells'] as const;
+    for (const k of shellMounts) expect(reach.gun).toBeGreaterThanOrEqual(reach[k] ?? Infinity);
+    expect(reach.gun).toBeGreaterThanOrEqual(stats.secondaryRangeU);
   });
 });

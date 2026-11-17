@@ -10,18 +10,23 @@
 // reimplemented oracle (the header rule).
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_HORN_ID, type FoghornEvent, type GameEvent } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_HORN_ID, HORN_IDS, type FoghornEvent, type GameEvent, type HornId } from '@salvo/shared';
+import { World, type FogHullQuestion, type ShipRecord } from '../game/world.js';
 import { neutralInput } from '../game/inputs.js';
 import { buildFrame } from '../game/frames.js';
 import { signalFor, type FoggedSignalContext, type SpectatorSignalContext } from '../game/signals.js';
 import { circleIsland } from './islandFixture.js';
 
-// The twelfths ruler (Story 9.8, amendment 103; ruling 129): every anchor is
-// derived from CONFIG, never a literal.
-const SIGHT = CONFIG.vision.sight; // band 4's outer edge at base stats (full volume through here)
+// The horn's ruler (Story 9.8, ruling 129; UNCHANGED IN RULE by Story 11.2):
+// twelve equal bands of the LISTENER'S radar reach, the first four one
+// full-volume plateau. Every anchor is derived from CONFIG, never a literal.
+// The horn never read sight — and since Story 11.2 sight is its own
+// hectometer fact (no longer radar / 3), so the plateau's edge is NOT the
+// sight radius and nothing here may treat the two as one distance.
+const SIGHT = CONFIG.vision.sight; // the class-and-name eye reach — only ever POKED here, to prove the horn ignores it
 const RADAR = CONFIG.vision.radar; // the intel range: band 12's outer edge at base stats
-const BAND = RADAR / 12; // one twelfth of base intel range — one rung
+const BAND = RADAR / 12; // one twelfth of base intel range — one band
+const PLATEAU = 4 * BAND; // band 4's outer edge at base stats (full volume through here)
 const COOLDOWN = CONFIG.foghorn.cooldownMs;
 const DT = CONFIG.tick.simDtMs;
 
@@ -61,20 +66,17 @@ const subject = (x: number, y: number, id: string): FoghornEvent =>
  *  through rather than hardcoding anything. */
 const radarCtx = (w: World) => ({
   pseudonymOf: (id: string) => w.pseudonymFor(id),
-  // Story 8.16: the decoy channel's subjects; the fh row reads none.
-  decoys: w.decoys,
   // Story 9.3: the live countermeasure clouds (the context field; the fh
-  // row's muffle never reads them — a cloud hides nothing, session 2).
+  // row's muffle never reads them).
   clouds: w.cloudRecords,
-  fogToll: (ax: number, ay: number, bx: number, by: number) => w.fogTollAlong(ax, ay, bx, by), // Story 9.10: the fog toll thunk (the fh row never calls it — the horn is fog-blind)
+  fogAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogSightAdmits(ax, ay, bx, by), // the weather gate thunks (the fh row never calls them — the horn is weather-blind)
+  fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogRainAdmits(ax, ay, bx, by),
+  fogHullAdmits: (q: FogHullQuestion) => w.fogHullAdmits(q),
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,
-  // Story 5.6: the aggro mark's input; the fh row reads none of it either.
-  aggroAt: (fleetShipId: string, observerId: string) => w.drones.isTargeting(fleetShipId, observerId),
-  // Story 9.8: the radar dropout roll's inputs; the fh row reads neither.
-  dropoutSeed: w.dropoutSeed,
-  wakeKeyOf: (r: Parameters<World['wakeKeyOf']>[0]) => w.wakeKeyOf(r),
+  // Story 11.2 review gate (F1): the paint salt; the fh row never reads it.
+  paintSaltOf: w.paintSaltFor,
 });
 
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */
@@ -161,18 +163,6 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     expect(honks(w.tickEvents)).toHaveLength(0); // replay reads stale forever
   });
 
-  it('a drone never honks — the press is consumed and dropped', () => {
-    const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
-    // Out-run the drone controller's own per-tick submit (mind.seq counts up
-    // from 1): a seq-10 forged press wins latest, the controller's input reads
-    // stale — this is exactly the shape a hijacked drone channel would take.
-    honk(w, 'd1', 10, 1);
-    w.step();
-    expect(honks(w.tickEvents)).toHaveLength(0);
-    expect(d.lastHornSeq).toBe(1); // consumed, exactly like malformed input
-  });
-
   it('a dead captain cannot honk; the press is consumed', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -219,11 +209,27 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     expect(a.lastHornSeq).toBe(1);
   });
 
+  // Story 10.13: a NON-DEFAULT catalog horn rides the honk's `h` — on the
+  // world subject and on the honker's own wire copy (the fh row is unchanged;
+  // the perception invariant is untouched).
+  it('a captain fitted with a non-default horn honks with THAT id on the subject and on its own copy', () => {
+    const w = bareWorld();
+    const picked = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID) as HornId;
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', picked, undefined);
+    a.state.x = 0;
+    a.state.y = 0;
+    honk(w, 'a', 1, 1);
+    w.step();
+    const fh = honks(w.tickEvents);
+    expect(fh.map((e) => e.h)).toEqual([picked]);
+    expect((row.materialize(foggedCtx(w, a), fh[0]) as FoghornEvent).h).toBe(picked);
+  });
+
   it('addShip defaults the horn to the shared DEFAULT_HORN_ID and stamps a passed variant onto the record', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     expect(a.horn).toBe(DEFAULT_HORN_ID);
-    const b = w.addShip('b', 'B', 'captain', 'torpedoBoat', 'standard', undefined);
+    const b = w.addShip('b', 'B', 'captain', 'bismarck', 'standard', undefined);
     expect(b.horn).toBe('standard');
   });
 });
@@ -258,12 +264,9 @@ describe('SIGNAL_REGISTRY — fh row: the honker\'s own copy', () => {
 });
 
 describe('SIGNAL_REGISTRY — fh row: the twelve volume bands (twelfths of the LISTENER\'S own intel range, boundaries inclusive — Story 9.8, ruling 129)', () => {
-  it('the ladder anchors: sight is the band-4 edge and radar the band-12 edge (amendment 103 — sight = radar / 3)', () => {
-    expect(SIGHT).toBe(4 * BAND);
-    expect(RADAR).toBe(12 * BAND);
-  });
+  // (DELETED 2026-11-12 — Story 11.2, a ruling recorded in the epic-11 amendments: "the ladder anchors: sight is the band-4 edge and radar the band-12 edge (amendment 103 — sight = radar / 3)" — it pinned the retired twelfths ladder; sight is its own hectometer fact now and the horn never read it.)
 
-  it('base stats: all twelve bands — each outer edge inclusive, a hair beyond each steps down; past band 12, silence', () => {
+  it('base stats: all twelve bands — a hair inside each outer edge holds the band, a hair beyond steps down; the outermost edge is inclusive; past band 12, silence', () => {
     const w = bareWorld();
     const e = subject(0, 0, 'honker');
     // BANDS 1-3 ARE NOT ON THE WIRE (review fix): they are indistinguishable
@@ -271,15 +274,20 @@ describe('SIGNAL_REGISTRY — fh row: the twelve volume bands (twelfths of the L
     // across the whole 100% plateau (see the plateau-floor describe below).
     const cases: Array<[number, number | null]> = [
       [BAND / 3, 4], // deep inside the plateau (raw band 1)
-      [BAND, 4], // exactly one rung — inclusive (raw band 1)
+      [BAND, 4], // one band out (raw band 1 or 2 — the same plateau either way)
       [BAND + 0.01, 4], // raw band 2
-      [2 * BAND, 4], // raw band 2
-      [3 * BAND, 4], // raw band 3
-      [SIGHT, 4], // ANCHOR: band 4 ends exactly at truesight — full volume through here
-      [SIGHT + 0.01, 5], // ...and the first band that is genuinely quieter IS transmitted
+      [2 * BAND, 4], // raw band 2 or 3
+      [3 * BAND, 4], // raw band 3 or 4
+      // THE EDGES ARE BRACKETED, NOT HIT (Story 11.2): the radar reach is a
+      // hectometer fact that is not a round number of u, so `b × BAND` is not
+      // float-exact and an "exactly on the edge" probe would pin rounding,
+      // not the rule. A hair inside holds the band; a hair beyond steps down.
+      [PLATEAU - 0.01, 4], // ANCHOR: the plateau runs to band 4's outer edge — full volume through here
+      [PLATEAU + 0.01, 5], // ...and the first band that is genuinely quieter IS transmitted
     ];
-    for (let b = 5; b <= 12; b++) cases.push([b * BAND, b]); // each outer edge, inclusive
+    for (let b = 5; b <= 12; b++) cases.push([b * BAND - 0.01, b]); // a hair inside each outer edge
     for (let b = 5; b < 12; b++) cases.push([b * BAND + 0.01, b + 1]); // a hair beyond steps down
+    cases.push([RADAR, 12]); // the outermost edge IS exact (12 × R / R) — inclusive
     cases.push([RADAR + 0.01, null]); // out of earshot — no event at all
     for (const [d, want] of cases) {
       const l = place(w, `l${d}`, d, 0);
@@ -357,6 +365,25 @@ describe('SIGNAL_REGISTRY — fh row: the twelve volume bands (twelfths of the L
     }
   });
 
+  it('DAZZLE CANNOT DEAFEN (Story 10.9 restores the FLASH SHELLS mark): a dazzled listener bands identically to an undazzled one at every distance', () => {
+    const w = bareWorld();
+    const l = place(w, 'l', 0, 0);
+    const probes: Array<[number, number | null]> = [];
+    for (let b = 1; b <= 12; b++) probes.push([(b - 0.5) * BAND, Math.max(b, 4)]);
+    probes.push([RADAR + 1, null]);
+    const bandOf = (d: number, tag: string): number | null => {
+      const ctx = foggedCtx(w, l);
+      const e = subject(d, 0, `${tag}${d}`);
+      return row.visible(ctx, e) ? ((row.materialize(ctx, e) as FoghornEvent).v ?? null) : null;
+    };
+    const undazzled = probes.map(([d]) => bandOf(d, 'u'));
+    expect(undazzled).toEqual(probes.map(([, want]) => want));
+    // The mark is live: the listener's SIGHT collapses (the shared
+    // effectiveSight), its intel range — the bands' one ruler — does not.
+    l.dazzledUntil = w.now + FLASH_WINDOW_MS;
+    expect(probes.map(([d]) => bandOf(d, 'd'))).toEqual(undazzled);
+  });
+
   it('a listener with a widened intel range hears farther — the bands stretch with stats.radarRange, never the CONFIG constant (driven by poking stats directly: no card writes radarRange since the 2026-08-20 INTEL RANGE deletion, and the row must still read the field)', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);
@@ -364,28 +391,38 @@ describe('SIGNAL_REGISTRY — fh row: the twelve volume bands (twelfths of the L
     const wBand = wide / 12; // the band width stretches with the field
     l.stats = { ...l.stats, radarRange: wide };
     const ctx = foggedCtx(w, l);
-    expect((row.materialize(ctx, subject(4 * wBand, 0, 'h1')) as FoghornEvent).v).toBe(4);
+    expect((row.materialize(ctx, subject(3.5 * wBand, 0, 'h1')) as FoghornEvent).v).toBe(4);
     expect((row.materialize(ctx, subject(11.5 * wBand, 0, 'h2')) as FoghornEvent).v).toBe(12);
     expect((row.materialize(ctx, subject(wide, 0, 'h3')) as FoghornEvent).v).toBe(12); // inclusive
     expect(row.visible(ctx, subject(wide + 0.01, 0, 'h4'))).toBe(false);
   });
 
-  it('a 1200u intel-range poke resolves by the formula: a sight-distance honker lands in band ceil(12 × sight / 1200)', () => {
+  it('a NARROWED intel-range poke resolves by the formula on the listener\'s own range: a honker at d lands in band ceil(12 × d / range), and one past the narrowed range is silent though still inside the base range', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);
-    l.stats = { ...l.stats, radarRange: 1200 };
-    const want = Math.max(4, Math.ceil((12 * SIGHT) / 1200));
-    expect((row.materialize(foggedCtx(w, l), subject(SIGHT, 0, 'h1')) as FoghornEvent).v).toBe(want);
+    const narrow = RADAR / 2;
+    l.stats = { ...l.stats, radarRange: narrow };
+    const ctx = foggedCtx(w, l);
+    const d = 0.7 * narrow; // well past the narrowed plateau, inside the narrowed range
+    const want = Math.max(4, Math.ceil((12 * d) / narrow));
+    expect((row.materialize(ctx, subject(d, 0, 'h1')) as FoghornEvent).v).toBe(want);
+    expect(want).not.toBe(Math.max(4, Math.ceil((12 * d) / RADAR))); // premise: the base ruler would answer differently
+    expect(row.visible(ctx, subject(narrow + 0.01, 0, 'h2'))).toBe(false); // inside base RADAR, past the listener's own
   });
 
-  it('poking sightRange directly does NOT move the bands — the horn reads stats.radarRange, of which sight is merely the 4/12 rung (amendment 122 trade retired)', () => {
+  it('poking sightRange directly does NOT move the bands — the horn reads stats.radarRange and never sight (amendment 122 trade retired)', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);
-    l.stats = { ...l.stats, sightRange: 2 * SIGHT }; // widened truesight — irrelevant to the horn
-    const ctx = foggedCtx(w, l);
-    const d = 1.5 * SIGHT;
-    expect((row.materialize(ctx, subject(d, 0, 'h1')) as FoghornEvent).v).toBe(Math.ceil((12 * d) / RADAR)); // NOT band 4
-    expect(row.visible(ctx, subject(RADAR + 0.01, 0, 'h2'))).toBe(false); // still deaf past radar
+    const d = 6.5 * BAND; // mid band 7 — past the plateau
+    const bandAt = (): number | undefined => (row.materialize(foggedCtx(w, l), subject(d, 0, 'h1')) as FoghornEvent).v;
+    expect(bandAt()).toBe(Math.ceil((12 * d) / RADAR));
+    // Truesight widened to cover the honker, then shrunk to nothing beside it:
+    // the band never moves, and the listener is still deaf past radar.
+    for (const sightRange of [2 * SIGHT, SIGHT / 8]) {
+      l.stats = { ...l.stats, sightRange };
+      expect(bandAt()).toBe(Math.ceil((12 * d) / RADAR)); // NOT the plateau's 4
+      expect(row.visible(foggedCtx(w, l), subject(RADAR + 0.01, 0, 'h2'))).toBe(false);
+    }
   });
 });
 
@@ -401,9 +438,9 @@ describe('SIGNAL_REGISTRY — fh row: the twelve volume bands (twelfths of the L
 describe('SIGNAL_REGISTRY — fh row: the wire carries no band resolution an honest client cannot consume (review fix)', () => {
   const e = subject(0, 0, 'honker');
 
-  it('FLOORS the whole 100% plateau to band 4 — every clear-LOS honker inside truesight is one indistinguishable region', () => {
+  it('FLOORS the whole 100% plateau to band 4 — every clear-LOS honker inside the first four bands is one indistinguishable region', () => {
     const w = bareWorld();
-    for (const d of [0.5, BAND / 3, BAND, BAND + 0.01, 1.5 * BAND, 2 * BAND, 2.5 * BAND, 3 * BAND, 3.5 * BAND, SIGHT]) {
+    for (const d of [0.5, BAND / 3, BAND, BAND + 0.01, 1.5 * BAND, 2 * BAND, 2.5 * BAND, 3 * BAND, 3.5 * BAND, PLATEAU - 0.01]) {
       const l = place(w, `l${d}`, d, 0);
       const ctx = foggedCtx(w, l);
       expect(row.visible(ctx, e)).toBe(true);
@@ -421,7 +458,7 @@ describe('SIGNAL_REGISTRY — fh row: the wire carries no band resolution an hon
   it('a listener with a widened intel range cannot either — a doubled intel range still floors its first four bands', () => {
     const w = bareWorld();
     const wide = 2 * RADAR;
-    const l = place(w, 'l', 4 * (wide / 12), 0); // raw band 4 of the wide ruler...
+    const l = place(w, 'l', 3.5 * (wide / 12), 0); // raw band 4 of the wide ruler...
     l.stats = { ...l.stats, radarRange: wide };
     expect((row.materialize(foggedCtx(w, l), subject(0, 0, 'h1')) as FoghornEvent).v).toBe(4);
     const near = place(w, 'l2', wide / 24, 0); // ...and a raw band 1 lands on the same floor
@@ -513,7 +550,7 @@ describe('SIGNAL_REGISTRY — fh row: islands MUFFLE the FLOORED band — max(5,
   /** A representative distance for raw band `b`: the band's midpoint. */
   const mid = (b: number): number => (b - 0.5) * BAND;
 
-  it('a point-blank blocked honk is no LOUDER than a truesight-edge one — the muffle never weakens with closeness', () => {
+  it('a point-blank blocked honk is no LOUDER than a plateau-edge one — the muffle never weakens with closeness', () => {
     const near = blockedWorld(mid(1));
     const edge = blockedWorld(mid(4));
     const vNear = (row.materialize(foggedCtx(near.w, near.l), e) as FoghornEvent).v as number;
@@ -562,10 +599,17 @@ describe('SIGNAL_REGISTRY — fh row: spectators', () => {
 describe('foghorn end to end — one press, every observer mode in one tick', () => {
   it('honker gets self, a mid listener gets bearing+band only, a far captain hears nothing, a dead spectator gets x/y', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0); // the honker
-    place(w, 'b', 4.5 * BAND, 0); // band-5 listener (just past sight — ceil(12 × 4.5 rungs / 12 rungs) = 5)
-    place(w, 'c', RADAR + 500, 0); // far beyond earshot — but a spectator soon
-    place(w, 'd', 0, RADAR + 500); // far beyond earshot, alive — receives NOTHING
+    // MIND THE BOARD (Story 11.2): the radar reach is most of the board's
+    // diameter, and a hull seated past the rim is pushed back onto the water
+    // the first time the world steps — so the honker and the out-of-earshot
+    // captain sit on OPPOSITE sides of the origin, `deaf` apart.
+    const deaf = RADAR + 500; // beyond band 12's outer edge
+    expect(deaf / 2).toBeLessThan(w.map.radius); // premise: both seats are on the water
+    const ax = -deaf / 2;
+    place(w, 'a', ax, 0); // the honker
+    place(w, 'b', ax + 4.5 * BAND, 0); // band-5 listener (just past the plateau — ceil(12 × 4.5 bands / 12 bands) = 5)
+    place(w, 'c', 0, 4.5 * BAND); // anywhere — a spectator soon
+    const d = place(w, 'd', deaf / 2, 0); // beyond earshot, alive — receives NOTHING
     w.respawnEnabled = false;
     w.sinkShip('c'); // c spectates in the active phase...
     w.step(CONFIG.ship.sinkingWindowMs); // ...once foundered (Story 5.2)
@@ -584,12 +628,13 @@ describe('foghorn end to end — one press, every observer mode in one tick', ()
       expect(Object.hasOwn(heard[0], forbidden)).toBe(false);
     }
 
+    expect(Math.hypot(d.state.x - ax, d.state.y)).toBeGreaterThan(RADAR); // premise: the step left d out of earshot
     expect(honks(buildFrame(w, 'd').events)).toHaveLength(0); // out of earshot
 
     const spec = buildFrame(w, 'c', 'active');
     expect(spec.spec).toBe(true);
     const seen = honks(spec.events);
-    expect(seen).toEqual([{ k: 'fh', h: 'standard', x: 0, y: 0 }]);
+    expect(seen).toEqual([{ k: 'fh', h: 'standard', x: ax, y: 0 }]);
     expect(Object.keys(seen[0])).toEqual(['k', 'h', 'x', 'y']);
   });
 });

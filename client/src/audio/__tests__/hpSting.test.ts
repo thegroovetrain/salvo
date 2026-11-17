@@ -6,13 +6,13 @@
 // this is the amendment-60 gap closed.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, effectiveStats } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, effectiveStats } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
 import { ownHpFrac, hpStingCue, hpStingCueAt, hpStingFloor } from '../hpSting.js';
 
 // A real EffectiveStats (via the shared derivation, never a hand-rolled stub)
 // with `maxHp` overridden per case — `ownHpFrac` only reads that one field.
-const BASE_STATS = effectiveStats(CONFIG.shipClasses.battleship);
+const BASE_STATS = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
 /** A minimal own-status stand-in — only the three fields `ownHpFrac` reads. */
 function status(hp: number, maxHp: number, alive = true) {

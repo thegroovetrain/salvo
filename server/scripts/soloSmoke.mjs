@@ -14,8 +14,9 @@
 //           the PROTOCOL_VERSION gate runs FIRST on this door too.
 //       A2. solo:true is admitted, and the room comes up with a FULL ROSTER:
 //           CONFIG.map.playerCap rows (the captain + playerCap-1 bots), every
-//           bot carrying a real callsign and a real Regatta hue — never the
-//           255 drone-grey sentinel, never a duplicate. This is the story's
+//           bot carrying a real callsign, never a duplicate (the Regatta hue
+//           check is GONE with the hue wheel — Story 10.4, R6: linework is
+//           own-cyan / enemy-red, client-side). This is the story's
 //           whole point: without these rows the player meets nineteen
 //           amber-hollow UNKNOWN VESSELs while the chrome bar reads 1 AFLOAT.
 //       A3. the countdown ARMS WITH ONE HUMAN (no second captain ever
@@ -29,6 +30,15 @@
 //     dense 1..20 placement partition over captain AND bot rows, and a winner
 //     that may legitimately be either. Nothing about the solo path itself is
 //     dev-gated — only the storm clock is.
+//       B1. THE RADIO BEACONS ARE LIVE END TO END (Story 10.12): while the
+//           match is `active` the public schema's beacon chart
+//           (`beaconCount` / `beaconCycle` / `bcnNX`/`bcnNY`, mirrored from
+//           World.beaconChart by ArenaRoom.syncBeacons) is observed NON-EMPTY
+//           at least once. A set is CHARTED at each ring cycle's start
+//           (cycle 0 = activation) and only surfaces +60 s later, so under
+//           the fast storm the observable fact is the charted set — exactly
+//           what a client's chart draws. Then the match still reaches
+//           results with the dense placement partition below.
 //
 // Run: node server/scripts/soloSmoke.mjs
 import { spawn } from 'node:child_process';
@@ -36,7 +46,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, MSG, PROTOCOL_VERSION, REGATTA_HUES, REGATTA_NO_HUE } from '@salvo/shared';
+import { CONFIG, MSG, PROTOCOL_VERSION } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 // Free ports: matchSmoke/zoneSmoke 2599, reconnect/latency 2601, queue 2603,
@@ -155,7 +165,7 @@ const phase = (ctx) => ctx.room.state?.matchPhase ?? 'unknown';
 function roster(ctx) {
   const rows = [];
   ctx.room.state.players.forEach((meta, id) => {
-    rows.push({ id, name: meta.name, color: meta.color, alive: meta.alive, placement: meta.placement });
+    rows.push({ id, name: meta.name, alive: meta.alive, placement: meta.placement });
   });
   return rows;
 }
@@ -196,19 +206,30 @@ function proveFullRoster(ctx) {
   assert(me, 'the human captain has no roster row');
   for (const r of rows) {
     assert(r.name.length > 0, `roster row ${r.id} has an EMPTY callsign`);
-    assert(r.color !== REGATTA_NO_HUE, `roster row ${r.id} flies the drone-grey sentinel (${REGATTA_NO_HUE})`);
-    assert(r.color >= 0 && r.color < REGATTA_HUES.length, `roster row ${r.id} has an off-wheel hue ${r.color}`);
   }
-  const hues = new Set(rows.map((r) => r.color));
-  assert(hues.size === CAP, `hues collide: ${hues.size} distinct across ${CAP} hulls`);
   const names = new Set(rows.map((r) => r.name.toUpperCase()));
   assert(names.size === CAP, `callsigns collide: ${names.size} distinct across ${CAP} hulls`);
   const afloat = rows.filter((r) => r.alive).length;
   assert(afloat === CAP, `${afloat} AFLOAT, expected ${CAP}`);
-  return `roster: ${CAP} rows (${BOTS} AI captains), ${hues.size} distinct hues, no 255 sentinel, ${CAP} AFLOAT`;
+  return `roster: ${CAP} rows (${BOTS} AI captains), ${names.size} distinct callsigns, ${CAP} AFLOAT`;
 }
 
 // --- PHASE B: results ---------------------------------------------------------
+
+/** One poll of the public beacon chart while the match is ACTIVE: the most
+ *  beacons seen at once, the cycle they belonged to and slot 0's position. */
+function noteBeacons(ctx, seen) {
+  const s = ctx.room.state;
+  if (s?.matchPhase !== 'active' || !(s.beaconCount > 0)) return;
+  if (s.beaconCount > seen.max) Object.assign(seen, { max: s.beaconCount, cycle: s.beaconCycle, x: s.bcn0X, y: s.bcn0Y });
+}
+
+function proveBeacons(seen) {
+  assert(seen.max > 0, 'no RADIO BEACON was ever charted on the public schema while the match was active');
+  assert(seen.cycle >= 0, `a charted beacon set carried cycle ${seen.cycle} (expected >= 0)`);
+  assert(Number.isFinite(seen.x) && Number.isFinite(seen.y), `beacon slot 0 has a non-finite position (${seen.x}, ${seen.y})`);
+  return `beacons: up to ${seen.max} charted at once while active (cycle ${seen.cycle}, slot 0 at ${Math.round(seen.x)},${Math.round(seen.y)})`;
+}
 
 function proveResults(ctx) {
   const res = ctx.results;
@@ -241,7 +262,7 @@ async function runPhaseA(log) {
     log.push(await proveDoorRefusesNonSolo(PORT_PROD));
     log.push(await proveDoorRunsThePvGate(PORT_PROD));
 
-    const a = await createSolo(PORT_PROD, { name: 'ERIC', cls: 'battleship' });
+    const a = await createSolo(PORT_PROD, { name: 'ERIC', cls: 'yamato' });
     await waitFor(() => a.welcome !== null, 10000, 'welcome');
     // The countdown must arm with ONE human aboard — nobody else is coming.
     await waitFor(() => phase(a) === 'countdown', 10000, 'countdown without a second captain');
@@ -276,8 +297,14 @@ async function runPhaseB(log) {
     await waitFor(() => phase(b) === 'active', 20000, 'activation (fast countdown)');
     // The ocean closes on its own clock; the field goes down; the last hull
     // afloat (bot or human) takes it. stormDps is never overridable, so this
-    // budget is hull HP over 4 hp/s plus every sinking window.
-    await waitFor(() => b.results !== null, 240000, 'results broadcast');
+    // budget is hull HP over 4 hp/s plus every sinking window. The beacon
+    // chart is polled on the same loop (B1).
+    const beacons = { max: 0, cycle: -1, x: NaN, y: NaN };
+    await waitFor(() => {
+      noteBeacons(b, beacons);
+      return b.results !== null;
+    }, 240000, 'results broadcast');
+    log.push(proveBeacons(beacons));
     log.push(proveResults(b));
     await waitFor(() => b.leftCode !== null, MATCH_OVERRIDE.resultsMs + 15000, 'room disconnect after results');
     log.push(`room disconnected the captain (code ${b.leftCode}) after ~${MATCH_OVERRIDE.resultsMs}ms`);

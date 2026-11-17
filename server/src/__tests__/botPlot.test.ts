@@ -17,6 +17,10 @@ import {
   WAKE_AGE_BUCKETS,
   hullEnvelope,
   mulberry32,
+  launcherAimPoint,
+  paintCoverage,
+  paintDiscCoverage,
+  stepLaunchers,
   type GameEvent,
   type HullId,
   type Rng,
@@ -34,6 +38,8 @@ import {
   WAKE_REACH_U,
   fitWakeVelocity,
   foldWakeCells,
+  isCrateSizedPaint,
+  paintLongestSideU,
   paintVelocity,
   predictedAssocRadius,
   predictedPos,
@@ -84,7 +90,6 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
     live: false,
     sunk: false,
     cls: null,
-    fleet: false,
     firstSeenAt: NOW - 10000,
     hits: 0,
     vx: null,
@@ -100,7 +105,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
 }
 
 function view(events: GameEvent[]): PerceptionView {
-  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
+  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [] };
 }
 
 /** The lattice cell centre the fold will derive for a one-cell rect at (x, y). */
@@ -108,9 +113,12 @@ function cellCentre(x: number, y: number): { x: number; y: number } {
   return { x: (Math.floor(x / CELL) + 0.5) * CELL, y: (Math.floor(y / CELL) + 0.5) * CELL };
 }
 
-/** A one-cell radar paint at (x, y). */
+/** A HULL-SIZED radar paint whose lit-cell centroid is the centre of (x, y)'s
+ *  cell: an 11-cell (99 u) all-lit strip centred on that cell — longer than
+ *  `CONFIG.bots.cratePaintMaxU`, so the fold reads it as a hull, never a crate
+ *  (Story 10.9). The centroid is exactly the one-cell paint's. */
 function blipAt(x: number, y: number, t: number): GameEvent {
-  return { k: 'blip', t, gx: Math.floor(x / CELL), gy: Math.floor(y / CELL), w: 1, h: 1, bits: [1] };
+  return { k: 'blip', t, gx: Math.floor(x / CELL) - 5, gy: Math.floor(y / CELL), w: 11, h: 1, bits: [0x7ff] };
 }
 
 /** A one-cell wake segment at (x, y) in age bucket `a`. */
@@ -209,8 +217,9 @@ describe('ai/plot — the wake-ribbon course fit (first paint)', () => {
     // Bucket 1 says "+x"; bucket 3 (a turn's old water) says "+x, -y".
     const turned: WakeCell[] = [
       { x: 420, y: 0, bucket: 1, t: NOW }, { x: 420, y: 0, bucket: 1, t: NOW },
-      { x: 300, y: 100, bucket: 3, t: NOW }, { x: 300, y: 100, bucket: 3, t: NOW },
+      { x: 340, y: 80, bucket: 3, t: NOW }, { x: 340, y: 80, bucket: 3, t: NOW },
     ];
+    expect(Math.hypot(500 - 340, 80)).toBeLessThan(WAKE_REACH_U); // the turn's water is still this plot's
     const young = fitWakeVelocity(t, turned, NOW)!;
     expect(young.vy).toBeCloseTo(0, 9);
     expect(young.vx).toBeCloseTo(80 / ((1.5 / WAKE_AGE_BUCKETS) * LIFE / 1000), 6);
@@ -243,9 +252,10 @@ describe('ai/plot — the wake-ribbon course fit (first paint)', () => {
   });
 
   it('an implausible speed (> 1.5 × the fastest hull) is no course', () => {
-    // Young water (bucket 0, ~0.7 s old) 250 u behind the paint: 360 u/s.
-    const fast: WakeCell[] = [0, 1, 2].map((i) => ({ x: 250 + i, y: 0, bucket: 0, t: NOW }));
-    expect(250).toBeLessThan(WAKE_REACH_U);
+    // Young water (bucket 0, ~0.7 s old) just inside wake reach behind the
+    // paint: several times the fastest hull's speed.
+    const back = WAKE_REACH_U - 10;
+    const fast: WakeCell[] = [0, 1, 2].map((i) => ({ x: 500 - back + i, y: 0, bucket: 0, t: NOW }));
     expect(fitWakeVelocity(anon({ x: 500, y: 0 }), fast, NOW)).toBeNull();
   });
 
@@ -310,7 +320,7 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
   it('A SIGHTED HULL KEEPS ITS NAME (B2): lost at the bubble edge, its first annulus paint lands on the SAME key, not dropped', () => {
     const SITE2: SweepSite = { x: 0, y: 0, stats: { radarRange: 1000, sightRange: 250, sweepPeriodMs: 4000 }, islands: [] };
     const m = mkMind();
-    const seen: PerceptionView = { ...view([]), contacts: [{ id: 's1', x: 248, y: 0, heading: 0, speed: 45, cls: 'torpedoBoat' }] as PerceptionView['contacts'] };
+    const seen: PerceptionView = { ...view([]), contacts: [{ id: 's1', x: 248, y: 0, heading: 0, speed: 45, cls: 'bismarck' }] as PerceptionView['contacts'] };
     foldView(m, seen, NOW);
     expect(m.contacts.get('s1')!.live).toBe(true);
     // Out of the bubble: one tick dark, then the beam crosses it ~1 s later at 293 u.
@@ -319,7 +329,7 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     expect([...m.contacts.keys()]).toEqual(['s1']);
     const t = m.contacts.get('s1')!;
     expect(t.paintAt).toBe(NOW + 1000);
-    expect(t.cls).toBe('torpedoBoat');
+    expect(t.cls).toBe('bismarck');
     expect(t.missSweptAt).toBe(-1);
   });
 
@@ -327,7 +337,7 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     const m = mkMind();
     const both: PerceptionView = {
       ...view([blipAt(200, 0, NOW)]),
-      contacts: [{ id: 's1', x: 200, y: 0, heading: 0, speed: 30, cls: 'torpedoBoat' }] as PerceptionView['contacts'],
+      contacts: [{ id: 's1', x: 200, y: 0, heading: 0, speed: 30, cls: 'bismarck' }] as PerceptionView['contacts'],
     };
     foldView(m, both, NOW);
     expect([...m.contacts.keys()]).toEqual(['s1']);
@@ -355,19 +365,19 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     expect([t.vx, t.vy, t.vSrc]).toEqual([0, 0, 'paint']);
   });
 
-  it('CHAFF CHAIN (E4): rule (b) refuses a paint with no wake water near it — 233 u away opens a new plot; with a wake cell it joins', () => {
+  it('CHAFF CHAIN (E4): rule (b) refuses a paint with no wake water near it — just inside the association bound it opens a new plot; with a wake cell it joins', () => {
     const plotAt = (m: BotMind): void => {
       m.contacts.set('a', anon({ x: 500, y: 0, seenAt: NOW - 4000, paintX: 500, paintY: 0, paintAt: NOW - 4000 }));
     };
-    expect(233).toBeLessThan(FASTEST_HULL_SPEED * 4 + ANON_ASSOC_U);
+    const d = Math.floor(FASTEST_HULL_SPEED * 4 + ANON_ASSOC_U) - 5; // inside the 4 s association bound
     const bare = mkMind();
     plotAt(bare);
-    foldView(bare, view([blipAt(733, 0, NOW)]), NOW);
+    foldView(bare, view([blipAt(500 + d, 0, NOW)]), NOW);
     expect(bare.contacts.size).toBe(2);
     expect(bare.contacts.get('a')!.paintAt).toBe(NOW - 4000);
     const wet = mkMind();
     plotAt(wet);
-    foldView(wet, view([wakeAt(620, 0, 2, NOW), blipAt(733, 0, NOW)]), NOW);
+    foldView(wet, view([wakeAt(500 + d - 113, 0, 2, NOW), blipAt(500 + d, 0, NOW)]), NOW);
     expect(wet.contacts.size).toBe(1);
     expect(wet.contacts.get('a')!.paintAt).toBe(NOW);
   });
@@ -510,7 +520,7 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
 
   it('a live sighting carries its disclosed pose as the course', () => {
     const m = mkMind();
-    const v: PerceptionView = { ...view([]), contacts: [{ id: 's1', x: 10, y: 20, heading: 0, speed: 30, cls: 'battleship' }] as PerceptionView['contacts'] };
+    const v: PerceptionView = { ...view([]), contacts: [{ id: 's1', x: 10, y: 20, heading: 0, speed: 30, cls: 'yamato' }] as PerceptionView['contacts'] };
     foldView(m, v, NOW);
     const t = m.contacts.get('s1')!;
     expect([t.vx, t.vy, t.vSrc, t.vAt]).toEqual([30, 0, 'sight', NOW]);
@@ -575,64 +585,22 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(empty.contacts.size).toBe(0);
   });
 
-  it('THE DROPOUT LIMIT reads the WHOLE BAND (Story 9.8 review, F2): a miss is evidence only when the plot\'s association disc lies inside dropout.startU', () => {
-    const START = CONFIG.vision.dropout.startU;
+  // (DELETED 2026-11-12 — Story 11.2, R8, a ruling recorded in the epic-11
+  // amendments: "THE DROPOUT LIMIT reads the WHOLE BAND" and "THE DROPOUT
+  // LIMIT (ruling 124): an empty sweep is evidence only inside
+  // dropout.startU". The dropout is removed, so the limit they pinned is
+  // gone; the case below pins what replaced it.)
+  it('NO DROPOUT LIMIT (Story 11.2, R8): an empty sweep is evidence at EVERY range inside the radar reach, and never beyond it', () => {
     const site: SweepSite = {
       x: 0,
       y: 0,
       stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 },
       islands: [],
     };
-    // A stationary course (vx = vy = 0) whose last paint is aged so the
-    // association radius is exactly 100 u — the prediction stays put.
-    const R = 100;
-    const ageMs = ((R - ANON_ASSOC_U) / (FASTEST_HULL_SPEED / 3)) * 1000;
-    const plotAt = (x: number): RememberedContact =>
-      anon({ x, y: 0, seenAt: NOW - 1000, vx: 0, vy: 0, vAt: NOW - ageMs, paintAt: NOW - ageMs });
-    const straddling = plotAt(START - 10); // centre inside startU, band reaching 90 u past it
-    const inside = plotAt(START - 200); // whole band inside startU
-    expect(predictedAssocRadius(straddling, NOW)).toBeCloseTo(R, 6);
-    expect(predictedAssocRadius(inside, NOW)).toBeCloseTo(R, 6);
-    expect(sweptAndMissed(ACROSS, site, straddling, NOW)).toBe(false);
-    expect(sweptAndMissed(ACROSS, site, inside, NOW)).toBe(true);
-  });
-
-  it('THE DROPOUT LIMIT (Story 9.8, epic-9 ruling 124): an empty sweep is evidence only inside dropout.startU — a far plot is not marked gone and ages on its clock', () => {
-    const START = CONFIG.vision.dropout.startU;
-    const site: SweepSite = {
-      x: 0,
-      y: 0,
-      stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 },
-      islands: [],
-    };
-    const near = anon({ x: START - 100, y: 0, seenAt: NOW - 1000 }); // inside the flat band
-    const far = anon({ x: START + 200, y: 0, seenAt: NOW - 1000 }); // in the dropout band, inside radar
-    expect(START + 200).toBeLessThan(CONFIG.vision.radar); // premise: the far plot is a radar track
-    expect(sweptAndMissed(ACROSS, site, near, NOW)).toBe(true);
-    expect(sweptAndMissed(ACROSS, site, far, NOW)).toBe(false);
-    // Through the real fold: a full revolution of empty sweeps (plus the
-    // grace) drops the near plot and keeps the far one — never marked, so
-    // never expired — and the far one then ages out on the normal memory
-    // clock (`CONFIG.bots.contactMemoryMs`), exactly like any unpainted plot.
-    const m = mkMind();
-    m.contacts.set('near', near);
-    m.contacts.set('far', far);
-    const STEP = (2 * Math.PI * DT) / site.stats.sweepPeriodMs;
-    let last = 2 * Math.PI - 0.05;
-    let k = 0;
-    const sweepUntil = (ms: number): void => {
-      for (; k * DT <= ms; k += 1) {
-        const cur = (last + STEP) % (2 * Math.PI);
-        foldView(m, view([]), NOW + k * DT, { beam: { lastSweep: last, sweepAngle: cur }, site });
-        last = cur;
-      }
-    };
-    sweepUntil(site.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS);
-    expect(NOW + k * DT - far.seenAt).toBeLessThan(CONFIG.bots.contactMemoryMs); // premise: still inside memory
-    expect(m.contacts.has('near')).toBe(false);
-    expect(m.contacts.has('far')).toBe(true);
-    sweepUntil(CONFIG.bots.contactMemoryMs + 1000);
-    expect(m.contacts.has('far')).toBe(false);
+    const rim = anon({ x: CONFIG.vision.radar - 1, y: 0, seenAt: NOW - 1000 }); // the far edge of the scope
+    const beyond = anon({ x: CONFIG.vision.radar + 1, y: 0, seenAt: NOW - 1000 }); // no beam reaches it
+    expect(sweptAndMissed(ACROSS, site, rim, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, site, beyond, NOW)).toBe(false);
   });
 
   it('NO FOG LIMIT (amendment 210, retiring amendment 169): radar sees through fog, so a fogged plot the beam sweeps clean is dropped like any other', () => {
@@ -748,7 +716,7 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(m.contacts.get('s1')!.missSweptAt).toBe(NOW);
     const sighted: PerceptionView = {
       ...view([{ k: 'hc', id: 'me', x: 501, y: 0 }]),
-      contacts: [{ id: 's1', x: 700, y: 0, heading: 0, speed: 0, cls: 'battleship' }] as PerceptionView['contacts'],
+      contacts: [{ id: 's1', x: 700, y: 0, heading: 0, speed: 0, cls: 'yamato' }] as PerceptionView['contacts'],
     };
     foldView(m, sighted, NOW + DT, { beam: FROZEN, site: SITE });
     expect(m.contacts.get('s1')!.missSweptAt).toBe(-1);
@@ -790,13 +758,20 @@ function fakePort(w: World): BotWorldPort {
   };
 }
 
+/** The player cap of the shooter's board (Story 11.2): the machine gun's reach
+ *  is longer than a small board's radius and an aim point is clamped inside
+ *  the map disk, so the reach-edge scenarios need a board whose rim lies past
+ *  the gun's reach from the centre (asserted in `mgShooter`). */
+const MG_BOARD_CAP = 32;
+
 function mgShooter(): { w: World; rec: ShipRecord; port: BotWorldPort } {
-  const w = new World(1650, 8);
+  const w = new World(1650, MG_BOARD_CAP);
   w.map.islands.length = 0;
-  const rec = w.addShip('b-1', 'TESTER', 'bot', 'torpedoBoat', undefined, { x: 0, y: 0 });
+  const rec = w.addShip('b-1', 'TESTER', 'bot', 'bismarck', undefined, { x: 0, y: 0 });
   rec.state.x = 0;
   rec.state.y = 0;
   rec.state.heading = 0;
+  expect(w.map.radius).toBeGreaterThan(rec.stats.equipment.machineGun.rangeU);
   rec.loadout[0] = { equipmentId: 'machineGun', state: { n: rec.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 } };
   return { w, rec, port: fakePort(w) };
 }
@@ -846,7 +821,7 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     const rangeU = rec.stats.equipment.machineGun.rangeU;
     const longest = Math.max(...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).hull.length));
     const cases: [HullId | null, number][] = [
-      ['battleship', hullEnvelope('battleship').hull.length],
+      ['yamato', hullEnvelope('yamato').hull.length],
       [null, longest],
     ];
     for (const [cls, over] of cases) {
@@ -877,14 +852,21 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
   it('HOLDS when the INTERCEPT is beyond reach: outbound 10 u inside reach holds, inbound at the same spot streams (plot in own light past the amendment-198 hold line)', () => {
     const { rec, port } = mgShooter();
     const rangeU = rec.stats.equipment.machineGun.rangeU;
-    expect(rangeU).toBe(CONFIG.machineGun.rangeU); // its own Tier I dial (Story 9.8, ruling 125)
     // The plot sits in a small own lit zone, so the doctrine hold is lifted
     // and the INTERCEPT rule alone decides; the intercept itself is unlit.
     const at = { x: rangeU - 10, y: 0 };
     const out = anon({ ...at, seenAt: NOW, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW });
     expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), out))).toBeNull();
-    const inbound = anon({ ...at, seenAt: NOW, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW });
-    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), inbound))!;
+    // Inbound at a creep that carries it a quarter hull nearer over the
+    // shell's flight to the reach edge (Story 11.2: at the hectometer reach a
+    // shell flies long enough that a hull at speed closes by more than its own
+    // length, and then nothing clamps) — the lead point is inside reach and
+    // only the one-hull overshoot runs past it. A scatter-free mind, so the
+    // lead point is the solve's own.
+    const still: Rng = { next: () => 0, float: (min) => min, int: (min) => min, pick: (arr) => arr[0]! };
+    const creep = LONGEST_HULL_U / 4 / (rangeU / CONFIG.machineGun.shellSpeed);
+    const inbound = anon({ ...at, seenAt: NOW, vx: -creep, vy: 0, vSrc: 'paint', vAt: NOW });
+    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, { ...litMind(rec, at), rng: still }, inbound))!;
     expect(shot.held).toBe(true);
     expect(shot.aimDist).toBe(rangeU); // the overshoot alone clamps at reach
   });
@@ -892,14 +874,24 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
 
 describe('ai/tacticKit / equipment — gates read the PREDICTED position (E6, E8)', () => {
   it('the torpedo gates range on, and reports, the predicted distance', () => {
-    const { rec, port } = mgShooter();
-    const ctxOf = (t: RememberedContact): TacticContext => mgCtx(rec, port, mkMind(), t);
-    // Last painted 200 u ahead, opening at 45 u/s for 2 s: predicted 290 u — past a 250 u reach.
+    const { w, rec, port } = mgShooter();
+    rec.state.heading = -Math.PI / 2; // the plots lie on the starboard beam: inside the launcher's band (R28)
+    w.applyCard(rec, 'heavyTorpedo'); // a torpedo aboard: the launcher law decides the click (Story 10.6 review gate)
+    // A scatter-free mind, so the solved aim is the same on every call.
+    const still: Rng = { next: () => 0.5, float: (min, max) => (min + max) / 2, int: (min) => min, pick: (arr) => arr[0]! };
+    const ctxOf = (t: RememberedContact): TacticContext => mgCtx(rec, port, { ...mkMind(), rng: still }, t);
+    // Last painted 200 u out, opening at 45 u/s for 2 s: predicted 290 u — past a 250 u reach.
     const opening = anon({ x: 200, y: 0, seenAt: NOW - 2000, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
-    expect(solveTorpedoShot(ctxOf(opening), 'heavyTorpedo', 60, 250)).toBeNull();
+    expect(solveTorpedoShot(ctxOf(opening), 60, 250)).toBeNull();
     // Last painted 300 u ahead, closing: predicted 210 u — inside, and reported as 210.
     const closing = anon({ x: 300, y: 0, seenAt: NOW - 2000, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
-    const shot = solveTorpedoShot(ctxOf(closing), 'heavyTorpedo', 60, 250)!;
+    // Train the launcher ON what the bot will write — the solved lead's
+    // bearing at the predicted distance — first: a bot clicks only on target.
+    const c = ctxOf(closing);
+    const lead = aimPoint(c.mind, c.sit, closing, 60);
+    const aimPt = launcherAimPoint(rec.state, rec.hullId, Math.atan2(lead.y, lead.x), 210)!;
+    for (let i = 0; i < 200; i += 1) stepLaunchers(rec.launchers, rec.hullId, rec.state, aimPt, CONFIG.tick.simDtMs);
+    const shot = solveTorpedoShot(c, 60, 250)!;
     expect(shot.aimDist).toBeCloseTo(210, 9);
   });
 });
@@ -917,5 +909,65 @@ describe('ai/tacticKit — the lead solve on an estimated course', () => {
     expect(led.y).toBeCloseTo(400, 9);
     const fixed = aimPoint(mind, sit, anon({ x: 0, y: 400, seenAt: NOW - 2000 }), CONFIG.machineGun.shellSpeed);
     expect(fixed).toEqual({ x: 0, y: 400 });
+  });
+});
+
+describe('THE CRATE-PAINT FILTER (Story 10.9, CONFIG.bots.cratePaintMaxU) — a crate imprint never becomes a track', () => {
+  const T = 123450; // a fixed paint clock
+  const at = { x: 1003.3, y: -497.1 };
+  const asBlip = (c: { gx: number; gy: number; w: number; h: number; bits: number[] }): GameEvent => ({ k: 'blip', t: NOW, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+
+  it('a crate disc paint is crate-sized and folds into NO track', () => {
+    const crate = paintDiscCoverage(at.x, at.y, CONFIG.drops.radiusU, CELL, T);
+    expect(paintLongestSideU(crate)).toBeLessThan(CONFIG.bots.cratePaintMaxU);
+    expect(isCrateSizedPaint(crate)).toBe(true);
+    const m = mkMind();
+    foldView(m, view([asBlip(crate)]), NOW);
+    expect(m.contacts.size).toBe(0);
+  });
+
+  it('a hull paint of every class is not crate-sized and opens a track', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const hull = paintCoverage(cls, at.x, at.y, 0.3, CELL, T);
+      expect(isCrateSizedPaint(hull), cls).toBe(false);
+      const m = mkMind();
+      foldView(m, view([asBlip(hull)]), NOW);
+      expect(m.contacts.size, cls).toBe(1);
+    }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Story 11.2 review gate (F5), kept when the plain tier was removed (Eric
+// 2026-11-15): ONE HULL, ONE TRACK. A hull first held as an identity-free
+// plot and then sighted opens a track under its roster id; the fold retires
+// the stale twin under the hull it now holds by eye.
+// ---------------------------------------------------------------------------
+describe('foldView — a plotted hull that comes into sight is ONE track, never a dead-reckoned twin (Story 11.2 review gate, F5)', () => {
+  const TICK = CONFIG.tick.simDtMs;
+  const SPEED = FASTEST_HULL_SPEED;
+  /** A hull steaming east from (2000, 300): its pose `n` ticks on. */
+  const poseAt = (n: number): { x: number; y: number; heading: number; speed: number } => ({ x: 2000 + (SPEED * n * TICK) / 1000, y: 300, heading: 0, speed: SPEED });
+  const eyes = (over: Partial<PerceptionView>): PerceptionView => ({ ...view([]), ...over });
+  const full = (n: number, id = 'e1'): PerceptionView['contacts'][number] => ({ id, cls: SHIP_CLASS_IDS[0], ...poseAt(n) }) as PerceptionView['contacts'][number];
+
+  it('an identity-free plot standing where a hull is now sighted is retired the same fold: exactly one track stands there, and it is live', () => {
+    const m = mkMind();
+    m.contacts.set('a:plot', anon({ ...poseAt(0), heading: null, speed: null, seenAt: NOW - TICK }));
+    foldView(m, eyes({ contacts: [full(1)] }), NOW);
+    const tracks = [...m.contacts.values()];
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].live).toBe(true);
+    expect(tracks[0]).toMatchObject({ id: 'e1', x: poseAt(1).x, y: poseAt(1).y });
+  });
+
+  it('retires ONLY the twin: a plot farther than a hull length from every sighted hull survives, and so does a wreck\'s own track under a live hull', () => {
+    const m = mkMind();
+    const far = { x: poseAt(1).x + 2 * LONGEST_HULL_U, y: poseAt(1).y };
+    m.contacts.set('a:far', anon({ ...far, seenAt: NOW - TICK }));
+    m.contacts.set('wreck', anon({ id: 'wreck', x: poseAt(1).x, y: poseAt(1).y, sunk: true, seenAt: NOW - TICK }));
+    foldView(m, eyes({ contacts: [full(1)] }), NOW);
+    expect([...m.contacts.keys()].sort()).toEqual(['a:far', 'e1', 'wreck']);
   });
 });

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Big Ocean Forge</title>
+<style>
+:root{--bg:#f4f1ea;--ink:#1d2430;--muted:#5d6675;--card:#fffdf8;--line:#d9d2c3;--accent:#0f5f8a;--seal:#9b1b1b;--seal2:#c93c3c;--ok:#2d6a4f;--warn:#9a6700}
+:root:not([data-theme="light"]){color-scheme:light dark}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f1419;--ink:#e6e3da;--muted:#9aa3b0;--card:#171d25;--line:#2b3542;--accent:#5fb0dc;--seal:#c0392b;--seal2:#e05a4a;--ok:#6fcf97;--warn:#e0b341}}
+:root[data-theme="dark"]{--bg:#0f1419;--ink:#e6e3da;--muted:#9aa3b0;--card:#171d25;--line:#2b3542;--accent:#5fb0dc;--seal:#c0392b;--seal2:#e05a4a;--ok:#6fcf97;--warn:#e0b341}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Georgia,"Iowan Old Style",serif;padding:0 16px 64px}
+main{max-width:880px;margin:0 auto}
+header{display:flex;gap:24px;align-items:center;justify-content:space-between;padding:40px 0 16px;border-bottom:2px solid var(--line);flex-wrap:wrap}
+h1{font-size:2rem;margin:0 0 4px;letter-spacing:.01em}
+h2{font-size:1.2rem;margin:36px 0 10px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.85rem}
+.sub{color:var(--muted);margin:0}
+.seal{flex:0 0 150px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:10px 0}
+.pillar{font-size:1.25rem;font-style:italic;border-left:4px solid var(--accent);padding-left:14px}
+ol,ul{padding-left:22px;margin:8px 0}
+li{margin:6px 0}
+li b{color:var(--ink)}
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:.95rem}
+td,th{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:normal;font-family:ui-sans-serif,system-ui,sans-serif;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em}
+.kill{color:var(--seal2)}
+.weak{color:var(--warn)}
+.people{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.person{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.person .n{font-weight:bold}.person .r{color:var(--muted);font-size:.9rem;font-family:ui-sans-serif,system-ui,sans-serif}
+.person q{display:block;margin-top:6px;font-style:italic}
+footer{color:var(--muted);font-size:.85rem;margin-top:40px;font-family:ui-sans-serif,system-ui,sans-serif}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+</style>
+</head>
+<body><main>
+<header>
+  <div>
+    <h1>The Big Ocean</h1>
+    <p class="sub">Forge on the 2026-11-07 brainstorm (PR #326) · Hullcracker.io · session 2026-11-07 · 19 memlog entries, 12 locks, 1 kill</p>
+  </div>
+  <svg class="seal" viewBox="0 0 160 160" role="img" aria-label="Wax seal reading HARDENED">
+    <defs><radialGradient id="g" cx="40%" cy="35%"><stop offset="0" stop-color="var(--seal2)"/><stop offset="1" stop-color="var(--seal)"/></radialGradient></defs>
+    <path d="M80 8c14 2 24-6 36 4s6 24 18 32 20 12 18 28-12 20-8 34-8 24-22 30-22-4-36 2-24 12-36 2-8-24-20-30-18-16-14-30-6-22 2-34 14-16 22-26S66 6 80 8z" fill="url(#g)" stroke="var(--seal)" stroke-width="2"/>
+    <circle cx="80" cy="80" r="48" fill="none" stroke="#fff3" stroke-width="2"/>
+    <circle cx="80" cy="80" r="42" fill="none" stroke="#fff5" stroke-width="1" stroke-dasharray="3 4"/>
+    <text x="80" y="76" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="800" font-size="19" fill="#fff" letter-spacing="2">HARDENED</text>
+    <text x="80" y="96" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="9" fill="#fffc" letter-spacing="3">2026 · 11 · 07</text>
+    <path d="M58 104 L80 112 L102 104" fill="none" stroke="#fff8" stroke-width="2"/>
+  </svg>
+</header>
+
+<h2>Outcome</h2>
+<p class="pillar">“A marine radar simulator that happens to have a naval battle royale attached.”</p>
+<p>The slice is hardened and smaller than it came in. The ocean does not grow. The reach does. Realism is kept as <b>ratios</b> (radar ≈ guns, optics shorter, the arc wider than the pattern, reach about the size of the board), never as kilometers. Time compression is now a ruling instead of an accident. The set is a real marine radar with five real knobs and a wide WWII beam. Every open ruling Friday handed over is closed except one dial parked with the night arm.</p>
+
+<h2>Locked</h2>
+<div class="card"><ol>
+<li><b>Clear-day dark is resolution, not range.</b> Radar and guns reach about equally far. A contact is an arc, sharp in range and wide in bearing, wider than a salvo pattern at gun reach. No fire-control set; splashes sharpen the arc.</li>
+<li><b>No AIM row.</b> Five index rows. The dispersion curve is the dial, never a row.</li>
+<li><b>Dispersion</b> is an ellipse growing with range, ~1 % along the shot and a third of that across, flat damage, same function for secondaries, pure and seeded. Point blank is a knife fight.</li>
+<li><b>Time compression is explicit.</b> One factor on every rate; “knots” is a label; the clock stays 16 minutes.</li>
+<li><b>The board stays 10,000 u.</b> One scale factor maps real distances onto it: radar ~9,000 u, guns ~8,700 u, hull by eye ~4,600 u, class by eye ~3,000 u. Ring, cap and reveal beat stand; today's tuning already sits at the playable limit.</li>
+<li><b>Beacons are charted at the midpoint between two neighboring hulls</b>, nudged inward by at most 30 s of sailing. Replaces a rule that pushed them away from players.</li>
+<li><b>Gain's cost is server-made ghosts.</b> Indistinguishable for one sweep; a ship persists, a ghost does not. Every knob that shapes the paint is a server-side input.</li>
+<li><b>The set:</b> modern chart-overlay display, WWII antenna. Knobs: gain, sea clutter, rain clutter, pulse length, range scale. Beam width is a CONFIG dial, not a control.</li>
+<li><b>A splash is a one-sweep radar return</b> for anyone sweeping it. Shells in flight stay sight-only.</li>
+<li><b>Weather is a return-strength model</b> on two axes. Rain first; clear, night/clear and night/rain are test arms.</li>
+<li><b>Zoom out to the whole board.</b> Phone is not a target.</li>
+</ol></div>
+
+<h2>Killed and rejected</h2>
+<div class="card"><ul class="kill">
+<li><b>MARPA.</b> Real on modern sets; hands the player course and speed, which is the thing “lead in your head” forbids. Out, like fire control.</li>
+<li><b>The 40–50 km board.</b> At 30 u/s a ring step plus a full center shift cannot be sailed inside the two-minute reveal window; the storm would kill edge players before any shot. The only ways to keep it were an earlier reveal and a half-step cap, and then the whole cycle is a chase.</li>
+<li><b>True knots at a real scale.</b> A 30-knot hull cannot reach the center of a 44 km board inside a 16-minute match. The alternatives (today's 10 km board, or an hour-long match) kill the slice or the browser game.</li>
+<li><b>AIM index row;</b> beam-width and sector-scan as player knobs; a kilometer-fixed beacon band; the fleet-anchor beacon rule.</li>
+</ul></div>
+
+<h2>What the code said</h2>
+<div class="card"><table>
+<tr><th>claim</th><th>verdict</th></tr>
+<tr><td>Client paint grows with range squared</td><td>Holds. Rays × cells over the whole swept wedge; ~36× at 9,000 u with a fixed 9 u cell. The range-scaled cell is still required; measure on staging first.</td></tr>
+<tr><td>“Gain is the one number that crosses the wire”</td><td>Withdrawn. The arc width and the ghosts are decided server-side, so all five knobs are inputs.</td></tr>
+<tr><td>The blob is new</td><td>No. Today's blip is already a fuzzed 9 u cell rect with no id, heading or exact position. The arc is a wider version of that fuzz.</td></tr>
+<tr><td>Who owns the weather roll</td><td>The server already holds a per-match seat (fog seed on the welcome, fog cut on the schema).</td></tr>
+<tr><td>Beacons draw players in</td><td>Backwards today: placement maximizes distance from hulls.</td></tr>
+</table></div>
+
+<h2>Weak points that survived</h2>
+<div class="card"><ul class="weak">
+<li>Clear day may be a turkey shoot: a 20 km gun on a 22 km pond at 0:00. The dial is the ghost floor at zero gain. Untested.</li>
+<li>Ghost rates and the “ghost near a real ship” rule are unmeasured; the honest player's reading load is unknown.</li>
+<li>Equidistant beacons favor the faster hull; the neighbor-ambush meta is accepted as the game.</li>
+<li>A beacon can still end up in the storm after the real ring shifts. The nudge is not a safety promise.</li>
+<li>A 9,000 u set with a range-scaled cell is lumpy up close; zoom-level lattices are unbuilt.</li>
+<li>Bots see ghosts too, and need a hit-probability hold fraction that depends on the dispersion function.</li>
+</ul></div>
+
+<h2>Who pressed</h2>
+<div class="people">
+<div class="person"><div class="n">📊 Mary</div><div class="r">Business Analyst</div><q>The pillar as written is false for one of the three match types, and that's the one you called hard.</q></div>
+<div class="person"><div class="n">📋 John</div><div class="r">Product Manager</div><q>What job does the player hire AIM for? “I keep missing.” The honest answer is “walk your splashes.”</q></div>
+<div class="person"><div class="n">💻 Amelia</div><div class="r">Senior Software Engineer</div><q>One percent at 2 km is 20 m, smaller than a beam. Point-blank fights become no-miss.</q></div>
+<div class="person"><div class="n">🏗️ Winston</div><div class="r">System Architect</div><q>Two CONFIG numbers, and the zone tests already test the generating function. The cheap one is the right one.</q></div>
+<div class="person"><div class="n">🧪 Murat</div><div class="r">Test Architect</div><q>A splash return needs its own invariant line. Not a seventh exception; it goes through observe like a ship.</q></div>
+<div class="person"><div class="n">🎨 Sally</div><div class="r">UX Designer</div><q>Two hulls, one beacon, equidistant. The first minute writes itself.</q></div>
+<div class="person"><div class="n">🎙️ Cdr. Halvorsen</div><div class="r">generated · retired surface-search radar officer</div><q>The dark was never “no contact.” It was “a contact I can't resolve.” And a ghost must sometimes land near a real ship.</q></div>
+<div class="person"><div class="n">🏁 Kessel</div><div class="r">generated · tournament player</div><q>Pair me with my neighbor every match and I'll ambush the neighbor. Is that bad? No. That's the game.</q></div>
+<div class="person"><div class="n">🌌 Samus Shepard, Cloud Dragonborn, Dr. Quinn</div><div class="r">Friday's bench, carried in</div><q>Pick the dark. · I'll take back “gain alone crosses.” · The horizon will not be the dark.</q></div>
+</div>
+
+<h2>Next</h2>
+<div class="card"><p><code>forged-idea.md</code> beside this file feeds <code>/gds-correct-course</code> as one epic. Before any build: the rendered-math page (dispersion ellipse and arc paint at 20 km on real seeds, with the beam-width and ghost-rate dials) for Eric's yes.</p></div>
+
+<footer>Forge of 2026-11-07 · memlog at <code>_bmad-output/forge/big-ocean/.memlog.md</code> · facilitated by Claude Fable 5.1</footer>
+</main></body></html>

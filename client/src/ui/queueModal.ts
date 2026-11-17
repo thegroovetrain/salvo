@@ -7,7 +7,7 @@
 // PLAY' and replaces the server status."* The wait now has its own surface, and
 // `h.statusEl` is the server probe's again.
 //
-// IT SAYS EXACTLY THREE THINGS AND INVENTS NOTHING. `N/20 QUEUED` (Eric's own
+// IT SAYS EXACTLY THREE THINGS AND INVENTS NOTHING. `N/cap QUEUED` (the cap is the payload's, 16 today; Eric's own
 // wording; this modal is the ONLY surface that says it now — the SOLO button's
 // sub-line shared the derivation until Eric deleted that copy on 2026-08-19), a
 // `STARTS IN m:ss` countdown that exists ONLY while the pool is genuinely armed,
@@ -47,12 +47,12 @@ const QUEUE_MODAL_ID = 'queue-modal';
 // --- pure copy (tested) ------------------------------------------------------
 
 /**
- * `N/20 QUEUED` — Eric ruling 2026-08-18, verbatim: *"Just make it say 'N/20
+ * `N/cap QUEUED` (Eric wrote it as N/20) — Eric ruling 2026-08-18, verbatim: *"Just make it say 'N/20
  * Queued' where N is the number in queue."* Uppercased to match the register
  * every other readout in the port speaks in.
  *
- * The CAP comes off the payload, never a client-side literal: `20` is
- * `CONFIG.map.playerCap` today, and a copy that restated it would start lying
+ * The CAP comes off the payload, never a client-side literal: the cap is
+ * `CONFIG.map.playerCap` (16 today), and a copy that restated it would start lying
  * the day that is retuned — the same failure the home button's retired sub-line
  * was fixed for when it stopped inventing a `min`.
  *

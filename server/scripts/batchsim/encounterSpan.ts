@@ -27,10 +27,9 @@
 //   node_modules/.bin/tsx --tsconfig server/scripts/batchsim/tsconfig.json \
 //     server/scripts/batchsim/encounterSpan.ts [matches] [seed]
 
-import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../../src/game/world.js';
 import { Match } from '../../src/game/match.js';
-import { isFleetHull } from '../../src/game/participants.js';
 import { mixSeed } from './stats.js';
 
 const MATCHES = Number(process.argv[2] ?? 40);
@@ -83,7 +82,10 @@ for (let m = 0; m < MATCHES; m++) {
   // ...and every bot draws from the COMMON POOL on the default gun, exactly
   // as a production bot does (Story 8.14).
   // A FULL lobby: the player cap (16 since Story 9.8, Eric 2026-10-13), never a literal.
-  for (let i = 0; i < CONFIG.map.playerCap; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined);
+  // The DEFAULT Shift, forced (Story 10.12): the controller now deals a
+  // weighted Shift per bot, and this instrument's lobby composition is the
+  // pre-10.12 one.
+  for (let i = 0; i < CONFIG.map.playerCap; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined, DEFAULT_SHIFT);
   match.notifyRosterChanged();
 
   let prev = new Map<string, Per[]>();
@@ -98,7 +100,6 @@ for (let m = 0; m < MATCHES; m++) {
   while (world.now < cap && match.phase !== 'finished') {
     const snap = new Map<string, Per[]>();
     for (const s of world.ships.values()) {
-      if (isFleetHull(s)) continue;
       if (isAfloat(s.lifecycle)) wasAfloat.add(s.id);
       if (s.damageFrom.size === 0) {
         firstDmg.delete(s.id);
@@ -116,7 +117,7 @@ for (let m = 0; m < MATCHES; m++) {
     match.update();
 
     for (const s of world.ships.values()) {
-      if (isFleetHull(s) || !wasAfloat.has(s.id) || isAfloat(s.lifecycle)) continue;
+      if (!wasAfloat.has(s.id) || isAfloat(s.lifecycle)) continue;
       wasAfloat.delete(s.id);
       const per = snap.get(s.id) ?? prev.get(s.id);
       if (per === undefined || per.length === 0) continue;

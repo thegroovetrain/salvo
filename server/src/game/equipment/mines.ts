@@ -39,9 +39,9 @@
 // CAPTIVE MINES (Story 7-5 wave 2, R2.12-R2.14) change the TRIP and what
 // follows it, and nothing else. A captive mine never receives or propagates a
 // chain (R2.18), NEVER detonates on contact, and
-// trips only on a HOSTILE (R2.13: an enemy captain or bot, or a fleet drone
-// whose CURRENT acquired target is the layer; a neutral drone may sail straight
-// over it) — answering by LAUNCHING its one torpedo and expending itself. A
+// trips only on a HOSTILE (R2.13: an enemy captain or bot — the PvE drone's
+// live-aggro clause retired with the fleet at Story 10.8) — answering by
+// LAUNCHING its one torpedo and expending itself. A
 // deck gun CAN destroy one (amendment 200): at 0 hp it is removed with a boom,
 // no blast and no fish.
 //
@@ -54,6 +54,7 @@ import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   blockedWater,
+  dropMine as dropFromRack,
   mineTriggerRadius,
   burstVictims,
   hullSilhouette,
@@ -73,7 +74,7 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { Equipment } from './index.js';
-import { consume, tickReload } from './ammo.js';
+import { syncMineSlot, tickShipRacks } from './mounts.js';
 
 /** A dropped mine. Server-owned; synced to clients as contact-like MineView. */
 export interface MineState {
@@ -99,8 +100,8 @@ export interface MineState {
    * HIT POINTS (Eric 2026-10-01, amendment 200) — `CONFIG.mine.hp` at drop for
    * every kind. SERVER-ONLY: never on `MineView` or any wire shape, never
    * predicted. Only a DECK GUN shell landing on the mine takes them (the
-   * World's landing test via `World.damageMine` — beside `damageDecoy`, the
-   * other non-hull decrement the damage-gate fence admits in world.ts); a
+   * World's landing test via `World.damageMine` — the non-hull decrement the
+   * damage-gate fence admits in world.ts); a
    * trip, a chain or a burst merely
    * covering the mine never reads them.
    */
@@ -156,10 +157,9 @@ export interface MineTripRules {
   triggerRadius(ownerId: string, kind: MineKind): number;
   /**
    * CAPTIVE-ONLY (R2.13, Eric): is `victimId` HOSTILE to `ownerId`? An enemy
-   * captain or bot always is; a fleet drone is hostile ONLY while its CURRENT
-   * acquired target is the mine's owner, so a drone that breaks off becomes
-   * safe to sail past again. NEVER consulted for a naval or fouling mine —
-   * those still trip on ANY non-owner hull, drones included.
+   * captain or bot always is (the PvE drone's live-aggro clause retired with
+   * the fleet at Story 10.8). NEVER consulted for a naval or fouling mine —
+   * those still trip on ANY non-owner hull.
    */
   hostile(ownerId: string, victimId: string): boolean;
 }
@@ -228,7 +228,7 @@ export function minePlacePoint(ship: ShipRecord): Vec2 {
 /**
  * Is a placement/drop point ILLEGAL water (Story 1.10 'blocked')? True when
  * the point lands inside any island circle or outside the water disk. The mine
- * AND decoy rows both refuse a blocked point WITHOUT consuming anything (charge
+ * rows refuse a blocked point WITHOUT consuming anything (charge
  * + reload kept), so the previously silent wasted-charge failure becomes an
  * explicit 'blocked' denial. The rule itself now lives in shared sim/aim.ts
  * (blockedWater) because the client's mine-placement preview draws its blocked
@@ -242,7 +242,7 @@ export function dropBlocked(p: Vec2, islands: readonly Island[], mapRadius: numb
  * The first hull that trips `mine`: a non-owner silhouette within `radius`
  * (pointPolygonDistance — 0 inside, concave-safe), scanned in hull order.
  * `hostile` is the CAPTIVE-ONLY gate (null for every other mine): a hull it
- * refuses is SKIPPED, not returned — the scan continues, so a neutral drone
+ * refuses is SKIPPED, not returned — the scan continues, so a refused hull
  * sitting on a captive mine never masks the enemy captain right behind it.
  */
 function firstTripper(
@@ -298,8 +298,8 @@ export function checkMineTriggers(
  * The BLAST membership for one detonating mine (Story 1.8): every hull whose
  * silhouette lies within `blastRadius` of the mine point (the OWNER's
  * effective blast radius as of Story 2.8 — the World threads it in with the
- * vacated-owner CONFIG fallback) — OWNER EXCLUDED, enemies AND drones alike,
- * full damage each (the World applies it). Reuses the shared burstVictims
+ * vacated-owner CONFIG fallback) — OWNER EXCLUDED, every enemy alike, full
+ * damage each (the World applies it). Reuses the shared burstVictims
  * silhouette-in-radius rule (the gun/starShells AoE precedent), so mine blasts
  * and shell bursts can never diverge on what "inside the blast" means. Pure —
  * the World deletes the mine and resolves damage/booms.
@@ -362,16 +362,19 @@ export function captiveTorpedo(
   const shell: ShellState = {
     id,
     ownerId: mine.ownerId,
-    // AR44: the captive's fish is a TORPEDO — hulls and decoys. It runs under
+    // AR44: the captive's torpedo is a TORPEDO — hulls only. It runs under
     // a minefield exactly as a launched torpedo does.
     hits: CONFIG.torpedo.hits,
     x: mine.x,
     y: mine.y,
     vx: Math.cos(dir) * CONFIG.torpedo.speed,
     vy: Math.sin(dir) * CONFIG.torpedo.speed,
-    // A straight-runner runs until impact; only a STEERING fish carries the
-    // family's finite travel budget (an orbiting fish must die).
-    distLeft: homes ? CONFIG.torpedo.homingMaxRangeU : Number.POSITIVE_INFINITY,
+    // The captive's torpedo runs the HEAVY torpedo's Tier I run and then
+    // expires, steering or straight (Story 11.2, R5 — every torpedo has a
+    // run; the homing-only budget `homingMaxRangeU` retired). The CAPTIVE
+    // MINES row has no run of its own to fold, so the heavy line's base is
+    // used — Story 11.2, R21 (Eric 2026-11-12).
+    distLeft: CONFIG.torpedo.runU,
     bornAt: now,
     kind: 'torp',
     damage: p.damage,
@@ -384,16 +387,17 @@ export function captiveTorpedo(
   };
   // THE LOCK IS PINNED AT LAUNCH (cycle-148 review gate, P6): this fish was
   // fired at the ONE hull that tripped the mine and cleared the hostile gate
-  // (R2.13), so it must never re-acquire. A neutral fleet drone drifting nearer
-  // mid-run would otherwise steal a trap it was never allowed to spring — and
-  // the gate cannot be re-run in flight, because `steerHoming` is pure shared
-  // sim with no idea what a drone's current aggro is. See `ShellState.homing`.
+  // (R2.13), so it must never re-acquire: a bystander drifting nearer mid-run
+  // would otherwise steal a trap it was never allowed to spring — and the gate
+  // cannot be re-run in flight, because `steerHoming` is pure shared sim. See
+  // `ShellState.homing`.
   if (homes) {
     shell.homing = {
       turnRate: p.homingTurnRate,
       acquireRange: CONFIG.torpedo.homingAcquireRange,
       targetId: p.targetId,
       locked: true,
+      acoustic: true, // its turn follows the victim's engine noise (experiment, Eric 2026-11-16)
     };
   }
   return shell;
@@ -424,8 +428,16 @@ export function hullFor(ship: ShipRecord): Target {
  * REAR sector (heading + offset ± placeHalfArcDeg) AND within
  * CONFIG.mine.placeRange — either miss is 'out-of-arc' (the aim-denial
  * channel, per the amendment ruling); a clicked point inside a rock / off the
- * water is 'blocked' (Story 1.10); an empty pool is 'no-ammo'. The drop ammo
- * pool is the ONLY mine bound since Story 8.4 deleted the live-board cap.
+ * water is 'blocked' (Story 1.10); no mine in any rack is 'no-ammo' (the
+ * wire's `cooling`). The racks are the ONLY mine bound since Story 8.4
+ * deleted the live-board cap.
+ *
+ * THE RACKS (Story 10.6, Eric 2026-11-05, R7 / R17 / R18): the mines live in
+ * the ship's stern RACKS (`ship.racks`, shared sim/racks.ts) — one or two,
+ * each with ONE reload clock that restores a mine per cycle. A drop comes from
+ * the rack whose turn it is (strict alternation), or the next one holding a
+ * mine. The slot pool is the racks' SUMMARY (`rackSummary`), re-derived every
+ * tick and after every drop.
  *
  * EVERY CHASSIS FIELD IS SHARED AND READ FROM `CONFIG.mine` — the rear sector,
  * the 150 u leash and the 3 s arm delay are the naval rack's, deliberately not
@@ -437,11 +449,11 @@ function mineLine(id: MineLineId): Equipment {
   return {
     id,
     isWeapon: EQUIPMENT_IS_WEAPON[id], // shared weapon/ability split — single source
-    tick(ship, slot, dtMs): void {
-      const row = ship.stats.equipment[id];
-      tickReload(slot.state!, row.maxAmmo, row.reloadMs, dtMs);
+    tick(ship, _slot, dtMs): void {
+      tickShipRacks(ship, id, dtMs);
+      syncMineSlot(ship);
     },
-    activate(ctx, slot) {
+    activate(ctx) {
       const ship = ctx.ship;
       const center = wrapAngle(ship.state.heading + REAR_SECTOR.offset); // astern-centered
       if (!inArc(ship.input.aim, center, REAR_SECTOR.halfArc)) return { ok: false, reason: 'out-of-arc' };
@@ -450,7 +462,11 @@ function mineLine(id: MineLineId): Equipment {
       if (ship.input.aimDist > CONFIG.mine.placeRange) return { ok: false, reason: 'out-of-arc' };
       const p = minePlacePoint(ship);
       if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
-      if (!consume(slot.state!, ship.stats.equipment[id].reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
+      // R17 / R18: the rack whose turn it is drops (else the next one holding
+      // a mine); no rack holds one → refused, nothing changed.
+      const rack = dropFromRack(ship.racks, ship.stats.equipment[id].reloadMs);
+      if (rack === null) return { ok: false, reason: 'no-ammo' };
+      syncMineSlot(ship);
       ctx.dropMine(p.x, p.y, kind);
       return { ok: true };
     },

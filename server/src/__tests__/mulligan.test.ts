@@ -5,8 +5,10 @@
 //
 //   grantOpening()  — `Match.startCountdown()` calls it once per match. Every
 //                     PARTICIPANT (human captain or AI captain, never a PvE
-//                     fleet hull) banks ONE level and draws a hand with the
-//                     usable-card guarantee. `level` does not move: the HUD
+//                     fleet hull) banks ONE level and draws its hand through
+//                     the ordinary four-slot draw (Story 10.7 — the Equipment
+//                     slot deals a bare weapon on a bare hull; the level-zero
+//                     guarantee is retired). `level` does not move: the HUD
 //                     reads LV 0, bank chip 1, an empty strip.
 //   mulligan()      — `SpendMsg.choice === MULLIGAN_CHOICE` (-2), the ONE legal
 //                     negative on a channel Story 8.8 had closed. Honoured iff
@@ -22,9 +24,11 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { CONFIG, CATALOG, MULLIGAN_CHOICE, SLOT_COUNT, boonStackCount, isStubLine, type LineId } from '@salvo/shared';
-import { DEFAULT_GUN } from '@salvo/shared';
+import { DEFAULT_SHIFT, familySlotFor } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { expectLevelZeroPlan } from './offerPlanFixture.js';
 
 /** Islands cleared and the raster flattened — no terrain in an economy test. */
 function bareWorld(seed = 4, opts = {}): World {
@@ -37,18 +41,13 @@ function bareWorld(seed = 4, opts = {}): World {
 }
 
 /** A captain drawing from the common pool on the default seat gun. */
-function captain(w: World, id: string, hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat'): ShipRecord {
+function captain(w: World, id: string, hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck'): ShipRecord {
   return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
 }
 
 /** An AI captain (a participant, never a human) — the same economy. */
 function bot(w: World, id: string): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'bot', 'torpedoBoat', undefined, undefined);
-}
-
-/** A PvE fleet hull — world content, never draws, no economy. */
-function fleet(w: World, id: string): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'fleet', 'droneSmall', undefined, undefined);
+  return w.addShip(id, id.toUpperCase(), 'bot', 'bismarck', undefined, undefined);
 }
 
 const ptIds = (w: World): string[] => w.tickEvents.filter((e) => e.k === 'pt').map((e) => e.id);
@@ -61,13 +60,12 @@ function openCountdown(w: World): void {
 
 // ---------- the level-zero grant ---------------------------------------------
 
-describe('grantOpening — one banked level and a guaranteed hand, participants only', () => {
-  it('captains and bots bank LV 0 / pts 1 / xp 0 / offer[4]; fleet hulls get NOTHING', () => {
+describe('grantOpening — one banked level and a hand, participants only', () => {
+  it('captains and bots bank LV 0 / pts 1 / xp 0 / offer[4]', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
-    const b = captain(w, 'b', 'battleship');
+    const b = captain(w, 'b', 'yamato');
     const ai = bot(w, 'bot-1');
-    const drone = fleet(w, 'fleet-1');
 
     w.grantOpening();
 
@@ -80,24 +78,18 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
       expect(new Set(s.offer!).size, s.id).toBe(CONFIG.offer.size); // four distinct lines
       for (const id of s.offer!) expect(isStubLine(id), id).toBe(false);
     }
-    // A fleet hull never draws: it has no refit surface to spend a level on.
-    expect(drone.bankedLevels).toBe(0);
-    expect(drone.offer).toBeNull();
   });
 
-  it('the hand carries at least one USABLE card (the level-zero guarantee)', () => {
+  it('the hand is the four-slot plan: a ship line, then a bare weapon the hull can take', () => {
     // The first offer must never be four ladders on a hull with no weapon —
-    // card 0 is drawn uniformly over the usable lines (amendment 93: level
-    // zero and its redraw only).
-    for (const hull of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+    // the Equipment slot (card 1, Story 10.7) is that promise now: on a bare
+    // hull every eligible equipment line is a bare weapon.
+    for (const hull of ['bismarck', 'yamato', 'warspite'] as const) {
       for (let seed = 1; seed <= 12; seed += 1) {
         const w = bareWorld(seed);
         const a = captain(w, 'a', hull);
         w.grantOpening();
-        const first = a.offer![0];
-        const line = CATALOG[first];
-        const usable = line.kind === 'consumable' || (line.kind === 'equipment' && !a.cards.includes(first));
-        expect(usable, `${hull}/${seed}: ${first}`).toBe(true);
+        expectLevelZeroPlan(a, `${hull}/${seed}`);
       }
     }
   });
@@ -106,7 +98,6 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
     const w = bareWorld();
     captain(w, 'a');
     bot(w, 'bot-1');
-    fleet(w, 'fleet-1');
     w.grantOpening();
     w.step(); // the pending -> events swap is step()'s epilogue (amendment 63d)
     expect(ptIds(w).sort()).toEqual(['a', 'bot-1']);
@@ -123,15 +114,15 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
     expect(a.bankedLevels).toBe(1);
   });
 
-  // THE OFFER IS NEVER EMPTY (amendment 94): a consumable line is always
-  // eligible, so there is no exhausted state left to test. The only way to an
-  // empty draw is an injected catalog with fewer than one dealable line, which
-  // is not a state production can reach.
-  it('an all-stub catalog is the ONLY empty draw, and it banks the level in silence', () => {
+  // AN EMPTY DRAW BANKS NOTHING (Story 10.7, R5): an all-stub catalog has no
+  // dealable line, so the opening grant draws empty and its level becomes one
+  // bonus index point instead of a bank.
+  it('an all-stub catalog draws empty at the opening: nothing banked, no offer, no pt — one bonus point', () => {
     const w = bareWorld(4, { catalog: { ghost: { id: 'ghost', kind: 'consumable', cap: 5, stub: true, tiers: [] } } });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     w.grantOpening();
-    expect(a.bankedLevels).toBe(1);
+    expect(a.bankedLevels).toBe(0);
+    expect(Object.values(a.indexBonus).reduce((s, n) => s + n, 0)).toBe(1);
     expect(a.offer).toBeNull(); // an offer-less level advertises no refit
     w.step();
     expect(ptIds(w)).toEqual([]);
@@ -171,13 +162,12 @@ describe('mulligan — the one free redraw at the start line', () => {
     expect(ptIds(w)).toEqual(['a']);
   });
 
-  it('the redrawn hand carries the guarantee too', () => {
+  it('the redrawn hand is the same plan: a ship line, then a bare weapon the hull can take', () => {
+    // A redraw is the draw run again (R2), so the plan holds for it too.
     for (let seed = 1; seed <= 12; seed += 1) {
       const { w, a } = atTheStartLine(seed);
       expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
-      const first = a.offer![0];
-      const line = CATALOG[first];
-      expect(line.kind === 'consumable' || (line.kind === 'equipment' && !a.cards.includes(first)), first).toBe(true);
+      expectLevelZeroPlan(a, `redraw/${seed}`);
     }
   });
 
@@ -210,16 +200,6 @@ describe('mulligan — the one free redraw at the start line', () => {
     expect(w.spendPoint('bot-1', MULLIGAN_CHOICE)).toBe(false);
     expect(ai.offer).toBe(hand);
     expect(ai.mulliganed).toBe(false);
-  });
-
-  it('a FLEET hull is refused — it never had a hand to throw back', () => {
-    const w = bareWorld();
-    const drone = fleet(w, 'fleet-1');
-    openCountdown(w);
-    w.grantOpening();
-    expect(w.spendPoint('fleet-1', MULLIGAN_CHOICE)).toBe(false);
-    expect(drone.offer).toBeNull();
-    expect(drone.bankedLevels).toBe(0);
   });
 
   it('NO OFFER, no redraw: a spent hand cannot be mulliganed back', () => {
@@ -321,6 +301,68 @@ describe('mulligan — the one free redraw at the start line', () => {
   });
 });
 
+// ---------- the REDRAW flag on the own frame (Story 10.7, R4) -----------------
+//
+// `you.rd` is server truth for the REDRAW pip. A reconnecting client is the
+// SAME session on the SAME ship record (ArenaRoom's reconnection branch never
+// re-runs onJoin) and simply receives the next `buildFrame` — so "the pip reads
+// used after a reconnect" is "every later frame built for that ship says true".
+
+describe('the own frame says whether the REDRAW is used (`rd`)', () => {
+  it('false before the redraw, true after it, and still true in every later frame', () => {
+    const w = bareWorld();
+    captain(w, 'a');
+    captain(w, 'b');
+    openCountdown(w);
+    w.grantOpening();
+    w.step();
+    expect(buildFrame(w, 'a').you!.rd).toBe(false);
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
+    expect(buildFrame(w, 'a').you!.rd).toBe(true);
+    w.step();
+    w.step();
+    expect(buildFrame(w, 'a').you!.rd).toBe(true); // the frame a reconnect gets
+    expect(buildFrame(w, 'b').you!.rd).toBe(false); // per ship, not per room
+  });
+
+  it('a refused redraw leaves it false', () => {
+    const w = bareWorld();
+    captain(w, 'a');
+    w.grantOpening(); // the countdown is NOT open: the press is refused
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
+    expect(buildFrame(w, 'a').you!.rd).toBe(false);
+  });
+
+  it('it survives the activation redeploy along with `mulliganed`', () => {
+    const w = bareWorld();
+    captain(w, 'a');
+    openCountdown(w);
+    w.grantOpening();
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
+    w.resetForMatchStart(true);
+    w.countdownOpen = false;
+    expect(buildFrame(w, 'a').you!.rd).toBe(true);
+  });
+
+  it('no contact row ever carries `rd` — it is self-private', () => {
+    const w = bareWorld();
+    const a = captain(w, 'a');
+    const b = captain(w, 'b');
+    a.state.x = 0;
+    a.state.y = 0;
+    b.state.x = 0;
+    b.state.y = -150; // inside mutual sight, clear of a's hull
+    openCountdown(w);
+    w.grantOpening();
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
+    w.step();
+    const fb = buildFrame(w, 'b');
+    const contact = fb.contacts.find((c) => c.id === 'a');
+    expect(contact).toBeDefined();
+    expect('rd' in contact!).toBe(false);
+  });
+});
+
 // ---------- the economy survives the start line ------------------------------
 
 describe('the countdown economy through the activation redeploy (amendment 63b)', () => {
@@ -335,10 +377,10 @@ describe('the countdown economy through the activation redeploy (amendment 63b)'
 
   it('a card taken during the countdown is ABOARD when the water goes live', () => {
     const { w, a } = heldStartLine();
-    // Take the guaranteed first card — on a default deck that is a weapon or a
-    // consumable, i.e. something that actually occupies a slot.
-    const picked = a.offer![0] as LineId;
-    expect(w.spendPoint('a', 0)).toBe(true);
+    // Take the Equipment card (slot 1, Story 10.7) — at level zero a bare
+    // weapon, i.e. something that actually occupies a slot.
+    const picked = a.offer![1] as LineId;
+    expect(w.spendPoint('a', 1)).toBe(true);
     const fittedSlots = a.loadout.filter((s) => s.equipmentId !== null).length;
     a.hp = 3;
     a.state.x = 123;
@@ -418,9 +460,9 @@ function fitted(
   w: World,
   id: string,
   fit: readonly string[],
-  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+  hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined,DEFAULT_GUN, fit);
+  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_SHIFT, fit);
 }
 
 const slotIds = (rec: ShipRecord): (string | null)[] => rec.loadout.map((s) => s.equipmentId);
@@ -429,7 +471,7 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const w = bareWorld();
     const a = fitted(w, 'a', ['heavyTorpedo']);
     expect(a.cards).toEqual(['heavyTorpedo']);
-    expect(slotIds(a)).toEqual(['gun', 'boost', 'heavyTorpedo', ...new Array<null>(SLOT_COUNT - 3).fill(null)]);
+    expect(slotIds(a)).toEqual(['mainBattery', 'boost', 'heavyTorpedo', ...new Array<null>(SLOT_COUNT - 3).fill(null)]); // the torpedo family slot
     // A fit is a real fit: the slot arrives LOADED, like any pick (amendment 41).
     expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.heavyTorpedo.maxAmmo, reloadMsLeft: 0 });
     // ...and it goes through applyCard, so it COUNTS AS A TAKE (Story 8.14):
@@ -445,37 +487,37 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const bare = captain(w, 'bare');
     // A weapon and a LADDER: the weapon takes slot 2, the ladder only moves
     // stats — both are ordinary card fits. Only the WEAPON is a take.
-    const a = fitted(w, 'a', ['heavyTorpedo', 'hullPoints']);
-    expect(a.cards).toEqual(['heavyTorpedo', 'hullPoints']);
+    // (HULL POINTS was the ladder here until Story 10.3 deleted it, Eric
+    // 2026-11-04, epic-10 amendment 8; ARMOR stands in.)
+    const a = fitted(w, 'a', ['heavyTorpedo', 'armor']);
+    expect(a.cards).toEqual(['heavyTorpedo', 'armor']);
     expect(slotIds(a)[2]).toBe('heavyTorpedo');
-    expect(a.stats.maxHp).toBeGreaterThan(bare.stats.maxHp);
-    expect(a.hp).toBe(a.stats.maxHp); // ARMOR heals its own maxHp delta (healOnGrant)
-    expect(w.takes.has('hullPoints' as LineId)).toBe(false); // a ladder is never a take
+    expect(a.stats.armor).toBeGreaterThan(bare.stats.armor);
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(w.takes.has('armor' as LineId)).toBe(false); // a ladder is never a take
   });
 
   it('ANY non-stub line is fittable now — the hull no longer bounds it, the CAP does', () => {
     const w = bareWorld();
     // Story 8.14: with the decks retired there is no per-hull list to pay a
     // copy out of, so a Battleship can be handed the Torpedo Boat's fish.
-    const b = fitted(w, 'b', ['broadside', 'heavyTorpedo', 'starShells'], 'battleship');
-    expect(b.cards).toEqual(['broadside', 'heavyTorpedo', 'starShells']);
+    // (BROADSIDE left the deal, Story 10.5 R6 — it has no family slot, so a
+    // fit naming it is refused.)
+    const b = fitted(w, 'b', ['broadside', 'heavyTorpedo', 'starShells'], 'yamato');
+    expect(b.cards).toEqual(['heavyTorpedo', 'starShells']);
     // ...but the line's own cap still bounds it, and an unknown/stub id drops.
-    const cap = CATALOG.hullPoints.cap;
-    const c = fitted(w, 'c', [...new Array<string>(cap + 3).fill('hullPoints'), 'nope', 'depthCharge']);
-    expect(boonStackCount(c.cards, 'hullPoints')).toBe(cap);
+    const cap = CATALOG.armor.cap;
+    const c = fitted(w, 'c', [...new Array<string>(cap + 3).fill('armor'), 'nope', 'depthCharge']);
+    expect(boonStackCount(c.cards, 'armor')).toBe(cap);
     expect(c.cards.filter((id) => id === 'nope' || id === 'depthCharge')).toEqual([]);
   });
 
-  it('NEVER a bot and NEVER a fleet hull — the same option buys them nothing', () => {
+  it('NEVER a bot — the same option buys it nothing', () => {
     const w = bareWorld();
-    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'torpedoBoat', undefined, undefined,DEFAULT_GUN, ['heavyTorpedo']);
-    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined,DEFAULT_GUN, ['heavyTorpedo']);
-    for (const s of [ai, drone]) {
-      expect(s.devFit, s.id).toEqual([]);
-      expect(s.cards, s.id).toEqual([]);
-    }
-    expect(slotIds(ai)).toEqual(['gun', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
-    expect(slotIds(drone)[1]).toBeNull(); // a drone never even grows a boost
+    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'bismarck', undefined, undefined, DEFAULT_SHIFT, ['heavyTorpedo']);
+    expect(ai.devFit).toEqual([]);
+    expect(ai.cards).toEqual([]);
+    expect(slotIds(ai)).toEqual(['mainBattery', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
   });
 
   it('DROPS an unknown id and a STUB line — the two the catalog refuses', () => {
@@ -484,19 +526,20 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     // but unbuilt, amendment 11). 'navalMines' used to be refused here as
     // "not in this hull's deck" and is now perfectly fittable: Story 8.14
     // retired the decks, so a hull is no longer a bound on what it can hold.
+    // Each lands in its FAMILY slot (Story 10.5), whatever the fit order.
     const a = fitted(w, 'a', ['nope', 'depthCharge', 'navalMines', 'heavyTorpedo']);
     expect(a.cards).toEqual(['navalMines', 'heavyTorpedo']);
-    expect(slotIds(a)[2]).toBe('navalMines');
-    expect(slotIds(a)[3]).toBe('heavyTorpedo');
+    expect(slotIds(a)[familySlotFor('heavyTorpedo')!]).toBe('heavyTorpedo');
+    expect(slotIds(a)[familySlotFor('navalMines')!]).toBe('navalMines');
   });
 
   it('cannot fit PAST a line\'s CAP — the cap is the whole bound now (Story 8.14)', () => {
     // There is no deck left to run out of copies, so the CAP is the only thing
     // standing between a dev fit and a build no pick, draw or offer could ever
-    // produce. Consumables are the sharpest case: nothing thins them.
+    // produce.
     const w = bareWorld();
-    const a = fitted(w, 'a', new Array<string>(CATALOG.hullRepair.cap + 3).fill('hullRepair'));
-    expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap);
+    const a = fitted(w, 'a', new Array<string>(CATALOG.heavyTorpedo.cap + 3).fill('heavyTorpedo'));
+    expect(boonStackCount(a.cards, 'heavyTorpedo')).toBe(CATALOG.heavyTorpedo.cap);
   });
 
   // THE FIT IS APPLIED AT SPAWN AND NEVER AGAIN (Story 8.10 review, P1). It
@@ -530,3 +573,30 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     expect(w.takes.size).toBe(0);
   });
 });
+
+// ---------- a refused dev-fit line is logged (Story 10.1 F4; Story 10.5) ------
+//
+// A dev fit line that `refusesCard` drops (a SECOND KIND of a filled family —
+// Story 10.5, one kind per slot — a stub, a capped line) is never dropped
+// silently: one `devFit.refused` warning per dropped line, with
+// `pickRefusal`'s reason. (The kit, and its addShip guard, left with Story 10.5.)
+
+describe('the dev spawn fit — a refused line is logged, not silently dropped', () => {
+  it('a SECOND torpedo kind after the first logs devFit.refused (noWeaponSlot) and is not fitted', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const w = bareWorld();
+      const a = fitted(w, 'a', ['lightTorpedo', 'heavyTorpedo']);
+      expect(a.cards).toEqual(['lightTorpedo']);
+      expect(slotIds(a)[familySlotFor('lightTorpedo')!]).toBe('lightTorpedo');
+      expect(w.takes.has('heavyTorpedo' as LineId)).toBe(false); // a refused fit is no take
+      const prefix = 'warn devFit.refused ';
+      const warns = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith(prefix));
+      expect(warns).toHaveLength(1);
+      expect(JSON.parse(warns[0].slice(prefix.length))).toEqual({ id: 'a', line: 'heavyTorpedo', reason: 'noWeaponSlot' });
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+

@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState, CloseCode, ErrorCode } from 'colyseus';
-import { CONFIG, MSG, MapGenerationError, PROTOCOL_VERSION, hashSeedText } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, MSG, MapGenerationError, PROTOCOL_VERSION, SHIFT_IDS, hashSeedText } from '@salvo/shared';
 import { LobbyPolicy, cleanSeedText, isCodeReserved, mintCode, normalizeCode, releaseCode, reserveCode } from '../rooms/lobby.js';
 import { resolveLobby, resolveLobbyCode, type LobbyListing } from '../lobbyResolve.js';
 import { LOBBY_STARTED_ERROR, LobbyRoom, matchmakeMethodOf } from '../rooms/LobbyRoom.js';
@@ -808,7 +808,12 @@ describe('LobbyRoom — the adapter', () => {
 
   it('a lone host with bot-fill + seed forces a start: the arena bag is trusted and complete', async () => {
     const { r, send, tick, join, timeouts, startNow } = await lobbyRoom();
-    const a = join('a', { name: 'ERIC', gun: 'flak' });
+    // A LEGACY kit option (Story 10.1's, retired by Story 10.5): silently
+    // ignored — it rides neither the seat's `auth` nor its options.
+    const kit = ['healingBuoy', 'hullRepair', 'supercavTorpedo', 'shieldBlock'];
+    // ...and a NON-default Shift (Story 10.4 — the seat gun's successor).
+    const shift = SHIFT_IDS.find((s) => s !== DEFAULT_SHIFT)!;
+    const a = join('a', { name: 'ERIC', shift, kit });
     send(a, MSG.lobbyStart); // not eligible yet: dropped
     expect(created).toEqual([]);
     send(a, MSG.lobbyBotFill, { on: true });
@@ -826,11 +831,14 @@ describe('LobbyRoom — the adapter', () => {
     const { sanitized, rejectedKeys } = sanitizeRoomOptions(options, false);
     expect(sanitized).toMatchObject({ expectedCaptains: 1, mode: 'private', botFill: true, mapSeed: hashSeedText(resolvedText) });
     expect(rejectedKeys).toEqual([]);
-    // The seat went out; the gun rode `auth`, never `options`.
+    // The seat went out; the Shift rode `auth`, never `options`.
     expect(a.send).toHaveBeenCalledWith(MSG.seat, { sessionId: 'a' });
     const seats = matchMaker.reserveMultipleSeatsFor.mock.calls[0][1] as Array<{ options: Record<string, unknown>; auth: Record<string, unknown> }>;
-    expect(seats[0].auth.gun).toBe('flak');
-    expect(seats[0].options.gun).toBeUndefined();
+    expect(seats[0].auth.shift).toBe(shift);
+    expect(seats[0].options.shift).toBeUndefined();
+    // ...and the legacy kit went nowhere (Story 10.5).
+    expect(seats[0].auth.kit).toBeUndefined();
+    expect(seats[0].options.kit).toBeUndefined();
     // The code is dead, the room locked, and it lingers before closing.
     expect(r.state.phase).toBe('started');
     expect(r.setMetadata.mock.calls.at(-1)?.[0]).toMatchObject({ phase: 'started' });

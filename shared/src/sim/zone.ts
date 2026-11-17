@@ -57,9 +57,9 @@
 // is STRUCTURAL: each next ring's center offset is bounded by
 // offsetCap × (r_cur − r_next), so ring g+1 ⊆ ring g for ANY stream values.
 //
-// The TERMINAL radius is DERIVED from CONFIG.vision.sight (never an
-// independent constant — retuning truesight moves the endgame, Story 3.4);
-// intermediate radii step down geometrically via per-group `ringSteps`
+// The TERMINAL radius is the ring ladder's last entry; on the retired formula
+// path it is a factor × `ZONE_FORMULA_UNIT_U` (once × CONFIG.vision.sight —
+// Story 3.4; decoupled from sight by Story 11.2, 2026-11-12); intermediate radii step down geometrically via per-group `ringSteps`
 // exponents (equal ratio steps at the shipped defaults).
 
 import { CONFIG } from '../constants.js';
@@ -110,7 +110,8 @@ export interface ZoneTimeline {
   /** 0..1 — max next-ring center offset as a fraction of (r_cur − r_next).
    *  Clamped into [0,1] so containment holds for ANY stream values. */
   offsetCap: number;
-  /** × CONFIG.vision.sight — the terminal (endgame) ring radius of the RETIRED
+  /** × `ZONE_FORMULA_UNIT_U` (the 500 u truesight it multiplied until Story
+   *  11.2) — the terminal (endgame) ring radius of the RETIRED
    *  formula (the ratified "two truesight diameters across" reading, amendment
    *  4; fail-closed default 2). Ignored whenever `ringRadii` is set. */
   terminalSightFactor?: number;
@@ -234,23 +235,42 @@ export function stormDpsFor(
   return Number.isFinite(dps) && dps > 0 ? dps : 0;
 }
 
+/**
+ * u — THE FORMULA PATH'S UNIT: the truesight radius (500 u) the retired
+ * `terminalSightFactor` multiplies. Story 11.2 (2026-11-12, epic-11 amendment
+ * 4) moved `CONFIG.vision.sight` to 200 hm on the
+ * hectometer ruler; this dev-override fallback keeps TODAY'S result (factor ×
+ * 500 u — 1,000 u at the ratified ×2) by reading its own fact rather than
+ * sight, so smokes and `zoneOverride` literals behave as before.
+ */
+export const ZONE_FORMULA_UNIT_U = 500;
+
 /** Terminal ring radius (u). With a literal ladder (`ringRadii`, the shipped
  *  shape since 2026-10-07) it is the ladder's LAST entry, clamped non-negative
- *  and fail-closed to the old ×2-sight reading on NaN. On the formula path it
- *  is terminalSightFactor × CONFIG.vision.sight — COMPUTED from the truesight
- *  tunable (Story 3.4's original endgame guarantee), clamped non-negative and
- *  fail-closed to the ratified ×2 on NaN. The formula path is a DEV-OVERRIDE
- *  FALLBACK only (smokes, `zoneOverride` literals): since Story 9.8 moved
- *  sight to 500 u its ×2 reads 1,000 u — by coincidence the shipped terminal —
- *  and nothing in production reaches it. */
+ *  and fail-closed to the old ×2 reading on NaN. On the formula path it is
+ *  terminalSightFactor × `ZONE_FORMULA_UNIT_U` (Story 3.4's original endgame
+ *  guarantee, once × truesight), clamped non-negative and fail-closed to the
+ *  ratified ×2 on NaN. The formula path is a DEV-OVERRIDE FALLBACK only
+ *  (smokes, `zoneOverride` literals): its ×2 reads 1,000 u — by coincidence
+ *  the shipped terminal — and nothing in production reaches it. */
 export function zoneTerminalRadius(cfg: ZoneTimeline = CONFIG.zone): number {
   const ladder = ringRadiiOf(cfg);
   if (ladder !== null) {
     const last = ladder[ladder.length - 1];
-    return Number.isFinite(last) ? Math.max(last, 0) : 2 * CONFIG.vision.sight;
+    return Number.isFinite(last) ? Math.max(last, 0) : 2 * ZONE_FORMULA_UNIT_U;
   }
   const factor = Number.isFinite(cfg.terminalSightFactor) ? Math.max(cfg.terminalSightFactor as number, 0) : 2;
-  return factor * CONFIG.vision.sight;
+  return factor * ZONE_FORMULA_UNIT_U;
+}
+
+/**
+ * ms of ONE ring group (`ZONE_BEATS_PER_GROUP` beats) — the length of a ring
+ * cycle, which the radio beacons (Story 10.8, sim/beacons.ts) are timed on.
+ * 0 for a degenerate beat duration, like zoneClosedAtMs.
+ */
+export function zoneGroupMs(cfg: ZoneTimeline = CONFIG.zone): number {
+  const beatMs = beatMsOf(cfg);
+  return beatMs === null ? 0 : ZONE_BEATS_PER_GROUP * beatMs;
 }
 
 /**
@@ -495,6 +515,34 @@ export function zoneStateAt(
   const group = Math.floor(elapsed / (ZONE_BEATS_PER_GROUP * beatMs));
   if (group >= groups) return closedState(groups, last, cfg);
   return zoneLiveState(now, startT, rings[group] ?? last, rings[group + 1] ?? null, cfg);
+}
+
+/**
+ * The LIVE ring's RADIUS at `elapsedMs` from zone start, from the public radii
+ * ladder alone (`radii` = `zoneRingRadii(mapRadius, cfg)`, collapse 0 included)
+ * — no rolled center needed. Equal to `zoneStateAt(startT + elapsedMs, startT,
+ * rings, cfg).current.r` on any rings rolled from the same ladder: the held
+ * beats read ring g, the closing beat the same linear blend toward ring g+1,
+ * the closed state (and a degenerate beat) the ladder's last entry. A negative
+ * elapsed reads 0 (ring 0), as zoneStateAt clamps it. The storm-eye rain
+ * (sim/fog.ts, Story 11.6) integrates its spin over this — the ladder is public,
+ * so both sides reach the identical R(τ) for any past τ.
+ */
+export function zoneLadderRadiusAt(elapsedMs: number, radii: readonly number[], cfg: ZoneTimeline = CONFIG.zone): number {
+  const last = radii[radii.length - 1] ?? 0;
+  const beatMs = beatMsOf(cfg);
+  if (beatMs === null) return last;
+  const elapsed = Math.max(0, elapsedMs);
+  const beat = Math.floor(elapsed / beatMs);
+  const group = Math.floor(beat / ZONE_BEATS_PER_GROUP);
+  if (!(group < zoneGroups(cfg))) return last;
+  const cur = radii[group] ?? last;
+  if (beat - group * ZONE_BEATS_PER_GROUP < ZONE_BEATS_PER_GROUP - 1) return cur;
+  const next = radii[group + 1];
+  if (next === undefined) return cur;
+  const groupEndMs = (group + 1) * ZONE_BEATS_PER_GROUP * beatMs;
+  const f = (elapsed - (groupEndMs - beatMs)) / beatMs;
+  return cur + (next - cur) * f;
 }
 
 /**

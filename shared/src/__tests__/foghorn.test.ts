@@ -10,25 +10,25 @@ import {
 // server and client BOTH have to agree on lives here: the horn id space, its
 // fail-open sanitizer, and the one sim-authoritative cadence.
 //
-// What is deliberately NOT pinned here: the volume-band bounds (twelfths of
-// the listener's intel range since Story 9.8, epic-9 amendment 107 / ruling
-// 129; eighths since Story 4.9, amendment 122) and the island
+// What is deliberately NOT pinned here: the volume-band bounds (bands of the
+// listener's own radar reach — the foghorn's rule, kept by Story 11.2) and
+// the island
 // muffle, which are per-observer server logic (signals.ts) verified by their
 // own independently-reimplemented oracle in
 // server/src/__tests__/perception.test.ts; and every presentation knob (band
 // gains, mix cap, chevron geometry/TTL, horn voices), which is client-only.
 
 describe('the horn catalog (amendment 52)', () => {
-  it('ships EXACTLY ONE horn — a second variant is Eric-gated CONTENT, not an implementation choice', () => {
-    // This pin is the scope fence. A cycle that adds a horn without an Eric
-    // ruling fails here first, deliberately.
-    expect(HORN_IDS).toEqual(['standard']);
-    expect(HORN_IDS).toHaveLength(1);
+  // Story 10.13 (Eric 2026-11-11: five selectable horns): the catalog's
+  // CONTENTS are Eric's ruling and are not pinned here; the STRUCTURE both
+  // sides rely on is.
+  it('is a non-empty catalog of unique ids', () => {
+    expect(HORN_IDS.length).toBeGreaterThan(0);
+    expect(new Set(HORN_IDS).size).toBe(HORN_IDS.length);
   });
 
   it('the default horn is a member of the catalog', () => {
     expect((HORN_IDS as readonly string[]).includes(DEFAULT_HORN_ID)).toBe(true);
-    expect(DEFAULT_HORN_ID).toBe('standard');
   });
 });
 

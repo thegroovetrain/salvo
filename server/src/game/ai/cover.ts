@@ -4,11 +4,14 @@
 //
 // TWO KINDS OF COVER, both PUBLIC GEOMETRY a human in the seat also has:
 //
-//   * SOLID FOG — the fog field is public weather (amendment 169: a human
-//     client evaluates it from the welcome seed and the schema cut); the bot
-//     reads it through its bound `fogAt` thunk (BotMind.fogAt). Sight-only
-//     (amendment 162: fog never stops radar), so fog hides a hull from eyes,
-//     not from the scope.
+//   * SOLID RAIN — the rain field is public weather (amendment 169: a human
+//     client evaluates it from the welcome seed and the zone clock; the
+//     storm-eye field since Story 11.6); the bot reads its density at the
+//     server's current epoch frame through its bound `fogAt` thunk
+//     (BotMind.fogAt). Cover is density ≥ FOG_SOLID_DENSITY, as before.
+//     Sight-only (amendment 162: weather never stops radar), so it hides a
+//     hull from eyes, not from the scope — and since Story 11.6 it blinds
+//     the hull standing in it just the same (no own-bank exemption).
 //   * ISLAND SHADOW — the far side of the nearest island along the
 //     threat→self axis. Islands block EVERY sensor at all ranges (the
 //     2026-08-02 LOS ruling), so an island is the better cover, preferred

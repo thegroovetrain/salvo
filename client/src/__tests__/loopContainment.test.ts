@@ -15,34 +15,58 @@
 // from inside the reporter, and the Story 6.3 disposer still detaches.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { Application } from 'pixi.js';
+import { UPDATE_PRIORITY, type Application } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
-import { startLoop, type LoopCallbacks } from '../app/loop.js';
+import { containAppRender, startLoop, type LoopCallbacks } from '../app/loop.js';
 
 const SIM_DT_MS = CONFIG.tick.simDtMs;
 
-/** A minimal stand-in for the one Pixi surface `startLoop` touches. Returns a
- *  `step(deltaMS)` that drives whatever the loop registered.
+/** A minimal stand-in for the Pixi surfaces `startLoop` touches: the app's
+ *  ticker and its own `render`, registered at LOW exactly as Pixi's
+ *  TickerPlugin does. Returns a `step(deltaMS)` that drives the listeners in
+ *  priority order and models Pixi's `Ticker._tick`: a throw that escapes a
+ *  listener means no frame is ever requested again, so the ticker goes DEAD.
  *
  *  Typed `Application` rather than `never` (review gate): an `as never` app
  *  makes `startLoop`'s first parameter unchecked, so any future change to which
  *  Pixi surfaces the loop touches would compile silently against this fake. */
-function fakeApp(): { app: Application; step: (deltaMS: number) => void; listeners: number } {
-  const fns: ((t: { deltaMS: number }) => void)[] = [];
+function fakeApp(render: () => void = () => undefined): {
+  app: Application;
+  step: (deltaMS: number) => void;
+  listeners: number;
+  dead: boolean;
+} {
+  type Fn = (t: { deltaMS: number }) => void;
+  const fns: { fn: Fn; ctx: unknown; priority: number }[] = [];
+  let dead = false;
   const ticker = {
-    add: (fn: (t: { deltaMS: number }) => void) => fns.push(fn),
-    remove: (fn: (t: { deltaMS: number }) => void) => {
-      const i = fns.indexOf(fn);
+    add: (fn: Fn, ctx?: unknown, priority = UPDATE_PRIORITY.NORMAL) => {
+      // Pixi keeps the list sorted by priority, highest first; equal priorities keep insertion order.
+      const i = fns.findIndex((l) => l.priority < priority);
+      fns.splice(i < 0 ? fns.length : i, 0, { fn, ctx, priority });
+    },
+    remove: (fn: Fn, ctx?: unknown) => {
+      const i = fns.findIndex((l) => l.fn === fn && (ctx === undefined || l.ctx === ctx));
       if (i >= 0) fns.splice(i, 1);
     },
   };
+  const app = { ticker, render } as unknown as Application;
+  ticker.add(app.render as unknown as Fn, app, UPDATE_PRIORITY.LOW); // TickerPlugin.init
   const handle = {
-    app: { ticker } as unknown as Application,
+    app,
     step: (deltaMS: number) => {
-      for (const fn of [...fns]) fn({ deltaMS });
+      if (dead) return;
+      try {
+        for (const l of [...fns]) l.fn.call(l.ctx, { deltaMS });
+      } catch {
+        dead = true; // Ticker._tick never re-requests the frame
+      }
     },
     get listeners(): number {
       return fns.length;
+    },
+    get dead(): boolean {
+      return dead;
     },
   };
   return handle;
@@ -310,9 +334,83 @@ describe('loop containment — the Story 6.3 disposer still works', () => {
     });
     handle.step(SIM_DT_MS);
     expect(ticks).toBe(1);
+    const running = handle.listeners;
     stop();
-    expect(handle.listeners).toBe(0);
+    expect(handle.listeners).toBe(running - 1); // only the game tick goes; Pixi's (guarded) draw stays
     handle.step(SIM_DT_MS);
     expect(ticks).toBe(1); // no sim tick may run after the room is left
+  });
+});
+
+// STORY 11.2 FOLLOW-UP 3 (ruling R3): Pixi's OWN render listener is a frame path
+// too. A live alpha mask whose texture source was destroyed made `app.render`
+// throw inside Pixi's ticker, which then never requested another frame — the
+// picture froze AND the input stopped riding the wire.
+describe('loop containment — a throw inside Pixi\'s own render costs one frame', () => {
+  it('keeps ticking, sampling input and rendering after app.render throws, and reports it once', () => {
+    let draws = 0;
+    let throwsLeft = 2;
+    const handle = fakeApp(() => {
+      draws += 1;
+      if (throwsLeft > 0) {
+        throwsLeft -= 1;
+        throw new TypeError("Cannot read properties of null (reading '0')");
+      }
+    });
+    let ticks = 0;
+    let renders = 0;
+    const onError = vi.fn();
+    startLoop(handle.app, {
+      simTick: () => {
+        ticks += 1; // the input sampler + send live here
+      },
+      render: () => {
+        renders += 1;
+      },
+      onError,
+    });
+    for (let k = 0; k < 5; k++) handle.step(SIM_DT_MS);
+    expect(handle.dead).toBe(false);
+    expect(ticks).toBe(5);
+    expect(renders).toBe(5);
+    expect(draws).toBe(5); // the next frame was requested and drawn every time
+    expect(onError).toHaveBeenCalledTimes(1); // same message twice → one report
+    expect(onError.mock.calls[0][1]).toBe('pixiRender');
+  });
+
+  it('Pixi\'s draw runs after the game\'s render callback, once per frame (its priority is kept)', () => {
+    const order: string[] = [];
+    const { app, step } = fakeApp(() => order.push('pixi'));
+    startLoop(app, { simTick: () => order.push('sim'), render: () => order.push('render') });
+    step(SIM_DT_MS);
+    expect(order).toEqual(['sim', 'render', 'pixi']);
+  });
+
+  it('stays guarded after the game loop stops (home screen), falling back to one console line', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let draws = 0;
+    const { app, step } = fakeApp(() => {
+      draws += 1;
+      throw new Error('draw boom');
+    });
+    const stop = startLoop(app, { simTick: () => undefined, render: () => undefined, onError: () => undefined });
+    step(SIM_DT_MS);
+    stop();
+    step(SIM_DT_MS);
+    step(SIM_DT_MS);
+    expect(draws).toBe(3);
+    expect(err).toHaveBeenCalledTimes(1);
+  });
+
+  it('containAppRender is idempotent: one guarded draw per frame however often it is called', () => {
+    let draws = 0;
+    const { app, step } = fakeApp(() => {
+      draws += 1;
+    });
+    containAppRender(app);
+    containAppRender(app);
+    startLoop(app, { simTick: () => undefined, render: () => undefined });
+    step(SIM_DT_MS);
+    expect(draws).toBe(1);
   });
 });

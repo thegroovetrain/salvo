@@ -28,11 +28,11 @@ const SIM_DT = CONFIG.tick.simDtMs;
 
 const SUMMARY: MatchEndSummary = {
   rosterSize: 6,
-  rosterByClass: { torpedoBoat: 2, battleship: 2, droneSmall: 2 },
+  rosterByClass: { torpedoBoat: 2, battleship: 4 },
   durationS: 42.5,
-  winnerClass: 'torpedoBoat',
-  killsByClass: { torpedoBoat: 5, battleship: 0, droneSmall: 0 },
-  pveKillsByClass: { droneSmall: 3 }, // operator-only (amendment 44) — keyed by VICTIM hull
+  winnerClass: 'bismarck',
+  killsByClass: { torpedoBoat: 5, battleship: 0 },
+  beaconXpMsByClass: { torpedoBoat: 1500 }, // Story 10.8 — keyed by the EARNER's hull
   stormDeaths: 1,
   endedBy: 'fieldCleared',
   outcome: 'winner', // amendment 16's discriminator rides the same spread
@@ -477,7 +477,7 @@ describe('JOINING-deadline kick', () => {
 // JOIN_ROOM ack squats forever (roster slot, win-check ship, growing buffer).
 
 interface ResumeRoom {
-  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void; forgetHeldClouds: (id: string) => void };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   clients: JoinClient[];
@@ -488,7 +488,7 @@ interface ResumeRoom {
 
 async function resumedDeadline(newClient: JoinClient): Promise<() => void> {
   const room = new ArenaRoom() as unknown as ResumeRoom;
-  room.world = { ships: new Map([['a', { lifecycle: LIFECYCLE_ALIVE }]]), releaseHeld: () => undefined };
+  room.world = { ships: new Map([['a', { lifecycle: LIFECYCLE_ALIVE }]]), releaseHeld: () => undefined, forgetHeldClouds: () => undefined };
   room.match = { phase: 'active' };
   room.lastResults = null;
   room.clients = [newClient];

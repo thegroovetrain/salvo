@@ -17,20 +17,26 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  consumableSlotFor,
+  abilityCode,
+  abilitySlot,
+  DEFAULT_SHIFT,
   SLOT_BOOST,
+  encodeTurretAngles,
+  encodeLauncherAngles,
+  turretMounts,
   founderDeadline,
   isAfloat,
   isSinking,
   isSunk,
-  paintCoverage,
   wrapPositive,
   type GameEvent,
   type InputMsg,
   type ResultsMsg,
+  type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { wirePaint } from './paintFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { Match, type MatchHooks } from '../game/match.js';
@@ -53,9 +59,9 @@ function bareWorld(seed = 11): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, cls: ShipClassId = 'torpedoBoat'): ShipRecord {
-  // The hull's default deck (Story 8.2): what the door admits for a captain.
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined);
+function place(w: World, id: string, x: number, y: number, cls: ShipClassId = 'bismarck', shift: ShiftId = DEFAULT_SHIFT): ShipRecord {
+  // The seat's pick (Story 10.4): hull + Shift, as the door admits a captain.
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined, shift);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -79,8 +85,8 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     slot: 0,
     fireT: 0,
     actSeq: 0,
-    actSlot: 0,
-    hornSeq: 0, held: false,
+    act: 0,
+    hornSeq: 0, held: false, sec: false,
     ...extra,
   };
 }
@@ -171,7 +177,7 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
     w.respawnEnabled = false;
     w.sinkShip('a');
     // Activate the boost WHILE SINKING — the fitment criterion admits it.
-    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, actSlot: SLOT_BOOST }));
+    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, act: 0 }));
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now); // the doomed surge opened
     stepN(w, 19); // t = +1000ms into the window
@@ -219,26 +225,31 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
 describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn', () => {
   it('every FITTED registry row activates while sinking — the gate never answers dead', () => {
     const w = bareWorld();
-    // The NINE-SLOT fit (Story 8.5): gun, the universal boost, then the spawn
+    // The fit (Story 8.5; five slots since Story 10.5): gun, the Shift, then the spawn
     // seed's weapons. The RADAR BUOY has left the Mine Layer with the per-hull
     // fit (amendment 22) and was deleted outright in Story 8.16
     // — so this sweep now covers six of the seven rows, and the Battleship's
     // two-line seed covers the fourth slot.
-    // Slot 1 is the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)):
-    // boost / hunker / instantReload — all three ride the sinking window
-    // exactly as the universal boost did (amendment 10).
-    const fits: [ShipClassId, string[]][] = [
-      ['torpedoBoat', ['gun', 'boost', 'heavyTorpedo']],
-      ['battleship', ['gun', 'hunker', 'broadside', 'starShells']],
-      ['mineLayer', ['gun', 'instantReload', 'navalMines']],
+    // Slot 0 is the MAIN BATTERY and slot 1 the SEAT's Shift since Story
+    // 10.4 — boost / hunker / instantReload, one per seat here — and all of
+    // them ride the sinking window exactly as the universal boost did
+    // (amendment 10).
+    // Story 10.5: the fit is FIVE slots (gun, Shift, torpedo, mine, shell);
+    // every slot the class fixture fills is swept, whatever it holds.
+    const fits: [ShipClassId, ShiftId][] = [
+      ['bismarck', 'boost'],
+      ['yamato', 'hunker'],
+      ['warspite', 'instantReload'],
     ];
-    for (const [cls, expected] of fits) {
-      const ship = place(w, `s-${cls}`, 0, 0, cls);
-      ship.input = input(1, { aim: Math.PI / 2, aimDist: 200 }); // abeam: inside the broadside's beam sector
+    for (const [cls, shift] of fits) {
+      const ship = place(w, `s-${cls}`, 0, 0, cls, shift);
+      ship.input = input(1, { aim: Math.PI / 2, aimDist: 200 });
       w.sinkShip(ship.id);
       expect(isSinking(ship.lifecycle)).toBe(true);
-      for (let slot = 0; slot < expected.length; slot++) {
-        expect(ship.loadout[slot].equipmentId).toBe(expected[slot]);
+      expect(ship.loadout[0].equipmentId).toBe('mainBattery');
+      expect(ship.loadout[1].equipmentId).toBe(shift);
+      for (let slot = 0; slot < ship.loadout.length; slot++) {
+        if (ship.loadout[slot].equipmentId === null) continue;
         const r = w.sinkingActivationGate(ship, slot);
         // ok, or a normal per-row denial — NEVER the dead refusal.
         if (!r.ok) expect(r.reason).not.toBe('dead');
@@ -246,14 +257,18 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     }
   });
 
-  it('a real click through the input path fires the gun while sinking', () => {
+  it('a real click through the input path fires the main battery while sinking', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
+    const a = place(w, 'a', 0, 0);
     w.respawnEnabled = false;
     w.sinkShip('a');
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aim: 0, aimDist: 300 }));
     w.step();
-    expect(w.shells.size).toBe(w.ships.get('a')!.stats.equipment.gun.barrels); // the volley left the tubes
+    // ONE turret fired (R4 — the click always fires when a turret is ready),
+    // and its whole salvo left the barrels: one shell per gun of THAT turret.
+    const fired = a.turrets.flatMap((t, i) => (t.reloadMsLeft > 0 ? [i] : []));
+    expect(fired).toHaveLength(1);
+    expect(w.shells.size).toBe(turretMounts(a.hullId)[fired[0]].guns);
   });
 
   it('the horn still sounds while sinking', () => {
@@ -292,23 +307,25 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
 // ---------- the refit is closed (amendment 10) --------------------------------
 
 describe('refit closed — "once sinking, you\'re done"', () => {
-  it('card picks are refused while sinking, and a stocked HULL REPAIR refuses too; the bank survives', () => {
+  it('card picks are refused while sinking, and a HULL REPAIR press refuses too (blocked, no cooldown); the bank survives', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.grantXp(a, 1); // bank one level
     expect(a.bankedLevels).toBe(1);
-    w.applyCard(a, 'hullRepair'); // a heal to press, stocked before the sink
-    a.hp -= 50; // ...and something for it to restore
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(w.spendPoint('a', 0)).toBe(false); // card pick: clean denial
-    // The BELT is not the refit: the press reaches its row through the
-    // activation gate (amendment 10's fitment rule), and the ROW refuses it
-    // — 'blocked', nothing spent (Story 8.8).
+    // HULL REPAIR is a cooldown ability since Story 10.5 (epic-10 amendment
+    // 11): a sinking press is refused 'blocked' — no hp comes back in the
+    // window (amendment 10) and the cooldown is NOT started.
     a.hp = a.stats.maxHp - 50; // so "full hull" is not what refuses it
-    expect(w.sinkingActivationGate(a, consumableSlotFor('hullRepair')!)).toEqual({ ok: false, reason: 'blocked' });
+    const hp = a.hp;
+    w.submitInput('a', input(1, { actSeq: 1, act: abilityCode('repair') }));
+    w.step();
+    expect(w.denialsFor('a')).toEqual([{ slot: abilitySlot('repair'), reason: 'blocked', seq: 1, act: abilityCode('repair') }]);
+    expect(a.hp).toBe(hp);
+    expect(a.repairReadyAt).toBe(0);
     expect(a.bankedLevels).toBe(1); // bank and queue untouched
-    expect(a.cards).toEqual(['heavyTorpedo', 'hullRepair']); // the seed + the un-spent heal copy
     expect(a.repairHp).toBe(0);
     // Once FOUNDERED, dead spending resumes (builds persist across respawns).
     w.step(WINDOW);
@@ -414,7 +431,13 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     const b = w.ships.get('b')!;
     const f = buildFrame(w, 'a', 'active');
     expect(f.contacts).toEqual([
-      { id: 'b', x: b.state.x, y: b.state.y, heading: b.state.heading, speed: b.state.speed, cls: 'torpedoBoat' },
+      // ...turret angles included (Story 10.4 `tu`, the live-hull shape — a
+      // sinking hull's turrets hold their angles; nothing names the window).
+      // ...and its launcher angles (Story 10.6 `lu`) when it holds a torpedo.
+      {
+        id: 'b', x: b.state.x, y: b.state.y, heading: b.state.heading, speed: b.state.speed, cls: b.hullId, tu: encodeTurretAngles(b.turrets, b.hullId),
+        ...(b.launchers.length > 0 ? { lu: encodeLauncherAngles(b.launchers) } : {}),
+      },
     ]);
     // NOTHING anywhere in the observer's frame names the window (amendment 16
     // — the `sunk` event is the ruled-public register and carries no window
@@ -432,7 +455,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     w.sinkShip('b', 'a');
     windowAround(a, 0); // beam over b's bearing this tick
     const blips = buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'blip');
-    const c = paintCoverage('torpedoBoat', b.state.x, b.state.y, 0, CONFIG.vision.radarCellU, w.now);
+    const c = wirePaint(w, 'bismarck', b.state.x, b.state.y, 0);
     expect(blips).toEqual([{ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }]);
   });
 
@@ -465,7 +488,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
 
 const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 };
 
-function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: ResultsMsg[] } {
+function matchSetup(ids: string[]): { w: World; m: Match; results: ResultsMsg[] } {
   const w = new World(1);
   w.map.islands.length = 0;
   const results: ResultsMsg[] = [];
@@ -481,7 +504,6 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
     w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
   }
-  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet', undefined, undefined, undefined);
   for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
     w.step();
     m.update();
@@ -553,18 +575,6 @@ describe('match outcome (amendment 14; amendment 17 REVERSED by Eric veto 2026-0
     expect(m.phase).toBe('finished');
     expect(m.winnerId).toBe(''); // the draw resolution was latched at the wipe tick
     expect(results[0].winnerId).toBe(''); // the wire carries the draw verbatim
-  });
-
-  it('a sinking DRONE never delays the finish (drones are not combatants)', () => {
-    const { w, m } = matchSetup(['a', 'b'], 1);
-    w.sinkShip('b', 'a'); // latch: a wins; hold for b's window
-    stepMatch(w, m, TICKS / 2);
-    expect(m.phase).toBe('active');
-    w.sinkShip('d0', 'a'); // the drone's window now outlives b's by half a window
-    stepMatch(w, m, TICKS / 2 + 1); // b's founder tick
-    expect(m.phase).toBe('finished'); // landed ON b's founder…
-    expect(isSinking(w.ships.get('d0')!.lifecycle)).toBe(true); // …with the drone mid-window
-    expect(m.winnerId).toBe('a');
   });
 
   it('the last sinking captain LEAVES mid-window: the finish is prompt, never hung', () => {

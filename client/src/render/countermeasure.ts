@@ -1,8 +1,9 @@
 // MULTI-SPECTRAL COUNTERMEASURE cloud rendering from FrameMsg.clouds (Story
 // 9.3). SMOKE IS PAINT (Eric 2026-10-12): "rather than fucking with whether I
 // can see something, just draw it on top of ships" — the server hides nothing
-// behind a cloud any more; the cloud is purely a visual overlay painted from
-// the wire's {id,x,y,t0}.
+// from RADAR behind a cloud; this paint is a visual overlay drawn from the
+// wire's {id,x,y,t0}. (Since Story 11.6 a cloud DOES occlude SIGHT, like rain —
+// that is render/rainSight.ts and the server's eye gate, not this file.)
 //
 // THE LAYER: chartRoot's `cloud` layer, above enemy hulls and nameplates and
 // below radar paints and the own hull (Eric: "If I'm the user, I should be on
@@ -101,6 +102,10 @@ interface CloudSprite {
   x: number;
   y: number;
   t0: number; // server-clock birth stamp — drives the field's age
+  /** The cloud's stamped life and disc (Story 10.6, I6) — the field's own. */
+  lifeMs: number;
+  r0: number;
+  r1: number;
   /** Server time of the last frame that delivered this cloud's row; absent =
    *  never gated (render/cloudReturnGate.ts). */
   deliveredAt?: number;
@@ -227,7 +232,7 @@ export class Countermeasure {
    *  the layer is empty: Pixi runs the masked layer as a FILTER PASS every
    *  frame, into a pooled render target the size of the halo sprite's bounds —
    *  never clipped to the screen, rounded up to a power of two and resolved —
-   *  whether or not there is any haze to mask. At the twelfths ladder's 750 u
+   *  whether or not there is any haze to mask. At the twelfths ladder [retired 2026-11-12, Story 11.2]'s 750 u
    *  halo that is a 2264 px pass in a 4096² target at DPR 2, every alive frame,
    *  and it was the default-framing cadence regression. With no cloud held the
    *  layer draws nothing, so masking it changes no pixel. */
@@ -360,11 +365,13 @@ export class Countermeasure {
     sprite.position.set(c.x, c.y);
     sprite.tint = COLOR;
     this.body.addChild(sprite);
+    const field = makeField(c); // the cloud's own stamped life and disc (Story 10.6, I6)
     this.clouds.set(c.id, {
       sprite,
       source: sprite.texture.source as BufferImageSource,
       rgba,
-      field: makeField(),
+      field,
+      ...field.size,
       x: c.x,
       y: c.y,
       t0: c.t0,

@@ -19,17 +19,20 @@
 // imports it.
 
 import {
+  CONFIG,
   hullSilhouette,
   islandDistance,
   isAfloat,
-  MOUNTED_GUN,
   transformPolygon,
-  type GunId,
+  turretMounts,
+  type HullId,
   type Island,
+  type ShiftId,
   type Vec2,
 } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
-import { isFleetHull } from '../../src/game/participants.js';
+import { profileOf } from '../../src/game/ai/profiles.js';
+import type { AnyProfileId } from '../../src/game/ai/types.js';
 import { BotReadoutCollector, type BotReadouts, type MatchReadouts } from './botReadouts.js';
 
 /**
@@ -59,10 +62,8 @@ const LAND_CONTACT_SLACK = 1;
 
 /**
  * How a bot's match ended. `sunkByShip` is a PARTICIPANT killer (another bot,
- * or a captain in a mixed lobby); `sunkByFleet` is a PvE fleet hull — those are
- * gun-armed (drones.ts) and really do sink bots, and folding them into the
- * bot-vs-bot column would overstate how lethal the brain is to its peers.
- * Story 9.5 splits two more off the victim's own `lastDamageSrc` (the gate's
+ * or a captain in a mixed lobby; the `sunkByFleet` column retired with the
+ * PvE fleet at Story 10.8). Story 9.5 splits two more off the victim's own `lastDamageSrc` (the gate's
  * server-only stamp of what last took hp — 'contact' is the strike, 'grind'
  * the bleed; both are contact here) and `lastContactWasLand` (which kind of
  * contact that was): `sunkByContact` — the last blow was contact and EITHER
@@ -71,7 +72,7 @@ const LAND_CONTACT_SLACK = 1;
  * was the coast. `sunkByStorm` keeps its meaning: no killer, and the storm
  * was the last thing to bite.
  */
-export type BotEnd = 'alive' | 'sunkByShip' | 'sunkByFleet' | 'sunkByContact' | 'ranAground' | 'sunkByStorm';
+export type BotEnd = 'alive' | 'sunkByShip' | 'sunkByContact' | 'ranAground' | 'sunkByStorm';
 
 /** One boon fit, stamped when its `bn` event fired: the card's catalog id and
  *  sim-seconds since activation. Array order IS build order — `bn` events are
@@ -90,11 +91,8 @@ export interface BotSample extends BotReadouts {
   cls: string;
   profile: string;
   /** Kills against PARTICIPANTS (other bots/captains) — the kill-distribution
-   *  numerator. Counted from `sunk` events, not ShipRecord.kills, because that
-   *  field deliberately counts PvE fleet hulls too (amendment 38). */
+   *  numerator. Counted from `sunk` events as the readouts are. */
   kills: number;
-  /** Kills against PvE fleet hulls (the `forager` profile's whole thesis). */
-  pveKills: number;
   end: BotEnd;
   /** sim-seconds from activation to this bot's sinking (or to the finish). */
   lifeS: number;
@@ -107,9 +105,9 @@ export interface BotSample extends BotReadouts {
    *  includes shots the equipment refused for reload/arc/ammo). */
   shots: number;
   /**
-   * PLACEABLES THAT ACTUALLY REACHED THE WATER, counted by id off the World's
-   * own `decoys` / `mines` maps — NOT off `shots` (the radar buoy's `buoys` map
-   * became the DECOY BUOY's `decoys` in Story 8.16).
+   * MINES THAT ACTUALLY REACHED THE WATER, counted by id off the World's own
+   * `mines` map — NOT off `shots` (the decoy-buoy counter beside it left with
+   * the buoys in Story 10.5).
    *
    * The distinction is the whole reason these exist. `shots` is
    * `ship.lastFireSeq`, and world.ts is explicit that "consumption is
@@ -118,16 +116,25 @@ export interface BotSample extends BotReadouts {
    * one that deploys. Nothing in the report could previously tell those apart,
    * which made "do bots use their placeables at all?" unanswerable from a campaign.
    *
-   * Counted by DIFFING IDS rather than by watching a drop event: both maps are
-   * keyed by a monotonic id (`b<seq>`, `m<seq>`) that is never reused, so a
+   * Counted by DIFFING IDS rather than by watching a drop event: the map is
+   * keyed by a monotonic id (`m<seq>`) that is never reused, so a
    * first sighting is a deployment, and an entity that is placed and destroyed
    * between two observe() calls is the only thing this can miss — impossible
-   * today, since observe() runs every tick and neither expires same-tick.
+   * today, since observe() runs every tick and no mine expires same-tick.
    */
-  decoysDeployed: number;
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
+  /** Levels of XP RADIO BEACONS paid this bot (Story 10.8 —
+   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`), read at the last afloat tick. */
+  beaconXpLevels: number;
+  /** AIRDROPS this bot collected (Story 10.9 — `ShipRecord.dropsTaken`), read
+   *  at the last afloat tick. */
+  dropsTaken: number;
+  /** Bonus index points per random-index stat (`CONFIG.drops.indices` order)
+   *  and their sum — `ShipRecord.indexBonus`, read at the last afloat tick. */
+  indexBonus: Record<string, number>;
+  indexBonusTotal: number;
   /** Whole hp this bot TOOK from hull contact (rams and grinds, by any hull)
    *  and from the coast (land strikes and scrapes) — `ShipRecord.
    *  contactDamageTaken` / `landDamageTaken`, the gate's own tallies (Story
@@ -179,31 +186,38 @@ export interface BotSample extends BotReadouts {
    *  instead of merely red. */
   landEpisodes: number;
   maxLandRunTicks: number;
-  /** The gun this bot mounted (`ship.gun` — fixed for the whole match). */
-  gun: GunId;
-  /** The gun's ladder rung (1..5) at the last AFLOAT reading, read off
-   *  `ship.stats.equipment[MOUNTED_GUN[gun]].tier` — the tier effectiveStats
-   *  itself derives (1 + copies of the gun's line in ship.cards). */
-  gunTier: number;
-  /** PARTICIPANT kills bucketed by this bot's gun tier AT THE MOMENT of the
-   *  kill. Length 6, indexed by tier directly: index 0 is always 0 (unused),
-   *  1..5 = tier I..V. Sums to `kills` (PvE fleet kills are not counted). */
-  killsByTier: number[];
+  /** The Shift this bot's seat picked (`ship.shift` — fixed for the whole
+   *  match; Story 10.4, in the seat gun's place). */
+  shift: ShiftId;
+  /** The hull's main-battery LAYOUT (Story 10.4): `${turrets}x${guns}` off
+   *  the shared turret mounts (`layoutOf`) — the gun × tier readout's
+   *  successor, since the main battery has no ladder. */
+  layout: string;
+  /** The bot's HULL REPAIR style (Story 10.12, R3 — `early` / `late`), read
+   *  off its profile row (`repairStyle`); 'unknown' for an unknown profile. */
+  repairStyle: string;
 }
 
-/** A zeroed killsByTier column (see BotSample.killsByTier). */
-export const emptyKillsByTier = (): number[] => [0, 0, 0, 0, 0, 0];
+/** A profile id's HULL REPAIR style (see BotSample.repairStyle). */
+export function repairStyleOf(profile: AnyProfileId | null): string {
+  return profile === null ? 'unknown' : profileOf(profile).repairStyle;
+}
 
-/** The ship's current gun-ladder rung — the canonical reading effectiveStats
- *  pins on the mounted gun module's equipment row. */
-export function gunTierOf(ship: Pick<ShipRecord, 'gun' | 'stats'>): number {
-  return ship.stats.equipment[MOUNTED_GUN[ship.gun]].tier;
+/**
+ * A hull's main-battery LAYOUT key: turret count × guns per turret, read off
+ * the shared `turretMounts` (never a hand table), e.g. `3x3` or `4x2`. A hull
+ * whose turrets carried mixed gun counts would read `${n}x${a}+${b}` (none
+ * does today); a hull with no battery would read `0x0`.
+ */
+export function layoutOf(hullId: HullId): string {
+  const mounts = turretMounts(hullId);
+  const guns = [...new Set(mounts.map((m) => m.guns))].sort((a, b) => a - b);
+  return `${mounts.length}x${guns.length === 0 ? 0 : guns.join('+')}`;
 }
 
 /** Mutable per-bot accumulation; frozen into a BotSample at the finish. */
 interface BotTrack {
   kills: number;
-  pveKills: number;
   end: BotEnd;
   lifeS: number;
   ticks: number;
@@ -215,9 +229,12 @@ interface BotTrack {
   levelsUnspent: number;
   boonsFitted: number;
   shots: number;
-  decoysDeployed: number;
   minesLaid: number;
   damageDealt: number;
+  beaconXpLevels: number;
+  dropsTaken: number;
+  indexBonus: Record<string, number>;
+  indexBonusTotal: number;
   contactDamageTaken: number;
   landDamageTaken: number;
   landEpisodes: number;
@@ -227,8 +244,6 @@ interface BotTrack {
   picks: BotPick[];
   offersSeen: Record<string, number>;
   offerHands: number;
-  gunTier: number;
-  killsByTier: number[];
   /** The offer array reference last tallied (CatalogCollector.seenOffer's
    *  exact mechanism — an offer is materialized once and frozen). */
   lastOffer: unknown;
@@ -237,7 +252,6 @@ interface BotTrack {
 function newTrack(): BotTrack {
   return {
     kills: 0,
-    pveKills: 0,
     end: 'alive',
     lifeS: 0,
     ticks: 0,
@@ -247,9 +261,12 @@ function newTrack(): BotTrack {
     levelsUnspent: 0,
     boonsFitted: 0,
     shots: 0,
-    decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 0,
+    beaconXpLevels: 0,
+    dropsTaken: 0,
+    indexBonus: {},
+    indexBonusTotal: 0,
     contactDamageTaken: 0,
     landDamageTaken: 0,
     landEpisodes: 0,
@@ -259,8 +276,6 @@ function newTrack(): BotTrack {
     picks: [],
     offersSeen: {},
     offerHands: 0,
-    gunTier: 1,
-    killsByTier: emptyKillsByTier(),
     lastOffer: null,
   };
 }
@@ -335,7 +350,7 @@ export class BotCollector {
     this.readouts = new BotReadoutCollector(botIds);
   }
 
-  /** The match-level 9.13 readouts (endgame stall, drone grounding). */
+  /** The match-level 9.13 readouts (the endgame stall). */
   matchReadouts(): MatchReadouts {
     return this.readouts.matchSample();
   }
@@ -366,18 +381,16 @@ export class BotCollector {
   }
 
   /**
-   * Credit every placeable that appeared on the water since the last tick.
+   * Credit every mine that appeared on the water since the last tick.
    *
-   * READ-ONLY, like every other number in this module: it reads two World maps
-   * and writes only into this collector's own tracks. The `seen` set is keyed
-   * by TYPE-PREFIXED id (`d:`/`m:`) rather than the bare id, so the two id
-   * spaces can never collide even if the sim's prefixes ever converge.
+   * READ-ONLY, like every other number in this module: it reads the World's
+   * mine map and writes only into this collector's own tracks. The `seen` set
+   * is keyed by TYPE-PREFIXED id (`m:`), so a future placeable's id space can
+   * never collide with it.
    *
-   * A placement by a NON-BOT (a captain in a mixed lobby, a fleet hull) finds
-   * no track and is silently skipped — the same rule `recordKill` already uses.
+   * A placement by a NON-BOT (a captain in a mixed lobby) finds no track and is silently skipped — the same rule `recordKill` already uses.
    */
   private notePlacements(world: World): void {
-    this.creditNew(world.decoys.values(), 'd', (t) => { t.decoysDeployed += 1; });
     this.creditNew(world.mines.values(), 'm', (t) => { t.minesLaid += 1; });
   }
 
@@ -414,7 +427,7 @@ export class BotCollector {
   private recordVictim(world: World, id: string, by: string | undefined, tS: number): void {
     const track = this.tracks.get(id);
     if (track === undefined) return;
-    track.end = endCause(world, by, world.ships.get(id));
+    track.end = endCause(by, world.ships.get(id));
     track.lifeS = tS;
     if (track.end === 'sunkByStorm') this.readouts.noteStormDeath(id);
   }
@@ -423,17 +436,8 @@ export class BotCollector {
     const track = this.tracks.get(by);
     const victim = world.ships.get(victimId);
     if (track === undefined || victim === undefined) return;
-    if (isFleetHull(victim)) {
-      track.pveKills += 1;
-      return;
-    }
     track.kills += 1;
     this.readouts.noteKill(by, victim);
-    // The killer's CURRENT rung; a killer whose record is gone (never a bot —
-    // only fleet hulls are removed early) falls back to the last reading.
-    const killer = world.ships.get(by);
-    const tier = killer === undefined ? track.gunTier : gunTierOf(killer);
-    track.killsByTier[tier] = (track.killsByTier[tier] ?? 0) + 1;
   }
 
   /** Freeze every track into a report row. `profileOf` comes from the live
@@ -445,22 +449,25 @@ export class BotCollector {
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
       if (ship === undefined) continue;
+      const profile = world.bots.profileOf(id);
       out.push({
         id,
         name: ship.name,
         cls: ship.hullId,
-        profile: world.bots.profileOf(id) ?? 'unknown',
+        profile: profile ?? 'unknown',
         kills: track.kills,
-        pveKills: track.pveKills,
         end: track.end,
         lifeS: Math.round(track.lifeS * 10) / 10,
         levelsEarned: track.levelsEarned,
         levelsUnspent: track.levelsUnspent,
         boonsFitted: track.boonsFitted,
         shots: track.shots,
-        decoysDeployed: track.decoysDeployed,
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
+        beaconXpLevels: track.beaconXpLevels,
+        dropsTaken: track.dropsTaken,
+        indexBonus: track.indexBonus,
+        indexBonusTotal: track.indexBonusTotal,
         contactDamageTaken: track.contactDamageTaken,
         landDamageTaken: track.landDamageTaken,
         ticks: track.ticks,
@@ -473,9 +480,9 @@ export class BotCollector {
         offersSeen: track.offersSeen,
         offerHands: track.offerHands,
         placement: placements?.get(id) ?? null,
-        gun: ship.gun,
-        gunTier: track.gunTier,
-        killsByTier: track.killsByTier.slice(),
+        shift: ship.shift,
+        layout: layoutOf(ship.hullId),
+        repairStyle: repairStyleOf(profile),
         ...this.readouts.sample(id),
       });
     }
@@ -518,17 +525,13 @@ export function lifeSamples(rows: readonly BotSample[]): number[] {
  *  a last blow of contact ('contact' strike or 'grind' bleed) is a grounding
  *  when nobody is credited AND the contact was the coast, else a ram/grind
  *  kill (a killer, or a wreck — hull contact that credits nobody); otherwise
- *  none = the storm, a fleet hull = PvE, anything else = a participant. A
- *  killer whose record has already gone is treated as a participant — only
- *  fleet hulls are ever removed early. The victim's record is read at the
- *  `sunk` event, where `lastDamageSrc` is the sinking blow's (founderSinking
- *  does not clear it). */
-export function endCause(world: World, by: string | undefined, victim: ShipRecord | undefined): BotEnd {
+ *  none = the storm, anything else = a participant. The victim's record is
+ *  read at the `sunk` event, where `lastDamageSrc` is the sinking blow's
+ *  (founderSinking does not clear it). */
+export function endCause(by: string | undefined, victim: ShipRecord | undefined): BotEnd {
   const contact = victim === undefined ? null : contactEnd(victim, by);
   if (contact !== null) return contact;
-  if (by === undefined) return 'sunkByStorm';
-  const killer = world.ships.get(by);
-  return killer !== undefined && isFleetHull(killer) ? 'sunkByFleet' : 'sunkByShip';
+  return by === undefined ? 'sunkByStorm' : 'sunkByShip';
 }
 
 /** The contact reading of a sinking, or null when the last blow was not
@@ -541,16 +544,43 @@ function contactEnd(victim: ShipRecord, by: string | undefined): BotEnd | null {
   return 'ranAground';
 }
 
+/** The random-index stats' bonus points off `ShipRecord.indexBonus`, in
+ *  `CONFIG.drops.indices` order (Story 10.9 harness). */
+export function indexBonusOf(ship: Pick<ShipRecord, 'indexBonus'>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of CONFIG.drops.indices) out[id] = ship.indexBonus[id] ?? 0;
+  return out;
+}
+
+/** The harness's two bonus fields off a record. */
+export function bonusFields(ship: Pick<ShipRecord, 'indexBonus'>): { indexBonus: Record<string, number>; indexBonusTotal: number } {
+  const indexBonus = indexBonusOf(ship);
+  return { indexBonus, indexBonusTotal: bonusTotal(indexBonus) };
+}
+
+/** The sum of a per-stat bonus record. */
+export function bonusTotal(bonus: Record<string, number>): number {
+  return Object.values(bonus).reduce((a, b) => a + b, 0);
+}
+
 /** The last-afloat economy reading (see BotTrack.levelsEarned). */
 function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.levelsEarned = ship.level;
+  // Since Story 10.7 (R5) a hull with nothing dealable banks nothing: each level
+  // it earns after exhaustion becomes a bonus index point (ship.indexBonus) —
+  // counted in levelsEarned (ship.level keeps counting), never in
+  // levelsUnspent, and never in boonsFitted (it is no card).
   track.levelsUnspent = ship.bankedLevels;
   track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
+  track.beaconXpLevels = ship.beaconXpMs / CONFIG.xp.levelMs;
+  track.dropsTaken = ship.dropsTaken;
+  const bonus = bonusFields(ship);
+  track.indexBonus = bonus.indexBonus;
+  track.indexBonusTotal = bonus.indexBonusTotal;
   track.contactDamageTaken = ship.contactDamageTaken;
   track.landDamageTaken = ship.landDamageTaken;
-  track.gunTier = gunTierOf(ship);
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only
   // within a life and a bot has exactly one, so length IS the change signal.
   if (ship.cards.length !== track.boons.length) track.boons = ship.cards.slice();

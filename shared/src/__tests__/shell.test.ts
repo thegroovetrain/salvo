@@ -11,7 +11,9 @@ import {
 import { hullSilhouette, transformPolygon } from '../sim/silhouette.js';
 import { islandFromPolygon } from '../sim/map.js';
 import { segCircleHit } from '../math/geom.js';
-import { CONFIG, type HullId } from '../constants.js';
+import { beaconPolygon } from '../sim/beacons.js';
+import { CONFIG, SHIP_CLASS_IDS, hullEnvelope, type HullId } from '../constants.js';
+import { TRANSOM_NOTCH_HULL } from './concaveFixtures.js';
 import type { Island } from '../types.js';
 import type { Vec2 } from '../math/vec.js';
 
@@ -29,12 +31,31 @@ function ctx(o: Partial<ShellContext> = {}): ShellContext {
   return { islands: [], targets: [] as Target[], now: 1000, dt: DT, mapRadius: BIG_R, ...o };
 }
 
-/** A silhouette-polygon hull target at a world pose. droneMedium (100×30
- *  chevron) by default: at heading π/2 its flat starboard side is the vertical
- *  segment x = poseX − 15 spanning y ∈ [poseY − 45, poseY + 15] — a clean
- *  broadside across a +x shell path. */
-function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: HullId = 'droneMedium'): Target {
-  return { id, kind: 'hull', poly: transformPolygon(hullSilhouette(hullId), x, y, heading) };
+/** THE TEST CHEVRON — a 100×30 hull polygon (bow tip, shoulders at
+ *  0.3·halfLen, stern inset 0.1·halfLen). It was the PvE `droneMedium`
+ *  silhouette until the drones retired (Story 10.8, 2026-11-06); the shell
+ *  cases below are about shell-vs-polygon geometry, not any hull, so the
+ *  shape is kept here byte-for-byte as a local fixture. */
+const CHEVRON_100X30 = ((): Vec2[] => {
+  const hl = 50;
+  const hb = 15;
+  const shoulder = hl * 0.3;
+  const stern = -hl + hl * 0.1;
+  return [
+    { x: hl, y: 0 },
+    { x: shoulder, y: -hb },
+    { x: stern, y: -hb },
+    { x: -hl, y: 0 },
+    { x: stern, y: hb },
+    { x: shoulder, y: hb },
+  ];
+})();
+
+/** A hull-polygon target at a world pose — the test chevron: at heading π/2
+ *  its flat starboard side is the vertical segment x = poseX − 15 spanning
+ *  y ∈ [poseY − 45, poseY + 15] — a clean broadside across a +x shell path. */
+function hullAt(x: number, y: number, heading: number, id = 'victim'): Target {
+  return { id, kind: 'hull', poly: transformPolygon(CHEVRON_100X30, x, y, heading) };
 }
 
 /**
@@ -308,27 +329,38 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
 });
 
 describe('stepShell — per-hull silhouette thresholds', () => {
-  it('a graze that hits the wide battleship misses the narrow torpedoBoat', () => {
-    // Both hulls at the origin, heading 0 (+x). The BB's flat side runs at
-    // y = ±16 (beam 32); the TB never reaches past y = ±4.5 (beam 9). A shell
-    // sweeping parallel at y = 17.5 passes within hitRadius (2) of the BB side
-    // but stays > 10u away from the TB everywhere.
+  it('a graze that hits a wide hull misses a narrower one on the same track', () => {
+    // Both hulls at the origin, heading 0 (+x). The shell sweeps parallel to
+    // the centreline from just astern of the WIDE hull's widest vertex, on a
+    // track within its hitRadius of the wide hull's side and more than a
+    // hitRadius outside the narrow hull's.
+    const byBeam = [...SHIP_CLASS_IDS].sort((x, y) => hullEnvelope(x).hull.beam - hullEnvelope(y).hull.beam);
+    const narrow = byBeam[0];
+    const wide = byBeam[byBeam.length - 1];
+    const halfNarrow = hullEnvelope(narrow).hull.beam / 2;
+    const halfWide = hullEnvelope(wide).hull.beam / 2;
+    const r = shell({}).hitRadius;
+    expect(halfWide).toBeGreaterThan(halfNarrow);
+    // > halfNarrow + r (clear of the narrow hull everywhere) and within r of
+    // the wide hull's side at its widest vertex.
+    const y = halfNarrow + r + (halfWide - halfNarrow) / 2;
+    const widest = hullSilhouette(wide).reduce((best, v) => (v.y > best.y ? v : best));
     const graze = (hullId: HullId, victim: string) =>
       stepShell(
-        shell({ x: -3, y: 17.5 }),
+        shell({ x: widest.x - 1, y }),
         ctx({ targets: [{ id: victim, kind: 'hull', poly: transformPolygon(hullSilhouette(hullId), 0, 0, 0) }] }),
       );
-    const wide = graze('battleship', 'bb');
-    expect(wide.kind).toBe('hitShip');
-    if (wide.kind === 'hitShip') expect(wide.victimId).toBe('bb');
-    expect(graze('torpedoBoat', 'tb').kind).toBe('travel');
+    const hit = graze(wide, 'wide');
+    expect(hit.kind).toBe('hitShip');
+    if (hit.kind === 'hitShip') expect(hit.victimId).toBe('wide');
+    expect(graze(narrow, 'narrow').kind).toBe('travel');
   });
 
-  it('CONCAVE MISS: a torpedo up the mineLayer transom notch does not hit', () => {
-    // ML at origin heading 0: the stern cavity opens at x = −44, walls at
+  it('CONCAVE MISS: a torpedo up a transom notch does not hit', () => {
+    // The notched fixture at origin heading 0: the stern cavity opens at x = −44, walls at
     // y = ±3.5. A torpedo running up the centerline stops between the prongs
     // without coming within hitRadius of any hull edge.
-    const h: Target = { id: 'ml', kind: 'hull', poly: transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0) };
+    const h: Target = { id: 'ml', kind: 'hull', poly: transformPolygon(TRANSOM_NOTCH_HULL, 0, 0, 0) };
     const t: ShellState = {
       ...shell({ x: -70, y: 0, vx: CONFIG.torpedo.speed, vy: 0 }),
       kind: 'torp',
@@ -356,7 +388,7 @@ describe('stepShell — earliest hit wins', () => {
 });
 
 // --- Universal standard gun: targeted burst hit rule (Story 1.4) ------------
-// droneMedium at heading π/2 (see hullAt): near flat side at x = poseX − 15
+// The test chevron at heading π/2 (see hullAt): near flat side at x = poseX − 15
 // spanning y ∈ [poseY − 45, poseY + 15]; hull body x ∈ [poseX − 15, poseX + 15].
 
 describe('stepShell — targeted shell bursts at the clicked point', () => {
@@ -386,7 +418,9 @@ describe('stepShell — targeted shell bursts at the clicked point', () => {
 
   it('a point-less (contact-only) shell sails PAST that same point and splashes at range', () => {
     const s = shell(); // no target, burstRadius 0 — legacy behavior byte-for-byte
-    const out = stepToOutcome(s, ctx(), 200);
+    // Enough ticks to fly the whole reach (derived, so a retuned reach never
+    // starves the loop — Story 11.2 moved it onto the hectometer ruler).
+    const out = stepToOutcome(s, ctx(), Math.ceil(GUN_RANGE / (CONFIG.gun.shellSpeed * DT)) + 2);
     expect(out.kind).toBe('expired');
     if (out.kind === 'expired') expect(out.x).toBeCloseTo(GUN_RANGE, 6);
   });
@@ -411,7 +445,7 @@ describe('stepShell — bodyblock (early interception) vs proximity exception', 
   });
 
   it('an interceptor whose silhouette is within burstRadius of the target (not containing it) also bursts', () => {
-    // droneMedium at (260, 16) heading 0: its flat underside (y = 1, x ∈
+    // The test chevron at (260, 16) heading 0: its flat underside (y = 1, x ∈
     // [215, 275]) grazes the shell path (hitRadius 2) → intercepts near
     // x ≈ 213, far from the target — but its bow edge passes ~10.8u from
     // (300, 0), INSIDE the 15u blast, and the target itself is outside the
@@ -608,33 +642,43 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 });
 
 describe('CONFIG ordnance masks (AR44)', () => {
-  it('the ELEVEN shipped rows declare exactly the ruled masks; no stub row exists', () => {
-    expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
+  it('the shipped rows declare exactly the ruled masks; no stub row exists', () => {
+    // STORY 10.8 (Eric 2026-11-06, R8): every weapon row strikes a radio
+    // beacon; the two mine TRIP masks do not (R12 — a mine never trips on one).
+    // THE `decoy` KIND IS GONE (Story 10.5, Eric 2026-11-05, epic-10 amendment
+    // 11): the buoys are deleted, so no mask names it.
+    expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'beacon']);
     // Amendment 200 (Eric 2026-10-01): only the three DECK GUNS damage a mine
     // (by landing on it) — the broadside barrage and phosphor shells lost `mine`.
-    expect(CONFIG.broadside.hits).toEqual(['hull', 'decoy']);
-    expect(CONFIG.phosphorShells.hits).toEqual(['hull', 'decoy']);
-    // (CONFIG.radarBuoy — the GUN BUOY's mask — DELETED with the buoy, Story 8.16.)
-    expect('radarBuoy' in CONFIG).toBe(false);
-    expect(CONFIG.torpedo.hits).toEqual(['hull', 'decoy']);
-    expect(CONFIG.starShells.hits).toEqual(['hull', 'decoy']); // illumination detonates nothing
-    expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask
+    expect(CONFIG.broadside.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.phosphorShells.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.torpedo.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.starShells.hits).toEqual(['hull', 'beacon']); // illumination detonates nothing
+    expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask — never a beacon (Story 10.8, R12)
     // STORY 8.13's ROWS. Every torpedo runs UNDER a minefield (AR44) and every
     // mine trips on hulls only, so the two new masks are their families'.
-    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'decoy']);
-    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'decoy']);
-    expect(CONFIG.foulingMines.hits).toEqual(['hull']);
+    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.foulingMines.hits).toEqual(['hull']); // a TRIP mask — never a beacon (R12)
+    // The two burst shells of the special-shell slot hit hulls only.
+    expect(CONFIG.flashShells.hits).toEqual(['hull', 'beacon']);
+    expect(CONFIG.foulingShell.hits).toEqual(['hull', 'beacon']);
+    // The main battery's shell (Story 10.4): hulls, no mine bit.
+    expect(CONFIG.mainBattery.hits).toEqual(['hull', 'beacon']);
     // CAPTIVE MINES declares NO mask of its own and needs none: the mine never
-    // detonates on contact — it LAUNCHES a fish, which flies under the
+    // detonates on contact — it LAUNCHES a torpedo, which flies under the
     // torpedo family's mask (CONFIG.torpedo.hits).
     expect('hits' in CONFIG.captiveMines).toBe(false);
     // STORY 8.15's two PICKABLE GUNS (AR44, amendments 96f/105): the machine
     // gun is DIRECT-HIT with no burst, and since amendment 200 a shell of its
     // that ARRIVES on a mine damages it, so it carries `mine`; the flak gun
-    // carries AR44's full `hull | mine | decoy | ordnance` (the ordnance half
-    // a side effect nothing leans on).
-    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'decoy']);
-    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
+    // adds `ordnance` (a side effect nothing leans on).
+    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'beacon']);
+    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']);
+    // No mask anywhere names a kind outside the vocabulary.
+    for (const block of Object.values(CONFIG) as { hits?: readonly string[] }[]) {
+      for (const kind of block.hits ?? []) expect(['hull', 'mine', 'ordnance', 'beacon']).toContain(kind);
+    }
     // The CUT lines never get a row (amendment 89e).
     for (const row of ['missile', 'monitor']) {
       expect(row in CONFIG, row).toBe(false);
@@ -712,79 +756,6 @@ describe('stepShell — a DIRECT shell expires at its aim point, never bursts (S
 // above are byte-identical, and one of them ('the SAME geometry without arcing
 // is intercepted') was the arcing block's own control case, already covered by
 // 'an island far from the target stops the shell dead'.
-
-// --- Story 8.16: the DECOY BUOY and NO FRIENDLY FIRE (amendment 119) ---------
-// `Target.ownerId` rides a decoy. The OWNER's own fish pass through it, the
-// owner's own shells and bursts pass over it, and the owner's own homing never
-// acquires it; an ENEMY's ordnance treats it like any target. The skip is in
-// the pure sweep / acquire / burst math, so both sides agree by construction.
-
-/** A DECOY BUOY target: a `CONFIG.decoyBuoy.sizeU` square centred on (x, y). */
-function decoyAt(x: number, y: number, ownerId: string | undefined, id = 'd1'): Target {
-  const h = CONFIG.decoyBuoy.sizeU / 2;
-  const poly = [
-    { x: x - h, y: y - h },
-    { x: x + h, y: y - h },
-    { x: x + h, y: y + h },
-    { x: x - h, y: y + h },
-  ];
-  return ownerId === undefined ? { id, kind: 'decoy', poly } : { id, kind: 'decoy', poly, ownerId };
-}
-
-describe("stepShell / burstVictims — the OWNER'S own decoy is never touched (Story 8.16, amendment 119)", () => {
-  it("an owner's CONTACT projectile (the torpedo rule) passes THROUGH its own decoy and expires", () => {
-    expect(stepToOutcome(shell(), ctx({ targets: [decoyAt(300, 0, 'owner')] })).kind).toBe('expired');
-  });
-
-  it("an ENEMY's contact projectile hits the same decoy (it is the victim)", () => {
-    const out = stepToOutcome(shell({ ownerId: 'enemy' }), ctx({ targets: [decoyAt(300, 0, 'owner')] }));
-    expect(out.kind).toBe('hitShip');
-    if (out.kind === 'hitShip') expect(out.victimId).toBe('d1');
-  });
-
-  it("an owner's GUN SHELL flies over its own decoy on the path and bursts at its own aim point", () => {
-    const over = stepToOutcome(gunShell(600), ctx({ targets: [decoyAt(300, 0, 'owner')] }));
-    expect(over).toEqual({ kind: 'burst', x: 600, y: 0 });
-    // byte-identical to the same shot over empty water
-    expect(over).toEqual(stepToOutcome(gunShell(600), ctx({ targets: [] })));
-  });
-
-  it("an owner's burst DIRECTLY on its own decoy resolves NO victim; an enemy's burst there resolves the decoy", () => {
-    const own = decoyAt(300, 0, 'owner');
-    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [own], 'owner')).toEqual([]);
-    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [own], 'enemy')).toEqual([own]);
-  });
-
-  it("the owner's own decoy is skipped, an enemy decoy is a victim, and no mine ever is (amendment 200)", () => {
-    const own = decoyAt(0, 0, 'owner');
-    const enemy = decoyAt(0, 0, 'enemy', 'd2');
-    const ownMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 0, y: 0 }], ownerId: 'owner' };
-    expect(burstVictims({ x: 0, y: 0 }, 10, [own, ownMine, enemy], 'owner').map((t) => t.id)).toEqual(['d2']);
-  });
-
-  it("an owner's homing fish never ACQUIRES its own decoy (no steer, no lock); an enemy's does", () => {
-    const own = homingTorp();
-    stepShell(own, ctx({ targets: [decoyAt(80, 50, 'owner')] }));
-    expect(own.homing!.targetId).toBeUndefined();
-    expect(own.vy).toBe(0);
-    const enemy = homingTorp({ ownerId: 'enemy' });
-    stepShell(enemy, ctx({ targets: [decoyAt(80, 50, 'owner')] }));
-    expect(enemy.homing!.targetId).toBe('d1');
-    expect(enemy.vy).toBeGreaterThan(0);
-  });
-
-  it('a decoy with NO ownerId is never skipped — the skip keys on a real owner match only', () => {
-    const out = stepToOutcome(shell(), ctx({ targets: [decoyAt(300, 0, undefined)] }));
-    expect(out.kind).toBe('hitShip');
-    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [decoyAt(300, 0, undefined)], 'owner'))
-      .toHaveLength(1);
-  });
-
-  it('mines are STILL never a sweep subject, whatever their ownerId (amendment 20 unchanged)', () => {
-    const enemyMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 300, y: 0 }], ownerId: 'enemy' };
-    expect(stepToOutcome(shell(), ctx({ targets: [enemyMine] })).kind).toBe('expired');
-  });
-});
 
 // --- Story 2.8 doctrines: homing (ACOUSTIC HOMING) --------------------------
 
@@ -867,13 +838,64 @@ describe('stepShell — homing torpedo steering', () => {
   });
 });
 
+// --- ACOUSTIC HOMING (experiment, Eric 2026-11-16) -------------------------
+// Arbitrary turn rate, range and loudness: the mechanism, never a balance number.
+
+describe('stepShell — acoustic homing (turn rate × target loudness)', () => {
+  const RATE = 2;
+  const RANGE = 400;
+  const acoustic = (extra: Partial<NonNullable<ShellState['homing']>> = {}): ShellState =>
+    homingTorp({ homing: { turnRate: RATE, acquireRange: RANGE, acoustic: true, ...extra } });
+  const loud = (t: Target, l: number): Target => ({ ...t, loud: l });
+  const turnOf = (t: ShellState): number => Math.abs(Math.atan2(t.vy, t.vx));
+
+  it('locks the LOUDEST target in range, not the nearest', () => {
+    const t = acoustic();
+    stepShell(t, ctx({ targets: [loud(hullAt(60, 40, 0, 'near'), 0.3), loud(hullAt(200, -150, 0, 'loud'), 0.9)] }));
+    expect(t.homing!.targetId).toBe('loud');
+    expect(t.vy).toBeLessThan(0); // turned toward the loud one (−y)
+  });
+
+  it('turns at exactly turnRate × loudness × dt when the target is off the bow', () => {
+    for (const l of [0.25, 1, 1.5]) {
+      const t = acoustic();
+      stepShell(t, ctx({ targets: [loud(hullAt(10, 300, 0, 'prey'), l)] })); // ~90° off: the turn saturates
+      expect(turnOf(t)).toBeCloseTo(RATE * l * DT, 9);
+      expect(Math.hypot(t.vx, t.vy)).toBeCloseTo(CONFIG.torpedo.speed, 9); // speed preserved
+    }
+  });
+
+  it('a SILENT target (loudness 0) is never locked: the fish runs straight', () => {
+    const t = acoustic();
+    stepShell(t, ctx({ targets: [loud(hullAt(80, 50, 0, 'quiet'), 0)] }));
+    expect(t.homing!.targetId).toBeUndefined();
+    expect(t.vy).toBe(0);
+  });
+
+  it('a target with no loudness set reads as loudness 1', () => {
+    const t = acoustic();
+    stepShell(t, ctx({ targets: [hullAt(10, 300, 0, 'plain')] }));
+    expect(turnOf(t)).toBeCloseTo(RATE * DT, 9);
+  });
+
+  it('a LOCKED acoustic fish keeps its victim and turns at turnRate × the victim\'s loudness', () => {
+    for (const l of [0, 0.5, 1]) {
+      const t = acoustic({ targetId: 'victim', locked: true });
+      stepShell(t, ctx({ targets: [loud(hullAt(10, 300, 0, 'victim'), l), loud(hullAt(10, -300, 0, 'louder'), 2)] }));
+      expect(t.homing!.targetId).toBe('victim'); // never re-acquired
+      expect(turnOf(t)).toBeCloseTo(RATE * l * DT, 9);
+    }
+  });
+});
+
 // --- CYCLE-148 REVIEW GATE, P6: A LOCKED FISH HAS ONE TARGET, FOR GOOD -------
 //
 // The CAPTIVE MINE fires at the hull that tripped it AND cleared the hostile
-// gate (R2.13 — a fleet drone is a target only while it is actively hunting the
-// mine's owner). That gate is a World read; `steerHoming` is pure shared sim and
-// cannot re-run it. So an ordinary re-acquiring fish would happily abandon the
-// captain it was fired at for a neutral drone that drifted nearer — springing
+// gate (R2.13 — a fleet drone, while the PvE fleet sailed, was a target only
+// while it was actively hunting the mine's owner). That gate is a World read;
+// `steerHoming` is pure shared sim and cannot re-run it. So an ordinary
+// re-acquiring fish would happily abandon the captain it was fired at for a
+// neutral hull that drifted nearer — springing
 // the trap on exactly the hull the gate refused. `locked` pins the answer at
 // launch.
 describe('stepShell — a LOCKED homing torpedo (the captive mine\'s fish)', () => {
@@ -913,5 +935,87 @@ describe('stepShell — a LOCKED homing torpedo (the captive mine\'s fish)', () 
     stepShell(t, ctx({ targets: [hullAt(90, 45, 0, 'farther'), hullAt(50, -25, 0, 'nearer')] }));
     expect(t.homing!.targetId).toBe('nearer');
     expect(t.vy).toBeLessThan(0);
+  });
+});
+
+// --- Story 10.8: the `beacon` kind (Eric 2026-11-06, R8 / R12) ---------------
+// A radio beacon's body is a target like a hull: a shell in flight stops on
+// it, a burst covering it lists it, and a homing torpedo may lock it. The
+// World lists it only while it is hittable; the pure functions just accept it.
+
+/** A beacon target: the shared octagon body at (x, y). */
+function beaconAt(x: number, y: number, id = 'bcn'): Target {
+  return { id, kind: 'beacon', poly: beaconPolygon(x, y) };
+}
+
+describe('stepShell / burstVictims — the beacon kind (Story 10.8)', () => {
+  it('a contact shell flying into a beacon stops on it as a hit', () => {
+    const out = stepToOutcome(shell(), ctx({ targets: [beaconAt(40, 0)] }));
+    expect(out).toMatchObject({ kind: 'hitShip', victimId: 'bcn' });
+  });
+
+  it('a burst covering a beacon lists it as a victim', () => {
+    const out = burstVictims({ x: 0, y: 0 }, CONFIG.beacons.bodyRadiusU * 2, [beaconAt(0, 0)], 'owner');
+    expect(out.map((t) => [t.id, t.kind])).toEqual([['bcn', 'beacon']]);
+  });
+
+  it('a homing torpedo acquires a beacon in range (R12) and steers toward it', () => {
+    const t = homingTorp();
+    stepShell(t, ctx({ targets: [beaconAt(80, 50)] }));
+    expect(t.homing!.targetId).toBe('bcn');
+    expect(t.vy).toBeGreaterThan(0);
+  });
+});
+
+// ARCING FLIGHT (Eric 2026-11-13, epic-11 amendment 8): `overShips` skips the
+// hull / beacon sweep, `overLand` the coastline sweep, `terrainStop` makes the
+// target point an island stop. Each would have stopped the shell on today's
+// sweep; with the flag it arrives.
+describe('stepShell — arcing flight (overShips / overLand / terrainStop)', () => {
+  const onPath = (): Target[] => [hullAt(150, 0, Math.PI / 2, 'mid'), { id: 'bcn', kind: 'beacon', poly: beaconPolygon(250, 0) }];
+
+  it('overShips: a hull and a beacon on the path do not stop it — it arrives at its target point (a zero-radius landing)', () => {
+    const s = gunShell(400, { burstRadius: 0, contactDamage: 0, overShips: true });
+    const out = stepToOutcome(s, ctx({ targets: onPath() }));
+    expect(out).toEqual({ kind: 'burst', x: 400, y: 0 });
+  });
+
+  it('without overShips the same shell is stopped by the first of them (the control)', () => {
+    const s = gunShell(400, { burstRadius: 0, contactDamage: 0 });
+    expect(stepToOutcome(s, ctx({ targets: onPath() })).kind).toBe('hitShip');
+  });
+
+  it('overLand: a coastline on the path does not stop it; a hull still does when overShips is absent (the secondaries)', () => {
+    const land = ctx({ islands: [rock(200, 0, 30)] });
+    expect(stepToOutcome(gunShell(400, { overLand: true }), land)).toEqual({ kind: 'burst', x: 400, y: 0 });
+    expect(stepToOutcome(gunShell(400), land).kind).toBe('hitIsland'); // the control
+    const both = ctx({ islands: [rock(200, 0, 30)], targets: [hullAt(300, 0, Math.PI / 2, 'mid')] });
+    const direct = stepToOutcome(gunShell(400, { overLand: true, direct: true, burstRadius: 0 }), both);
+    expect(direct.kind).toBe('hitShip');
+  });
+
+  it('overShips + overLand (the star / phosphor / flash / fouling shells): neither stops it', () => {
+    const s = gunShell(400, { overShips: true, overLand: true });
+    const out = stepToOutcome(s, ctx({ islands: [rock(200, 0, 30)], targets: onPath() }));
+    expect(out).toEqual({ kind: 'burst', x: 400, y: 0 });
+  });
+
+  it('terrainStop: arriving at the target point is an island stop, never a landing — for a blast shell and a direct round alike', () => {
+    expect(stepToOutcome(gunShell(400, { overShips: true, overLand: true, burstRadius: 0, terrainStop: true }), ctx())).toEqual({
+      kind: 'hitIsland',
+      x: 400,
+      y: 0,
+    });
+    expect(stepToOutcome(gunShell(400, { overLand: true, direct: true, burstRadius: 0, terrainStop: true }), ctx()).kind).toBe('hitIsland');
+  });
+});
+
+describe('burstVictims at radius 0 — the main battery\'s landing-point test', () => {
+  const poly = transformPolygon(CHEVRON_100X30, 0, 0, 0);
+  it('a point inside the silhouette is a victim; a point 1 u outside the outline is not', () => {
+    const t: Target = { id: 'v', kind: 'hull', poly };
+    expect(burstVictims({ x: 0, y: 0 }, 0, [t], 'owner')).toEqual([t]);
+    expect(burstVictims({ x: 51, y: 0 }, 0, [t], 'owner')).toEqual([]); // the bow tip is at x = 50
+    expect(burstVictims({ x: 0, y: 0 }, 0, [t], 'v')).toEqual([]); // own hull: never
   });
 });

@@ -33,7 +33,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, MSG, PROTOCOL_VERSION, hashSeedText } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, MSG, PROTOCOL_VERSION, hashSeedText } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2613; // free: queue 2603, metrics 2631, 2607/2609/2611 taken
@@ -119,7 +119,7 @@ async function leaveQuietly(room) {
   ]).finally(() => clearTimeout(timer));
 }
 
-const joinOptions = (name) => ({ name, pv: PROTOCOL_VERSION, cls: 'torpedoBoat', horn: 'standard', gun: 'deckGun' });
+const joinOptions = (name) => ({ name, pv: PROTOCOL_VERSION, cls: DEFAULT_CLASS_ID, horn: 'standard', shift: DEFAULT_SHIFT });
 
 /** Wrap a lobby room: capture its seat as soon as it is sent. */
 function track(name, client, lobby) {

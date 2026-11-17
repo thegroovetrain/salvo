@@ -1,13 +1,13 @@
 // THE DEV DOOR'S TWO SCRIPTED-SCENARIO ARMS, at the World (Story 9.15):
 //   • the DEV SPAWN POSE — a captain's placement honoured at EVERY placement
 //     edge it crosses (addShip, the countdown→active redeploy, respawn), and a
-//     placement only: hp is the redeploy's/respawn's to restore, never the pose's;
-//   • the FLEET-WAVES SWITCH — `WorldOptions.fleetWaves: false` turns the PvE
-//     wave scheduler off, and nothing else.
+//     placement only: hp is the redeploy's/respawn's to restore, never the pose's.
+//   (The second arm, the FLEET-WAVES SWITCH, retired with the PvE fleet at
+//   Story 10.8; `WorldOptions.beacons` is its successor, pinned in beacons.test.ts.)
 // The room-side gate (dev-only, value-sanitized) is pinned in roomOptions.test.ts.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, DEFAULT_GUN, DEFAULT_HORN_ID, wrapAngle } from '@salvo/shared';
+import { CONFIG, DEFAULT_HORN_ID, DEFAULT_SHIFT, wrapAngle } from '@salvo/shared';
 import { World, type DevPose, type WorldOptions } from '../game/world.js';
 import { islandClearance, SPAWN_ISLAND_CLEARANCE } from '../game/spawn.js';
 
@@ -28,7 +28,7 @@ function offRingPose(w: World): DevPose {
 }
 
 function posedCaptain(w: World, id: string, pose: DevPose) {
-  return w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, [], pose);
+  return w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', DEFAULT_HORN_ID, undefined, DEFAULT_SHIFT, [], pose);
 }
 
 function expectAtPose(rec: { state: { x: number; y: number; heading: number } }, pose: DevPose): void {
@@ -79,7 +79,7 @@ describe('dev spawn pose — a captain placed at its pose at every placement edg
     const w = openWorld(34);
     const pose = offRingPose(w);
     posedCaptain(w, 'a', pose);
-    const b = w.addShip('b', 'BRAVO', 'captain', 'torpedoBoat', DEFAULT_HORN_ID, undefined);
+    const b = w.addShip('b', 'BRAVO', 'captain', 'bismarck', DEFAULT_HORN_ID, undefined);
     expect(b.devPose).toBeUndefined();
     expect(Math.hypot(b.state.x, b.state.y)).toBeCloseTo(w.map.spawnRing, 6);
     w.resetForMatchStart();
@@ -90,7 +90,7 @@ describe('dev spawn pose — a captain placed at its pose at every placement edg
   it('the pose is a CAPTAIN arm only — a bot handed one spawns by pickSpawn', () => {
     const w = openWorld(35);
     const pose = offRingPose(w);
-    const bot = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, [], pose);
+    const bot = w.addShip('bot-1', 'BOT', 'bot', 'bismarck', DEFAULT_HORN_ID, undefined, DEFAULT_SHIFT, [], pose);
     expect(bot.devPose).toBeUndefined();
     expect(Math.hypot(bot.state.x, bot.state.y)).toBeCloseTo(w.map.spawnRing, 6);
   });
@@ -152,28 +152,5 @@ describe('dev spawn pose — an invalid pose is rejected at the World, logged, a
     });
     expectAtPose(rec, pose);
     expect(lines).toHaveLength(0);
-  });
-});
-
-describe('fleetWaves switch — false keeps the PvE wave scheduler out of the world', () => {
-  const hasFleetHull = (w: World): boolean => [...w.ships.keys()].some((id) => id.startsWith('fleet-'));
-
-  /** Anchor the zone so the first beat has passed, then run a few live ticks. */
-  function runPastFirstBeat(w: World): void {
-    w.damageEnabled = true;
-    w.startZone(w.now - CONFIG.fleet.waves[0].atMs);
-    for (let t = 0; t < 5; t++) w.step();
-  }
-
-  it('fleetWaves: false — no fleet hull exists past the first beat', () => {
-    const w = openWorld(41, { fleetWaves: false });
-    runPastFirstBeat(w);
-    expect(hasFleetHull(w)).toBe(false);
-  });
-
-  it('the default (switch absent) still spawns the first wave', () => {
-    const w = openWorld(41);
-    runPastFirstBeat(w);
-    expect(hasFleetHull(w)).toBe(true);
   });
 });

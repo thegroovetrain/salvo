@@ -1,6 +1,6 @@
 // THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) — the held-throne rule over
-// PARTICIPANT kills. Pure logic, ZERO Colyseus imports (the spawn.ts /
-// drones.ts posture): World feeds it a candidate snapshot and mirrors the
+// PARTICIPANT kills. Pure logic, ZERO Colyseus imports (the spawn.ts
+// posture): World feeds it a candidate snapshot and mirrors the
 // answer; ArenaRoom publishes the one scalar. The server owns the answer even
 // though the roster's public kill counts would let a client derive it — two
 // independent derivations of one rule is exactly the desync class
@@ -13,10 +13,10 @@
 //     count is shared, and a held throne stays with the incumbent until
 //     another alive captain STRICTLY exceeds their count. Tied challengers
 //     above the incumbent transfer to nobody (no unique maximum).
-//   • PARTICIPANT KILLS ONLY — PvE fleet sinkings advance nobody (the Public
-//     Register's "drones are not combatants" position), but a Story 6.4
-//     AI-captain bot IS a combatant (Eric ruling B3): sinking one advances
-//     your count toward the throne exactly as a human victim does.
+//   • PARTICIPANT KILLS ONLY — a Story 6.4 AI-captain bot IS a combatant
+//     (Eric ruling B3): sinking one advances your count toward the throne
+//     exactly as a human victim does. (The PvE fleet, whose sinkings advanced
+//     nobody, retired at Story 10.8.)
 //   • MINIMUM `CONFIG.bounty.minCaptainKills` — a zero-kill field has no
 //     bounty.
 //   • THE HOLDER MUST BE ALIVE — a sunk (or absent) holder vacates the
@@ -40,15 +40,14 @@ export interface BountyCandidate {
    *  throne rule reads it through isAfloat() exactly as the sim does. */
   lifecycle: ShipLifecycle;
   /** What the candidate IS (Story 6.3, amendment 13 — was the `isDrone`
-   *  boolean). The throne is a PARTICIPANT rule: a fleet hull can neither hold
-   *  it nor count toward it — guarded here as well as at the increment site
-   *  (defense in depth: a path that mis-credits a fleet hull still cannot crown
-   *  one) — while a 6.4 AI captain is a combatant and CAN hold it. */
+   *  boolean). The throne is a PARTICIPANT rule, read through the seam here
+   *  as well as at the increment site; a 6.4 AI captain is a combatant and
+   *  CAN hold it. */
   role: ShipRole;
-  /** PARTICIPANT victims only — human captains and 6.4 AI-captain bots,
-   *  never PvE fleet hulls. ONE field since Story 5.6 (amendment 38 emptied
-   *  `kills` of PvE sinkings, which made the 4.6 `captainKills` split
-   *  identical by construction and therefore redundant). */
+  /** PARTICIPANT victims — human captains and 6.4 AI-captain bots. ONE field
+   *  since Story 5.6 (amendment 38 emptied `kills` of PvE sinkings, which made
+   *  the 4.6 `captainKills` split identical by construction and therefore
+   *  redundant). */
   kills: number;
 }
 

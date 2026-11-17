@@ -23,11 +23,11 @@ import { World } from '../game/world.js';
 describe('STEP_ORDER identity (exact ratified tick order)', () => {
   it('pins the exact row sequence by name', () => {
     expect(World.STEP_ORDER.map((row) => row.name)).toEqual([
-      'dronesTick',
-      // Story 6.4's combat-bot driver — the third deliberate insertion: the
-      // AI input rows (dronesTick + botsTick) sit IMMEDIATELY before
-      // applyInputs so bot input written this tick is consumed this tick,
-      // exactly as fleet input is. See the row comment in world.ts.
+      // Story 6.4's combat-bot driver — THE AI input row, row 0 and
+      // IMMEDIATELY before applyInputs so bot input written this tick is
+      // consumed this tick. (Its sibling `dronesTick`, the PvE fleet's row,
+      // retired with the fleet at Story 10.8 — a deliberate removal.) See the
+      // row comment in world.ts.
       'botsTick',
       'applyInputs',
       'stepShips',
@@ -50,42 +50,71 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // seat — AFTER the founder edge and BEFORE the storm (see the row
       // comment).
       'stepClouds',
-      // Story 9.10's FOG FIELD — weather beside weather, directly after the
-      // cloud sweep: the coverage controller's re-cut + a new density-memo
+      // THE RAIN FIELD (Story 9.10's seat; the storm eye since Story 11.6) —
+      // weather beside weather, directly after the cloud sweep: the epoch
+      // refresh — the frame rebuilt on the live ring + a new density-memo
       // epoch once per refresh (see the row comment in world.ts).
       'stepFog',
       'applyStorm',
+      // Story 10.9's STORM SWEEP of the airdrops — directly after applyStorm,
+      // against the same live ring (see the row comment in world.ts).
+      'stormDrops',
       'stepShells',
       'stepMines',
-      // (Story 7-5 wave 2's `tickBuoys` row was REMOVED with the radar buoy
-      // in Story 8.16: the DECOY BUOY has no tick — amendment 124(e).)
+      // Story 10.9's AIRDROP COLLECTION — directly after stepMines, against
+      // the tick's post-move afloat hull outlines (see world.ts).
+      'collectDrops',
       'applyZoneEffects',
       // Story 9.4's FOUL ZONE stamp — immediately after the burn DoT: against
       // post-move hull OUTLINES (the tick's hull snapshot), before its own
       // expiry sweep below. See the row comment in world.ts.
       'applyFoulZones',
+      // (Story 10.9's `expireBuoys` and `applyBuoyEffects` rows left with the
+      // buoys, Story 10.5 — 2026-11-05, epic-10 amendment 11.) tickRepairs
+      // pays the HULL REPAIR pool and, since Story 10.5 (R8), the passive
+      // regen — still dead last among the hp movers.
       'tickRepairs',
       'tickSmoke',
       'expireLitZones',
       'expireBurnZones', // Story 8.17: the PHOSPHOR burning zone's expiry sweep, beside the lit zones'
       'expireFoulZones', // Story 9.4: the FOULING SHELL foul zone's expiry sweep, beside the burn zones'
+      // Story 10.4's TURRET STEP — directly before the click channel, so a
+      // turret arriving on the aim point (or finishing its reload) this tick
+      // fires this tick. See the row comment in world.ts.
+      'stepTurrets',
+      // Story 10.6's LAUNCHER STEP — the turret step's twin, beside it and
+      // before the click channel for the same reason. See world.ts.
+      'stepLaunchers',
       'fireControl',
       // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
       // a deliberate insertion right after the click channel (the reloads
       // have ticked; a click on a stream row was already skipped). See the
       // row comment in world.ts.
       'streamControl',
+      // Story 10.4's SECONDARIES — the second level channel, directly after
+      // the first (same latest input, same refusal gate).
+      'secondariesControl',
       'activationControl',
       'hornControl',
       'advanceSweeps',
       'processRespawns',
       'tickXp',
-      // Story 5.6's PvE wave scheduler — the second deliberate insertion, and
-      // an APPEND rather than a splice: `dronesTick` keeps row 0 immediately
-      // before applyInputs (its position is load-bearing), and a hull spawned
-      // dead last enters the world at a clean tick boundary. See the row
-      // comment in world.ts.
-      'spawnFleetWaves',
+      // Story 10.8's RADIO BEACON payout — directly after tickXp, for
+      // tickXp's own reasons (post-respawn afloat truth, after every damage
+      // row, before the event swap). See the row comment in world.ts.
+      'tickBeacons',
+      // Story 10.8's RADIO BEACON placement — dead LAST, an APPEND rather than
+      // a splice, in the seat Story 5.6's PvE wave scheduler held (that row,
+      // `spawnFleetWaves`, retired with the fleet at 10.8): zone-clock driven,
+      // it replaces the set on a ring-cycle change against the tick's SETTLED
+      // hull positions, and a body placed dead last enters the world at a
+      // clean tick boundary. See the row comment in world.ts.
+      'placeBeacons',
+      // Story 10.9's AIRDROP SCATTER — the new dead-LAST row, an APPEND
+      // directly AFTER placeBeacons: ring cycles begin on minute marks, so a
+      // cycle's new beacons must already be charted when the batch reads the
+      // hard keep-out (R1). See the row comment in world.ts.
+      'spawnDrops',
     ]);
   });
 

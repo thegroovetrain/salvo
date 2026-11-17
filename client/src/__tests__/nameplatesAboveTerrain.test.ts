@@ -17,8 +17,8 @@
 //      of the bubble — which is what DESIGN.md's Nameplate row means by "they
 //      fade in/out with truesight resolution". `chartRoot` is above `fogSprite`,
 //      so the plate's alpha is now `fader × softness`, the SAME per-frame
-//      `HullSoftness` product the hull (contacts.ts) and the aggro mark already
-//      wear. Identical bill, identical payment, to epic-5 amendment 22's hull
+//      `HullSoftness` product the hull (contacts.ts) already
+//      wears. Identical bill, identical payment, to epic-5 amendment 22's hull
 //      lift — with ONE deliberate difference, pinned below: the feather is
 //      sampled at the HULL's world pose, not at the plate's own offset
 //      position, so a label fades with the thing it labels rather than
@@ -48,12 +48,15 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, type OwnShip } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, initialTurrets, type OwnShip } from '@salvo/shared';
+import type { Relation } from '../render/relationColor.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
 import { hullSightSoftness } from '../render/fog.js';
 import { NameplateLayer } from '../render/nameplates.js';
-import { UpgradeMenu, offerView, type OfferView } from '../ui/upgradeMenu.js';
+import { offerView, type OfferView } from '../ui/offerCore.js';
+import { OfferGroup } from '../ui/offerGroup.js';
+import { consoleLayout } from '../render/console/layout.js';
 import { ContactViews } from '../render/contacts.js';
 import { ContactStore } from '../net/snapshots.js';
 import type { Contact } from '@salvo/shared';
@@ -118,14 +121,15 @@ function readIndexHtml(): string {
   throw new Error('client/index.html not found from ' + process.cwd());
 }
 
-/** A minimal spendable refit view, so the band actually mounts and we can read
- *  the rung it declares. Mirrors upgradeMenu.test.ts's own fixture. */
+/** A minimal spendable offer view, so the offer group actually mounts and we
+ *  can read the rung it declares. Mirrors offerGroup.test.ts's own fixture. */
 function refitViewFixture(): OfferView {
   const you: OwnShip = {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1,
-    offer: ['radarSweep', 'hullPoints', 'deckGun', 'navalMines'],
-    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
+    ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
+    sec: { heat: 0 }, pts: 1,
+    offer: ['intel', 'armor', 'deckGun', 'navalMines'],
+    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0, rd: false, ib: {},
   };
   const v = offerView(you, false, false, false);
   if (!v) throw new Error('fixture produced no spendable offer');
@@ -194,9 +198,9 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
     expect(EVERY_ROOT_PLACED).toBe(true);
   });
 
-  it('the world layers stack ocean → wake → projectile → mines → decoys, and the HUD vignette → hud → foghorn', () => {
+  it('the world layers stack ocean → wake → beacon bodies → projectile → mines → drops, and the HUD vignette → hud → foghorn', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
-      'ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld', // Story 8.16: buoyWorld renamed
+      'ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld', 'dropWorld', // the buoy layer went with the buoys (Story 10.5); beacons Story 10.8; drops Story 10.9
     ]);
     expect(HUD_LAYER_ORDER as readonly string[]).toEqual(['vignette', 'hud', 'foghorn']);
   });
@@ -219,13 +223,13 @@ describe('a plate can never obscure the chrome — both mechanisms, pinned', () 
     expect(STAGE_ROOT_ORDER as readonly string[]).not.toContain('plateRoot');
   });
 
-  it('DOM SIDE: the refit window really does declare a positive z-index, so it '
+  it('DOM SIDE: the offer group really does declare a positive z-index, so it '
     + 'stacks above the canvas the plate is drawn into', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(refitViewFixture());
-    const panel = document.getElementById('upgrade-menu');
-    expect(panel, 'the band mounted').not.toBeNull();
-    expect(Number(panel!.style.zIndex), 'the ratified refit rung').toBeGreaterThan(0);
+    const group = new OfferGroup({ onPick: () => {}, onHover: () => {}, onRedraw: () => {} });
+    group.update(refitViewFixture(), consoleLayout(1366, 768).offer, 1);
+    const panel = document.getElementById('offer-group');
+    expect(panel, 'the group mounted').not.toBeNull();
+    expect(Number(panel!.style.zIndex), 'the ratified offer rung').toBeGreaterThan(0);
     expect(panel!.parentElement, 'a sibling of #app, not a child of the canvas')
       .toBe(document.body);
   });
@@ -437,29 +441,29 @@ describe('NameplateLayer.place writes the composed alpha', () => {
 // feather fail loudly instead of coincidentally agreeing.
 describe('drivePlate samples the feather at the hull pose, and multiplies it in', () => {
   const WORLD = { x: 40, y: -20 };
-  const droneContact = (): Contact[] => [
-    { id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'droneSmall' },
+  const rivalContact = (): Contact[] => [
+    { id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'bismarck' },
   ];
   // screen != world, by construction.
   const camera = {
     worldToScreen: (p: { x: number; y: number }) => ({ x: p.x * 3 + 1000, y: p.y * 3 - 500 }),
     zoom: 1,
   };
-  const plateFrame = { nameOf: (): string | null => null, camera, pad: 8 };
-  const rosterIndex = (): number | null => null;
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
+  const relationOf = (): Relation => 'enemy';
 
   const drive = (softnessValue: number) => {
     textLog.length = 0;
     const shipLayer = new Container();
-    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {});
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()));
     const store = new ContactStore();
     const seen: { x: number; y: number }[] = [];
     const softness = (x: number, y: number): number => {
       seen.push({ x, y });
       return softnessValue;
     };
-    store.pushFrame(0, droneContact());
-    views.render(store, 0, 0, 16, rosterIndex, plateFrame, softness);
+    store.pushFrame(0, rivalContact());
+    views.render(store, 0, 0, 16, relationOf, plateFrame, softness);
     return { seen, shipLayer };
   };
 
@@ -501,10 +505,10 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
     const withFeather = textLog[0].alpha;
     textLog.length = 0;
     const shipLayer = new Container();
-    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {});
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()));
     const store = new ContactStore();
-    store.pushFrame(0, droneContact());
-    views.render(store, 0, 0, 16, rosterIndex, plateFrame); // softness omitted => NO_SOFTENING
+    store.pushFrame(0, rivalContact());
+    views.render(store, 0, 0, 16, relationOf, plateFrame); // softness omitted => NO_SOFTENING
     expect(textLog[0].alpha, 'a full feather changes nothing').toBeCloseTo(withFeather, 12);
   });
 });
@@ -517,7 +521,7 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
 describe('a nameplate under thick countermeasure paint is hidden; the hull never is', () => {
   const WORLD = { x: 40, y: -20 };
   const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
-  const plateFrame = { nameOf: (): string | null => null, camera, pad: 8 };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
   const HIDE = CLIENT_CONFIG.countermeasure.plateHideAlpha;
 
   const drive = (cover: number) => {
@@ -528,10 +532,10 @@ describe('a nameplate under thick countermeasure paint is hidden; the hull never
       sampled.push({ x, y });
       return cover;
     };
-    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {}, coverAt);
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), coverAt);
     const store = new ContactStore();
-    store.pushFrame(0, [{ id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'droneSmall' }]);
-    views.render(store, 0, 0, 16, () => null, plateFrame);
+    store.pushFrame(0, [{ id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'bismarck' }]);
+    views.render(store, 0, 0, 16, () => 'enemy', plateFrame);
     const hull = shipLayer.children[0];
     return { plate: textLog[0], hull: { alpha: hull.alpha, visible: hull.visible }, sampled };
   };
@@ -554,5 +558,34 @@ describe('a nameplate under thick countermeasure paint is hidden; the hull never
 
   it('the hull graphic is identical under thick cover and under none', () => {
     expect(drive(1).hull).toEqual(drive(0).hull);
+  });
+});
+
+// Story 11.6 (Eric 2026-11-15): the NAME TAG is drawn only while the hull's
+// center is within the observer's effective class-and-name sight (the eye's
+// `sightU`); beyond it the hull still draws, fading in the distance haze.
+describe('a nameplate beyond the class-and-name sight is hidden; the hull still draws', () => {
+  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
+  const SIGHT = CONFIG.vision.sight;
+  const eye = { frame: null, smoke: [], sightU: SIGHT, hullSightU: CONFIG.vision.hullSight, x: 0, y: 0 };
+
+  const drive = (x: number) => {
+    textLog.length = 0;
+    const shipLayer = new Container();
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()));
+    const store = new ContactStore();
+    store.pushFrame(0, [{ id: 'f1', x, y: 0, heading: 0, speed: 0, cls: 'bismarck' }]);
+    views.render(store, 0, 0, 16, () => 'enemy', plateFrame, undefined, eye);
+    return { plate: textLog[0], hull: shipLayer.children[0] };
+  };
+
+  it('inside sight the plate shows; past it the plate is at alpha 0 while the hull is still drawn', () => {
+    expect(drive(SIGHT * 0.9).plate.alpha).toBeGreaterThan(0);
+    const far = drive(SIGHT * 1.2);
+    expect(far.plate.alpha).toBe(0);
+    expect(far.plate.visible).toBe(false);
+    expect(far.hull.visible).toBe(true);
+    expect(far.hull.alpha).toBeGreaterThan(0);
   });
 });

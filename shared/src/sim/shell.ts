@@ -35,6 +35,17 @@
 //     (contactDamage = damage), islands stop it, it runs until impact/edge.
 //   (Eric rulings 2026-07-21; the broadside barrage reuses the
 //   burst rule with different numbers.)
+//   - ARCING SHELLS (Eric 2026-11-13, epic-11 amendment 8; `overShips` /
+//     `overLand`): the STAR, PHOSPHOR, FLASH and FOULING shells are
+//     interrupted by nothing en route and burst at their destination with
+//     their own radii. The MAIN BATTERY's shell passes over every ship and
+//     lands at its point with NO blast (`burstRadius` 0: the landing point
+//     itself is the only test, so only a hull whose silhouette holds the
+//     point is a victim), and so does the SECONDARIES' round (Eric
+//     2026-11-13, epic-11 amendment 11 — it struck the first hull on
+//     its path until then). Both clear the chart's lowest land band and are
+//     stopped by higher ground — resolved once at launch by shortening the
+//     flight to the first high ground (`terrainStop`).
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
 // a segment p0->p1. Against islands it is seg-vs-COASTLINE (islandSegHit — the
@@ -54,10 +65,12 @@
 
 import { segCircleExit } from '../math/geom.js';
 import { wrapAngle } from '../math/angle.js';
-import { islandDistance, islandSegHit } from './island.js';
-import { pointPolygonDistance, segPolygonHit } from './silhouette.js';
+import { islandDistance } from './island.js';
+import { earliestHitReference, type IslandIndex } from './islandIndex.js';
+import { pointPolygonDistance, segClearOfBox, segPolygonHit, type PolyBox } from './silhouette.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island, ShellFamily } from '../types.js';
+import type { EquipmentId } from './loadout.js';
 
 /** Map is centered at world origin (the boundary clamp treats origin as center). */
 const MAP_CENTER: Vec2 = { x: 0, y: 0 };
@@ -93,7 +106,7 @@ export interface ShellState {
    * `hitTargets(mask)` to build `ctx.targets` for this shell, so the mask is a
    * per-projectile hit-rule parameter exactly like `burstRadius` (the Story 1.4
    * seam) rather than a branch in the collector. NEVER on the wire (the
-   * ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit`/`noAggro`
+   * ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit`
    * posture).
    */
   hits: readonly TargetKind[];
@@ -107,6 +120,14 @@ export interface ShellState {
    */
   family: ShellFamily | null;
   /**
+   * THE WEAPON LINE that fired this projectile (WEAPON POWER experiment, Eric
+   * 2026-11-15) — stamped by the torpedo / star-shell / phosphor launchers so
+   * the server damage gate can add that weapon's own POWER (its upgrade tiers ×
+   * `CONFIG.armor.weaponPowerPerTier`). Server-internal: never on the wire;
+   * absent on the main battery and every damageless shell.
+   */
+  weapon?: EquipmentId;
+  /**
    * DIRECT-HIT, NO BURST (Story 8.15 — the MACHINE GUN's shells). A shell that
    * reaches its aim point un-intercepted EXPIRES there (the shooter's `sp`
    * splash) instead of bursting, and a hull it strikes on the way takes a
@@ -116,25 +137,41 @@ export interface ShellState {
    */
   direct?: true;
   /**
-   * THE LAUNCH POINT (Story 9.12, Eric 2026-10-16, epic-9 amendment 184(b)):
-   * where the shell left the muzzle (the hull-clear launch origin). The
-   * World's deck-gun blow sites measure the distance FLOWN as
-   * `hypot(impact − origin)` for the range attenuation (sim/attenuation.ts).
-   * Set only by the three deck guns; absent → no attenuation.
-   * SERVER-PRIVATE: stepShell never reads it, and the projectile wire row
-   * (server signals.ts ballisticSignal) picks only k,id,x,y,vx,vy,t,w — never
-   * add it to any wire shape (the muzzle becomes solvable).
+   * SERVER-INTERNAL main-battery marker (Story 11.1 review fix): set ONLY by
+   * the main battery's salvo (server equipment/mainBattery.ts), so the batch
+   * harness can tell a main-battery shell from every other cannon-family
+   * shell without inferring it from damage values. stepShell never reads it;
+   * NEVER on the wire (the `lit` tag's exact posture — perception's
+   * forbidden-key scan pins it).
    */
-  originX?: number;
-  /** The launch point's y (see `originX`). SERVER-PRIVATE. */
-  originY?: number;
+  batteryShell?: true;
   /**
-   * THE ATTENUATION REFERENCE (Story 9.12, ruling 184(b)): the firer's
-   * effective gun `rangeU` AT FIRE TIME — never the lit-zone-lifted reach.
-   * Absent or 0 = no range attenuation (injected test shells, broadside,
-   * star/phosphor/fouling shells, torpedoes). SERVER-PRIVATE, like `originX`.
+   * ARCING FLIGHT (per-projectile hit rules, the Story 1.4 seam; never on the
+   * wire; Eric 2026-11-13, epic-11 amendment 8). Each flag SKIPS one half of
+   * the in-flight sweep — skipped, not run and discarded; the map edge still
+   * ends every shell:
+   *   - `overShips` — no hull or radio beacon interrupts it ("Only the landing
+   *     point counts"): the MAIN BATTERY, the SECONDARIES (epic-11 amendment
+   *     11) and the STAR, PHOSPHOR, FLASH and FOULING shells.
+   *   - `overLand` — no COASTLINE interrupts it: the same six. The four
+   *     special shells clear all land; the main battery and the secondaries
+   *     clear only the chart's lowest land band — their high-ground stop is
+   *     decided ONCE AT LAUNCH (`terrainStop`, sim/terrainBlock.ts).
+   * Absent = today's sweep against islands and targets.
    */
-  attenRangeU?: number;
+  overShips?: true;
+  overLand?: true;
+  /**
+   * SERVER-INTERNAL (epic-11 amendment 8): the target point is NOT a landing
+   * but the first HIGH GROUND on a main-battery shell's or secondary round's
+   * path (`batteryTerrainStop`, resolved at launch). Arriving there is an
+   * island stop (`hitIsland`): the round splashes on the hillside and damages
+   * nothing. Never on the wire.
+   */
+  terrainStop?: true;
+  // `originX` / `originY` / `attenRangeU` (the deck-gun range-attenuation
+  // launch point and reference, Story 9.12) — RETIRED 2026-11-12, Story 11.1:
+  // damage is flat with range.
   /**
    * SERVER-INTERNAL star-shell tag (Story 1.7): when set, a BURST of this
    * shell also spawns a lit zone of `radius` for `durationMs` (World.
@@ -163,16 +200,19 @@ export interface ShellState {
    */
   foul?: { radius: number; durationMs: number };
   /**
-   * SERVER-INTERNAL no-aggro tag (Story 7-5 fix cycle, R2.21a): a hit by this
-   * shell must aggro NOBODY at its owner — the GUN BUOY's shells carried it
-   * (the gun buoy is deleted with the radar buoy, Story 8.16), because "the layer may be dead or across the map, so there is nothing to
-   * chase" (the mine exception's own rationale, which the buoy turret adopted
-   * when Eric ruled it autonomous). The World's hitShip call sites read it as
-   * the `fromMine` argument; stepShell never reads it, and it is NEVER on the
-   * wire (the ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit` tag's
-   * exact posture).
+   * SERVER-INTERNAL flash tag (Story 8.17, FLASH SHELLS, epic-8 amendments 132
+   * and 135(d); RESTORED by Story 10.9, Eric 2026-10-27/28, epic-10 amendments
+   * 2 and 4, beside `foul`): when set, a BURST of this shell — at its aim
+   * point, or at the stop point of an interception, exactly as a flare lights
+   * there — dazzles every non-owner afloat hull whose CENTRE is inside
+   * `radius` for `durationMs` (a later expiry wins; never stacks). No zone, no
+   * light, no damage. stepShell never reads it; NEVER on the wire (the `lit`
+   * tag's exact posture).
    */
-  noAggro?: true;
+  flash?: { radius: number; durationMs: number };
+  // The SERVER-INTERNAL `noAggro` tag (Story 7-5 fix cycle, R2.21a — the
+  // gun buoy's shells) is DELETED with the PvE fleet's aggro (Story 10.8,
+  // 2026-11-06): nothing read or set it any more.
   // PLUNGING FIRE (`arcing`) and ARMOR-PIERCING (`pierce`) are DELETED with the
   // cannon (Story 7-5 wave 2, R2.6): they were the cannon's two doctrine cards
   // and nothing else ever set either field. The BROADSIDE BARRAGE that replaces
@@ -183,32 +223,29 @@ export interface ShellState {
    * ACOUSTIC HOMING doctrine (Story 2.8, torpedoHoming): per tick the fish
    * acquires the nearest non-owner TARGET whose centroid is within
    * `acquireRange` and steers its velocity direction toward it at up to
-   * `turnRate` rad/s.
+   * `turnRate` rad/s — the NEAREST HULL (`acquireNearest`). The buoy-first
+   * pass of Story 10.9 is gone with the buoys (2026-11-05, Story 10.5,
+   * epic-10 amendment 11).
    *
-   * "Target" is whatever the caller puts in `ctx.targets`: live hulls plus every
-   * live DECOY BUOY (Story 8.16 — the radar buoy that held the `decoy` kind
-   * before it is deleted). A homing torpedo DOES lock onto an ENEMY's decoy
-   * like a hull (that is the decoy's job), but NEVER onto its OWN owner's
-   * decoy: Eric ruled the question the radar buoy left open (amendment 119),
-   * and `acquireNearest` skips a decoy whose `Target.ownerId` is the fish's
-   * owner. Speed magnitude is never changed; expiry/range semantics
-   * are untouched. `targetId` is the current lock (re-acquired every tick).
+   * "Target" is whatever the caller puts in `ctx.targets` (live hulls). Speed
+   * magnitude is never changed; expiry/range semantics are untouched.
+   * `targetId` is the current lock (re-acquired every tick).
    *
    * `locked` PINS THAT LOCK AT LAUNCH (cycle-148 review gate, P6). A CAPTIVE
    * MINE's fish is fired at the ONE hull that tripped the mine and the hostile
-   * gate cleared (R2.13) — so it must not re-acquire, ever: a neutral fleet
-   * drone drifting nearer would otherwise steal a trap the drone was not
-   * allowed to spring. With `locked` the fish steers at `targetId` for as long
+   * gate cleared (R2.13) — so it must not re-acquire, ever: a neutral hull
+   * drifting nearer would otherwise steal a trap it was not allowed to spring
+   * (the PvE fleet drone was the original case, retired at Story 10.8). With `locked` the fish steers at `targetId` for as long
    * as that target is in `ctx.targets` and flies STRAIGHT once it is gone —
    * never at somebody else. It is set only by `captiveTorpedo`; an ordinary
    * homing torpedo leaves it unset and keeps the nearest-acquire rule above,
    * unchanged.
    */
-  homing?: { turnRate: number; acquireRange: number; targetId?: string; locked?: true };
+  homing?: { turnRate: number; acquireRange: number; targetId?: string; locked?: true; acoustic?: true };
 }
 
 /**
- * WHAT KIND OF THING an ordnance target is (Story 8.4, AR44). The four kinds
+ * WHAT KIND OF THING an ordnance target is (Story 8.4, AR44). The three kinds
  * are the whole vocabulary of the single collector (`World.hitTargets`), and
  * every ordnance row declares which of them its projectiles may touch through
  * `CONFIG.<ordnance>.hits`:
@@ -219,17 +256,23 @@ export interface ShellState {
  *                 it); the server's landing test reads its one-vertex polygon
  *                 as the mine's centre and asks whether the shell LANDED
  *                 within `CONFIG.mine.hitRadiusU` of it.
- *   - `decoy`   — a dropped DECOY BUOY (Story 8.16; the radar buoy that held
- *                 the kind before it is deleted). It carries `ownerId`, and
- *                 the OWNER's own ordnance never touches it (amendment 119).
  *   - `ordnance`— a projectile in flight (a live torpedo) — only the FLAK GUN's
  *                 mask names it (Story 8.15, AR44; a side effect, amendment
  *                 105), and like `mine` it is BURST-ONLY: the World strips it
  *                 from the sweep mask, so nothing in flight collides with it.
- * Pure geometry: shared knows nothing about owners' doctrine, drones or the
+ *   - `beacon`  — a surfaced RADIO BEACON's body (Story 10.8, Eric 2026-11-06,
+ *                 R8/R12): struck like a hull — swept against, a burst victim
+ *                 and a legal homing lock — by every weapon row (the mine TRIP
+ *                 masks excepted: a mine never trips on one). The World lists
+ *                 it only while it is HITTABLE (afloat — `beaconHittable`), so
+ *                 a charted or sinking beacon is never a subject. It has no
+ *                 owner, so no friendly-fire case applies to it.
+ * The old fourth kind, `decoy` (a dropped buoy's body, Story 8.16 / 10.9), is
+ * DELETED with the buoys (2026-11-05, Story 10.5, epic-10 amendment 11).
+ * Pure geometry: shared knows nothing about owners' doctrine or the
  * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */
-export type TargetKind = 'hull' | 'mine' | 'decoy' | 'ordnance';
+export type TargetKind = 'hull' | 'mine' | 'ordnance' | 'beacon';
 
 /**
  * Something to test ordnance against: a world-space polygon plus the id the
@@ -246,33 +289,31 @@ export interface Target {
   id: string;
   kind: TargetKind;
   poly: readonly Vec2[]; // world-space verts (length 1 = a point target)
-  /**
-   * The ship id that OWNS this target — read ONLY for a `decoy` (Story 8.16,
-   * epic-8 amendments 119/124(d)): a decoy whose `ownerId` equals the
-   * projectile's `ownerId` is skipped by the sweep (`earliestTarget`), by
-   * homing acquisition (`acquireNearest`) and by burst resolution
-   * (`burstVictims`), so the owner's fish pass through and the owner's shells
-   * and bursts pass over their own decoy on both sides by construction.
-   * Absent on every other kind (a hull's owner IS its `id`; a mine's owner
-   * never matters here — the owner's own shell can still land on the owner's
-   * mine, amendment 200).
-   * A decoy with no `ownerId` is never skipped.
-   */
-  ownerId?: string;
-}
-
-/** True iff `t` is a DECOY owned by `ownerId` — the owner's own ordnance never
- *  touches it (NO FRIENDLY FIRE extended to the decoy, amendment 119). */
-function isOwnDecoy(t: Target, ownerId: string): boolean {
-  return t.kind === 'decoy' && t.ownerId === ownerId;
+  /** ACOUSTIC LOUDNESS (experiment, Eric 2026-11-16): how loud this target is
+   *  to an acoustic torpedo — 1 = an ENGINES-100 hull at full throttle. The
+   *  server sets it on hulls (ENGINES / 100 × |throttle|); absent reads as 1
+   *  (a beacon, or any caller that never sets it). Only `homing.acoustic`
+   *  steering reads it. */
+  loud?: number;
 }
 
 /** Everything stepShell needs about the world this tick. */
 export interface ShellContext {
   islands: readonly Island[];
+  /** OPTIONAL broadphase index of `islands` (Story 11.2 follow-up —
+   *  sim/islandIndex.ts): when present it MUST be the current index of that
+   *  same list, and the island scan asks it instead of every island. The
+   *  outcome is identical with or without it; the server passes one. */
+  islandIndex?: IslandIndex;
   /** This tick's collision subjects for THIS projectile — already filtered to
    *  the projectile's own `hits` mask by the caller (World.hitTargets). */
   targets: readonly Target[];
+  /** OPTIONAL, parallel to `targets` (Story 11.2 follow-up): `polyBox` of
+   *  each target's polygon AS IT IS DURING THIS STEP. When present the sweep
+   *  drops a target whose box the step cannot reach before any edge test —
+   *  the outcome is identical with or without it. The caller owns freshness:
+   *  take the boxes in the same pass that steps the shells. */
+  targetBoxes?: readonly PolyBox[];
   now: number; // ms — server time this tick
   dt: number; // s — fixed step
   mapRadius: number; // u — water disk radius; a projectile splashes at this edge
@@ -308,20 +349,19 @@ interface Hit {
  * interior) returns null here — concave cavities are genuinely missable.
  * Scans every island: the EARLIEST hit wins, so there is no early-out.
  */
-function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | null {
-  let best: Hit | null = null;
-  for (const isle of islands) {
-    const t = islandSegHit(p0, p1, isle);
-    if (t !== null && (best === null || t < best.frac)) best = { frac: t, island: isle };
-  }
-  return best;
+function earliestIsland(p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
+  // The index (when the caller holds one) answers exactly the reference scan
+  // — smallest fraction, earliest island on a tie — over only the islands the
+  // step can touch.
+  const hit = ctx.islandIndex !== undefined ? ctx.islandIndex.earliestHit(p0, p1) : earliestHitReference(p0, p1, ctx.islands);
+  return hit === null ? null : { frac: hit.t, island: hit.island };
 }
 
 /**
  * Earliest TARGET hit along p0->p1. Two kinds are structurally immune. The
  * firer's own HULL (NO FRIENDLY FIRE, Eric 2026-09-11) — and only its HULL,
  * which is why the test is on the kind rather than on ship and mine ids never
- * colliding — plus the firer's own DECOY (amendment 119, via `Target.ownerId`). And
+ * colliding. And
  * EVERY MINE, whoever laid it (amendment 20, Eric 2026-09-16:
  * if the shooter did not DIRECTLY click on the mine, nothing about it may
  * block the shot, register a hit or a miss, or tell the shooter anything at
@@ -333,10 +373,13 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | n
  */
 function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
   let best: Hit | null = null;
-  for (const t of ctx.targets) {
+  const boxes = ctx.targetBoxes;
+  for (let i = 0; i < ctx.targets.length; i++) {
+    const t = ctx.targets[i];
     if (t.kind === 'mine') continue; // never in flight — landing-only (amendments 20, 200)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // own weapon never damages the owner
-    if (isOwnDecoy(t, shell.ownerId)) continue; // own ordnance passes the owner's decoy (amendment 119)
+    if (boxes !== undefined && segClearOfBox(p0, p1, boxes[i], shell.hitRadius)) continue; // provably out of reach: the edge test would say null
+    // A beacon is NOT skipped: a shell stops on a surfaced beacon like a hull (R8).
     // Target polygon dilated by this projectile's own radius.
     const frac = segPolygonHit(p0, p1, t.poly, shell.hitRadius);
     if (frac === null) continue;
@@ -349,6 +392,16 @@ function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext
 function earliestEdge(p0: Vec2, p1: Vec2, mapRadius: number): Hit | null {
   const t = segCircleExit(p0, p1, MAP_CENTER, mapRadius);
   return t === null ? null : { frac: t, edge: true };
+}
+
+/** The earliest island or target this step meets, honouring the shell's
+ *  ARCING FLIGHT (`overLand` / `overShips`, epic-11 amendment 8): a skipped
+ *  half of the sweep never runs — a real skip, not a test whose answer is
+ *  dropped. */
+function earliestObstacle(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
+  const island = shell.overLand === true ? null : earliestIsland(p0, p1, ctx);
+  const target = shell.overShips === true ? null : earliestTarget(shell, p0, p1, ctx);
+  return earlier(island, target);
 }
 
 /** Pick the earlier of two candidate hits (null = no hit). */
@@ -432,6 +485,7 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   const homing = shell.homing!;
   const speed = Math.hypot(shell.vx, shell.vy);
   if (speed <= 0) return;
+  if (homing.acoustic === true) return steerAcoustic(shell, homing, ctx, speed);
   const best = homing.locked === true ? lockedCentroid(homing.targetId, ctx) : acquireNearest(shell, homing, ctx);
   if (best === null) return;
   const current = Math.atan2(shell.vy, shell.vx);
@@ -443,10 +497,76 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   shell.vy = speed * Math.sin(dir);
 }
 
-/** The nearest legal target's centroid within `acquireRange`, RE-ACQUIRED every
- *  tick and recorded in `homing.targetId` — the shipped ACOUSTIC HOMING rule,
- *  lifted out of `steerHoming` unchanged. Null (and the lock cleared) when
- *  nothing qualifies. */
+/** Rotate the velocity toward `to` by at most `maxTurn` (speed preserved). */
+function turnToward(shell: ShellState, to: Vec2, maxTurn: number, speed: number): void {
+  const current = Math.atan2(shell.vy, shell.vx);
+  const desired = Math.atan2(to.y - shell.y, to.x - shell.x);
+  const dir = current + Math.max(-maxTurn, Math.min(maxTurn, wrapAngle(desired - current)));
+  shell.vx = speed * Math.cos(dir);
+  shell.vy = speed * Math.sin(dir);
+}
+
+/** A target's loudness to an acoustic torpedo: its `loud`, absent = 1, never
+ *  negative or NaN. */
+const loudnessOf = (t: Target): number => {
+  const l = t.loud ?? 1;
+  return Number.isFinite(l) && l > 0 ? l : 0;
+};
+
+/** May a torpedo lock this target? Never a mine (amendment 20), never the owner's hull. */
+const lockable = (t: Target, ownerId: string): boolean => t.kind !== 'mine' && !(t.kind === 'hull' && t.id === ownerId);
+
+/** The LOUDEST legal target within `acquireRange` (nearer wins a tie),
+ *  recorded in `homing.targetId`; null when nothing in range makes a sound.
+ *  Same legality as acquireNearest (never a mine, never the owner). */
+function loudestTarget(shell: ShellState, homing: NonNullable<ShellState['homing']>, ctx: ShellContext): Target | null {
+  let best: Target | null = null;
+  let bestL = 0;
+  let bestD = Infinity;
+  for (const t of ctx.targets) {
+    if (!lockable(t, shell.ownerId)) continue;
+    const l = loudnessOf(t);
+    const c = polyCentroid(t.poly);
+    const d = Math.hypot(c.x - shell.x, c.y - shell.y);
+    if (l <= 0 || d > homing.acquireRange) continue;
+    if (l > bestL || (l === bestL && d < bestD)) [best, bestL, bestD] = [t, l, d];
+  }
+  homing.targetId = best?.id;
+  return best;
+}
+
+/** The PINNED target itself (a captive fish's victim), or null once it has
+ *  left `ctx.targets` — the lockedCentroid rule, keeping the target's loudness. */
+function lockedTarget(targetId: string | undefined, ctx: ShellContext): Target | null {
+  if (targetId === undefined) return null;
+  for (const t of ctx.targets) if (t.id === targetId) return t;
+  return null;
+}
+
+/**
+ * ACOUSTIC HOMING (experiment, Eric 2026-11-16): the fish turns toward its
+ * target at `turnRate × the target's loudness` — a quiet hull pulls it less,
+ * a silent one (loudness 0) not at all. A free fish locks the LOUDEST legal
+ * target in range, re-picked every tick; a LOCKED (captive) fish keeps its
+ * pinned victim and only its turn rate follows that victim's noise.
+ */
+function steerAcoustic(
+  shell: ShellState,
+  homing: NonNullable<ShellState['homing']>,
+  ctx: ShellContext,
+  speed: number,
+): void {
+  const t = homing.locked === true ? lockedTarget(homing.targetId, ctx) : loudestTarget(shell, homing, ctx);
+  if (t === null) return;
+  const l = loudnessOf(t);
+  if (l > 0) turnToward(shell, polyCentroid(t.poly), homing.turnRate * l * ctx.dt, speed);
+}
+
+/** The nearest legal target's centroid within `acquireRange`, RE-ACQUIRED
+ *  every tick and recorded in `homing.targetId` — the shipped ACOUSTIC HOMING
+ *  rule, with the `<=` tie law (the later entry wins a tie). The owner's hull
+ *  is never legal (no friendly fire) and a mine never is (amendment 20). Null
+ *  (and the lock cleared) when nothing qualifies. */
 function acquireNearest(
   shell: ShellState,
   homing: NonNullable<ShellState['homing']>,
@@ -456,9 +576,10 @@ function acquireNearest(
   let bestId: string | undefined;
   let bestD = homing.acquireRange;
   for (const t of ctx.targets) {
-    if (t.kind === 'mine') continue; // a fish never locks a mine (amendment 20)
+    if (t.kind === 'mine') continue; // a torpedo never locks a mine (amendment 20)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
-    if (isOwnDecoy(t, shell.ownerId)) continue; // never homes on the owner's decoy (amendment 119)
+    // A RADIO BEACON IS A LEGAL LOCK — deliberately NOT skipped (Story 10.8,
+    // Eric 2026-11-06, R12: "Homing torpedoes MAY lock onto a beacon").
     const c = polyCentroid(t.poly);
     const d = Math.hypot(c.x - shell.x, c.y - shell.y);
     if (d <= bestD) {
@@ -491,9 +612,12 @@ function targetDistance(shell: ShellState, p0: Vec2): number {
     : Math.hypot(shell.targetX - p0.x, shell.targetY - p0.y);
 }
 
-/** The arrival outcome at the (already snapped) target point: a burst, or an
- *  expiry for a DIRECT shell, which has no burst (Story 8.15). */
+/** The arrival outcome at the (already snapped) target point: a burst, an
+ *  expiry for a DIRECT shell, which has no burst (Story 8.15), or an island
+ *  stop for a main-battery shell whose target is the high ground that stops
+ *  it (`terrainStop`, epic-11 amendment 8). */
 function arrive(shell: ShellState): ShellOutcome {
+  if (shell.terrainStop === true) return { kind: 'hitIsland', x: shell.x, y: shell.y };
   return shell.direct === true
     ? { kind: 'expired', x: shell.x, y: shell.y }
     : { kind: 'burst', x: shell.x, y: shell.y };
@@ -529,7 +653,7 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
 
   const p1: Vec2 = { x: p0.x + ux * moveDist, y: p0.y + uy * moveDist };
 
-  const obstacle = earlier(earliestIsland(p0, p1, ctx.islands), earliestTarget(shell, p0, p1, ctx));
+  const obstacle = earliestObstacle(shell, p0, p1, ctx);
   const hit = earlier(obstacle, earliestEdge(p0, p1, ctx.mapRadius));
   if (hit) {
     const ix = p0.x + ux * moveDist * hit.frac;
@@ -563,12 +687,11 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
  * 2026-10-01, superseding amendment 20's burst rule): a burst that merely
  * covers a mine does nothing to it — only a deck gun's shell LANDING on the
  * mine (the server's landing test, `CONFIG.mine.hitRadiusU`) damages one.
- * The owner's own HULL is excluded (permanent owner immunity), and so is the
- * owner's own DECOY (Story 8.16, amendment 119).
+ * The owner's own HULL is excluded (permanent owner immunity).
  *
  * Returns the TARGETS, not ids: the caller dispatches on `kind` (a hull takes
- * damage through the gate, a fish is removed, a decoy takes its own outcome),
- * and a bare id would force it to re-guess which store the id came from.
+ * damage through the gate, a torpedo in flight is removed), and a bare id
+ * would force it to re-guess which store the id came from.
  * Pure; every outcome lives in world.ts.
  */
 export function burstVictims(
@@ -581,7 +704,7 @@ export function burstVictims(
   for (const t of targets) {
     if (t.kind === 'mine') continue; // a burst never touches a mine — landing only (amendment 200)
     if (t.kind === 'hull' && t.id === ownerId) continue; // own weapon never damages the OWNER'S HULL
-    if (isOwnDecoy(t, ownerId)) continue; // nor the OWNER'S DECOY (amendment 119)
+    // A beacon IS a burst victim, like a hull (Story 10.8, R8 — a mine blast damages it).
     if (polyInBlast(center, radius, t.poly)) victims.push(t);
   }
   return victims;

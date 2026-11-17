@@ -21,11 +21,13 @@
 // sight range (the eye's reach — the server's `discSighted` clause) returns
 // every pass, as before.
 
-import { cloudOutlineRadius } from '@salvo/shared';
+import { cloudOutlineRadius, type CloudSize } from '@salvo/shared';
 
 /** What the gate reads off one held cloud. `deliveredAt` = server time (ms) of
  *  the frame that last carried its row; absent = never gated (always fresh). */
-export interface CloudReturnInfo {
+export interface CloudReturnInfo extends CloudSize {
+  // `lifeMs` / `r0` / `r1` — the cloud's STAMPED life and disc (the wire
+  // `CloudView`, Story 10.6 I6: the owner's SMOKE SCREEN cards at the press).
   x: number;
   y: number;
   t0: number;
@@ -51,7 +53,7 @@ export interface CloudReturnGate {
 /** Pure: is the cloud's nearest rim within the own sight range right now? */
 export function cloudSighted(c: CloudReturnInfo, g: CloudReturnGate): boolean {
   const d = Math.hypot(c.x - g.own.x, c.y - g.own.y);
-  return d - cloudOutlineRadius(g.serverNow - c.t0) <= g.sightU;
+  return d - cloudOutlineRadius(g.serverNow - c.t0, c) <= g.sightU;
 }
 
 /** Pure: does this held cloud return on the scope this frame? */

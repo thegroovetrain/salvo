@@ -25,22 +25,22 @@
 //
 // WHY A SCRIPT, NOT A PILOT. This smoke used to sail two heuristic pilots
 // (racetrack strafing, island-avoidance rudder bias, an unstick routine)
-// from ring spawns ~8,000 u apart across a RANDOM map, with the PvE fleet wave
-// arriving 60 s into the fight and passive regen racing every single-tube
-// kill — so its red runs were piloting outcomes, not sim defects. Now nothing
+// from ring spawns ~8,000 u apart across a RANDOM map, with passive regen
+// racing every single-tube kill — so its red runs were piloting outcomes, not sim defects. Now nothing
 // sails: the map is PINNED (`mapSeed`), both hulls are PLACED by the dev-only
 // `spawnOverride` pose (honored at spawn, at the countdown->active redeploy
-// and at respawn), the fleet wave is OFF (`matchOverride.fleetWaves: false`),
-// and the only inputs are scripted ones sent on the ordinary `i` channel, so
+// and at respawn), and the only inputs are scripted ones sent on the ordinary `i` channel, so
 // they pass inputs.ts' sanitizeInput like any client's. Every number the
 // smoke waits on (kill plan, budgets, the countdown) is READ from CONFIG and
 // the same effectiveStats fold the server runs, at run time.
 //
 // THE TORPEDO IS PRE-FITTED by the DEV-ONLY `fitOverride` join option (Story
-// 8.10, EPIC-8 amendment 65): every hull spawns with only the seat's gun and
-// the Shift boost, so A asks for `heavyTorpedo` explicitly; it lands in slot
-// 2 (Q). The line is stacked to the tier that gives TWO tubes (Eric ruling
-// 2026-10-22, Story 9.15 question 4) so a salvo lands inside the regen wait.
+// 8.10, EPIC-8 amendment 65): every hull spawns with only its main battery
+// (Story 10.4) and the seat's Shift, so A asks for `heavyTorpedo` explicitly; it lands in its
+// FAMILY slot, the torpedo slot Q (Story 10.5). TWO tubes (Eric ruling 2026-10-22, Story
+// 9.15 question 4 — a salvo lands inside the regen wait) come from the SECOND
+// LAUNCHER TUBE one-off since Story 10.6 (R4 / R6: capacity left the tiers); the R8 passive regen is back since Story 10.5 and the plan
+// replays it).
 // The fit survives the activation redeploy (redeployEconomy re-applies it).
 //
 // Every dev option here (matchOverride, zoneOverride, mapSeed, fitOverride,
@@ -62,8 +62,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
 import {
-  CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment, islandDistance,
-  effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, zoneRingRadii,
+  CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment, islandDistance,
+  effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, familySlotFor, launcherArcHolds, regenGain, zoneRingRadii,
+  launcherAimPoint, launcherStationWorld, torpedoLaunchPoint,
 } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -77,10 +78,14 @@ const TRACE = [];
 /** The pinned map (fogSmoke's documented pin). Islands never travel on the
  *  wire, so the script rebuilds the same field from the welcome's seed. */
 const MAP_SEED = 265;
-const TB = CONFIG.shipClasses.torpedoBoat; // every client is the default class
+/** Every client joins with no `cls` -> the server seats DEFAULT_CLASS_ID (Story
+ *  10.4: Bismarck), so this smoke reads that hull's CONFIG row. */
+const TB = CONFIG.shipClasses[DEFAULT_CLASS_ID];
+/** Its full hull, from the same fold the server runs. */
+const FULL_HP = effectiveStats(TB, []).maxHp;
 const HULL_L = TB.hull.length;
 const TORP = 'heavyTorpedo';
-const TORP_SLOT = 2; // slot 2 (Q) = the FIRST fitted weapon since Story 8.5
+const TORP_SLOT = familySlotFor(TORP); // the torpedo FAMILY slot, Q (Story 10.5)
 /** The smoke's own clear-water bound for the poses: mapgen suppresses land
  *  around the map centre, and both poses must sit well inside that. This is
  *  the smoke's bound, not a mapgen guarantee — the real precondition is the
@@ -88,18 +93,12 @@ const TORP_SLOT = 2; // slot 2 (Q) = the FIRST fitted weapon since Story 8.5
 const CENTER_FRACTION = 0.15;
 
 /**
- * THE FIT: the fewest `heavyTorpedo` cards whose fold carries TWO tubes (the
- * line's +0.5 maxAmmo rungs — tubes 1,1,2,2,2 — reach two at tier III today).
- * Derived from the same effectiveStats fold the server runs, never typed.
+ * THE FIT: the torpedo, then the SECOND LAUNCHER TUBE one-off (Story 10.6, R6:
+ * the fore launcher then holds TWO tubes, each on its own reload clock). The
+ * tube count is read back from the same effectiveStats fold the server runs.
  */
-function twoTubeFit() {
-  for (let k = 1; k <= 10; k += 1) {
-    const fit = Array(k).fill(TORP);
-    if (equipmentMaxAmmo(effectiveStats(TB, fit), TORP) >= 2) return fit;
-  }
-  throw new Error(`PRECONDITION: no ${TORP} stack reaches two tubes`);
-}
-const FIT = twoTubeFit();
+const FIT = [TORP, 'secondLauncherTube'];
+if (equipmentMaxAmmo(effectiveStats(TB, FIT), TORP) !== 2) throw new Error(`PRECONDITION: ${JSON.stringify(FIT)} does not fold to two tubes`);
 const SHOOTER = effectiveStats(TB, FIT);
 const TARGET = effectiveStats(TB, []); // B carries no fit: it only has to float
 const FISH = {
@@ -108,61 +107,70 @@ const FISH = {
   reloadMs: equipmentReloadMs(SHOOTER, TORP),
   tubes: equipmentMaxAmmo(SHOOTER, TORP),
 };
-/** The blow B's hull takes per fish: the server's armor curve over B's armor
- *  minus A's piercing, floored to a whole number (World.floorBlow). */
-const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGET.armor - SHOOTER.armorPiercing)));
+/** The blow B's hull takes per fish: the server's armor curve over B's ARMOR
+ *  minus A's POWER (Story 10.3 indices), floored to a whole number
+ *  (World.floorBlow). */
+const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGET.armor - SHOOTER.power)));
 
 /**
  * THE LANE. B (the target) at the origin facing +x; A (the shooter) astern-west
- * of it on the x axis, heading 0, so the bearing A->B IS A's heading — dead
- * centre of the bow arc by construction. d = three hull lengths: two hull
- * lengths of open water between A's bow and B's stern, so the fish spawns well
- * clear of A (hull edge + hitRadius + spawnClearance) and runs a short,
- * straight lane, far inside sight and a homing fish's travel budget.
+ * of it on the x axis, heading −π/2, so B lies on A's BEAM — the middle of the
+ * fore launcher's firing band (R28, Eric 2026-11-06: the launchers fire across
+ * the beam, never dead ahead). d = three hull lengths: open water between A's
+ * side and B's stern, so the fish spawns well clear of A (hull edge +
+ * hitRadius + spawnClearance) and runs a short, straight lane, far inside
+ * sight and a homing fish's travel budget.
  */
 const D = 3 * HULL_L;
 const B_POSE = { x: 0, y: 0, heading: 0 };
-const A_POSE = { x: -D, y: 0, heading: 0 };
-/** Fish run from spawn (A's bow + clearance) to B's stern, and its flight. */
-const FISH_RUN = D - HULL_L - CONFIG.torpedo.spawnClearance - 2 * CONFIG.torpedo.hitRadius;
+const A_POSE = { x: -D, y: 0, heading: -Math.PI / 2 };
+/** The fore launcher's station and the click's aim point (B's centre). */
+const LAUNCHER_AT = launcherStationWorld(DEFAULT_CLASS_ID, 0, A_POSE);
+const AIM_AT = launcherAimPoint(A_POSE, DEFAULT_CLASS_ID, bearing(A_POSE, B_POSE), D);
+/** rad — the WORLD bearing the trained fore launcher fires on: station -> aim point. */
+const LAUNCH_BRG = Math.atan2(AIM_AT.y - LAUNCHER_AT.y, AIM_AT.x - LAUNCHER_AT.x);
+/** Fish run from the fore launcher's launch point (clear of A's side by the
+ *  launch clearance, Story 10.6) to B's stern, and its flight. */
+const LAUNCH_AT = torpedoLaunchPoint(LAUNCHER_AT, A_POSE, DEFAULT_CLASS_ID, LAUNCH_BRG);
+const FISH_RUN = Math.hypot(LAUNCH_AT.x - B_POSE.x, LAUNCH_AT.y - B_POSE.y) - HULL_L / 2 - 2 * CONFIG.torpedo.hitRadius;
 const FLIGHT_MS = (FISH_RUN / FISH.speed) * 1000;
+/** ms — the aim reaches the server and the fore launcher's DERIVED angle
+ *  comes back on the own frame: a few ticks (no traverse since Story 11.1,
+ *  R16 — `CONFIG.mainBattery.traverseDegPerS` retired 2026-11-12). */
+const LAUNCHER_TRAIN_MS = 4 * CONFIG.tick.simDtMs;
+/** rad — "on the aim" for the own frame's launcher angle: half a degree of
+ *  display slack (the derived angle is exact on the server). */
+const ON_AIM_TOL_RAD = Math.PI / 360;
 /** Socket + tick slack on every wait (join round-trips, frame delivery). */
 const SLACK_MS = 5000;
 
 /**
  * THE KILL PLAN (Eric ruling 2026-10-22, Story 9.15 question 4: derived from
- * CONFIG INCLUDING REGEN). A tick-stepped replay of the fight the server will
- * run: A clicks every tick, a tube fires whenever one is loaded, the pool
- * reloads one round per reloadMs (World.finishReloads), each fish lands
- * FLIGHT_MS later for FISH_BLOW, and between hits B heals `missingPctPerS` of
- * its MISSING hull per second once `outOfCombatMs` have passed since the last
- * landed hit (World.tickRegen; the redeploy re-arms that clock at
- * activation). Returns the fish B takes, the salvos (distinct firing moments)
- * and the simulated sink time.
+ * CONFIG). A tick-stepped replay of the fight the server will run: A clicks
+ * every tick, ONE loaded tube fires per click (the lowest), each tube reloads
+ * on its own clock (Story 10.6, sim/launchers.ts) and each fish lands FLIGHT_MS later for
+ * FISH_BLOW. 2026-11-05 (Story 10.5, R8): the PASSIVE REGEN is back — B,
+ * unhurt for CONFIG.regen.outOfCombatMs, heals the shared regenGain every tick
+ * (the heavy fish's reload outlasts the wait), so the replay heals it too.
+ * Returns the fish B takes, the salvos (distinct firing moments) and the
+ * simulated sink time.
  */
 function killPlan() {
   const dt = CONFIG.tick.simDtMs;
-  const maxHp = TARGET.maxHp;
-  const { missingPctPerS, outOfCombatMs } = TARGET.regen;
-  let hp = maxHp;
-  let loaded = FISH.tubes;
-  let reloadLeft = 0;
-  let lastHitAt = 0;
+  let hp = TARGET.maxHp;
+  // ONE CLOCK PER TUBE (Story 10.6, R6): a fired tube reloads on its own.
+  const tubes = new Array(FISH.tubes).fill(0);
   let lastFireAt = -Infinity;
   let salvos = 0;
   let fish = 0;
+  let lastHit = 0;
   const inFlight = [];
   for (let t = 0; t < 3600000; t += dt) {
-    if (reloadLeft > 0) {
-      reloadLeft -= dt;
-      if (reloadLeft <= 0) {
-        loaded += 1;
-        reloadLeft = loaded < FISH.tubes ? FISH.reloadMs : 0;
-      }
-    }
-    if (loaded > 0) {
-      loaded -= 1;
-      if (reloadLeft <= 0) reloadLeft = FISH.reloadMs;
+    if (t - lastHit >= CONFIG.regen.outOfCombatMs) hp += regenGain(hp, TARGET.maxHp, dt / 1000);
+    for (let k = 0; k < tubes.length; k += 1) tubes[k] = Math.max(0, tubes[k] - dt);
+    const k = tubes.findIndex((c) => c <= 0);
+    if (k >= 0) {
+      tubes[k] = FISH.reloadMs; // one click, one torpedo
       if (t - lastFireAt > dt) salvos += 1;
       lastFireAt = t;
       inFlight.push(t + FLIGHT_MS);
@@ -171,10 +179,9 @@ function killPlan() {
       inFlight.shift();
       hp -= FISH_BLOW;
       fish += 1;
-      lastHitAt = t;
+      lastHit = t;
       if (hp <= 0) return { fish, salvos, sinkMs: t };
     }
-    if (hp < maxHp && t - lastHitAt >= outOfCombatMs) hp += (maxHp - hp) * missingPctPerS * (dt / 1000);
   }
   throw new Error('PRECONDITION: the kill plan never sinks B');
 }
@@ -184,15 +191,14 @@ const FIGHT_BUDGET_MS = PLAN.salvos * FISH.reloadMs + FISH.reloadMs;
 
 /**
  * Lifecycle timers. The countdown is what step 2 needs and nothing more: the
- * first fish's flight + one reload (a fish lost to a tick-phase race gets a
+ * launcher's train onto the beam + the first fish's flight + one reload (a fish lost to a tick-phase race gets a
  * second chance) + socket slack. resultsMs short so the disposal is
  * observable. joinWindowMs is a small REAL window (unlike the other smokes'
  * 0): step 1 proves the gathering phase over real sockets; 5 s so the
  * post-join sleep + CHARLIE's join round-trip can't eat it on a slow box.
- * fleetWaves:false keeps the PvE wave scheduler off the fight (Story 9.15).
  */
-const COUNTDOWN_MS = Math.ceil(FLIGHT_MS + FISH.reloadMs + SLACK_MS);
-const MATCH_OVERRIDE = { countdownMs: COUNTDOWN_MS, resultsMs: 3000, joinWindowMs: 5000, fleetWaves: false };
+const COUNTDOWN_MS = Math.ceil(LAUNCHER_TRAIN_MS + FLIGHT_MS + FISH.reloadMs + SLACK_MS);
+const MATCH_OVERRIDE = { countdownMs: COUNTDOWN_MS, resultsMs: 3000, joinWindowMs: 5000 };
 /**
  * The storm: offsetCap 0 keeps every ring concentric on the map centre, where
  * both poses sit, so the storm reaches a hull only once a ring SMALLER than
@@ -227,10 +233,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Socket round-trip allowance for a state/message to reach a client after the
  *  server changed it (join, phase flip): polled, never slept. */
 const ROUNDTRIP_MS = 2000;
-/** Non-captain hull ids. `drone-N` was the deleted match-start fill
- *  (amendment 41); `fleet-N` is the PvE wave namespace that replaced it. */
-const isDrone = (id) => typeof id === 'string' && (id.startsWith('drone-') || id.startsWith('fleet-'));
-
 // --- server lifecycle --------------------------------------------------------
 
 function bootServer() {
@@ -290,8 +292,8 @@ function killServerHard(proc) {
 
 // --- client harness ----------------------------------------------------------
 
-/** Join through the dev door. Every join pins the map and switches the fleet
- *  off (room options ride the creating join); `pose`/`fit` are per-captain. */
+/** Join through the dev door. Every join pins the map (room options ride the
+ *  creating join); `pose`/`fit` are per-captain. */
 async function joinClient(name, { pose, fit } = {}) {
   const client = new Client(endpoint);
   const opts = { name, pv: PROTOCOL_VERSION, mapSeed: MAP_SEED, matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE };
@@ -338,7 +340,7 @@ function onFrame(ctx, f) {
   if (f.you) {
     ctx.you = f.you;
     if (ctx.firstYou === null) ctx.firstYou = f.you;
-    if (!ctx.activated && f.you.hp < TB.hp) ctx.readyHpViolations += 1;
+    if (!ctx.activated && f.you.hp < FULL_HP) ctx.readyHpViolations += 1;
   }
   for (const e of f.events) {
     if (e.k === 'boom' && e.hit === ctx.room.sessionId) ctx.boomsOnMe += 1;
@@ -354,7 +356,7 @@ function onFrame(ctx, f) {
 
 /** A full legal InputMsg: dead stop, weapons cold (the fireSeq is not bumped). */
 function input(ctx) {
-  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: TORP_SLOT, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: TORP_SLOT, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
 }
 
 /** Send a dead-stop input. */
@@ -362,11 +364,33 @@ function idle(ctx) {
   ctx.room.send('i', input(ctx));
 }
 
-/** THE SCRIPTED CLICK: dead stop, aim = the bearing to B (A's own heading by
+/** AIM WITHOUT A CLICK: dead stop, aim = the bearing to B, the fireSeq not
+ *  bumped — the launchers point at the aim inside their bands and nothing
+ *  fires. */
+function aimOnly(ctx) {
+  ctx.room.send('i', { ...input(ctx), aim: bearing(A_POSE, B_POSE), aimDist: D });
+}
+
+/** True once A's fore launcher sits on LAUNCH_BRG (its derived angle, ON_AIM_TOL_RAD). */
+function trained(ctx) {
+  const l = ctx.you?.launchers?.[0];
+  return l !== undefined && Math.abs(angleDiff(ctx.you.heading + l.a, LAUNCH_BRG)) <= ON_AIM_TOL_RAD;
+}
+
+/** AIM FIRST: aim (no click) until the own frame shows the fore launcher on
+ *  the aim — it snaps there (no traverse, Story 11.1), so this is a socket
+ *  round-trip, not a swing. */
+async function trainLauncher(a, b) {
+  await runUntil(() => { aimOnly(a); idle(b); }, () => trained(a), LAUNCHER_TRAIN_MS + SLACK_MS, 'the fore launcher trains onto the beam');
+}
+
+/** THE SCRIPTED CLICK: dead stop, aim = the bearing to B (A's starboard beam by
  *  the pose), a fresh fireSeq edge every tick; the tube reload paces launches. */
 function fire(ctx) {
   ctx.fireSeq += 1;
-  ctx.room.send('i', { ...input(ctx), aim: bearing(A_POSE, B_POSE) });
+  // A positive aim distance names the area (Story 10.6: a torpedo click with
+  // none is refused out-of-arc).
+  ctx.room.send('i', { ...input(ctx), aim: bearing(A_POSE, B_POSE), aimDist: D });
 }
 
 function phase(ctx) {
@@ -374,13 +398,13 @@ function phase(ctx) {
 }
 
 /** Roster rows that are NOT one of the two captains — the independent oracle
- *  for amendment 41/39 over a real socket: the match-start drone fill is
- *  deleted outright and PvE fleet hulls hold no `PlayerMeta` row at all, so
- *  the roster this smoke sees must be captains and nothing else. */
+ *  for amendment 41 over a real socket: the match-start drone fill is deleted
+ *  outright (and the PvE fleet with it, Story 10.8), so the roster this smoke
+ *  sees must be captains and nothing else. */
 function nonCaptainRosterRows(ctx, captainIds) {
   const out = [];
   ctx.room.state.players.forEach((_meta, id) => {
-    if (isDrone(id) || !captainIds.includes(id)) out.push(id);
+    if (!captainIds.includes(id)) out.push(id);
   });
   return out;
 }
@@ -422,18 +446,21 @@ function assertPoses(a, b) {
     assert(dist(y, pose) < 1 && Math.abs(angleDiff(y.heading, pose.heading)) < 1e-6,
       `${ctx.name} spawned at (${y.x.toFixed(1)},${y.y.toFixed(1)}) h=${y.heading.toFixed(3)}, not its dev pose`);
   }
-  assert(a.firstYou.hp === TB.hp && b.firstYou.hp === TARGET.maxHp, `spawn hp A ${a.firstYou.hp} / B ${b.firstYou.hp}, expected ${TB.hp} / ${TARGET.maxHp} (shared fold vs server maxHp)`);
+  assert(a.firstYou.hp === SHOOTER.maxHp && b.firstYou.hp === TARGET.maxHp, `spawn hp A ${a.firstYou.hp} / B ${b.firstYou.hp}, expected ${SHOOTER.maxHp} / ${TARGET.maxHp} (shared fold vs server maxHp)`);
   const off = Math.abs(angleDiff(a.firstYou.heading, bearing(a.firstYou, B_POSE)));
-  precondition(off < CONFIG.torpedo.halfArc, `bearing to B is ${off.toFixed(3)} rad off A's bow (halfArc ${CONFIG.torpedo.halfArc.toFixed(3)})`);
+  precondition(launcherArcHolds(DEFAULT_CLASS_ID, SHOOTER.torpedoLaunchers, a.firstYou.heading, bearing(a.firstYou, B_POSE)), `bearing to B is ${off.toFixed(3)} rad off A's bow — outside the fore launcher's firing band`);
   assert(JSON.stringify(a.firstYou.cards) === JSON.stringify(FIT), `A fitted ${JSON.stringify(a.firstYou.cards)}, expected ${JSON.stringify(FIT)}`);
   const pool = a.firstYou.ammo[TORP_SLOT];
-  assert(pool !== null && pool.n === FISH.tubes, `A's slot ${TORP_SLOT} holds ${pool?.n} fish, expected ${FISH.tubes} tubes`);
+  assert(pool !== null && pool.n === FISH.tubes, `A's slot ${TORP_SLOT} holds ${pool?.n} torpedoes, expected ${FISH.tubes} tubes`);
+  // The launchers ride the own block (Story 10.6): one fore launcher, every tube loaded.
+  const tubes = (a.firstYou.launchers ?? []).flatMap((l) => l.tubes);
+  assert(tubes.length === FISH.tubes && tubes.every((t) => t === 0), `A's own launchers carry tubes ${JSON.stringify(tubes)}, expected ${FISH.tubes} loaded`);
 }
 
 function planLine(stormFree) {
-  return `plan: seed ${MAP_SEED}, d=${D}u (3 hull lengths), fit ${FIT.length}x${TORP} -> ${FISH.tubes} tubes, ` +
+  return `plan: seed ${MAP_SEED}, d=${D}u (3 hull lengths), fit ${JSON.stringify(FIT)} -> ${FISH.tubes} tubes, ` +
     `${FISH_BLOW} dmg/fish (${FISH.damage} x armor curve), reload ${FISH.reloadMs}ms, flight ~${FLIGHT_MS.toFixed(0)}ms; ` +
-    `B ${TARGET.maxHp}hp, regen ${TARGET.regen.missingPctPerS * 100}%/s of missing after ${TARGET.regen.outOfCombatMs}ms -> ` +
+    `B ${TARGET.maxHp}hp, with regen -> ` +
     `${PLAN.fish} fish in ${PLAN.salvos} salvos (sim sink at ${(PLAN.sinkMs / 1000).toFixed(1)}s); ` +
     `fight budget ${FIGHT_BUDGET_MS}ms, countdown ${COUNTDOWN_MS}ms, storm-free ${stormFree}ms`;
 }
@@ -472,6 +499,7 @@ async function stepGathering() {
 async function stepReadyRoom(a, b) {
   await runUntil(() => {}, () => a.firstYou !== null && b.firstYou !== null, SLACK_MS, 'first own-ship frames');
   assertPoses(a, b);
+  await trainLauncher(a, b);
   const readyTick = () => { fire(a); idle(b); };
   await runUntil(readyTick, () => b.boomsOnMe >= 1 || phase(a) === 'active', FLIGHT_MS + FISH.reloadMs + SLACK_MS, 'suppressed torpedo impact');
   assert(b.boomsOnMe >= 1, 'no torpedo struck B during the ready room');
@@ -494,7 +522,7 @@ async function stepActivation(a, b) {
   assert(a.spawnsSeen > spawns0.a && b.spawnsSeen > spawns0.b, `redeploy not witnessed: spawn events A ${spawns0.a}->${a.spawnsSeen} / B ${spawns0.b}->${b.spawnsSeen}`);
   await sleep(300); // a few frames of active state
   for (const [ctx, pose] of [[a, A_POSE], [b, B_POSE]]) {
-    assert(ctx.you.hp === TB.hp, `${ctx.name} not at full hp after reset`);
+    assert(ctx.you.hp === FULL_HP, `${ctx.name} not at full hp after reset`);
     assert(dist(ctx.you, pose) < 2, `${ctx.name} not at its dev pose after the redeploy (${ctx.you.x.toFixed(1)},${ctx.you.y.toFixed(1)})`);
   }
   const pool = a.you.ammo[TORP_SLOT];
@@ -505,6 +533,8 @@ async function stepActivation(a, b) {
 
 /** Step 4 — A sinks B on the planned fish; B spectates unfogged; A never spec'd early. */
 async function stepSink(a, b) {
+  // The redeploy put the launchers back at rest: train again before the first click.
+  await trainLauncher(a, b);
   // A clicks every tick (the reload paces the fish); B sits still. Once B is
   // sunk it spectates and sends nothing, and A stands down.
   const fightTick = () => {
@@ -516,9 +546,9 @@ async function stepSink(a, b) {
   const blows = b.dmgActive.map((e) => e.amount);
   assert(blows.every((x) => x === FISH_BLOW), `B took blows ${JSON.stringify(blows)}, expected only ${FISH_BLOW}`);
   // Two-sided contract, NOT equality: the plan is a tick replay of the server,
-  // so a regen or reload timing nudge could flip an exact count without any
-  // contract breaking. Lower bound = the arithmetic minimum (no fish wasted on
-  // nothing); upper bound = the plan (regen never lengthened the fight).
+  // so a reload timing nudge could flip an exact count without any contract
+  // breaking. Lower bound = the arithmetic minimum (no fish wasted on
+  // nothing); upper bound = the plan.
   const minFish = Math.ceil(TARGET.maxHp / FISH_BLOW);
   assert(blows.length >= minFish, `B sank on ${blows.length} fish, fewer than the arithmetic minimum ${minFish}`);
   assert(blows.length <= PLAN.fish, `B sank on ${blows.length} fish, more than the kill plan's ${PLAN.fish}`);
@@ -556,22 +586,20 @@ async function stepResults(a, b) {
   // the results table is CAPTAINS ONLY and placement is captain-relative.
   assert(rowB.placement === 2, `B placement=${rowB.placement}, expected 2`);
   assert(res.rows[0].id === rowA.id, `winner is not the first row (got ${res.rows[0].id})`);
-  const droneRows = res.rows.filter((r) => isDrone(r.id));
-  assert(droneRows.length === 0, `results carried ${droneRows.length} DRONE row(s): ${JSON.stringify(droneRows.map((r) => [r.id, r.placement]))}`);
   assert(res.rows.length === 2, `expected exactly the 2 captains, got ${res.rows.length} rows`);
   assert(res.rows.every((r) => r.placement >= 1), `a row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`);
   // Dense 1..N with no duplicates and no gaps — the partition invariant.
   const seen = res.rows.map((r) => r.placement).sort((x, y) => x - y);
   assert(seen.every((p, i) => p === i + 1), `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`);
-  // The independent oracle (Story 5.6, amendments 39/41): the roster is
-  // CAPTAINS ONLY — no fill exists and a fleet hull holds no PlayerMeta row.
+  // The independent oracle (Story 5.6, amendment 41): the roster is
+  // CAPTAINS ONLY — no fill exists.
   const strays = nonCaptainRosterRows(a, [a.room.sessionId, b.room.sessionId]);
-  assert(strays.length === 0, `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendments 39/41)`);
+  assert(strays.length === 0, `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendment 41)`);
   for (let i = 1; i < res.rows.length; i++) {
     assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
   }
   assert(rowA.kills >= 1, `A kills=${rowA.kills}, expected >= 1`);
-  assert(rowA.damageDealt >= TB.hp, `A damageDealt=${rowA.damageDealt} < ${TB.hp}`);
+  assert(rowA.damageDealt >= TARGET.maxHp, `A damageDealt=${rowA.damageDealt} < ${TARGET.maxHp}`);
   TRACE.push(
     `results: winner=ALPHA (1st row, ${rowA.kills} kill, ${rowA.damageDealt}dmg); ` +
     `B placed ${rowB.placement} of ${res.rows.length} rows — both CAPTAINS, dense 1..2; roster is CAPTAINS ONLY`,

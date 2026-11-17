@@ -10,7 +10,8 @@
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import type { MatchSample } from './runner.js';
 import type { BotSample } from './botMetrics.js';
-import { emptyEdgeTally, emptyFamilyTally, emptyPostureTally } from './botReadouts.js';
+import { emptyEdgeTally, emptyPostureTally } from './botReadouts.js';
+import { RANGE_BANDS, emptyBands } from './rangeBands.js';
 
 /** One profile's posture split (POSTURE block rows). */
 export interface PostureGroup {
@@ -19,6 +20,13 @@ export interface PostureGroup {
   ticks: number;
   postureTicks: Record<string, number>;
   postureTransitions: Record<string, number>;
+}
+
+/** HULL REPAIR at the press, one style's pool (Story 10.12): accepted presses
+ *  and the mean hp / maxHp the hull stood at just before them (0 when none). */
+export interface RepairPressGroup {
+  presses: number;
+  meanHullFrac: number;
 }
 
 /** The pooled 9.13 readouts over a bot campaign (JSON: `variants[].bots.readouts`). */
@@ -38,11 +46,14 @@ export interface BotReadoutAggregate {
   /** Participant kills by the victim's last damage source. */
   killsBySource: Record<string, number>;
   gunShells: number;
-  shotsAtDecoy: number;
-  shotsAtOwnDecoy: number;
-  shotsBeyondRange: Record<string, number>;
-  litShots: number;
   starShellsFired: number;
+  /** Story 11.1: main-battery shells fired / that damaged a hull, per range
+   *  band of the turret's reach (four equal bands, nearest first). */
+  mbBandShells: number[];
+  mbBandHits: number[];
+  /** Story 11.9: main-battery clicks (salvos fired) per bot per match — one
+   *  value per BotSample row (one bot in one match). */
+  mbClicksPerBot: Summary;
   postureTicks: Record<string, number>;
   postureTransitions: Record<string, number>;
   tacticCounts: Record<string, number>;
@@ -50,13 +61,22 @@ export interface BotReadoutAggregate {
   fogRate: number;
   fogTicksByPosture: Record<string, number>;
   actPresses: number;
-  pressesByItem: Record<string, number>;
+  pressesByAbility: Record<string, number>;
   activations: Record<string, number>;
+  /** Story 10.12: guns bearing on the nearest hull in main reach, pooled
+   *  gun-ticks (BotReadouts.gunsBearing) and the share. */
+  gunsBearing: number;
+  gunsInReach: number;
+  gunsBearingRate: number;
+  /** Story 10.12: hostile mines a bot's shells took off the water. */
+  minesSwept: number;
+  /** Story 10.12: the hull fraction at an accepted HULL REPAIR press, by the
+   *  bot's repair style (keys sorted: `early`, `late`, …) and over all. */
+  repairByStyle: Record<string, RepairPressGroup>;
+  repairAll: RepairPressGroup;
   /** Per-match endgame clock and stall (MatchSample.lastTwoS / endgameNoContactMaxS). */
   lastTwoS: Summary;
   endgameNoContactMaxS: Summary;
-  droneGroundedTicks: number;
-  droneStormDeaths: number;
   byProfile: PostureGroup[];
 }
 
@@ -70,8 +90,6 @@ function sumRecords(base: Record<string, number>, recs: readonly Record<string, 
 }
 
 const sum = (rows: readonly BotSample[], f: (r: BotSample) => number): number => rows.reduce((a, r) => a + f(r), 0);
-const matchSum = (ms: readonly MatchSample[], f: (m: MatchSample) => number | undefined): number =>
-  ms.reduce((a, m) => a + (f(m) ?? 0), 0);
 
 export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReadoutAggregate {
   const rows = matches.flatMap((m) => m.bots ?? []);
@@ -97,29 +115,70 @@ export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReado
     fogRate: ratio(fog, ticks),
     fogTicksByPosture: sumRecords(emptyPostureTally(), rows.map((r) => r.fogTicksByPosture)),
     actPresses: sum(rows, (r) => r.actPresses),
-    pressesByItem: sumRecords({}, rows.map((r) => r.pressesByItem)),
+    pressesByAbility: sumRecords({}, rows.map((r) => r.pressesByAbility)),
     activations: sumRecords({}, rows.map((r) => r.activations)),
+    ...postureWorkReadouts(rows),
     lastTwoS: summarize(matches.flatMap((m) => (m.lastTwoS === undefined ? [] : [m.lastTwoS]))),
     endgameNoContactMaxS: summarize(
       matches.flatMap((m) => (m.endgameNoContactMaxS === undefined ? [] : [m.endgameNoContactMaxS])),
     ),
-    droneGroundedTicks: matchSum(matches, (m) => m.droneGroundedTicks),
-    droneStormDeaths: matchSum(matches, (m) => m.droneStormDeaths),
     byProfile: postureByProfile(rows),
   };
 }
 
-type ShotKeys = 'gunShells' | 'shotsAtDecoy' | 'shotsAtOwnDecoy' | 'shotsBeyondRange' | 'litShots' | 'starShellsFired';
+type ShotKeys = 'gunShells' | 'starShellsFired' | 'mbBandShells' | 'mbBandHits' | 'mbClicksPerBot';
+
+/** Band-wise sum of per-bot band arrays (a missing array reads as zeros). */
+function sumBands(rows: readonly BotSample[], f: (r: BotSample) => readonly number[] | undefined): number[] {
+  const out = emptyBands();
+  for (const r of rows) (f(r) ?? []).forEach((v, i) => { if (i < out.length) out[i] += v; });
+  return out;
+}
 
 function shotReadouts(rows: readonly BotSample[]): Pick<BotReadoutAggregate, ShotKeys> {
   return {
     gunShells: sum(rows, (r) => r.gunShells),
-    shotsAtDecoy: sum(rows, (r) => r.shotsAtDecoy),
-    shotsAtOwnDecoy: sum(rows, (r) => r.shotsAtOwnDecoy),
-    shotsBeyondRange: sumRecords(emptyFamilyTally(), rows.map((r) => r.shotsBeyondRange)),
-    litShots: sum(rows, (r) => r.litShots),
     starShellsFired: sum(rows, (r) => r.starShellsFired),
+    mbBandShells: sumBands(rows, (r) => r.mbBandShells),
+    mbBandHits: sumBands(rows, (r) => r.mbBandHits),
+    mbClicksPerBot: summarize(rows.map((r) => r.mbClicks)),
   };
+}
+
+/** `0-25% n=… hit=…% | 25-50% … | 75-100%+ …` — the main-battery hit share by range band. */
+export function bandLine(shells: readonly number[], hits: readonly number[]): string {
+  const step = 100 / RANGE_BANDS;
+  const cells: string[] = [];
+  for (let i = 0; i < RANGE_BANDS; i += 1) {
+    const label = `${fmt(i * step, 0)}-${fmt((i + 1) * step, 0)}%${i === RANGE_BANDS - 1 ? '+' : ''}`;
+    cells.push(`${label} n=${shells[i] ?? 0} hit=${pct(ratio(hits[i] ?? 0, shells[i] ?? 0))}`);
+  }
+  return cells.join(' | ');
+}
+
+type WorkKeys = 'gunsBearing' | 'gunsInReach' | 'gunsBearingRate' | 'minesSwept' | 'repairByStyle' | 'repairAll';
+
+/** The Story 10.12 readouts (guns bearing, mines swept, repair at the press). */
+function postureWorkReadouts(rows: readonly BotSample[]): Pick<BotReadoutAggregate, WorkKeys> {
+  const bearing = sum(rows, (r) => r.gunsBearing);
+  const inReach = sum(rows, (r) => r.gunsInReach);
+  const styles = [...new Set(rows.map((r) => r.repairStyle))].sort();
+  const repairByStyle: Record<string, RepairPressGroup> = {};
+  for (const style of styles) repairByStyle[style] = repairGroup(rows.filter((r) => r.repairStyle === style));
+  return {
+    gunsBearing: bearing,
+    gunsInReach: inReach,
+    gunsBearingRate: ratio(bearing, inReach),
+    minesSwept: sum(rows, (r) => r.minesSwept),
+    repairByStyle,
+    repairAll: repairGroup(rows),
+  };
+}
+
+/** Pooled presses and their mean hull fraction over some rows. */
+export function repairGroup(rows: readonly BotSample[]): RepairPressGroup {
+  const presses = sum(rows, (r) => r.repairPresses);
+  return { presses, meanHullFrac: ratio(sum(rows, (r) => r.repairHullFracSum), presses) };
 }
 
 function postureByProfile(rows: readonly BotSample[]): PostureGroup[] {
@@ -150,6 +209,13 @@ function countLine(rec: Record<string, number>): string {
   return keys.map((k) => `${k}=${rec[k]}`).join(' ');
 }
 
+/** `all n=… hull=…% | early n=… hull=…% | late …` (sorted styles). */
+function repairLine(a: BotReadoutAggregate): string {
+  const cell = (k: string, g: RepairPressGroup): string => `${k} n=${g.presses} hull=${pct(g.meanHullFrac)}`;
+  const styles = Object.keys(a.repairByStyle).sort();
+  return [cell('all', a.repairAll), ...styles.map((k) => cell(k, a.repairByStyle[k]))].join(' | ');
+}
+
 /** The readout lines printed beside the quality bars (no bar, no verdict). */
 export function renderReadoutLines(a: BotReadoutAggregate): string[] {
   return [
@@ -157,14 +223,17 @@ export function renderReadoutLines(a: BotReadoutAggregate): string[] {
     `  grounded (sim landContact): ${a.groundedTicks} ticks = ${pct(a.groundedRate)} of afloat | stuck episodes (>= CONFIG.bots.stuckMs): ${a.stuckEpisodes}`,
     `  outside the live ring: ${a.outsideRingTicks} ticks = ${pct(a.outsideRingRate)} | storm deaths aground-or-outside: ${a.stormDeathStuck} (aground: ${a.stormDeathAground})`,
     `  kills by source: ${countLine(a.killsBySource)}`,
-    `  deck-gun shells: ${a.gunShells} | beyond full range: ${countLine(a.shotsBeyondRange)} | into own light: ${a.litShots} | star shells: ${a.starShellsFired}`,
-    `  shells aimed at a decoy: enemy ${a.shotsAtDecoy} | own ${a.shotsAtOwnDecoy}`,
+    `  deck-gun shells: ${a.gunShells} | star shells: ${a.starShellsFired}`,
+    `  main-battery hit share by range band (of reach): ${bandLine(a.mbBandShells, a.mbBandHits)}`,
+    `  main-battery clicks per bot per match: ${fmtSummary(a.mbClicksPerBot)}`,
     `  solid fog: ${a.fogTicks} ticks = ${pct(a.fogRate)} of afloat`,
-    `  ability presses: ${a.actPresses} | by item: ${countLine(a.pressesByItem)}`,
+    `  ability presses: ${a.actPresses} | by ability: ${countLine(a.pressesByAbility)}`,
     `  activations (took effect): ${countLine(a.activations)}`,
+    `  guns bearing on the nearest hull in main reach: ${a.gunsBearing} of ${a.gunsInReach} gun-ticks = ${pct(a.gunsBearingRate)}`,
+    `  hostile mines swept by bot shells: ${a.minesSwept}`,
+    `  hull at a HULL REPAIR press (mean hp/maxHp): ${repairLine(a)}`,
     `  endgame (<= 2 hulls) s per match: ${fmtSummary(a.lastTwoS)}`,
     `  endgame longest no-hit gap s: ${fmtSummary(a.endgameNoContactMaxS)}`,
-    `  drones: grounded ${a.droneGroundedTicks} ticks | storm deaths ${a.droneStormDeaths}`,
   ];
 }
 

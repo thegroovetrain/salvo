@@ -33,7 +33,7 @@
 // which is amendment 64's one-quantity-per-channel rule.
 //
 // NOTHING HERE READS A RANGE CONSTANT AT ALL — not the far-radar anchor
-// (`farRadar`, 8/12 of the twelfths ladder since Story 9.8), not any other. The red->blue crossover is fitted (`fitPointRef`) where
+// (`farRadar`, 8/12 of the twelfths ladder [retired 2026-11-12, Story 11.2] since Story 9.8), not any other. The red->blue crossover is fitted (`fitPointRef`) where
 // the client tunables are defined, and it enters the paint path only as a
 // reference RANGE inside the curve. A comparison against a rung — `if (d >
 // farRadar)` — anywhere on a paint path violates amendments 105/118 and is
@@ -337,7 +337,7 @@ export function fitGrainScale(o: GrainFit): number {
 /** Everything `fitMaterialRef` needs to solve for a material's reference range. */
 export interface MaterialFit {
   /** Range (u) at which the material's UNLUCKIEST draw must land exactly on
-   *  `band` — its REACH. The caller passes a rung of the ladder (twelfths since Story 9.8), and
+   *  `band` — its REACH. The caller passes a rung of the ladder (twelfths since Story 9.8 [retired 2026-11-12, Story 11.2]), and
    *  client/src/config.ts is the only place that constant may be read. */
   reach: number;
   /** The intensity the worst draw must land on there — `bands[0].at`, the

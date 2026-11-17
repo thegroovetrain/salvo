@@ -53,8 +53,9 @@ import {
   CONFIG,
   isAfloat,
   isSinking,
-  type GunId,
+  type ShiftId,
   type HullId,
+  type IndexId,
   type LineId,
   type MatchPhase,
   type ResultsMsg,
@@ -258,31 +259,19 @@ const FINISH_DEADLINE_MARGIN_MS = 1000;
  * phase: everything reads zero/empty/null until a match activates and finishes.
  */
 export interface MatchEndSummary {
-  /** All combatants captured at activation, drones included. */
+  /** All combatants captured at activation. */
   rosterSize: number;
-  /** hullId -> combatant count (drones included, under their drone hull ids). */
+  /** hullId -> combatant count. */
   rosterByClass: Record<string, number>;
   /** (finishedAt - activatedAt) in seconds, rounded to 1 decimal; 0 if unfinished. */
   durationS: number;
-  /** Winner participant's hull id (always a player class — drones never win),
-   *  or null when there is no winner yet. */
+  /** Winner participant's hull id, or null when there is no winner yet. */
   winnerClass: string | null;
-  /** hullId -> summed kills across combatants (drones included). */
+  /** hullId -> summed kills across combatants. */
   killsByClass: Record<string, number>;
-  /**
-   * VICTIM drone hull id -> total PvE hulls sunk across all combatants (Story
-   * 5.6, epic-5 amendment 44). Operator telemetry only — a PvE kill still
-   * reaches no tally, no match log and no end-game record (amendment 38), and
-   * `killsByClass` above therefore counts none of them.
-   *
-   * Per SIZE rather than a bare total, because size IS the payout (¼ / ½ / ¾
-   * level, CONFIG.xp.droneTierLevels): these three counts alone reconstruct
-   * exactly how much XP the PvE faucet paid out in a real match. That
-   * PARTIALLY REPLACES the evidence stream amendment 41 removed when it
-   * deleted the drone-lobby batch-sim harness — real matches now carry the
-   * economy signal that harness used to generate.
-   */
-  pveKillsByClass: Record<string, number>;
+  /** hullId -> summed RADIO BEACON XP ms across combatants (Story 10.8) —
+   *  keyed by the EARNER's hull, as `killsByClass` is. Operator telemetry. */
+  beaconXpMsByClass: Record<string, number>;
   /** Sinks with no attributable killer (storm deaths) observed while active. */
   stormDeaths: number;
   /** How the match ended (amendment 53). Before a finish this reads the
@@ -304,20 +293,13 @@ export interface MatchEndSummary {
  *
  * One predicate over lifecycle state, expressed once and reused: checkWin() is
  * the only rule, afloatCaptains() its only collector. There is no second,
- * near-identical walk of world.ships deciding who counts — the drone-side
- * counterpart (aliveDroneCount) is gone with the gate it existed for.
+ * near-identical walk of world.ships deciding who counts.
  *
  * `isAfloat` is the seam — and Story 5.2 RULED it (amendment 14): a SINKING
  * hull is NOT win-eligible. The outcome is decided at sink-entry, exactly as
  * shipped, so this predicate deliberately keeps the isAfloat answer and the
  * five-second window changes nothing about who won (D4's "later sinker wins"
  * clause is dead — with a flat window, sink-entry order IS founder order).
- *
- * Fleet hulls are not captains, and they are not combatants — the same
- * position the Public Register took for `sunk` (CONFIG.xp.droneTierLevels pays
- * a fraction of a level where a captain pays a full one) and Story 4.6's
- * bounty throne took for `captainKills`. Neither of those is touched here:
- * ShipRecord.kills still counts fleet hulls for the roster/results tally.
  *
  * THE SEAM (Story 6.3, amendment 13): the win side of the old `isDrone` flag
  * reads `isParticipant` — "does this hull CONTEST the outcome" — so a Story
@@ -337,21 +319,25 @@ export interface Participant {
   role: ShipRole;
   hullId: HullId;
   kills: number;
-  /** Victim drone hull id -> PvE hulls this combatant sank (amendment 44).
-   *  Snapshotted exactly as `kills` is, so it survives the ship record's
-   *  removal — a captain who leaves still carries their PvE column into the
-   *  end-of-match telemetry. */
-  pveKills: Record<string, number>;
   damageDealt: number;
+  /** XP ms this combatant was paid by RADIO BEACONS (Story 10.8 —
+   *  `ShipRecord.beaconXpMs`), snapshotted exactly as `damageDealt` is. */
+  beaconXpMs: number;
+  /** Airdrops this combatant collected (Story 10.9 — `ShipRecord.dropsTaken`;
+   *  a wreck pickup counts once), snapshotted exactly as `beaconXpMs` is. */
+  dropsTaken: number;
   /** THE BUILD AND THE HAND LOG (Story 8.21, R3 "leavers yes"): the seat's
-   *  gun, the fitted card ids (fit order, repeats intact), every hand dealt and
+   *  Shift (Story 10.4 — was the gun), the fitted card ids (fit order, repeats intact), every hand dealt and
    *  the levels still unspent — snapshotted with the tallies at leave and at
    *  finish, COPIED (hands deep), so `buildMatchRecord` reads a leaver whose
    *  record is long gone. Server-private: never on `ResultsMsg`. */
-  gun: GunId;
+  shift: ShiftId;
   cards: LineId[];
   hands: HandRecord[];
   bankedLevels: number;
+  /** The exhausted hull's bonus points per index (Story 10.7, R5) — part of
+   *  the build, snapshotted beside `cards`. */
+  indexBonus: Record<IndexId, number>;
 }
 
 /** A fresh participant snapshot of `ship` — every field COPIED, never aliased
@@ -363,13 +349,20 @@ function participantOf(ship: ShipRecord): Participant {
     role: ship.role,
     hullId: ship.hullId,
     kills: ship.kills,
-    pveKills: { ...ship.pveKills },
     damageDealt: ship.damageDealt,
-    gun: ship.gun,
+    beaconXpMs: ship.beaconXpMs,
+    dropsTaken: ship.dropsTaken,
+    shift: ship.shift,
     cards: [...ship.cards] as LineId[],
     hands: ship.hands.map((h) => ({ ...h, offered: [...h.offered] })),
     bankedLevels: ship.bankedLevels,
+    indexBonus: { ...ship.indexBonus },
   };
+}
+
+/** `rec[key] += n` on a tally that starts at 0. */
+function addTo(rec: Record<string, number>, key: string, n: number): void {
+  rec[key] = (rec[key] ?? 0) + n;
 }
 
 export class Match {
@@ -521,12 +514,11 @@ export class Match {
         // survivor goes back to the QUEUE rather than home — Eric took a third
         // option amendment 10 never offered. requeue() is the signal, and it
         // fires IMMEDIATELY BEFORE the collapse it annotates; the disconnect is
-        // unchanged, so an undelivered signal is no worse than today. This does
-        // NOT revive "start anyway with one captain" for STANDARD play: Story
-        // 6-5 discharged the termination question only for a roster that holds
-        // AI captains (they are participants, so last-participant-afloat just
-        // works). A lone human among PvE fleet hulls still has no defined end,
-        // and queue.ts still refuses to form one.
+        // unchanged, so an undelivered signal is no worse than today. Only a
+        // BOT-LESS arena reaches this: a bot-filled one (solo, a bot-filled
+        // private lobby, or the standard queue with its bot fill on — Story
+        // 10.11, epic-10 amendment 20) runs at minHumans 1, so its lone
+        // survivor still has `enough` and plays on against the bots.
         this.hooks.requeue();
         this.hooks.disconnect();
       }
@@ -569,7 +561,9 @@ export class Match {
     if (contests && isAfloat(ship.lifecycle)) {
       this.scuttled.add(id); // consumeSinks: this killer-less sunk is no storm death
       this.departed.add(id); // reapDeparted: remove at founder, not before
-      this.world.sinkShip(id); // no killer — credits nobody by construction
+      // No killer — credits nobody by construction. `scuttle`: the wreck crate
+      // is left only if the hull was in combat (Eric 2026-11-09, world.inCombat).
+      this.world.sinkShip(id, undefined, { scuttle: true });
     } else if (!this.departed.has(id)) {
       this.keepCountdownLeaver(id, ship); // before the hull goes (Story 8.21)
       // Not the repeat-leave case: core can route onLeave twice (the
@@ -750,13 +744,11 @@ export class Match {
     this.sinkTimes.clear();
     this.scuttled.clear();
     this.departed.clear();
-    // Drones ARE participants — they are combatants for the KILL FEED, the
-    // contact stream and the operator telemetry (endSummary reads this Map, and
-    // rosterSize/rosterByClass/killsByClass must count every hull). They are
-    // NOT shown in the RESULTS: resultsMsg() filters them out and
-    // computePlacements() places captains only (Eric ruling 2026-08-11).
+    // Every hull aboard is a combatant for the KILL FEED, the contact stream
+    // and the operator telemetry (endSummary reads this Map, and
+    // rosterSize/rosterByClass/killsByClass must count every hull).
     // (The tallies read 0 here: resetForMatchStart's redeploy just zeroed
-    // kills/pveKills/damageDealt. The build and hand log carry through — the
+    // kills/damageDealt. The build and hand log carry through — the
     // countdown's opening hand is part of the record, Story 8.21.)
     for (const s of this.world.ships.values()) this.participants.set(s.id, participantOf(s));
     this.applyPolicy();
@@ -782,8 +774,7 @@ export class Match {
       this.participants.set(aliveWinner.id, participantOf(aliveWinner));
     }
     // RULING (Story 5.2, amendment 14): with 0 captains afloat the winner is
-    // the latest-sunk HUMAN — drones can never win, so we skip past them in
-    // the sink order — UNLESS every captain left standing went down on the
+    // the latest-sunk PARTICIPANT — UNLESS every captain left standing went down on the
     // SAME tick, which is a genuine DRAW: winnerId stays '' deliberately and
     // the client renders it as one. A flat sinking window preserves exact
     // ties exactly (sink-entry order IS founder order), so the same-tick wipe
@@ -1049,8 +1040,8 @@ export class Match {
       // Skip any already-placed winner — the mutual-destruction winner, and
       // (since the amendment-17 reversal) a latched winner the loser's revenge
       // shot put into the sink order mid-hold: they placed 1st above, sunk or
-      // not. Also skip every NON-PARTICIPANT — a fleet hull is not a
-      // combatant, so it holds no placement and gets no row.
+      // not. Also skip every NON-PARTICIPANT (none since Story 10.8 retired
+      // the PvE fleet; the guard keeps the rule in one place).
       if (this.placements.has(id) || !this.participantAt(id)) continue;
       this.placements.set(id, next++);
     }
@@ -1088,15 +1079,11 @@ export class Match {
   endSummary(): MatchEndSummary {
     const rosterByClass: Record<string, number> = {};
     const killsByClass: Record<string, number> = {};
-    // Keyed by the VICTIM's hull, not the killer's — the PvE column answers
-    // "how much drone tonnage went down", which is the XP the faucet paid.
-    const pveKillsByClass: Record<string, number> = {};
+    const beaconXpMsByClass: Record<string, number> = {};
     for (const p of this.participants.values()) {
-      rosterByClass[p.hullId] = (rosterByClass[p.hullId] ?? 0) + 1;
-      killsByClass[p.hullId] = (killsByClass[p.hullId] ?? 0) + p.kills;
-      for (const [victimHull, n] of Object.entries(p.pveKills)) {
-        pveKillsByClass[victimHull] = (pveKillsByClass[victimHull] ?? 0) + n;
-      }
+      addTo(rosterByClass, p.hullId, 1);
+      addTo(killsByClass, p.hullId, p.kills);
+      addTo(beaconXpMsByClass, p.hullId, p.beaconXpMs);
     }
     const finished = this.finishedAt > 0 && this.activatedAt > 0;
     const durationS = finished ? Math.round((this.finishedAt - this.activatedAt) / 100) / 10 : 0;
@@ -1106,7 +1093,7 @@ export class Match {
       durationS,
       winnerClass: this.participants.get(this.winnerId)?.hullId ?? null,
       killsByClass,
-      pveKillsByClass,
+      beaconXpMsByClass,
       stormDeaths: this.stormDeaths,
       endedBy: this.endedBy,
       outcome: this.outcomeOf(finished),
@@ -1158,21 +1145,24 @@ export class Match {
     if (!p) return;
     const fresh = participantOf(ship);
     p.kills = fresh.kills;
-    p.pveKills = fresh.pveKills;
     p.damageDealt = fresh.damageDealt;
-    p.gun = fresh.gun;
+    p.beaconXpMs = fresh.beaconXpMs;
+    p.dropsTaken = fresh.dropsTaken;
+    p.shift = fresh.shift;
     p.cards = fresh.cards;
     p.hands = fresh.hands;
     p.bankedLevels = fresh.bankedLevels;
+    p.indexBonus = fresh.indexBonus;
   }
 
   /**
    * PEOPLE, not participants (Story 6.3, amendment 13). This is the ONE count
    * that gates `minHumans` — the gathering window, the countdown arm/cancel and
    * the boarding gate all read it — so it must mean *real connected captains*.
-   * A Story 6.4 AI captain contests the match but MUST NEVER count here: FR34
-   * forbids bot-fill in Standard, and a lobby that "reached 2" on a bot would
-   * start a match nobody asked for.
+   * A Story 6.4 AI captain contests the match but MUST NEVER count here: a
+   * lobby that "reached 2" on a bot would start a match nobody asked for. Bots
+   * fill empty seats (Story 10.11, epic-10 amendment 20, does so for the
+   * standard queue) — they never stand in for the people a countdown needs.
    */
   private humanCount(): number {
     let n = 0;

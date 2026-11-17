@@ -23,7 +23,7 @@
 
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { REPO, serveDir, loadPlaywright, series, round, envInt } from './perfLib.mjs';
+import { REPO, serveDir, loadPlaywright, series, round, envInt, launchMuted } from './perfLib.mjs';
 
 const DIST = join(REPO, 'client', 'dist');
 const DPR = envInt('HC_DPR', 2);
@@ -52,7 +52,7 @@ async function main() {
   // low-power GPU, so an automated capture measures the INTEGRATED part by
   // default while the human's own browser may well be on the discrete one. A
   // verdict that does not say which GPU drew it is not a verdict.
-  const browser = await pw.mod.chromium.launch({
+  const browser = await launchMuted(pw, 'chromium', {
     headless: false,
     args: [
       // THE SAME FLAGS THE CAPTURE USES. This control produced the integrated-

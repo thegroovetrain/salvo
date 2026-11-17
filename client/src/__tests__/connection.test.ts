@@ -4,7 +4,17 @@
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_GUN, DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES, type GunId } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_HORN_ID,
+  HORN_IDS,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  MSG,
+  PROTOCOL_VERSION,
+  type ShiftId,
+} from '@salvo/shared';
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
@@ -116,16 +126,15 @@ vi.mock('@colyseus/sdk', () => ({
 import {
   connect,
   connectErrorStatus,
+  joinOptions,
   resumeConnection,
   resumeFailedStatus,
-  ensureColorPref,
   isQueueCancelled,
-  loadColorPref,
   loadHornPref,
+  saveHornPref,
   HORN_PREF_KEY,
   QueueError,
   RECONNECT_MAX_RETRIES,
-  __resetSessionColorPrefForTests,
   type ConnectHooks,
 } from '../net/connection';
 import {
@@ -135,13 +144,8 @@ import {
   saveResumeToken,
 } from '../net/resumeToken';
 
-// Module-level state in connection.ts (`sessionColorPref`) would otherwise leak
-// between tests in this file — e.g. the 'connect' tests below already exercise
-// `ensureColorPref()` indirectly (connect() now always resolves one), which
-// would seed the cache before the dedicated `ensureColorPref` tests further down
-// ever run. Reset before EVERY test so each one starts from a clean cache.
+// Reset the fake rooms and captured options before EVERY test.
 beforeEach(() => {
-  __resetSessionColorPrefForTests();
   queue = fakeRoom();
   room = fakeRoom();
   lastReservation = undefined;
@@ -179,9 +183,9 @@ const SEAT = { room: { roomId: 'arena-1', processId: 'p1' }, sessionId: 'arena-s
  *  reservation, then fire the ARENA welcome it awaits. */
 async function connectAndWelcome(
   hooks: ConnectHooks = {},
-  gun?: GunId,
+  shift?: ShiftId,
 ): Promise<Awaited<ReturnType<typeof connect>>> {
-  const pending = connect('tester', undefined, hooks, false, gun);
+  const pending = connect('tester', undefined, hooks, false, shift);
   await vi.waitFor(() => {
     if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
   });
@@ -244,8 +248,9 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
         () => void (settled = true),
       );
       await vi.advanceTimersByTimeAsync(0); // let the queue join resolve
-      // Well past WELCOME_TIMEOUT_MS (5s) AND past CONFIG.match.queueTimerMs
-      // (2:00): a pooled captain waits, and an unarmed pool waits indefinitely.
+      // Well past WELCOME_TIMEOUT_MS (5s) AND past CONFIG.match.queueTimerMs:
+      // a pooled captain waits, and with bot fill off (Story 10.11) a pool below
+      // the arm minimum waits indefinitely.
       await vi.advanceTimersByTimeAsync(180_000);
       expect(settled).toBe(false);
       queue.fire(MSG.seat, SEAT);
@@ -280,10 +285,10 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
       if (!queue.has(MSG.queueStatus)) throw new Error('queue handler not yet registered');
     });
     queue.fire(MSG.queueStatus, { n: 1, min: 2, cap: 20, startsInMs: null });
-    queue.fire(MSG.queueStatus, { n: 2, min: 2, cap: 20, startsInMs: 120_000 });
+    queue.fire(MSG.queueStatus, { n: 2, min: 2, cap: 20, startsInMs: CONFIG.match.queueTimerMs });
     expect(seen).toEqual([
       { n: 1, min: 2, cap: 20, startsInMs: null },
-      { n: 2, min: 2, cap: 20, startsInMs: 120_000 },
+      { n: 2, min: 2, cap: 20, startsInMs: CONFIG.match.queueTimerMs },
     ]);
     queue.fire(MSG.seat, SEAT);
     await vi.waitFor(() => {
@@ -355,11 +360,12 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
 });
 
 describe('connect — the SOLO VS AI door (Story 6.5)', () => {
+  const SOLO_CLASS = SHIP_CLASS_IDS[SHIP_CLASS_IDS.length - 1];
   /** Drive the solo path: no queue, no seat — straight to the arena welcome. */
   async function connectSolo(
     hooks: ConnectHooks = {},
   ): Promise<Awaited<ReturnType<typeof connect>>> {
-    const pending = connect('tester', 'battleship', hooks, true);
+    const pending = connect('tester', SOLO_CLASS, hooks, true);
     await vi.waitFor(() => {
       if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
     });
@@ -382,13 +388,13 @@ describe('connect — the SOLO VS AI door (Story 6.5)', () => {
   it('still rides the PROTOCOL_VERSION gate and the full identity options', async () => {
     await connectSolo();
     expect(lastCreateOpts?.pv).toBe(PROTOCOL_VERSION);
-    expect(lastCreateOpts?.cls).toBe('battleship');
+    expect(lastCreateOpts?.cls).toBe(SOLO_CLASS);
     expect(lastCreateOpts?.name).toBe('tester');
     expect(lastCreateOpts?.horn).toBe(DEFAULT_HORN_ID);
-    expect(typeof lastCreateOpts?.colorPref).toBe('number');
-    // Story 8.14: the SEAT'S GUN rides the solo door exactly as it rides the
+    // Story 10.4: the SEAT'S SHIFT rides the solo door exactly as it rides the
     // queue door — the solo arena seats a captain the same way.
-    expect(lastCreateOpts?.gun).toBe(DEFAULT_GUN);
+    expect(lastCreateOpts?.shift).toBe(DEFAULT_SHIFT);
+    expect(lastCreateOpts).not.toHaveProperty('kit'); // Story 10.5: the kit left the join
   });
 
   it('binds NO queue channel and hands out NO canceller — there is nothing to wait for', async () => {
@@ -441,26 +447,49 @@ describe('connect', () => {
     expect(lastJoinOpts?.pv).toBe(PROTOCOL_VERSION);
   });
 
-  it("forwards the seat's gun as `gun` — DEFAULT_GUN when the caller names none", async () => {
+  it("forwards the seat's Shift as `shift` — DEFAULT_SHIFT when the caller names none", async () => {
     await connectAndWelcome();
-    // Story 8.14 (epic-8 amendments 89d/95): the gun is the captain's PICK,
-    // frozen at queue and re-sanitized server-side exactly like `cls`. It is
-    // always SENT, never omitted, so the server's coercion path is never what
-    // decides a real captain's gun.
-    expect(lastJoinOpts?.gun).toBe(DEFAULT_GUN);
+    // Story 10.4: the Shift is the captain's PICK (the seat's, not the hull's),
+    // re-sanitized server-side exactly like `cls`. Always SENT, never omitted.
+    expect(lastJoinOpts?.shift).toBe(DEFAULT_SHIFT);
   });
 
-  it('forwards the THREADED gun pick verbatim (Story 8.15: startGame, connect, joinOptions)', async () => {
-    await connectAndWelcome({}, 'machineGun');
-    expect(lastJoinOpts?.gun).toBe('machineGun');
+  it('forwards the THREADED Shift pick verbatim (startGame, connect, joinOptions)', async () => {
+    const other = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT) as ShiftId;
+    await connectAndWelcome({}, other);
+    expect(lastJoinOpts?.shift).toBe(other);
+  });
+
+  it('carries no retired seat-gun or color-preference key (Story 10.4)', async () => {
+    await connectAndWelcome();
+    expect(lastJoinOpts).not.toHaveProperty('gun');
+    expect(lastJoinOpts).not.toHaveProperty('colorPref');
+  });
+
+  // Story 10.5 (2026-11-05, epic-10 amendment 11): the consumable kit left
+  // the join with the kit — no `kit` key is ever sent.
+  it('sends no `kit` key (the kit retired)', async () => {
+    await connectAndWelcome();
+    expect(lastJoinOpts).not.toHaveProperty('kit');
   });
 
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {
     await connectAndWelcome();
     // ALWAYS sent (loadHornPref never returns undefined) and re-sanitized
-    // server-side in onJoin, exactly like `cls`. Exactly one horn ships and no
-    // UI writes the key — a second horn is CONTENT and needs an Eric ruling.
+    // server-side in onJoin, exactly like `cls`.
     expect(lastJoinOpts?.horn).toBe(DEFAULT_HORN_ID);
+  });
+
+  it('Story 10.13: a stored NON-DEFAULT horn (the class bay’s pick) rides the join as-is', async () => {
+    const picked = HORN_IDS.find((id) => id !== DEFAULT_HORN_ID);
+    expect(picked).toBeDefined();
+    saveHornPref(picked as (typeof HORN_IDS)[number]);
+    try {
+      await connectAndWelcome();
+      expect(lastJoinOpts?.horn).toBe(picked);
+    } finally {
+      localStorage.removeItem(HORN_PREF_KEY);
+    }
   });
 
   it('rejects immediately when the socket closes during the welcome handshake', async () => {
@@ -533,46 +562,10 @@ describe('connectErrorStatus', () => {
   });
 });
 
-describe('loadColorPref — persisted Regatta preference (Story 1.12)', () => {
-  const KEY = 'hullcracker.color'; // COLOR_PREF_KEY (connection.ts)
-
-  function withStored(value: string | null): number | undefined {
-    if (value === null) localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, value);
-    return loadColorPref();
-  }
-
-  it('returns undefined for an absent key (no preference written)', () => {
-    expect(withStored(null)).toBeUndefined();
-  });
-
-  it('returns undefined for an empty / whitespace-only value (NOT the Number("") = 0 trap)', () => {
-    // The regression this fix closes: Number('') and Number('   ') both coerce to
-    // 0, which would forward a bogus colorPref: 0 for a never-set key.
-    expect(withStored('')).toBeUndefined();
-    expect(withStored('   ')).toBeUndefined();
-  });
-
-  it('accepts a valid in-range wheel index, including the boundaries 0 and 19', () => {
-    expect(withStored('7')).toBe(7);
-    expect(withStored('0')).toBe(0);
-    expect(withStored('19')).toBe(19);
-  });
-
-  it('rejects out-of-range / fractional / non-numeric values', () => {
-    expect(withStored('20')).toBeUndefined();
-    expect(withStored('-1')).toBeUndefined();
-    expect(withStored('3.5')).toBeUndefined();
-    expect(withStored('x')).toBeUndefined();
-  });
-});
-
 describe('loadHornPref — the persisted foghorn variant (Story 4.5, amendment 52)', () => {
   afterEach(() => localStorage.removeItem(HORN_PREF_KEY));
 
-  it('FAILS OPEN to the default horn for an absent key — the shipped case', () => {
-    // No UI writes this key: exactly one horn ships, and adding variants is
-    // CONTENT that needs an Eric ruling. The seam is plumbed, not surfaced.
+  it('FAILS OPEN to the default horn for an absent key (nothing picked yet)', () => {
     localStorage.removeItem(HORN_PREF_KEY);
     expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
   });
@@ -584,9 +577,19 @@ describe('loadHornPref — the persisted foghorn variant (Story 4.5, amendment 5
     }
   });
 
-  it('returns a valid stored id unchanged', () => {
-    localStorage.setItem(HORN_PREF_KEY, DEFAULT_HORN_ID);
-    expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
+  it('returns a valid stored id unchanged — every catalog id round-trips through saveHornPref', () => {
+    for (const id of HORN_IDS) {
+      saveHornPref(id);
+      expect(loadHornPref()).toBe(id);
+    }
+  });
+
+  it('saveHornPref survives storage that throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    expect(() => saveHornPref(DEFAULT_HORN_ID)).not.toThrow();
+    spy.mockRestore();
   });
 
   it('survives storage that throws (blocked / private-mode localStorage)', () => {
@@ -598,91 +601,16 @@ describe('loadHornPref — the persisted foghorn variant (Story 4.5, amendment 5
   });
 });
 
-describe('ensureColorPref — never-null preference resolution (Story 1.14)', () => {
-  const KEY = 'hullcracker.color'; // COLOR_PREF_KEY (connection.ts)
-
-  it('rolls and persists a random in-range index when no key is stored', () => {
-    localStorage.removeItem(KEY);
-    const idx = ensureColorPref();
-    expect(Number.isInteger(idx)).toBe(true);
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(idx).toBeLessThan(REGATTA_HUES.length);
-    // Persisted immediately — a subsequent loadColorPref() sees the SAME value,
-    // and it survives as the stored string format saveColorPref() also uses.
-    expect(localStorage.getItem(KEY)).toBe(String(idx));
-    expect(loadColorPref()).toBe(idx);
+describe('joinOptions — the seat payload (Story 10.4)', () => {
+  it('defaults the Shift to DEFAULT_SHIFT and carries neither `gun` nor `colorPref`', () => {
+    const opts = joinOptions('tester', SHIP_CLASS_IDS[0]);
+    expect(opts.shift).toBe(DEFAULT_SHIFT);
+    expect(opts).not.toHaveProperty('gun');
+    expect(opts).not.toHaveProperty('colorPref');
   });
 
-  it('never rerolls a valid stored preference', () => {
-    localStorage.setItem(KEY, '7');
-    expect(ensureColorPref()).toBe(7);
-    // Untouched — still exactly what was stored, not rewritten.
-    expect(localStorage.getItem(KEY)).toBe('7');
-  });
-
-  it('rerolls and persists a valid index when the stored value is corrupt (garbage string)', () => {
-    localStorage.setItem(KEY, 'not-a-number');
-    const idx = ensureColorPref();
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(idx).toBeLessThan(REGATTA_HUES.length);
-    expect(localStorage.getItem(KEY)).toBe(String(idx));
-  });
-
-  it('rerolls and persists a valid index when the stored value is out of range', () => {
-    localStorage.setItem(KEY, '20');
-    const idx = ensureColorPref();
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(idx).toBeLessThan(REGATTA_HUES.length);
-    expect(localStorage.getItem(KEY)).toBe(String(idx));
-  });
-
-  it('rerolls and persists a valid index when the stored value is empty', () => {
-    localStorage.setItem(KEY, '');
-    const idx = ensureColorPref();
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(idx).toBeLessThan(REGATTA_HUES.length);
-    expect(localStorage.getItem(KEY)).toBe(String(idx));
-  });
-});
-
-describe('ensureColorPref — session cache when localStorage.setItem throws (regression)', () => {
-  const KEY = 'hullcracker.color';
-  let setItemSpy: ReturnType<typeof vi.spyOn>;
-
-  // Simulates blocked/private-mode/quota-exceeded storage: reads still work
-  // (the key is simply absent), but persisting a fresh roll always throws.
-  beforeEach(() => {
-    localStorage.removeItem(KEY);
-    setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('QuotaExceededError (simulated blocked/private-mode storage)');
-    });
-  });
-
-  afterEach(() => {
-    setItemSpy.mockRestore();
-  });
-
-  it('returns the SAME index across two successive calls (no per-call reroll)', () => {
-    const first = ensureColorPref();
-    const second = ensureColorPref();
-    expect(second).toBe(first);
-    expect(Number.isInteger(first)).toBe(true);
-    expect(first).toBeGreaterThanOrEqual(0);
-    expect(first).toBeLessThan(REGATTA_HUES.length);
-    // Confirms persistence genuinely failed for this scenario — the key never
-    // landed in storage, so a plain loadColorPref()-backed fallback (with no
-    // session cache) would have had nothing to agree on and would reroll.
-    expect(localStorage.getItem(KEY)).toBeNull();
-  });
-
-  it("is the SAME index connect() forwards as `colorPref` in its join options", async () => {
-    const idx = ensureColorPref();
-    await connectAndWelcome();
-    // Before the fix, connect() read loadColorPref() directly (undefined in this
-    // throwing-storage environment) and omitted `colorPref` entirely — the
-    // server would then assign a hue different from the one ensureColorPref()
-    // told the whole home/bay chrome to tint with.
-    expect(lastJoinOpts?.colorPref).toBe(idx);
+  it('carries every Shift id it is handed, verbatim', () => {
+    for (const id of SHIFT_IDS) expect(joinOptions('tester', SHIP_CLASS_IDS[0], id).shift, id).toBe(id);
   });
 });
 

@@ -48,6 +48,28 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # THE STANDARD QUEUE'S BOT-FILL SWITCH (Story 10.11, Eric 2026-11-10: "the
+      # switch for bot fill on lobbies something I can set as an environment
+      # variable on render ... basically number of seconds until queue fills
+      # with bots. If set to 0 or unset, then bot autofill should be off").
+      #
+      # THE VALUE IS A NUMBER OF SECONDS. "60" = one captain alone arms the
+      # queue's timer, and 60 seconds later the match forms with AI captains
+      # filling every empty seat up to the 16-ship cap. "0", or the key absent =
+      # bot fill OFF: the queue needs two real captains again, holds its own
+      # 1:00 (CONFIG.match.queueTimerMs) and seats no bots.
+      #
+      # READ ONCE PER QUEUE ROOM, at the server (`server/src/rooms/queueFill.ts`)
+      # — a RUNTIME value, not a build-time one, so changing it needs a restart
+      # of the service and no rebuild. Solo vs AI and private lobbies have their
+      # own bot fill and do not read this.
+      #
+      # Change the value HERE — a value set only in the dashboard is drift, and
+      # the next Blueprint sync puts this one back. And remember this file only
+      # reaches Render from `main`: until it does, a service has no key, which
+      # means OFF. QUOTED, because a bare 60 is a YAML number.
+      - key: HC_QUEUE_BOT_FILL
+        value: "60"
       # THE GA4 MEASUREMENT ID (Story 7.2). Build-time config rather than a
       # literal in source, on the mechanism `VITE_WS_URL` already proves: Vite
       # inlines `VITE_`-prefixed vars at BUILD time, and Render exposes envVars
@@ -169,6 +191,12 @@ services:
       # need a manual API call plus a production redeploy.
       - key: HC_NOINDEX
         value: "1"
+      # THE STANDARD QUEUE'S BOT-FILL SWITCH — the same key, with the same
+      # meaning, as on the production service above (read the note there). Its
+      # own line here so staging can be given a different wait, or "0" to QA the
+      # no-bots queue, without touching production.
+      - key: HC_QUEUE_BOT_FILL
+        value: "60"
       # THE STAGING PASSWORD. One shared secret, no accounts. Setting it turns
       # on BOTH halves of the gate: a password page in front of everything
       # express.static serves, and a check in both rooms' `static onAuth` so

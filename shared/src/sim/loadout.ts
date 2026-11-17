@@ -1,35 +1,44 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
-// on (Story 1.2, re-cut in Story 8.5). A ship's loadout IS its equipment
-// runtime: ELEVEN FIXED-ROLE SLOTS, identical for every captain hull —
-// [gun, boost, weapon, weapon, weapon, consumable ×6] — each either empty or
-// holding one equipment id + its state. Since Story 9.2 (epic-9 amendments 21
-// and 31) the six consumable slots are not a packed belt: EACH KIND OWNS ONE
-// FIXED SLOT and one fixed key (`CONSUMABLE_KEY_ORDER`).
+// on (Story 1.2, re-cut in Story 8.5 and again in Story 10.5). A ship's
+// loadout IS its equipment runtime: FIVE FIXED-ROLE SLOTS, identical in SHAPE
+// for every captain hull — [battery, Shift, torpedo, mine, special shell] —
+// each either empty or holding one equipment id + its state.
+//
+// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 11): THE KIT IS RETIRED. The
+// four consumable slots, the per-ship `ConsumableKit` and the whole consumable
+// id space are deleted; the three weapon slots become FAMILY SLOTS — `Q`
+// torpedo, `E` mine, `R` special shell — ONE KIND PER SLOT FOR THE MATCH
+// (`EQUIPMENT_FAMILY` / `familySlotFor` below). A first card of a family fills
+// THAT family's slot whatever order the cards arrive in; a second kind of a
+// filled family has nowhere to go (sim/boons.ts `pickRefusal`, sim/draw.ts).
+// HULL REPAIR (`C`) and SMOKE (`V`) are cooldown ABILITIES that occupy no
+// slot (sim/abilities.ts).
 //
 // THE PER-HULL FIT IS GONE (Story 8.5, epic-8 amendments 21–24). There is no
 // `specialsFor` and no `SLOT_EXTRA`: every captain sails with the SAME shape,
 // and class identity lives in the CARDS a hull is dealt and its envelope, not
 // in the hardware. THE INTERIM SPAWN SEED IS GONE TOO (Story 8.10, amendment 62):
-// every hull now spawns with THE GUN AND THE SHIFT BOOST ONLY, and the weapon
+// every hull now spawns with THE GUN AND THE SHIFT ONLY, and the weapon
 // row starts empty. The captain's first weapon comes from the LEVEL-ZERO OFFER
-// granted at countdown start — the opening — and lands in the row as a card
-// like every card after it.
+// granted at countdown start — the opening — and lands in its family slot as a
+// card like every card after it.
 //
-// Slot 1 holds the hull's CLASS SHIFT — a FIXED ability no card can address,
-// chosen by `CONFIG.shipClasses.<id>.shift` (Story 8.15, Eric rulings
-// 2026-09-21/28, epic-8 amendments 89(c) and 97–102): SPEED BOOST on the
-// Torpedo Boat, INSTANT RELOAD on the Mine Layer, HUNKER (was DAMAGE CUT until Story 9.9) on the Battleship.
-// The boost was UNIVERSAL from Story 8.5 (amendment 23) to 8.9's module; 8.15
-// landed the split, so hull identity is now envelope + Shift.
+// Slot 0 holds THE MAIN BATTERY on a captain's hull (Story 10.4, Eric
+// 2026-11-04, epic-10 amendments 7 and 9): the `mainBattery` module, whose
+// per-turret truth lives in sim/turrets.ts. The seat-gun pick (deck gun /
+// machine gun / flak) is GONE with the three scaffold classes.
 //
-// PvE FLEET HULLS FIT THE GUN AND NOTHING ELSE (epic-5 amendment 34, epic-8
-// amendment 24): Eric's ruling is "each has a gun to defend itself", singular.
-// They used to inherit a universal torpedo + mine fit — loaded tubes they
-// could never use, with both reload timers ticking forever.
+// Slot 1 holds the SEAT'S SHIFT — an ability no card can address, PICKED by
+// the captain at ship select in the retired gun pick's place (Story 10.4,
+// R7; default SPEED BOOST). From Story 8.15 to 10.4 it was fixed per class
+// (`CONFIG.shipClasses.<id>.shift`, epic-8 amendments 89(c) and 97–102);
+// that field and `classShift()` are gone.
+//
+// (The PvE fleet hulls' gun-only fit — epic-5 amendment 34, epic-8 amendment
+// 24 — retired with the fleet at Story 10.8, 2026-11-06.)
 //
 // Pure, zero I/O.
 
-import { CONSUMABLE_IDS, type ConsumableId } from './effects.js';
 import type { EffectiveStats } from './stats.js';
 
 /**
@@ -58,9 +67,15 @@ import type { EffectiveStats } from './stats.js';
  * `phosphorShells` ARRIVED from the add-on space — PHOSPHOR SHELLS is its own
  * tiered 360° weapon line now, not a star-shell verb (the locked id is kept).
  *
- * The legacy `radarBuoy` id is GONE (Story 8.16): the RADAR BUOY was deleted
- * end to end in favour of the DECOY BUOY consumable (catalog-v3 R1). The legacy flat-bonus boost id is GONE (Story 8.9): the v3
- * `boost` id IS the speed boost, the Torpedo Boat's Shift since 8.15.
+ * The legacy flat-bonus boost id is GONE (Story 8.9): the v3 `boost` id IS the
+ * speed boost.
+ *
+ * STORY 10.5 BROUGHT THREE BACK (Eric 2026-11-05, epic-10 amendment 11):
+ * `supercavTorpedo`, `dazzleShells` (FLASH SHELLS — the locked id is kept) and
+ * `foulingShell` are RELOADING SLOT WEAPONS again, with a stat row and five
+ * tiers each; the consumable id space they sat in from 8.13 / 8.17 / 9.4 is
+ * deleted with the kit. Appended LAST, after `mainBattery`, so every
+ * pre-existing id keeps its place in `EQUIPMENT_IDS`.
  */
 export type EquipmentId =
   | 'gun'
@@ -76,7 +91,11 @@ export type EquipmentId =
   | 'starShells'
   | 'phosphorShells'
   | 'instantReload'
-  | 'hunker';
+  | 'hunker'
+  | 'mainBattery'
+  | 'supercavTorpedo'
+  | 'dazzleShells'
+  | 'foulingShell';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
@@ -121,83 +140,48 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // boost's grammar exactly.
   instantReload: false,
   hunker: false,
-};
-
-/**
- * THE CLASS SHIFT ids (Story 8.15, Eric rulings 2026-09-21/28, epic-8
- * amendments 89(c) and 97–102) — the three non-weapon abilities slot 1 may
- * hold, one FIXED per hull by `CONFIG.shipClasses.<id>.shift`. Each is its own
- * `EquipmentId` rather than one module dispatching on hull, so the stat row
- * (and with it RELOAD's `cooldownScale`), the server registry, the bot tactic
- * rows and the HUD glyph table all key on the id with no hull special case.
- */
-export type ShiftId = 'boost' | 'instantReload' | 'hunker';
-
-/** Every ShiftId, in class order (TB · ML · BS). */
-export const SHIFT_IDS: readonly ShiftId[] = Object.freeze(['boost', 'instantReload', 'hunker'] as const);
-
-/** The Shift a loadout fits when none is named — the Torpedo Boat's. */
-export const DEFAULT_SHIFT: ShiftId = 'boost';
-
-/**
- * WHAT A SLOT MAY HOLD (Story 8.7): a piece of EQUIPMENT (slots 0–4) or a
- * CONSUMABLE line (the six fixed consumable slots since Story 9.2). The two id spaces stay DISJOINT —
- * `EquipmentId` is never widened — because five records are keyed by
- * EquipmentId (`EquipmentRows`, `EQUIPMENT_STAT_FIELDS`, `EQUIPMENT_IS_WEAPON`,
- * the server's equipment registry, the client's glyph table) and every
- * consumable entry in them would be a lie: a stack has no stat row, no reload
- * and no module. The union lives at the ONE place that holds either — the slot
- * — which forces a narrowing guard (`isConsumableId`) at each read instead of
- * a cast.
- */
-export type SlotItemId = EquipmentId | ConsumableId;
-
-/**
- * The consumable half of the weapon/ability split (D21) — the same law
- * `EQUIPMENT_IS_WEAPON` states for equipment: true iff the consumable is AIMED
- * and fired at a clicked point, false iff it is an instant activation off its
- * fixed number key. THREE are click-aimed: the DECOY BUOY (catalog-v3 R1, the
- * buoy it replaces was too), the SUPERCAV TORPEDO (epic-8 amendment 74) and
- * FLASH SHELLS (Story 8.17, amendment 132). Compile-forced to cover every
- * ConsumableId.
- */
-export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
-  hullRepair: false,
-  shieldBlock: false,
-  countermeasure: false, // an instant key activation (Story 9.3)
-  decoyBuoy: true,
-  // DEPTH CHARGE (amendment 83) — STUB: Eric's line, mechanism a later story.
-  // Declared NON-aimed until he rules; a stub is never dealt, so nothing can
-  // reach either channel with it today.
-  depthCharge: false,
-  // SUPERCAV TORPEDO (amendment 74) — the ONE consumable that is a WEAPON in
-  // the mechanical sense besides the decoy: the digit primes, a click inside
-  // the bow ±15° sector fires one fish (`KEY PRIMES · CLICK FIRES`).
+  // THE MAIN BATTERY (Story 10.4): a captain's slot 0 — click-aimed, one
+  // turret per click (sim/turrets.ts). Appended LAST so every pre-existing
+  // id keeps its place in `EQUIPMENT_IDS`.
+  mainBattery: true,
+  // THE THREE MOVED WEAPONS (Story 10.5): ready the slot, click fires — the
+  // supercav from its launchers (Story 10.6), the flash and fouling shells at any bearing.
   supercavTorpedo: true,
-  // FOULING SHELL (Story 9.4, Eric 2026-10-11, epic-9 amendments 61–68;
-  // replaces FLASH SHELLS): the digit primes, a click fires one 360° shell to
-  // the radar rung whose burst leaves a stationary slowing zone.
+  dazzleShells: true,
   foulingShell: true,
 };
 
-/** Membership over the ONE consumable id list (sim/effects.ts) — never a second
- *  copy of it. */
-const CONSUMABLE_ITEM_SET: ReadonlySet<string> = new Set(CONSUMABLE_IDS);
-
 /**
- * THE narrowing guard. Every site that reads an EquipmentId-keyed record with a
- * slot's content runs this first; the `false` branch narrows to `EquipmentId`
- * because the two unions are disjoint, so no cast is ever needed.
+ * THE SHIFT ids (Story 8.15, Eric rulings 2026-09-21/28, epic-8 amendments
+ * 89(c) and 97–102) — the three non-weapon abilities slot 1 may hold. THE
+ * SEAT'S PICK since Story 10.4 (Eric 2026-11-04, R7, epic-10 amendment 9): any
+ * hull, chosen at ship select and frozen on the seat, in the place the retired
+ * deck-gun pick held. Each is its own `EquipmentId` rather than one module
+ * dispatching on hull, so the stat row, the server registry, the bot tactic rows and the HUD glyph table all key on
+ * the id with no hull special case.
  */
-export function isConsumableId(id: string): id is ConsumableId {
-  return CONSUMABLE_ITEM_SET.has(id);
+export type ShiftId = 'boost' | 'instantReload' | 'hunker';
+
+/** Every ShiftId, in pick order. */
+export const SHIFT_IDS: readonly ShiftId[] = Object.freeze(['boost', 'instantReload', 'hunker'] as const);
+
+/** The Shift a seat carries when the pick is missing, unknown or malformed — SPEED BOOST (R7). */
+export const DEFAULT_SHIFT: ShiftId = 'boost';
+
+const SHIFT_ID_SET: ReadonlySet<string> = new Set<string>(SHIFT_IDS);
+
+/** Is `x` one of the three Shifts? Fail-closed: anything else is not. */
+export function isShiftId(x: unknown): x is ShiftId {
+  return typeof x === 'string' && SHIFT_ID_SET.has(x);
 }
 
-/** The weapon/ability split over EITHER kind of slot content — the ONE
- *  predicate both dispatch channels (the aimed fireSeq path and the instant
- *  actSeq path) call, on the server and on the client. */
-export function isWeaponItem(id: SlotItemId): boolean {
-  return isConsumableId(id) ? CONSUMABLE_IS_WEAPON[id] : EQUIPMENT_IS_WEAPON[id];
+/**
+ * Coerce arbitrary (wire / localStorage / join-option) input to a valid Shift,
+ * default `DEFAULT_SHIFT`. Never throws — the same fail-open contract as
+ * `sanitizeClassId`.
+ */
+export function sanitizeShiftId(raw: unknown): ShiftId {
+  return isShiftId(raw) ? raw : DEFAULT_SHIFT;
 }
 
 /** Every EquipmentId, in declaration order — the totality spine the equipment
@@ -206,58 +190,18 @@ export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
   Object.keys(EQUIPMENT_IS_WEAPON) as EquipmentId[],
 );
 
-/**
- * THE SEAT'S GUN (Story 8.14, Eric ruling 2026-09-21 amendment 89d): the gun is
- * the captain's PICK, not a fact about the hull — deck gun, machine gun or flak
- * gun, any class, chosen at class select and FROZEN at queue as the seat's
- * `gun`. It is a SEAT value, deliberately its own id space: it names which gun
- * a captain picked, while `EquipmentId` names which MODULE is mounted.
- */
-export type GunId = 'deckGun' | 'machineGun' | 'flak';
-
-/** Every GunId, in pick order — the totality spine the sanitizer and the
- *  class-select picker (Story 8.15) both key on. */
-export const GUN_IDS: readonly GunId[] = Object.freeze(['deckGun', 'machineGun', 'flak'] as const);
-
-/** The gun a seat carries when the join option is missing, unknown or
- *  malformed (the CANNON — amendment 108's player-facing name). */
-export const DEFAULT_GUN: GunId = 'deckGun';
-
-/** Membership over GUN_IDS — the ONE narrowing guard for a seat's gun value. */
-const GUN_ID_SET: ReadonlySet<string> = new Set<string>(GUN_IDS);
-
-/** Is `x` one of the three seat guns? Fail-closed: anything else is not. */
-export function isGunId(x: unknown): x is GunId {
-  return typeof x === 'string' && GUN_ID_SET.has(x);
-}
-
-/**
- * THE MOUNTED MODULE for each seat gun — the (GunId -> EquipmentId) map slot 0
- * is fitted from.
- *
- * STORY 8.15 GAVE EACH GUN ITS OWN MODULE (amendments 103–105): the deck gun
- * (the CANNON) mounts the shipped `gun` module, and the machine gun and the
- * flak gun mount their own. The 8.14 interim (every seat gun on the deck-gun
- * module, amendment 95) is over. The seat id `deckGun` and the module id `gun`
- * stay different strings on purpose — one names a pick, the other a module.
- */
-export const MOUNTED_GUN: Readonly<Record<GunId, EquipmentId>> = Object.freeze({
-  deckGun: 'gun',
-  machineGun: 'machineGun',
-  flak: 'flak',
-});
+// THE SEAT-GUN API IS GONE (2026-11-04, Story 10.4, epic-10 amendment 9):
+// `GunId`, `GUN_IDS`, `DEFAULT_GUN`, `isGunId` and `MOUNTED_GUN` named the
+// captain's deck-gun pick (Story 8.14/8.15). A captain mounts `mainBattery`
+// now and picks a SHIFT instead; the CANNON / MACHINE GUN / FLAK modules stay
+// as equipment ids for reference (the PvE fleet that mounted `gun` retired
+// at Story 10.8, 2026-11-06 — no hull mounts it now).
 
 /**
  * One piece of equipment's runtime state: a pool of `n` charges/rounds and a
  * single `reloadMsLeft` timer. Structurally identical to the wire `WeaponAmmo`
  * shape today (so wire derivation from slot state is identity), but defined
  * fresh here — loadout state is a shared-sim concept, not the wire contract.
- *
- * A CONSUMABLE STACK (Story 8.7) uses the same shape with `n` = COPIES HELD and
- * `reloadMsLeft` 0 FOREVER: a stack never reloads (catalog-v3 R40 — every copy
- * of the line is one use, and the only way to get another is another card), so
- * the server's reload tick and the client's cooldown wipe both skip the
- * consumable slots.
  */
 export interface EquipmentState {
   n: number; // charges/rounds ready (0 = empty)
@@ -267,81 +211,100 @@ export interface EquipmentState {
 /**
  * One loadout slot. INVARIANT: `state` is null iff `equipmentId` is null — an
  * empty slot carries no state to dereference; a fitted slot always has state.
- *
- * `equipmentId` holds a `SlotItemId`: an EquipmentId in the gun, boost and
- * weapon slots (0–4), and a CONSUMABLE line id in that kind's OWN fixed slot
- * (5–10, Story 9.2; a packed belt 5–8 from Story 8.7 until then).
- * The FIELD NAME is unchanged — it rides every mirror, view model and test on
- * both sides — but a reader that indexes an EquipmentId-keyed record with it
- * must narrow through `isConsumableId` first (never a cast).
  */
 export interface LoadoutSlot {
-  equipmentId: SlotItemId | null;
+  equipmentId: EquipmentId | null;
   state: EquipmentState | null;
 }
 
-/**
- * THE KEY ROW (Story 9.2, Eric 2026-10-11, epic-9 amendments 21 and 31): every
- * consumable kind that can be held owns ONE FIXED SLOT and ONE FIXED KEY, in
- * this order — key `1` is index 0. The belt is retired: nothing ever packs or
- * shifts, so "key N" means the same kind for the whole match. THE ONE HOME of
- * the key order and the kind → slot map; both sides derive from it.
- *
- * `depthCharge` is absent on purpose: a STUB line (never dealt) has no slot and
- * no key. `countermeasure` holds `3` (Story 9.3, Eric 2026-10-11) and
- * `foulingShell` (FOULING SHELL) holds `4` (Story 9.4, Eric 2026-10-11 — it
- * took FLASH SHELLS' key, as the 9.2 key row planned).
- */
-export const CONSUMABLE_KEY_ORDER: readonly ConsumableId[] = Object.freeze([
-  'hullRepair',
-  'shieldBlock',
-  'countermeasure',
-  'foulingShell',
-  'decoyBuoy',
-  'supercavTorpedo',
-] as const);
+/** Total slots in a loadout: battery, Shift, torpedo, mine, special shell
+ *  (five since Story 10.5; nine with the kit from 10.1; eleven from 9.2). */
+export const SLOT_COUNT = 5;
 
-/** Slot index of the first consumable slot (key `1`). */
-const FIRST_CONSUMABLE_SLOT = 5;
-
-/** Total slots in a loadout: gun, boost, three weapons, one per keyed
- *  consumable kind (six since Story 9.2). */
-export const SLOT_COUNT = FIRST_CONSUMABLE_SLOT + CONSUMABLE_KEY_ORDER.length;
-
-/** Slot index of the gun — the permanently-selected default weapon. */
+/** Slot index of the gun — the permanently-selected default weapon: THE MAIN
+ *  BATTERY (Story 10.4). */
 export const SLOT_GUN = 0;
 
-/** Slot index of the class Shift (the boost, instant reload or hunker —
- *  Story 8.15). The name predates the split and is kept. */
+/** Slot index of the seat's Shift (the boost, instant reload or hunker —
+ *  Story 8.15; the captain's pick since 10.4). The name predates the split
+ *  and is kept. */
 export const SLOT_BOOST = 1;
 
-/** The three WEAPON slots (Q/E/R), in fill order: a `slotFill` card takes the
- *  first of these that is still empty (sim/boons.ts applySlotEffect). */
+/** The three WEAPON slots (Q/E/R), in key order. Since Story 10.5 each is a
+ *  FAMILY slot: index k here is `SLOT_FAMILIES[k]`'s. */
 export const WEAPON_SLOTS = [2, 3, 4] as const;
 
-/** The six CONSUMABLE slots, in key order: slot `5 + i` is permanently bound
- *  to `CONSUMABLE_KEY_ORDER[i]` (Story 9.2). Derived, never a second list. */
-export const CONSUMABLE_SLOTS: readonly number[] = Object.freeze(
-  CONSUMABLE_KEY_ORDER.map((_, i) => FIRST_CONSUMABLE_SLOT + i),
-);
+/**
+ * THE THREE SLOT FAMILIES (Story 10.5, Eric 2026-11-05, epic-10 amendment 11),
+ * in slot order: `Q` holds a TORPEDO, `E` a MINE, `R` a SPECIAL SHELL. A slot
+ * holds ONE KIND of its family for the whole match — the first card of the
+ * family picks it, later copies of that kind tier it up, and no other kind of
+ * the family can ever be fitted or offered.
+ */
+export type SlotFamily = 'torpedo' | 'mine' | 'shell';
 
-/** THE fixed slot of a consumable kind, or `null` for a kind with no key (the
- *  DEPTH CHARGE stub). */
-export function consumableSlotFor(id: ConsumableId): number | null {
-  const i = CONSUMABLE_KEY_ORDER.indexOf(id);
-  return i < 0 ? null : FIRST_CONSUMABLE_SLOT + i;
+/** Every family, in slot order: `SLOT_FAMILIES[k]` owns `WEAPON_SLOTS[k]`. */
+export const SLOT_FAMILIES: readonly SlotFamily[] = Object.freeze(['torpedo', 'mine', 'shell'] as const);
+
+/** The fixed slot of each family (2 / 3 / 4 — the Q / E / R keys). */
+export const FAMILY_SLOT: Readonly<Record<SlotFamily, number>> = Object.freeze({
+  torpedo: WEAPON_SLOTS[0],
+  mine: WEAPON_SLOTS[1],
+  shell: WEAPON_SLOTS[2],
+});
+
+/**
+ * THE FAMILY OF EVERY EQUIPMENT ID — `null` for anything that fits no family
+ * slot: the mounted guns and the Shifts (slots 0 and 1, never a card fit) and
+ * BROADSIDE, which LEFT THE DEAL (Eric 2026-11-05, Story 10.5, R6: "Leaves
+ * the deal") and so has no slot to go to. Compile-forced to cover every
+ * EquipmentId: a new weapon cannot ship without declaring its family.
+ */
+export const EQUIPMENT_FAMILY: Readonly<Record<EquipmentId, SlotFamily | null>> = Object.freeze({
+  gun: null,
+  boost: null,
+  lightTorpedo: 'torpedo',
+  heavyTorpedo: 'torpedo',
+  navalMines: 'mine',
+  captiveMines: 'mine',
+  foulingMines: 'mine',
+  machineGun: null,
+  flak: null,
+  broadside: null,
+  starShells: 'shell',
+  phosphorShells: 'shell',
+  instantReload: null,
+  hunker: null,
+  mainBattery: null,
+  supercavTorpedo: 'torpedo',
+  dazzleShells: 'shell',
+  foulingShell: 'shell',
+});
+
+/** The slot `id` is fitted into, or `null` for equipment no family slot holds
+ *  (see `EQUIPMENT_FAMILY`) — and for an id outside that table (own keys
+ *  only, so a prototype key is outside too). THE one kind → slot answer on
+ *  both sides. */
+export function familySlotFor(id: EquipmentId): number | null {
+  const family = Object.hasOwn(EQUIPMENT_FAMILY, id) ? EQUIPMENT_FAMILY[id] : null;
+  return family === null ? null : FAMILY_SLOT[family];
 }
 
-/** THE kind a consumable slot is bound to, or `null` for any slot that is not
- *  a consumable slot (gun, Shift, weapon row, out of range, non-integer). The
- *  client reads a zero-stock slot's kind through this — a `null` slot content
- *  still belongs to its kind. */
-export function consumableKindAt(slot: number): ConsumableId | null {
-  return CONSUMABLE_KEY_ORDER[slot - FIRST_CONSUMABLE_SLOT] ?? null;
+/** The family a slot index belongs to, or `null` for the battery, the Shift,
+ *  an out-of-range or a non-integer slot. */
+export function slotFamilyAt(slot: number): SlotFamily | null {
+  const k = (WEAPON_SLOTS as readonly number[]).indexOf(slot);
+  return k < 0 ? null : SLOT_FAMILIES[k];
+}
+
+/** Every equipment id of a family, in `EQUIPMENT_IDS` order — the kinds that
+ *  compete for that family's one slot. */
+export function familyMembers(family: SlotFamily): EquipmentId[] {
+  return EQUIPMENT_IDS.filter((id) => EQUIPMENT_FAMILY[id] === family);
 }
 
 /** The role a slot plays in the grammar. */
-export type SlotRole = 'gun' | 'boost' | 'weapon' | 'consumable';
+export type SlotRole = 'gun' | 'boost' | 'weapon';
 
 /** Slot-role grammar, in slot order (index = slot index), length SLOT_COUNT.
  *  Fixed for every hull: the roles are the grammar, the contents are the
@@ -352,59 +315,52 @@ export const SLOT_ROLES: readonly SlotRole[] = Object.freeze([
   'weapon',
   'weapon',
   'weapon',
-  ...CONSUMABLE_KEY_ORDER.map((): SlotRole => 'consumable'),
 ]);
 
 /** The effective pool size for a piece of equipment — a record lookup since
- *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. A SLOT's
- *  content may be a consumable instead, which has no stats row: `slotMaxAmmo`
- *  (sim/boons.ts) routes either kind and is what slot-facing code calls. */
+ *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. */
 export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number {
   return stats.equipment[id].maxAmmo;
 }
 
 /** The effective reload (ms) for a piece of equipment. Every row carries
- *  `reloadMs` (Story 8.1), post-tier-step and post-cooldownScale. */
+ *  `reloadMs` (Story 8.1), post-tier-step — and post-cooldownScale on every
+ *  row but the Shifts (Story 10.5, R10 / R11: `RELOAD_UNSCALED_ROWS` in
+ *  sim/stats.ts). */
 export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): number {
   return stats.equipment[id].reloadMs;
 }
 
 /**
  * The loadout a ship spawns with — THE SAME SLOT SHAPE FOR EVERY CAPTAIN HULL
- * (Story 8.5; eleven slots since Story 9.2). A captain fits the gun in slot 0 and its Shift in slot 1,
- * both with a full pool and an idle reload timer (exactly the server's
- * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics); slots 2–10 start empty
- * and are filled by CARDS — the level-zero offer at the start line first
- * (Story 8.10), then every offer after it.
+ * (Story 8.5; five slots since Story 10.5). A captain fits the main battery
+ * in slot 0 and the seat's Shift in slot 1, both with a full pool and an idle
+ * reload timer (exactly the server's `freshAmmo(equipmentMaxAmmo(stats, id))`
+ * semantics); the three family slots start empty and are filled by CARDS —
+ * the level-zero offer at the start line first (Story 8.10), then every offer
+ * after it.
  *
- * `fleet === true` is the PvE drone fit: the gun in slot 0 and empties,
- * nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone has no
- * seat, so it always mounts the default gun.
+ * (The `fleet` parameter — the PvE drone's gun-only fit — retired with the
+ * fleet at Story 10.8, 2026-11-06.)
  *
- * SLOT 0 IS THE SEAT'S GUN (Story 8.14): `gun` is the captain's pick and the
- * module it mounts comes from MOUNTED_GUN — its own module per gun since 8.15.
+ * SLOT 0 IS THE MAIN BATTERY on a captain (Story 10.4). Its slot state is the
+ * HOTBAR SUMMARY only — `n` = turrets ready (fitted full: every turret
+ * loaded), `reloadMsLeft` = the soonest turret's remaining reload; the
+ * per-turret truth is the `TurretState[]` beside the ship (sim/turrets.ts
+ * `batterySummary` writes this pair from it).
  *
- * SLOT 1 IS THE HULL'S SHIFT (Story 8.15): `shift` is the class's fixed ability,
- * which both sides resolve from `CONFIG.shipClasses.<id>.shift` (`classShift`,
- * constants.ts). A fleet drone has no Shift and ignores it.
+ * SLOT 1 IS THE SEAT'S SHIFT (Story 10.4): `shift` is the captain's pick,
+ * passed in already sanitized (`sanitizeShiftId`).
  *
  * No hull parameter: which weapons a hull ends up carrying is a fact about its
- * picks, never about its hardware; the Shift is passed in already resolved.
+ * picks, never about its hardware (the turret count rides `stats`).
  */
-export function loadoutFor(
-  stats: EffectiveStats,
-  fleet = false,
-  gun: GunId = DEFAULT_GUN,
-  shift: ShiftId = DEFAULT_SHIFT,
-): LoadoutSlot[] {
+export function loadoutFor(stats: EffectiveStats, shift: ShiftId = DEFAULT_SHIFT): LoadoutSlot[] {
   const fitted = (equipmentId: EquipmentId): LoadoutSlot => ({
     equipmentId,
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
-  // A FLEET DRONE ALWAYS MOUNTS THE CANNON, whatever `gun` says: it has no
-  // seat, and its weaker envelope gun rides the `gun` row (Story 5.6).
-  const out: LoadoutSlot[] = [fitted(MOUNTED_GUN[fleet ? DEFAULT_GUN : gun])];
-  if (!fleet) out.push(fitted(shift));
+  const out: LoadoutSlot[] = [fitted('mainBattery'), fitted(shift)];
   while (out.length < SLOT_COUNT) out.push({ equipmentId: null, state: null });
   return out;
 }

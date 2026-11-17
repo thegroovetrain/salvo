@@ -47,15 +47,23 @@ import {
   type HowToEntry,
   type HowToSection,
 } from './copy.js';
-import { consumableTable, shipUpgradeTable, tierTable, type StatTable } from './weaponTables.js';
+import { abilityTable, shipUpgradeTable, tierTable, type StatTable } from './weaponTables.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 
-/** An entry's derived table, or null (a consumable with no live rows). */
+/** An entry's derived table, or null (`'none'`: a one-off card has no
+ *  table). */
 function entryTable(entry: HowToEntry): StatTable | null {
-  if (entry.table === 'tier') return tierTable(entry.lineId);
-  if (entry.table === 'shipUpgrade') return shipUpgradeTable(entry.lineId);
-  return consumableTable(entry.lineId);
+  switch (entry.table) {
+    case 'tier':
+      return tierTable(entry.lineId);
+    case 'shipUpgrade':
+      return shipUpgradeTable(entry.lineId);
+    case 'ability':
+      return abilityTable(entry.lineId);
+    case 'none':
+      return null;
+  }
 }
 
 /**
@@ -69,12 +77,12 @@ export function entryGlyphId(entry: HowToEntry): string | null {
 }
 
 /** An entry's name — the uppercase mono system register, like the headings —
- *  with its glyph (hotbar icon size, phosphor via currentColor) before it. */
+ *  with its glyph (the retired hotbar's icon size, phosphor via currentColor) before it. */
 function entryName(entry: HowToEntry): HTMLElement {
   const el = document.createElement('h3');
   el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin:8px 0 0;display:flex;align-items:center;gap:8px`;
   const id = entryGlyphId(entry);
-  const svg = id === null ? null : equipmentGlyphSvg(id, CLIENT_CONFIG.hudBar.icon);
+  const svg = id === null ? null : equipmentGlyphSvg(id, CLIENT_CONFIG.page.glyph);
   if (svg !== null) {
     svg.style.cssText = 'display:inline-block;flex:none;color:var(--hc-phosphor)';
     el.appendChild(svg);

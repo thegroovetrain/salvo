@@ -11,13 +11,17 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { TONE_TWINS, toneTwin, type AudioCueId } from '../audio/twinMap.js';
 import { TONES, type ToneId } from '../audio/tones.js';
+import { CUES, type CueId } from '../audio/synth/cues.js';
 
 /** Every cue that can SOUND — the tone table plus the cues on their own engine
  *  paths. The horn is the first of the latter (Story 4.5): it is not a ToneSpec,
  *  and the whole point of widening the key was that dodging `TONES` must not let
  *  a cue dodge its twin. */
-const OFF_TABLE: AudioCueId[] = ['foghorn'];
-const IDS = [...(Object.keys(TONES) as ToneId[]), ...OFF_TABLE];
+const OFF_TABLE: AudioCueId[] = ['foghorn', 'engine', 'stormBed'];
+/** Story 10.13: every LAYERED cue (audio/synth/cues.ts) — some share a tone's
+ *  id (and its row), the rest are new rows. */
+const LAYERED = Object.keys(CUES) as CueId[];
+const IDS = [...new Set<AudioCueId>([...(Object.keys(TONES) as ToneId[]), ...OFF_TABLE, ...LAYERED])];
 const SRC = join(process.cwd(), 'src');
 
 describe('every audio cue has a visual twin', () => {
@@ -37,7 +41,8 @@ describe('every audio cue has a visual twin', () => {
 
   it('every module a twin names in its parens exists — no row points a reviewer at a deleted surface', () => {
     // "render/effects, projectiles" → render/effects + render/projectiles: a bare
-    // name inherits the directory of the path before it.
+    // name inherits the directory of the path before it (nested directories —
+    // render/console/… — count as one directory).
     const missing: string[] = [];
     let named = 0;
     for (const id of IDS) {
@@ -45,7 +50,7 @@ describe('every audio cue has a visual twin', () => {
         let dir = '';
         for (const part of group.slice(1, -1).split(',')) {
           const token = part.trim().split(/\s+/)[0];
-          const m = /^(?:([a-z]+)\/)?([a-zA-Z]+)$/.exec(token);
+          const m = /^(?:([a-z][a-z/]*)\/)?([a-zA-Z]+)$/.exec(token);
           if (!m) continue;
           if (m[1]) dir = m[1];
           if (!dir) continue;
@@ -59,31 +64,36 @@ describe('every audio cue has a visual twin', () => {
   });
 
   it('points each multi-surface cue at every surface that carries its twin', () => {
-    // FIT: the toast + the slot (Story 4.x); BOUNTY: the moment + the state that
-    // outlives it (Story 4.6); HP bands: the globe + the own plume (amendment 49);
+    // FIT: the toast + the console readouts (Story 4.x; Story 10.10); BOUNTY: the
+    // moment + the state that outlives it (Story 4.6); HP bands: the hull gauge +
+    // the own plume (amendment 49);
     // FOGHORN: the bearing chevron + the own-honk bloom (amendment 55).
     const surfaces: [AudioCueId, RegExp[]][] = [
-      ['fitCommon', [/ui\/upgradeToast/, /render\/hotbar/]],
-      ['fitRare', [/ui\/upgradeToast/, /render\/hotbar/]],
-      ['fitExclusive', [/ui\/upgradeToast/, /render\/hotbar/]],
+      ['fitCommon', [/ui\/upgradeToast/, /render\/console\//]],
+      ['fitRare', [/ui\/upgradeToast/, /render\/console\//]],
+      ['fitExclusive', [/ui\/upgradeToast/, /render\/console\//]],
       ['bounty', [/ui\/upgradeToast/, /ui\/chromeBar/]],
-      ['hpHurt', [/render\/hpGlobe/, /render\/smoke/]],
-      ['hpCritical', [/render\/hpGlobe/, /render\/smoke/]],
+      ['hpHurt', [/render\/console\/shipConsole/, /render\/smoke/]],
+      ['hpCritical', [/render\/console\/shipConsole/, /render\/smoke/]],
       ['foghorn', [/render\/foghorn/, /render\/effects/]],
+      // Story 10.13: own hit = the shake + the hull readout; the engine = the
+      // helm order and speed + the hulls drawn close alongside.
+      ['ownHit', [/render\/shake/, /render\/console\/shipConsole/]],
+      ['engine', [/render\/console\/shipConsole/, /render\/contacts/]],
     ];
     for (const [id, patterns] of surfaces) for (const re of patterns) expect(toneTwin(id), id).toMatch(re);
   });
 
-  it('points the world cues at render/ and the ECONOMY and VITALS rows at the HUD bar\'s own surfaces (ruling 12)', () => {
-    for (const id of ['gunReport', 'impact', 'splash', 'sunkWitness'] as const) {
+  it('points the world cues at render/ and the ECONOMY and VITALS rows at the consoles\' own surfaces (ruling 12; Story 10.10)', () => {
+    for (const id of ['gunReport', 'impact', 'splash', 'sunkWitness', 'mainBatteryWorld', 'steelHit', 'sinkWitness'] as const) {
       expect(toneTwin(id), id).toMatch(/render\/effects/);
     }
-    expect(toneTwin('point')).toMatch(/render\/xpStrip/);
-    expect(toneTwin('heal')).toMatch(/render\/hpGlobe/);
-    for (const id of ['damage', 'burn'] as const) expect(toneTwin(id), id).toMatch(/hpGlobe\)/);
+    expect(toneTwin('point')).toMatch(/render\/console\/shipConsole/);
+    expect(toneTwin('heal')).toMatch(/render\/console\/shipConsole/);
+    for (const id of ['damage', 'burn'] as const) expect(toneTwin(id), id).toMatch(/render\/console\/shipConsole\)/);
     for (const id of ['telegraphUp', 'telegraphDown'] as const) {
-      expect(toneTwin(id), id).toMatch(/render\/helmGlobe/);
+      expect(toneTwin(id), id).toMatch(/render\/console\/shipConsole/);
     }
-    expect(toneTwin('denied')).toMatch(/hotbar/);
+    expect(toneTwin('denied')).toMatch(/render\/console\/weaponsConsole/);
   });
 });

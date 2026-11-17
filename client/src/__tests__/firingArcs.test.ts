@@ -15,15 +15,19 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  DEFAULT_CLASS_ID,
   effectiveStats,
   turretMountBearings,
   turretMuzzles,
   wrapAngle,
   broadsideMountSpread,
   broadsideTraverse,
+  type ShipClassId,
+  type EquipmentId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { arcFillStyle, turretWedges, twinBeamStyle } from '../render/firing.js';
+import { Container, type Graphics } from 'pixi.js';
+import { FiringUX, arcFillStyle, turretWedges } from '../render/firing.js';
 
 const IDENTITY = { x: 0, y: 0, heading: 0 };
 const BW = CLIENT_CONFIG.broadsideArcs;
@@ -43,21 +47,21 @@ const BW = CLIENT_CONFIG.broadsideArcs;
  * authors the tiers, with no edit here.
  */
 const arcsAt = (rung: number, turrets: number): {
-  hullId: 'battleship';
+  hullId: ShipClassId;
   turrets: number;
   traverseRad: number;
   mountSpreadRad: number;
 } => ({
-  hullId: 'battleship',
+  hullId: DEFAULT_CLASS_ID,
   turrets,
   traverseRad: broadsideTraverse(rung),
   mountSpreadRad: broadsideMountSpread(rung),
 });
 
-/** The base battleship broadside, straight off the firewall. */
+/** The base broadside on the default hull, straight off the firewall. */
 const arcsFor = (): ReturnType<typeof arcsAt> => {
-  const b = effectiveStats(CONFIG.shipClasses.battleship, []).equipment.broadside;
-  return { hullId: 'battleship', turrets: b.turrets, traverseRad: b.traverseRad, mountSpreadRad: b.mountSpreadRad };
+  const b = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).equipment.broadside;
+  return { hullId: DEFAULT_CLASS_ID, turrets: b.turrets, traverseRad: b.traverseRad, mountSpreadRad: b.mountSpreadRad };
 };
 
 /** The ladder's top rung with its full six guns (catalog-v3 R35's cap). */
@@ -68,7 +72,7 @@ describe('the broadside arc display — one wedge per gun, from the SHARED geome
     const bs = arcsFor();
     for (const side of [1, -1] as const) {
       const w = turretWedges(side, bs);
-      const muzzles = turretMuzzles(IDENTITY, 'battleship', bs.turrets, side);
+      const muzzles = turretMuzzles(IDENTITY, DEFAULT_CLASS_ID, bs.turrets, side);
       const mounts = turretMountBearings(0, bs.turrets, side, bs.mountSpreadRad);
       expect(w).toHaveLength(bs.turrets);
       w.forEach((wedge, i) => {
@@ -83,7 +87,7 @@ describe('the broadside arc display — one wedge per gun, from the SHARED geome
 
   it('N guns are N DISTINCT apexes on the engaged beam — never N wedges from one point', () => {
     const bs = arcsFor();
-    const half = CONFIG.shipClasses.battleship.hull.beam / 2;
+    const half = CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam / 2;
     const port = turretWedges(1, bs);
     const stbd = turretWedges(-1, bs);
     expect(new Set(port.map((w) => `${w.apex.x.toFixed(9)},${w.apex.y.toFixed(9)}`)).size).toBe(bs.turrets);
@@ -164,23 +168,7 @@ describe('arcFillStyle — the one lit/dim/denied fill decision', () => {
   });
 });
 
-// THE TWIN-BEAM STYLE DECISION (quiet fix, Eric 2026-09-21). Story 8.13 made
-// the LIGHT TORPEDO the second `twin-sector` weapon and, correctly, kept the
-// broadside's per-turret wedges off its beams — but left NOTHING in their
-// place, so the player aimed a fish into a bare hairline outline. A torpedo's
-// beam is a FILLED sector (the heavy's bow-arc grammar, mirrored); only the
-// broadside draws outline + turret wedges. Pinned as a decision, not a draw.
-describe('twinBeamStyle — a torpedo beam is a filled sector, the broadside is outline + turrets', () => {
-  it('the LIGHT TORPEDO draws each beam as a filled sector', () => {
-    expect(twinBeamStyle('lightTorpedo')).toBe('filled-sector');
-  });
-  it('the BROADSIDE keeps its outline + per-turret wedges (Eric 2026-08-27 ruling 4)', () => {
-    expect(twinBeamStyle('broadside')).toBe('outline-turrets');
-  });
-  it('every torpedo item answers filled; every non-torpedo answers outline (no third grammar)', () => {
-    expect(twinBeamStyle('heavyTorpedo')).toBe('filled-sector');
-    expect(twinBeamStyle('supercavTorpedo')).toBe('filled-sector');
-    expect(twinBeamStyle('gun')).toBe('outline-turrets');
-    expect(twinBeamStyle(null)).toBe('outline-turrets');
-  });
-});
+// THE TWIN-BEAM STYLE DECISION (2026-09-21) IS RETIRED with the light
+// torpedo's twin beams (Story 10.6, R6): every torpedo leaves the deck
+// launchers, whose wedge is the union of their arcs (weaponArc.arcUnion,
+// pinned in weaponArc.test.ts); only the broadside draws twin beams.

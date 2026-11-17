@@ -46,7 +46,6 @@ export interface BatchAggregate {
   endedBy: Record<string, number>;
   stormDeathsTotal: number;
   stormDeaths: Summary;
-  killsByVictimTier: Record<string, number>;
   killsPerCaptain: Summary;
   deathsPerCaptain: Summary;
   finalLevel: Summary;
@@ -60,6 +59,15 @@ export interface BatchAggregate {
   doctrineOffered: ReachAggregate;
   doctrineFitted: ReachAggregate;
   levelCurve: { tS: number; n: number; mean: number; p50: number }[];
+  /** RADIO BEACONS (Story 10.8): beacon XP levels per captain, by class. */
+  beaconLevelsByClass: Record<string, Summary>;
+  /** AIRDROPS (Story 10.9): drops taken per captain, by class. */
+  dropsByClass: Record<string, Summary>;
+  /** The index spread at end: bonus points per random-index stat summed over
+   *  every captain (`CONFIG.drops.indices` order). */
+  indexSpread: Record<string, number>;
+  /** `[n]` = paying beacon-ticks with n hulls in range, summed over matches. */
+  beaconInRangeHist: number[];
 }
 
 function reachAggregate(samples: readonly ({ s: number; level: number } | null)[]): ReachAggregate {
@@ -98,12 +106,47 @@ function aggregateLevelCurve(captains: readonly { levelCurve: number[] }[]): Bat
   return out;
 }
 
-function sumByKey(records: readonly Record<string, number>[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const rec of records) {
-    for (const key of Object.keys(rec)) out[key] = (out[key] ?? 0) + rec[key];
+/** Element-wise sum of the per-match hulls-in-range histograms. */
+export function sumHist(hists: readonly (readonly number[] | undefined)[]): number[] {
+  const out: number[] = [];
+  for (const h of hists) {
+    if (h === undefined) continue;
+    for (let n = 0; n < h.length; n += 1) out[n] = (out[n] ?? 0) + (h[n] ?? 0);
   }
+  return Array.from(out, (v) => v ?? 0);
+}
+
+/** The hist as one compact row: `0=… 1=… 2=…` (or `(none)`). */
+export function histLine(hist: readonly number[]): string {
+  return hist.length === 0 ? '(none)' : hist.map((v, n) => `${n}=${v}`).join(' ');
+}
+
+/** One per-captain number, summarized per hull class (sorted keys). */
+function byClass<C extends { cls: string }>(captains: readonly C[], value: (c: C) => number): Record<string, Summary> {
+  const byCls = new Map<string, number[]>();
+  for (const c of captains) {
+    const rows = byCls.get(c.cls) ?? [];
+    rows.push(value(c));
+    byCls.set(c.cls, rows);
+  }
+  const out: Record<string, Summary> = {};
+  for (const cls of [...byCls.keys()].sort()) out[cls] = summarize(byCls.get(cls)!);
   return out;
+}
+
+/** THE INDEX SPREAD (Story 10.9): every captain's bonus points per
+ *  random-index stat, summed — one entry per `CONFIG.drops.indices` stat, in
+ *  that order (a stat nobody got reads 0). */
+export function indexSpread(captains: readonly { indexBonus: Record<string, number> }[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of CONFIG.drops.indices) out[id] = captains.reduce((n, c) => n + (c.indexBonus[id] ?? 0), 0);
+  return out;
+}
+
+/** `cls=mean` per class (sorted keys), or `(none)`. */
+function meansLine(rec: Record<string, Summary>): string {
+  const rows = Object.entries(rec).map(([cls, s]) => `${cls}=${fmt(s.mean, 2)}`);
+  return rows.length === 0 ? '(none)' : rows.join(' ');
 }
 
 /** Resolved-only conclusion evidence (Story 3.4): the duration summary and the
@@ -149,7 +192,6 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     endedBy,
     stormDeathsTotal: stormDeaths.reduce((a, b) => a + b, 0),
     stormDeaths: summarize(stormDeaths),
-    killsByVictimTier: sumByKey(matches.map((m) => m.killsByVictimTier)),
     killsPerCaptain: summarize(captains.map((c) => c.kills)),
     deathsPerCaptain: summarize(captains.map((c) => c.deaths)),
     finalLevel: summarize(captains.map((c) => c.finalLevel)),
@@ -161,6 +203,10 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     doctrineOffered: reachAggregate(captains.map((c) => c.firstDoctrineOffered)),
     doctrineFitted: reachAggregate(captains.map((c) => c.firstDoctrineFitted)),
     levelCurve: aggregateLevelCurve(captains),
+    beaconLevelsByClass: byClass(captains, (c) => c.beaconXpLevels),
+    dropsByClass: byClass(captains, (c) => c.dropsTaken),
+    indexSpread: indexSpread(captains),
+    beaconInRangeHist: sumHist(matches.map((m) => m.beaconInRangeHist)),
   };
 }
 
@@ -194,7 +240,7 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
   lines.push(`endedBy: ${countLine(agg.endedBy)}`);
   lines.push(`winner class: ${countLine(agg.winnerClass)}`);
   lines.push(`storm deaths: total=${agg.stormDeathsTotal} per-match[${fmtSummary(agg.stormDeaths)}]`);
-  lines.push(`captain kills by victim tier: ${countLine(agg.killsByVictimTier)}`);
+  lines.push(`beacon hulls-in-range (paying beacon-ticks): ${histLine(agg.beaconInRangeHist)}`);
   // A BOT-ONLY LOBBY has no captain rows at all, and printing 20 lines of
   // all-zero economy summaries under a bot campaign would read as evidence
   // about bots. Suppressed entirely; every captain run is byte-unchanged.
@@ -210,6 +256,10 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
   lines.push(`final level per captain: ${fmtSummary(agg.finalLevel)}`);
   lines.push(`picks per captain: ${fmtSummary(agg.picks)}`);
   lines.push(`boons fitted per captain: ${fmtSummary(agg.boonsFitted)}`);
+  lines.push(`beacon levels per captain (mean by class): ${meansLine(agg.beaconLevelsByClass)}`);
+  lines.push(`drops taken per captain (mean by class): ${meansLine(agg.dropsByClass)}`);
+  lines.push('index spread at end (bonus points per stat, summed over captains):');
+  for (const [stat, n] of Object.entries(agg.indexSpread)) lines.push(`  ${stat.padEnd(8)} ${n}`);
   lines.push(`copy-capped lines per captain: ${fmtSummary(agg.cappedLines)} | captains with >=1 cap: ${pct(agg.anyCapRate)}`);
   lines.push(reachLine('first doctrine OFFERED ', agg.doctrineOffered));
   lines.push(reachLine('first doctrine FITTED  ', agg.doctrineFitted));

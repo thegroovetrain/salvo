@@ -15,7 +15,7 @@
 // NOTE: `colyseus` is imported by liveness.ts (for matchMaker + createEndpoint)
 // but nothing in this file touches it — every test injects its own query.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { ClientState } from 'colyseus';
 import { CONFIG } from '@salvo/shared';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
@@ -53,9 +53,16 @@ function queue(clients: number, meta?: unknown): RoomRecord {
   return meta === undefined ? { name: QUEUE_ROOM, clients } : { name: QUEUE_ROOM, clients, metadata: meta };
 }
 
+// The queue's bot-fill switch (Story 10.11) moves the published minimum, so
+// every test starts from the bot-less queue unless it sets the switch itself.
+const SHELL_QUEUE_BOT_FILL = process.env.HC_QUEUE_BOT_FILL;
 beforeEach(() => {
   resetLiveness();
   __setLivenessNowSource(() => Date.now());
+  delete process.env.HC_QUEUE_BOT_FILL;
+});
+afterAll(() => {
+  if (SHELL_QUEUE_BOT_FILL !== undefined) process.env.HC_QUEUE_BOT_FILL = SHELL_QUEUE_BOT_FILL;
 });
 
 // --- the I/O matrix ----------------------------------------------------------
@@ -643,15 +650,23 @@ interface QueueHarness {
 
 /** A real StandardQueueRoom with core's transport surface injected. Returns the
  *  room, the metadata it has published so far, and a hand crank for its 1 Hz
- *  tick (the room clock is ours, so nothing here depends on real time). */
-function queueRoom(): {
+ *  tick (the room clock is ours, so nothing here depends on real time).
+ *  `botFill` is HC_QUEUE_BOT_FILL as the room reads it at creation (Story
+ *  10.11) — absent, the bot-less queue, whatever the shell running the tests
+ *  has set; the variable is restored straight after construction. */
+function queueRoom(botFill?: string): {
   r: QueueHarness;
   published: () => QueueMeta[];
   tick: () => void;
   at: (ms: number) => void;
 } {
   const ticks: (() => void)[] = [];
+  const previous = process.env.HC_QUEUE_BOT_FILL;
+  if (botFill === undefined) delete process.env.HC_QUEUE_BOT_FILL;
+  else process.env.HC_QUEUE_BOT_FILL = botFill;
   const r = new StandardQueueRoom() as unknown as QueueHarness & Record<string, unknown>;
+  if (previous === undefined) delete process.env.HC_QUEUE_BOT_FILL;
+  else process.env.HC_QUEUE_BOT_FILL = previous;
   r.clients = [];
   r.clock = {
     currentTime: 0,
@@ -757,6 +772,69 @@ describe('StandardQueueRoom publishes no deadline below min (F1)', () => {
     h.tick();
     pool(h, 'C');
     expect(lastQueueMeta(h).deadlineAt).toBe(armedAt);
+  });
+});
+
+// --- Story 10.11: the queue's bot fill publishes its EFFECTIVE minimum -------
+
+describe('StandardQueueRoom with bot fill ON publishes min 1 and arms a lone captain', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('one pooled captain: min 1 and a future deadline, the hold from the switch', () => {
+    const seconds = 45;
+    const before = Date.now();
+    const h = queueRoom(String(seconds));
+    pool(h, 'A');
+    const meta = lastQueueMeta(h);
+    expect(meta).toMatchObject({ pooled: 1, min: 1, cap: CONFIG.map.playerCap });
+    expect(meta.deadlineAt).toBeGreaterThanOrEqual(before + seconds * 1000);
+    expect(meta.deadlineAt).toBeLessThanOrEqual(Date.now() + seconds * 1000);
+  });
+
+  it('the seed listing (no captain yet) already carries min 1', () => {
+    const h = queueRoom('45');
+    expect(lastQueueMeta(h)).toMatchObject({ pooled: 0, min: 1, deadlineAt: null });
+  });
+
+  it('a pool drained to 0 publishes no deadline', () => {
+    const h = queueRoom('45');
+    const a = pool(h, 'A');
+    unpool(h, a);
+    expect(lastQueueMeta(h)).toMatchObject({ pooled: 0, min: 1, deadlineAt: null });
+  });
+});
+
+describe('foldLiveness — the queue minimum where no queue room published one (Story 10.11)', () => {
+  const previous = process.env.HC_QUEUE_BOT_FILL;
+  afterEach(() => {
+    if (previous === undefined) delete process.env.HC_QUEUE_BOT_FILL;
+    else process.env.HC_QUEUE_BOT_FILL = previous;
+  });
+
+  it('the empty server reports the queueMin it is handed', () => {
+    for (const queueMin of [1, CONFIG.match.minHumans]) {
+      expect(foldLiveness([], NOW, 0, queueMin).queue?.min).toBe(queueMin);
+    }
+  });
+
+  it('a queue listing with a malformed min falls back to the same queueMin', () => {
+    const out = foldLiveness([queue(1, { pooled: 1, min: 'x', cap: 20, deadlineAt: null })], NOW, 0, 1);
+    expect(out.queue?.min).toBe(1);
+  });
+
+  it('a published min always wins over the fallback', () => {
+    const out = foldLiveness([queue(1, { pooled: 1, min: 7, cap: 20, deadlineAt: null })], NOW, 0, 1);
+    expect(out.queue?.min).toBe(7);
+  });
+
+  it('by default it follows the switch the queue room reads: ON -> 1, OFF -> CONFIG.match.minHumans', () => {
+    process.env.HC_QUEUE_BOT_FILL = '60';
+    expect(foldLiveness([], NOW).queue?.min).toBe(1);
+    process.env.HC_QUEUE_BOT_FILL = '0';
+    expect(foldLiveness([], NOW).queue?.min).toBe(CONFIG.match.minHumans);
   });
 });
 

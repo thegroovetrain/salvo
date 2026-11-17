@@ -22,6 +22,7 @@
 import { writeFileSync } from 'node:fs';
 import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './args.js';
 import { TunableError, applyOverrides } from './overrides.js';
+import { buildTunedCatalog } from './catalogTune.js';
 import { CONTROL_REGISTRY } from './controls.js';
 import { runBatch, type BatchResult, type RunSpec } from './runner.js';
 import { setSpawnLayout } from '../../src/game/spawn.js';
@@ -70,11 +71,11 @@ function headerLines(opts: CliOptions): string[] {
   // only-when-non-default terms as every flag before them (NFR5).
   const botSpend = opts.botSpend !== 'profile' ? ` botSpend=${opts.botSpend}` : '';
   const botHull = opts.botHull !== null ? ` botHull=${opts.botHull}` : '';
-  // Story 8.15: a forced gun is a different lobby (NFR5), printed only when set.
-  const botGun = opts.botGun !== null ? ` botGun=${opts.botGun}` : '';
+  // Story 10.4: a forced Shift (was the Story 8.15 gun) is a different lobby (NFR5), printed only when set.
+  const botShift = opts.botShift !== null ? ` botShift=${opts.botShift}` : '';
   // Epic 9 tuning pass: a spawn layout is a different lobby geometry (NFR5).
   const rings = opts.spawnRings !== null ? ` spawnRings=${spawnRingsLine(opts)}` : '';
-  const roster = ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull}${botGun}${rings} control=${opts.control}`;
+  const roster = ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull}${botShift}${rings} control=${opts.control}`;
   const tune = Object.keys(opts.tune).length > 0 ? ` tune=${tuneLine(opts.tune)}` : '';
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
@@ -116,9 +117,9 @@ interface JsonVariant {
   tune: Record<string, number>;
   /** The applied hull policy ('rolled' on every pre-existing run). */
   roster: string;
-  /** The bot arm settings (null = the shipped default: seeded gun deal,
+  /** The bot arm settings (null = the shipped default: seeded Shift deal,
    *  rolled hull, profile spend) — so a JSON report is self-describing. */
-  botGun: string | null;
+  botShift: string | null;
   botHull: string | null;
   botSpend: string | null;
   /** The harness spawn layout (`--spawn-rings` spelling) or null = shipped
@@ -142,7 +143,7 @@ interface ModeOutput {
 
 /** The parsed options as the runner's RunSpec (null → undefined = the shipped
  *  default on every optional arm). Split out of batchMode for the complexity
- *  budget when --gun (Story 8.15) joined the list. */
+ *  budget when --gun (Story 8.15, now --shift) joined the list. */
 function runSpecOf(opts: CliOptions): RunSpec {
   return {
     seed: opts.seed,
@@ -153,7 +154,7 @@ function runSpecOf(opts: CliOptions): RunSpec {
     botEngage: opts.botEngage,
     botSpend: opts.botSpend,
     botHull: opts.botHull ?? undefined,
-    botGun: opts.botGun ?? undefined,
+    botShift: opts.botShift ?? undefined,
     roster: opts.roster,
     control: CONTROL_REGISTRY[opts.control],
   };
@@ -187,8 +188,11 @@ function runVariants(
   for (const variant of variants) {
     const restore = applyOverrides(variant.set, opts.tune);
     try {
+      // Built AFTER applyOverrides: the catalog's CONFIG-derived steps read
+      // the tuned CONFIG, then the `ladder.*` keys apply (catalogTune.ts).
+      const catalog = buildTunedCatalog(opts.tune);
       const result = runBatch(
-        runSpecOf(opts),
+        { ...runSpecOf(opts), ...(catalog !== undefined ? { catalog } : {}) },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
       );
       const agg = buildAggregate(result, opts.captains);
@@ -227,9 +231,9 @@ function runVariants(
 }
 
 /** The bot-arm keys of a JsonVariant (null = the default arm). */
-function botArmOf(opts: CliOptions): Pick<JsonVariant, 'botGun' | 'botHull' | 'botSpend'> {
+function botArmOf(opts: CliOptions): Pick<JsonVariant, 'botShift' | 'botHull' | 'botSpend'> {
   return {
-    botGun: opts.botGun,
+    botShift: opts.botShift,
     botHull: opts.botHull,
     botSpend: opts.botSpend === 'profile' ? null : opts.botSpend,
   };
@@ -247,8 +251,6 @@ function rawRows(result: BatchResult): unknown {
     winnerClass: m.winnerClass,
     lastTwoS: m.lastTwoS,
     endgameNoContactMaxS: m.endgameNoContactMaxS,
-    droneGroundedTicks: m.droneGroundedTicks,
-    droneStormDeaths: m.droneStormDeaths,
     bots: m.bots ?? [],
   }));
 }

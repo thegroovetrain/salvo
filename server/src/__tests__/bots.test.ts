@@ -23,11 +23,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CONFIG, SHIFT_IDS, SHIP_CLASS_IDS, abilityCode, effectiveStats, isAfloat, type Rng, type ShiftId } from '@salvo/shared';
 import { World } from '../game/world.js';
+import { flatRaster } from './islandFixture.js';
 import { BotController, botPhase } from '../game/ai/botDriver.js';
+import { profileOf } from '../game/ai/profiles.js';
 import type { BotWorldPort } from '../game/ai/types.js';
-import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
+import { isHuman, isParticipant } from '../game/participants.js';
 
 /** The DELIBERATION round-robin window in ticks — recomputed here
  *  independently (250ms / 50ms = 5) so a CONFIG retune fails loudly instead
@@ -53,7 +55,7 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
   // 0.97s a Battleship spends killing its forward way at the grounding cap,
   // so its measured net displacement over one burst was +3.21u — deeper in.
   it('the un-beach constants clear the BATTLESHIP\'s own reverse kinematics', () => {
-    const bs = CONFIG.shipClasses.battleship.kinematics;
+    const bs = effectiveStats(CONFIG.shipClasses.yamato).kinematics;
     // Re-derived here from the hull's kinematics, independently of the
     // comment in constants.ts: kill the forward way the grounding cap leaves
     // on (decel), then build sternway (accel) far enough to satisfy the
@@ -76,16 +78,17 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
     // after the astern order — the reason plain displacement is a safe
     // stand-in for sternway made good.
     for (const cls of SHIP_CLASS_IDS) {
-      const k = CONFIG.shipClasses[cls].kinematics;
+      const k = effectiveStats(CONFIG.shipClasses[cls]).kinematics;
       const cap = k.maxSpeed * CONFIG.ship.islandSpeedMult;
       expect((cap * cap) / (2 * k.decel)).toBeLessThan(CONFIG.bots.unbeachClearU);
     }
   });
 
-  it('profiles: the flat six, in dealing order; callsigns: ~30, unique', () => {
+  it('profiles: the flat five, in dealing order; callsigns: ~30, unique', () => {
     // Story 8.20 (Eric ruling 2026-09-30, R6): personalities are no longer
     // per hull. The order is the dealing order the seeded pick indexes into.
-    expect([...CONFIG.bots.profiles]).toEqual(['raider', 'duelist', 'bulwark', 'siege', 'forager', 'trapper']);
+    // Story 10.12 (Eric 2026-11-11, R6): `forager` retired.
+    expect([...CONFIG.bots.profiles]).toEqual(['raider', 'duelist', 'bulwark', 'siege', 'trapper']);
     expect(CONFIG.bots.callsigns.length).toBeGreaterThanOrEqual(30);
     expect(new Set(CONFIG.bots.callsigns).size).toBe(CONFIG.bots.callsigns.length);
   });
@@ -93,13 +96,12 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
 });
 
 describe('addBot — an AI captain through the ordinary addShip path', () => {
-  it('stamps role bot: a participant, never a human, never fleet content', () => {
+  it('stamps role bot: a participant, never a human', () => {
     const { w, ids } = botWorld(11, 1);
     const rec = w.ships.get(ids[0])!;
     expect(rec.role).toBe('bot');
     expect(isParticipant(rec)).toBe(true);
     expect(isHuman(rec)).toBe(false); // FR34: a bot can never arm a countdown
-    expect(isFleetHull(rec)).toBe(false);
   });
 
   it('ids are namespaced bot-N; class is a real ship class; the economy is real', () => {
@@ -110,8 +112,11 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
       expect(SHIP_CLASS_IDS).toContain(rec.hullId);
       // ECONOMY: a bot is a participant that plays the game — it draws from
       // the SAME common pool a human draws from (Story 8.14), on its own
-      // private stream and with the default seat gun.
-      expect(rec.gun).toBe('deckGun');
+      // private stream, with the main battery in slot 0 and the Shift its
+      // enrollment dealt (Story 10.12 — no caller passed one).
+      expect(SHIFT_IDS).toContain(rec.shift);
+      expect(rec.loadout[1].equipmentId).toBe(rec.shift);
+      expect(rec.loadout[0].equipmentId).toBe('mainBattery');
       expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     }
   });
@@ -132,7 +137,7 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
     for (const id of ids) expect(table).toContain(w.bots.profileOf(id));
   });
 
-  it('HULL UNLOCK: 600 seeded enrollments put all six personalities on all three hulls', () => {
+  it('HULL UNLOCK: 600 seeded enrollments put every personality on every hull', () => {
     // Story 8.20 (Eric ruling 2026-09-30, R6): any personality on any hull.
     // The controller alone (enroll never touches the port): 600 hulls would
     // not fit a World's arena.
@@ -151,21 +156,83 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
   it('a forced TEST row stays hull-bound; a forced in-game personality never decides the hull', () => {
     const w = new World(16);
     w.map.islands.length = 0;
-    const testRow = w.addBot(undefined, 'randomBattleship');
-    expect(testRow.hullId).toBe('battleship');
-    expect(w.bots.profileOf(testRow.id)).toBe('randomBattleship');
-    expect(w.addBot('torpedoBoat', 'randomMineLayer').hullId).toBe('mineLayer');
-    const forced = w.addBot('mineLayer', 'raider');
-    expect(forced.hullId).toBe('mineLayer');
+    const testRow = w.addBot(undefined, 'randomYamato');
+    expect(testRow.hullId).toBe('yamato');
+    expect(w.bots.profileOf(testRow.id)).toBe('randomYamato');
+    expect(w.addBot('bismarck', 'randomWarspite').hullId).toBe('warspite');
+    const forced = w.addBot('warspite', 'raider');
+    expect(forced.hullId).toBe('warspite');
     expect(w.bots.profileOf(forced.id)).toBe('raider');
   });
 
   it('enrollment is deterministic per world seed (the decorrelated stream)', () => {
     const a = botWorld(21, 5);
     const b = botWorld(21, 5);
-    const roll = ({ w, ids }: { w: World; ids: string[] }): Array<[string, string, string | null]> =>
-      ids.map((id) => [w.ships.get(id)!.name, w.ships.get(id)!.hullId, w.bots.profileOf(id)]);
+    const roll = ({ w, ids }: { w: World; ids: string[] }): Array<[string, string, string | null, string]> =>
+      ids.map((id) => [w.ships.get(id)!.name, w.ships.get(id)!.hullId, w.bots.profileOf(id), w.ships.get(id)!.shift]);
     expect(roll(a)).toEqual(roll(b));
+  });
+
+  // THE WEIGHTED SHIFT (Story 10.12, Eric 2026-11-11, R5) is dealt off a
+  // stream of its OWN: the controller stream still carries exactly the class
+  // roll and the personality roll per enrollment, so class / profile /
+  // callsign order are what they were before the Shift was dealt here.
+  it('the Shift draw takes nothing from the controller stream: one class roll and one personality roll per enrollment', () => {
+    const ctl = new BotController({} as BotWorldPort, 31);
+    const seat = ctl as unknown as { rng: Rng };
+    const inner = seat.rng;
+    let draws = 0;
+    seat.rng = {
+      next: () => (draws += 1, inner.next()),
+      float: (a, b) => (draws += 1, inner.float(a, b)),
+      int: (a, b) => (draws += 1, inner.int(a, b)),
+      pick: (arr) => (draws += 1, inner.pick(arr)),
+    };
+    const ref = new BotController({} as BotWorldPort, 31);
+    for (let i = 0; i < 12; i += 1) {
+      const before = draws;
+      const got = ctl.enroll(`bot-${i}`);
+      expect(draws - before).toBe(2); // the class roll + the personality roll
+      const want = ref.enroll(`bot-${i}`);
+      expect(got).toEqual(want);
+      expect(ctl.profileOf(`bot-${i}`)).toBe(ref.profileOf(`bot-${i}`));
+    }
+  });
+
+  it('the dealt Shift is each personality\'s fitting one more often than any other', () => {
+    const ctl = new BotController({} as BotWorldPort, 32);
+    const tally = new Map<string, Map<ShiftId, number>>();
+    for (let i = 0; i < 600; i += 1) {
+      const id = `bot-${i}`;
+      const { shift } = ctl.enroll(id);
+      const p = ctl.profileOf(id)!;
+      const row = tally.get(p) ?? new Map<ShiftId, number>();
+      row.set(shift, (row.get(shift) ?? 0) + 1);
+      tally.set(p, row);
+    }
+    for (const p of CONFIG.bots.profiles) {
+      const row = tally.get(p)!;
+      const fit = profileOf(p).shiftFit;
+      for (const other of SHIFT_IDS) if (other !== fit) expect(row.get(fit) ?? 0, `${p}: ${fit} vs ${other}`).toBeGreaterThan(row.get(other) ?? 0);
+    }
+  });
+
+  it('a caller\'s explicit Shift is FORCED; forcing moves no later enrollment', () => {
+    for (const forced of SHIFT_IDS) {
+      const w = new World(33);
+      w.map.islands.length = 0;
+      expect(w.addBot(undefined, undefined, forced).shift).toBe(forced);
+    }
+    const a = new World(34);
+    a.map.islands.length = 0;
+    const b = new World(34);
+    b.map.islands.length = 0;
+    const first = a.addBot(undefined, undefined);
+    const other = SHIFT_IDS.find((id) => id !== first.shift)!;
+    b.addBot(undefined, undefined, other);
+    const nextA = a.addBot(undefined, undefined);
+    const nextB = b.addBot(undefined, undefined);
+    expect([nextB.name, nextB.hullId, nextB.shift]).toEqual([nextA.name, nextA.hullId, nextA.shift]);
   });
 });
 
@@ -216,9 +283,11 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
 
   // THE RESONANCE REGRESSION (review-gate FIX 1) — fails on the wave-1
   // observe cadence, passes on per-tick perception. A stationary hull sits in
-  // the bot's radar annulus (sight + 200: past truesight, inside the radar
-  // dropout's flat band so every sweep paints — Story 9.8, amendment 103) on
-  // open water; at the base 15 rpm the sweep paints its bearing once per 80
+  // the bot's radar annulus (midway between the plain-hull sight and the
+  // radar reach — past BOTH eye tiers, so radar alone can hold it; every
+  // in-range, swept, unshadowed hull paints every sweep, Story 11.2, R8) on
+  // open water, the two hulls astride the map centre of the real board (the
+  // annulus is wider than a small board); at the base 15 rpm the sweep paints its bearing once per 80
   // ticks, always on the same tick-phase (80 ≡ 0 mod 5). bot-1's hashed slot
   // is 2 and — measured before the fix — NO bearing's paint phase lands on
   // it at this seed (successive 45° bearings are 10 ticks of sweep apart,
@@ -227,13 +296,17 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
   // essentially continuously (contactMemoryMs 8000 far exceeds the 4s
   // revolution).
   it('a stationary hull in the radar annulus is TRACKED despite sweep aliasing', () => {
-    const w = new World(61, 8);
+    const w = new World(61, CONFIG.map.playerCap);
     w.map.islands.length = 0; // open water: LOS/shadow can never gate the paint
+    w.map.heightRaster = flatRaster(); // ...and no retained elevation shadows the long ray across the board
     const bot = w.addBot(undefined, undefined);
     expect(bot.id).toBe('bot-1');
-    const tx = CONFIG.vision.sight + 200;
+    const apart = (bot.stats.hullSightRange + bot.stats.radarRange) / 2;
+    expect(apart / 2).toBeLessThan(w.map.radius); // both stations are on the board
+    const bx = -apart / 2;
+    const tx = apart / 2;
     const ty = 0;
-    const tgt = w.addShip('victim', 'TARGET', 'captain', 'battleship', undefined, { x: tx, y: ty });
+    const tgt = w.addShip('victim', 'TARGET', 'captain', 'yamato', undefined, { x: tx, y: ty });
     let measured = 0;
     let tracked = 0;
     for (let t = 0; t < 2400; t += 1) {
@@ -242,7 +315,7 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
       // are re-pinned after each step.
       for (const s of bot.loadout) if (s.state) s.state.n = 0;
       w.step();
-      bot.state.x = 0;
+      bot.state.x = bx;
       bot.state.y = 0;
       bot.state.heading = 0;
       bot.state.speed = 0;
@@ -300,6 +373,7 @@ describe('the narrow world port — its surface is exactly the ruled one', () =>
     // amendment 190 (Eric 2026-10-17, human parity) for EXACTLY zoneNextRing,
     // zonePhase and zoneSafeDisc; anything else still needs a ruling.
     expect(Object.keys(port).sort()).toEqual([
+      'beacons', // Story 10.8 (Eric 2026-11-06, amendment 6(g)): the public beacon chart
       'helmEnabled',
       'map',
       'nav', // Story 9.13 (amendments 191/192): the public map's nav cache — derived from `map` alone
@@ -380,6 +454,39 @@ describe('input emission — the same validated path a human uses, same-tick con
     for (let t = 0; t < CADENCE_TICKS; t += 1) w.step();
     for (const id of ids) expect(w.bots.viewAtOf(id)).toBeGreaterThan(0);
   });
+
+  // Story 10.5 review gate (Blind Hunter F3): the frozen gate refuses a
+  // cooldown-ability press SILENTLY (no stamp, no denial), so a want that read
+  // only the shared refusal would press again every tick. Counted per press
+  // edge, as the world consumes it (actSeq advance with the ability's code).
+  it('a HURT bot in a frozen room presses no cooldown ability; once live it presses its repair once', () => {
+    const { w, ids } = botWorld(42, 1);
+    const rec = w.ships.get(ids[0])!;
+    rec.hp = Math.floor(rec.stats.maxHp * 0.1); // hurt: under every break-off line and short a whole heal
+    const repairCode = abilityCode('repair');
+    let lastSeq = rec.input.actSeq;
+    const pressesOver = (ticks: number, code: number): number => {
+      let n = 0;
+      for (let t = 0; t < ticks; t += 1) {
+        w.step();
+        if (rec.input.actSeq > lastSeq && rec.input.act === code) n += 1;
+        lastSeq = rec.input.actSeq;
+      }
+      return n;
+    };
+    // The room as Match.applyPolicy freezes it: helm, weapons and radar together.
+    w.helmEnabled = false;
+    w.weaponsEnabled = false;
+    w.radarEnabled = false;
+    expect(pressesOver(CADENCE_TICKS * 6, repairCode)).toBe(0);
+    expect(rec.input.actSeq).toBe(0);
+    expect(rec.repairReadyAt).toBe(0);
+    w.helmEnabled = true;
+    w.weaponsEnabled = true;
+    w.radarEnabled = true;
+    expect(pressesOver(CADENCE_TICKS * 6, repairCode)).toBe(1);
+    expect(rec.repairReadyAt).toBeGreaterThan(w.now);
+  });
 });
 
 describe('state lifecycle — created with the ship, silent while down, released with it', () => {
@@ -422,7 +529,7 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     const b = new World(9);
     b.map.islands.length = 0;
     a.addBot(undefined, undefined);
-    b.addBot(undefined, 'randomMineLayer');
+    b.addBot(undefined, 'randomWarspite');
     const nextA = a.addBot(undefined, undefined);
     const nextB = b.addBot(undefined, undefined);
     expect(nextB.hullId).toBe(nextA.hullId);

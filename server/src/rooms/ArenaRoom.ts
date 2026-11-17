@@ -11,25 +11,25 @@ import { ClientState, CloseCode, ErrorCode, Room, ServerError, generateId, type 
 import {
   CONFIG,
   MSG,
-  REGATTA_NO_HUE,
-  GUN_IDS,
   SHIP_CLASS_IDS,
+  BEACON_WIRE_SLOTS,
   isAfloat,
   mulberry32,
   sanitizeClassId,
   sanitizeHornId,
   zoneGroups,
-  isGunId,
+  isShiftId,
   type RequeueMsg,
   type ResultsMsg,
   type Rng,
-  type GunId,
+  type ShiftId,
   type ShipClassId,
   type WelcomeMsg,
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World, type ShipRecord } from '../game/world.js';
-import { assignHue } from '../game/regatta.js';
+import { freshDispersionKey } from '../game/dispersionKey.js';
+
 import { buildFrame } from '../game/frames.js';
 import {
   Match,
@@ -46,15 +46,13 @@ import { getAccountWriter, getGameVersion } from '../game/accountWriter.js';
 import {
   recordMinesLive,
   recordCloudsLive,
-  recordFog,
   registerRoom,
   type RoomMetricsHandle,
 } from '../metrics.js';
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
-  sanitizeColorPref,
-  sanitizeGun,
+  sanitizeShift,
   sanitizeName,
   sanitizeRoomOptions,
   type JoinOptions,
@@ -256,12 +254,14 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   private world!: World;
   /**
-   * The room's Regatta hue RNG stream (Story 1.12) — seeded ONCE per room from
-   * mapSeed decorrelated by a fresh mixing constant (distinct from world.ts's
-   * spawn/upgrade/drone streams). Drives the no-preference assignment path
-   * (assignHue) so hue picks are deterministic + seeded, never Math.random.
+   * The room's BOT-FLEET stream — seeded ONCE per room from mapSeed
+   * decorrelated by a fresh mixing constant (distinct from world.ts's
+   * spawn/upgrade streams). Born as the Regatta hue stream (Story 1.12);
+   * the hue wheel is gone (Story 10.4, R6), and what the stream still deals is
+   * the bot fleet: the hull shuffle and each bot's Shift. Seeded, never
+   * Math.random. (The KIT roll's separate stream left with the kit, Story 10.5.)
    */
-  private hueRng!: Rng;
+  private fleetRng!: Rng;
   /** Null only in sandbox mode (dev smokes) — see MatchOverride. */
   private match: Match | null = null;
   private accumulator = 0;
@@ -384,13 +384,20 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // The pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
     // posture): track ids must never be derivable from the client-known
     // mapSeed.
-    // fleetWaves (Story 9.15) is read off the SANITIZED matchOverride — the
+    // beacons (Story 10.8) is read off the SANITIZED matchOverride — the
     // dev-gated door — not off the Match, so a sandbox room (no Match) honours
     // it too. Undefined on every production room.
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
-      fleetWaves: sanitized.matchOverride?.fleetWaves,
+      // Story 11.1 review fix: the per-room DISPERSION KEY — 32 random bytes,
+      // independent of the pseudonym seed and every other stream (a shooter
+      // can brute-force one shell's 32-bit seed off its landing; under the
+      // World's HMAC that reveals nothing else).
+      dispersionKey: freshDispersionKey(),
+      beacons: sanitized.matchOverride?.beacons,
+      // drops (Story 10.9) rides the same dev-gated door, the same way.
+      drops: sanitized.matchOverride?.drops,
     });
   }
 
@@ -470,9 +477,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // boarding gate arm on the single human's join (and, below, what locks the
     // room at birth); minHumans 1 is what lets the countdown arm at all.
     const sanitized: SanitizedRoomOptions = input.solo ? { ...input, expectedCaptains: 1 } : input;
-    // Regatta hue stream (Story 1.12): one mulberry32 per room, decorrelated from
-    // mapgen/spawn/upgrade/drone streams by a fresh mixing constant.
-    this.hueRng = mulberry32((seed ^ 0xc2b2ae35) >>> 0);
+    // The bot-fleet stream (born as the Story 1.12 hue stream): one mulberry32
+    // per room, decorrelated from mapgen/spawn/upgrade streams by a
+    // fresh mixing constant.
+    this.fleetRng = mulberry32((seed ^ 0xc2b2ae35) >>> 0);
     if (!sanitized.matchOverride?.sandbox) {
       this.match = new Match(this.world, this.timings(sanitized), this.matchHooks());
     }
@@ -506,13 +514,15 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // bot arriving after that snapshot sinks unrecorded (recordSink refuses ids
     // outside it). Building here — before setTimestep below — is what
     // makes "before activate" structural rather than a race.
+    //
+    // TRUSTED BOT FILL — a bot-filled private lobby (cycle 167, ruling 4) or a
+    // bot-filled standard queue (Story 10.11, epic-10 amendment 20): fill the
+    // seats the formed cohort does not take, to CONFIG.map.playerCap — at the
+    // SAME point as solo, so the bots are in the water before activate() for
+    // the same reason. Keyed on `botFill` alone, never on a mode:
+    // sanitizeRoomOptions admits it only under the server's trust ticket.
     if (sanitized.solo) this.buildBotFleet(CONFIG.map.playerCap - 1);
-    // PRIVATE LOBBY BOT FILL (cycle 167, ruling 4): fill the slots the lobby's
-    // captains do not take, to the fixed 20 — at the SAME point as solo, so the
-    // bots are in the water before activate() for the same reason.
-    if (sanitized.mode === 'private' && sanitized.botFill) {
-      this.buildBotFleet(CONFIG.map.playerCap - (sanitized.expectedCaptains ?? 1));
-    }
+    else if (sanitized.botFill) this.buildBotFleet(CONFIG.map.playerCap - (sanitized.expectedCaptains ?? 1));
 
     // LISTING metadata for /liveness (Story 6.6). This is the ONLY place the
     // arena's mode is written down, and it goes on the ROOM LISTING — never
@@ -626,10 +636,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /** Raw "i" input → World's input store (fail-closed validation lives there).
-   * Counted at the top: even a malformed message is transport pressure. */
+   * Counted at the top: even a malformed message is transport pressure.
+   * The input rate cap counts ARRIVALS, so it gets this room's wall clock
+   * (monotonic), never the sim clock: a sim that falls behind real time must
+   * not turn an honest 20 Hz stream into a flood (game/inputs.ts header). */
   private onInputMessage(client: Client, raw: unknown): void {
     this.metrics?.recordMessage();
-    this.world.submitInput(client.sessionId, raw);
+    this.world.submitInput(client.sessionId, raw, performance.now());
   }
 
   /**
@@ -677,13 +690,14 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return sanitized.matchOverride?.minHumans ?? ArenaRoom.doorMinHumans(sanitized);
   }
 
-  /** The door's own minHumans: one for solo, and one for a BOT-FILLED private
-   *  arena (cycle 167, ruling 2 — the host may start alone with bot-fill on);
-   *  undefined = the CONFIG default (a private arena without bots needs 2,
-   *  exactly like a standard one). */
+  /** The door's own minHumans: one for solo, and one for any trusted BOT-FILLED
+   *  arena — a private lobby's (cycle 167, ruling 2 — the host may start alone
+   *  with bot-fill on) or the standard queue's (Story 10.11, epic-10 amendment
+   *  20 — one captain arms it); undefined = the CONFIG default (an arena
+   *  without bots needs CONFIG.match.minHumans people). */
   private static doorMinHumans(sanitized: SanitizedRoomOptions): number | undefined {
     if (sanitized.solo) return 1;
-    return sanitized.mode === 'private' && sanitized.botFill ? 1 : undefined;
+    return sanitized.botFill ? 1 : undefined;
   }
 
   /** The listing tag for /liveness: which door formed this room. */
@@ -698,9 +712,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       lock: () => void this.lock(),
       unlock: () => void this.unlock(),
       // (The drone-fill hook is GONE — Story 5.6, amendment 41 deleted the
-      // match-start fill outright. PvE fleets are world content on their own
-      // wave clock inside the World, hold no PlayerMeta row, and never top up
-      // a roster.)
+      // match-start fill outright; Story 10.8 retired the PvE fleet itself.)
       broadcastResults: (msg: ResultsMsg) => {
         // Cache before broadcasting (finding F2): a captain in grace isn't in
         // this.clients, so onDrop's resume handler re-sends this to them.
@@ -744,22 +756,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     };
   }
 
-  /** The hue indices the roster currently holds (Story 1.12) — the `used` set for
-   *  assignHue. Skips the 255 sentinel, which since Story 5.6 only ever marks a
-   *  not-yet-assigned entry: PvE fleet hulls hold no roster row at all
-   *  (amendment 39), so they never reach the wheel to be excluded from it. */
-  private usedHues(): Set<number> {
-    const used = new Set<number>();
-    this.state.players.forEach((meta: PlayerMeta) => {
-      if (meta.color !== REGATTA_NO_HUE) used.add(meta.color);
-    });
-    return used;
-  }
 
   /**
    * FILL THE ROSTER WITH AI CAPTAINS (Story 6.5) — the whole server side of
    * Solo vs AI. `count` is `CONFIG.map.playerCap - 1` for solo, and
-   * `playerCap - expectedCaptains` for a bot-filled private arena (cycle 167),
+   * `playerCap - expectedCaptains` for a bot-filled private arena (cycle 167)
+   * or a bot-filled standard-queue arena (Story 10.11),
    * so the ocean holds a full lobby either way: the count is DERIVED from the cap rather than
    * being a new constant, which keeps it in step with the spawn lattice (also
    * exactly playerCap candidates) and with the map radius, which is sized off
@@ -775,39 +777,36 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private buildBotFleet(count: number): void {
     const order = this.shuffledClasses();
     for (let i = 0; i < count; i += 1) {
-      // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-      // and each MOUNTS A RANDOM GUN (Story 8.15, amendment 109): one of the
-      // three drawn UNIFORMLY off the room's seeded stream — the hue RNG, the
-      // one stream every other room roll rides — so staging fights all three
-      // guns and a pinned map seed seats a pinned fleet. Never Math.random.
-      const gun = GUN_IDS[this.hueRng.int(0, GUN_IDS.length - 1)];
-      const rec = this.world.addBot(order[i % order.length], undefined, gun);
+      // Bots draw from the SAME common pool a captain draws from (Story 8.14).
+      // THE SHIFT is dealt by the bot controller at enrollment, weighted by
+      // the personality it rolled (Story 10.12, Eric 2026-11-11, R5 —
+      // ai/profiles.ts rollShift, off the controller's own seeded Shift
+      // stream), so the room passes none. (It was one uniform draw per bot off
+      // this room's bot-fleet stream from Story 10.4; that stream now carries
+      // only the class shuffle above.) Never Math.random.
+      const rec = this.world.addBot(order[i % order.length], undefined);
       const meta = new PlayerMeta();
       meta.id = rec.id;
       meta.name = rec.name;
-      // A REAL REGATTA HUE, never REGATTA_NO_HUE (255): that sentinel is the
-      // drone-grey mark, and an AI captain wearing it renders as PvE content.
-      // The wheel is exactly 20 and 19 bots + 1 human consume it precisely.
-      meta.color = assignHue(this.usedHues(), undefined, this.hueRng, i + 1);
       this.state.players.set(rec.id, meta);
     }
     this.log.info('room.botFleet', { bots: count });
   }
 
   /**
-   * The class-dealing order for a bot fleet: the three hulls, shuffled ONCE per
-   * room off the room's seeded stream. Dealt round-robin (5/5/5 across 15 at the 16-captain cap since Story 9.8; 6/6/7 across 19 before) this
-   * fields all three silhouettes in every solo match — which matters because
-   * this mode is most players' first match, and cap − 1 independent uniform
-   * draws land lopsided often enough that a field of nine battleships is an
-   * ordinary result. The shuffle is what keeps the same class from always
-   * taking the odd seat (whenever cap − 1 is not a multiple of three), and it is seeded (never Math.random) like every other
-   * roll the room makes.
+   * The class-dealing order for a bot fleet: every hull (the four battleships
+   * since Story 10.4), shuffled ONCE per room off the room's bot-fleet stream.
+   * Dealt round-robin, this fields every silhouette in every solo match —
+   * which matters because this mode is most players' first match, and
+   * cap − 1 independent uniform draws land lopsided often enough. The shuffle
+   * is what keeps the same class from always taking the odd seat (whenever
+   * cap − 1 is not a multiple of the class count), and it is seeded (never
+   * Math.random) like every other roll the room makes.
    */
   private shuffledClasses(): ShipClassId[] {
     const out = [...SHIP_CLASS_IDS];
     for (let i = out.length - 1; i > 0; i -= 1) {
-      const j = this.hueRng.int(0, i);
+      const j = this.fleetRng.int(0, i);
       const tmp = out[i];
       out[i] = out[j];
       out[j] = tmp;
@@ -815,39 +814,6 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return out;
   }
 
-  /**
-   * A joining captain's personal hue, with the BOT SWAP (Story 6.5).
-   *
-   * The ordinary FCFS rule (assignHue) is unchanged and still decides
-   * everything: a free preference is granted verbatim, a contested one falls to
-   * the nearest free hue, no preference draws a random free one. What is new is
-   * the case that only exists in a bot lobby — the fleet was hued before the
-   * player arrived, so an AI captain may already be flying the colour the
-   * player chose. A bot has no preference to defend, so the two SWAP: the
-   * player keeps their choice and the bot takes the hue the player would
-   * otherwise have flown. The wheel stays a bijection (exactly 20 hues, 20
-   * hulls) and no third party is disturbed — a hue held by a HUMAN is never
-   * taken, so the FCFS contest between two players is byte-identical.
-   */
-  private resolveJoinerHue(pref: number | undefined): number {
-    const hue = assignHue(this.usedHues(), pref, this.hueRng, this.joinCounter);
-    if (pref === undefined || hue === pref) return hue;
-    const holder = this.botMetaWithHue(pref);
-    if (!holder) return hue; // a human holds it — FCFS stands
-    holder.color = hue;
-    return pref;
-  }
-
-  /** The roster row of a BOT flying `hue`, or null (a human's row is never
-   *  returned — see resolveJoinerHue). */
-  private botMetaWithHue(hue: number): PlayerMeta | null {
-    let found: PlayerMeta | null = null;
-    this.state.players.forEach((meta: PlayerMeta, id: string) => {
-      if (found !== null || meta.color !== hue) return;
-      if (this.world.ships.get(id)?.role === 'bot') found = meta;
-    });
-    return found;
-  }
 
   /**
    * Redraw any BOT whose callsign matches the joining captain's (Story 6.5),
@@ -893,7 +859,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * matching the MSG.results re-send in onDrop's resume branch).
    *
    * DELIBERATELY NOT a shared join helper: the ship-spawn half of onJoin
-   * (`world.addShip`, the roster row, the hue draw) must stay EXCLUSIVELY on
+   * (`world.addShip`, the roster row) must stay EXCLUSIVELY on
    * the join path. Core calls onReconnect INSTEAD OF onJoin, and re-running any
    * of it would spawn a second hull for one captain.
    */
@@ -903,8 +869,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       mapSeed: this.state.mapSeed,
       mapRadius: this.world.map.radius,
       playerCap: this.world.playerCap,
-      // Story 9.10: the fog field's seed — public weather; the client builds
-      // the same shared field from it and reads the live cut off the schema.
+      // The rain field's seed — public weather; the client builds the same
+      // shared field from it (Story 9.10; since Story 11.6 every other input is
+      // the zone clock and the revealed rings, already on the schema).
       fogSeed: this.world.fogSeed,
       t: this.world.now,
       config: CONFIG,
@@ -913,21 +880,25 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   onJoin(client: Client, options: JoinOptions = {}): void {
     const classId = sanitizeClassId(options.cls);
+    // A PRESENT-BUT-UNKNOWN class (the three retired ids included) is logged
+    // once, the coerced-option style of the other doors (Story 10.4).
+    if (options.cls !== undefined && options.cls !== classId) this.log.warn('join.clsCoerced', { to: classId });
     // Foghorn variant (Story 4.5): sanitized HERE like cls — a plain identity
     // option, never a dev override — and handed straight to the ship record.
     // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
     const horn = sanitizeHornId(options.horn);
-    // THE SEAT'S GUN (Story 8.14) and the dev spawn fit — both resolved BEFORE
-    // anything is spawned or written. Neither can refuse a join any more (the
-    // deck door and its 4402 are gone): a bad gun coerces to `deckGun` and a
-    // dev fit outside HC_DEV_OPTIONS=1 is stripped.
-    const gun = this.resolveJoinGun(client, options);
+    // THE SEAT'S SHIFT (Story 10.4 — the seat gun's successor) and the dev
+    // spawn fit — both resolved BEFORE anything is spawned or written. Neither
+    // can refuse a join: a bad Shift coerces to DEFAULT_SHIFT and a dev fit
+    // outside HC_DEV_OPTIONS=1 is stripped.
+    // (A legacy `kit` option or `auth.kit` — Story 10.1 — is never read since
+    // Story 10.5: silently ignored, never refused.)
+    const shift = this.resolveJoinShift(client, options);
     const { devFit, devPose } = this.resolveDevJoin(client, options);
     // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
     // no longer be refused. Incrementing it first BURNED an ordinal on every
     // refusal: the next nameless captain came aboard as CAPTAIN-2 with no
-    // CAPTAIN-1 in the room, and assignHue's exhaustion fallback (joinOrder %
-    // 20) drifted with it.
+    // CAPTAIN-1 in the room.
     this.joinCounter += 1;
     // SECURITY (Story 2.3, deferred-work 127/130): options.name arrives verbatim
     // from joinOrCreate. sanitizeName type-guards it (a non-string used to THROW
@@ -941,14 +912,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.resolveCallsignCollision(name);
 
     // A joining CLIENT is always a captain (Story 6.3's role seam, amendment
-    // 13): the socket is the proof. Fleet hulls are world content spawned by
-    // World itself and never reach this door; Story 6.4's AI captains will not
-    // either.
+    // 13): the socket is the proof. Story 6.4's AI captains never reach this
+    // door either.
     // `devFit` (Story 8.10, amendment 65) is EMPTY on every production path —
     // the dev gate strips `fitOverride` and the queue never forwards it — so
     // this is the shipped spawn unless a smoke asked for a pre-fitted weapon.
     // `devPose` (Story 9.15) likewise: undefined unless a smoke posed the hull.
-    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, gun, devFit, devPose);
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, shift, devFit, devPose);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the
@@ -958,22 +928,16 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const meta = new PlayerMeta();
     meta.id = client.sessionId;
     meta.name = name;
-    // Regatta Hoist (Story 1.12): assign a unique personal hue FCFS at join.
-    // `used` is every hue the roster already holds. Since Story 5.6 the roster
-    // is CAPTAINS ONLY (amendment 39), so no sentinel entry can occupy a wheel
-    // index — fleet hulls never get a row at all.
-    // `joinCounter` feeds ONLY assignHue's defensive exhaustion fallback (wheel
-    // full → joinOrder % 20); at cap 20 the wheel always has a free hue first.
-    meta.color = this.resolveJoinerHue(sanitizeColorPref(options.colorPref));
+    // (No hue: the Regatta wheel is removed everywhere — Story 10.4, R6.)
     this.state.players.set(client.sessionId, meta);
 
     client.send(MSG.welcome, this.buildWelcome(client.sessionId));
 
     this.match?.notifyRosterChanged();
 
-    // The seat's gun rides the join line (Story 8.14, replacing `deckSource`):
+    // The seat's Shift rides the join line (Story 10.4, replacing the gun):
     // ops-only, and a captain's OWN pick — never another client's.
-    this.log.info('client.join', { sessionId: client.sessionId, gun });
+    this.log.info('client.join', { sessionId: client.sessionId, shift });
     this.armJoiningDeadline(client);
     // /liveness (Story 6.6): the population moved. Publish-on-change, so a room
     // whose roster is stable never writes to the driver again.
@@ -981,27 +945,27 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /**
-   * THE SEAT'S GUN AT THE ARENA DOOR (Story 8.14, amendment 95), in precedence
-   * order:
+   * THE SEAT'S SHIFT AT THE ARENA DOOR (Story 10.4 — the seat gun's door,
+   * Story 8.14 amendment 95, re-pointed), in precedence order:
    *
-   *   1. THE SEAT'S `auth.gun` — the value StandardQueueRoom sanitized and
-   *      FROZE when it seated this captain. It rides the server-only `auth`
-   *      payload exactly as the deck used to (core surfaces it as `client.auth`
-   *      in onJoin), so a queued captain's gun is one a client cannot reshape
+   *   1. THE SEAT'S `auth.shift` — the value StandardQueueRoom / LobbyRoom
+   *      sanitized and FROZE when it seated this captain. It rides the
+   *      server-only `auth` payload (core surfaces it as `client.auth` in
+   *      onJoin), so a queued captain's Shift is one a client cannot reshape
    *      between the queue and the arena.
    *   2. THE JOIN OPTION, sanitized here — the Solo vs AI door and the dev
    *      direct join, neither of which carries a seat.
-   *   3. `DEFAULT_GUN`, which is what both of the above fail open to anyway.
+   *   3. `DEFAULT_SHIFT`, which is what both of the above fail open to anyway.
    *
-   * NOTHING REFUSES. `sanitizeGun` coerces rather than throwing, so unlike the
-   * deck door this join can never bounce; a malformed seat value is simply not
-   * a GunId and falls through to the option, then to the default.
+   * NOTHING REFUSES. `sanitizeShift` coerces rather than throwing; a malformed
+   * seat value is simply not a ShiftId and falls through to the option, then
+   * to the default. The legacy `gun` option / `auth.gun` are never read.
    */
-  private resolveJoinGun(client: Client, options: JoinOptions): GunId {
+  private resolveJoinShift(client: Client, options: JoinOptions): ShiftId {
     const auth: unknown = client.auth;
-    const seated: unknown = typeof auth === 'object' && auth !== null ? (auth as { gun?: unknown }).gun : undefined;
-    if (isGunId(seated)) return seated;
-    return sanitizeGun(options.gun, this.log);
+    const seated: unknown = typeof auth === 'object' && auth !== null ? (auth as { shift?: unknown }).shift : undefined;
+    if (isShiftId(seated)) return seated;
+    return sanitizeShift(options.shift, this.log);
   }
 
   /**
@@ -1033,7 +997,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * Resume door (Story 6.7). Core calls this INSTEAD OF onJoin on the
    * reconnection branch (verified in @colyseus/core 0.18.13 Room.mjs:1063-1090 —
    * `isWaitingReconnection` short-circuits the onJoin path entirely), so the
-   * seat, the ship, the roster row, the hue and the input store all still exist
+   * seat, the ship, the roster row and the input store all still exist
    * and NOTHING here may re-create any of them: a second `world.addShip` would
    * give one captain two hulls.
    *
@@ -1148,13 +1112,19 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // `code ?? null` so the close code ALWAYS survives JSON.stringify —
       // undefined would silently drop the field and lose the forensics.
       this.log.info('client.drop', { sessionId: client.sessionId, code: code ?? null });
-      // A machine gun held at the drop would stream on the ghost for the
+      // A level (secondaries / machine gun) held at the drop would stream on the ghost for the
       // whole grace (streamControl reads the stored LEVEL): release it. The
       // helm keeps its last input (ghost sailing, as before).
       this.world.releaseHeld(client.sessionId);
+      // Story 11.6 review: no frame (so no perception pass) is built for this
+      // captain during the grace, and a client that comes back on a fresh
+      // page holds no smoke cloud — forget the clouds it holds now and again
+      // at the resume, so none is charged on its eye lines until re-sent.
+      this.world.forgetHeldClouds(client.sessionId);
       this.allowReconnection(client, CONFIG.net.reconnectGraceSeconds)
         .then((newClient) => {
           this.log.info('client.resume', { sessionId: client.sessionId });
+          this.world.forgetHeldClouds(client.sessionId); // see onDrop's hold branch
           // The resume branch pushes the new client into `this.clients` without
           // re-running onJoin, so this is the only place that can put the
           // recovered captain back into the published count.
@@ -1286,8 +1256,6 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       recordMinesLive(this.world.mineCount);
       // ...and the live COUNTERMEASURE cloud count (Story 8.18 / 9.3), on the same terms.
       recordCloudsLive(this.world.cloudCount);
-      // ...and the fog field's cut + realized coverage (Story 9.10) — numbers only.
-      recordFog(this.world.fogCut, this.world.fogCoverageEstimate);
       this.match?.update();
       this.observeMatchActivation();
       this.afterStep();
@@ -1454,6 +1422,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.releaseDeparted(); // scuttled hulls reaped this tick free their seats
     this.syncRoster();
     this.syncZone();
+    this.syncBeacons();
     this.syncMatch();
     this.syncBounty();
     const phase = this.match?.phase ?? 'waiting';
@@ -1497,11 +1466,30 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (s.zoneNextCx !== next.cx) s.zoneNextCx = next.cx;
     if (s.zoneNextCy !== next.cy) s.zoneNextCy = next.cy;
     if (s.zoneNextR !== next.r) s.zoneNextR = next.r;
-    // Story 9.10: the fog field's coverage cut — match-wide weather beside
-    // the rings, guarded the same way (a patch only when the cut moves, at
-    // most once per CONFIG.fog.refreshMs).
-    const cut = this.world.fogCut;
-    if (s.fogCut !== cut) s.fogCut = cut;
+  }
+
+  /**
+   * Mirror THE RADIO BEACON CHART onto the public schema (Story 10.8, R2 /
+   * R9): the cycle, the count, and each live slot's position and early sink
+   * time. STATE-DERIVED from `World.beaconChart` every step with guarded
+   * assigns, exactly like the zone — so a patch goes out only when a set is
+   * placed or cleared or a beacon is destroyed, and a late joiner or a
+   * reconnect reads the current set from plain schema sync. Slots at or past
+   * `beaconCount` are left as they were (the count gates them).
+   */
+  private syncBeacons(): void {
+    const s = this.state;
+    const chart = this.world.beaconChart;
+    const count = Math.min(chart.beacons.length, BEACON_WIRE_SLOTS);
+    if (s.beaconCycle !== chart.cycle) s.beaconCycle = chart.cycle;
+    if (s.beaconCount !== count) s.beaconCount = count;
+    const slots = s as unknown as Record<string, number>;
+    for (let i = 0; i < count; i += 1) {
+      const b = chart.beacons[i];
+      if (slots[`bcn${i}X`] !== b.x) slots[`bcn${i}X`] = b.x;
+      if (slots[`bcn${i}Y`] !== b.y) slots[`bcn${i}Y`] = b.y;
+      if (slots[`bcn${i}SinkT`] !== b.sinkT) slots[`bcn${i}SinkT`] = b.sinkT;
+    }
   }
 
   /** Mirror the match lifecycle onto the public schema. Match.countdownEndT

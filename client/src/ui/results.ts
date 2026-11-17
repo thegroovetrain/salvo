@@ -51,12 +51,10 @@
 
 import {
   type EffectiveStats,
-  type GunId,
   type ResultsMsg,
   type ResultsRow,
   type ShipClassId,
-  type SlotItemId,
-  type WeaponAmmo,
+  type EquipmentId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
@@ -292,10 +290,8 @@ export function matchLogRow(entry: MatchLogEntry): { stamp: string; text: string
 }
 
 /**
- * Pure: the "ships you sank" block. Contestant-controlled hulls only — drone
- * kills count in the KILLS tally above but never appear here (the I/O matrix's
- * "2 drones + 1 human ⇒ kills 3, list shows the human"). An empty roll reads as
- * an explicit line, never as a missing section.
+ * Pure: the "ships you sank" block. An empty roll reads as an explicit line,
+ * never as a missing section.
  */
 export function sunkLines(score: PersonalScore): string[] {
   return score.sunkContestants.length === 0 ? ['— NONE —'] : score.sunkContestants.map((n) => `· ${n}`);
@@ -315,20 +311,17 @@ export interface ResultsOwn {
   name: string;
   /** Own ship class — rendered through CLASS_DISPLAY_NAMES. */
   cls: ShipClassId;
-  /** RAW personal hue; lifted through `textSafe()` here exactly as the kill feed
-   *  and the chrome bar lift it (the mockup's own legend: *"darker hues would
-   *  use their text-safe variants"*). */
+  /** RAW own-relation color (Story 10.4 — render/relationColor.ts); lifted
+   *  through `textSafe()` here exactly as the kill feed and the chrome bar lift
+   *  it. */
   hue: number;
   /** Fitted card ids, REPEATS INTACT (`OwnShip.cards`). */
   cards: readonly string[];
-  /** The seat gun (`OwnShip.gun`) — slot 0's mount. */
-  gun: GunId;
-  /** Slot-aligned item ids of the own loadout as it ended (`g.ownSlots`: the
-   *  replayed `slotIdsFor`), `null` for an empty square — a belt stack fired to
-   *  zero has left `cards`, so it is simply empty here too (Eric R4). */
-  slots: readonly (SlotItemId | null)[];
-  /** Slot-aligned stock (`OwnShip.ammo`) — the belt's `×n` badges read it. */
-  ammo: readonly (WeaponAmmo | null)[];
+  /** Slot-aligned equipment ids of the own loadout as it ended (`g.ownSlots`:
+   *  the replayed `slotIdsFor`), `null` for an empty square. (The kit and the
+   *  belt's stock left with the kit — Story 10.5, 2026-11-05, epic-10
+   *  amendment 11.) */
+  slots: readonly (EquipmentId | null)[];
   /** The own effective stats (`g.ownStats`, the hotbar's own fold) — the gun's
    *  tier is read off it, never re-derived. */
   stats: EffectiveStats;

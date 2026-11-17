@@ -3,15 +3,17 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_GUN, GUN_IDS, mapRadius } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, SHIFT_IDS, mapRadius } from '@salvo/shared';
 import {
   DEV_LIST_MAX,
   NAME_MAX,
-  sanitizeGun,
+  sanitizeShift,
   sanitizeName,
   sanitizeRoomOptions,
+  type JoinOptions,
   type RoomOptions,
 } from '../rooms/roomOptions.js';
+import { sanitizeArenaOptions, seatAuth } from '../rooms/formArena.js';
 import { lobbyTicket } from '../rooms/lobbyTicket.js';
 
 const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0, mulligan: true };
@@ -194,10 +196,10 @@ describe('sanitizeRoomOptions — fitOverride (the dev spawn fit)', () => {
 });
 
 
-// --- spawnOverride + matchOverride.fleetWaves (Story 9.15) -------------------
-// The two dev-door keys a SCRIPTED smoke needs: a captain's placement pose and
-// a switch that keeps the PvE wave scheduler out of a scripted fight. Same gate
-// as every dev key; PRODUCTION MUST NEVER SEE EITHER.
+// --- spawnOverride (Story 9.15) ----------------------------------------------
+// The dev-door key a SCRIPTED smoke needs: a captain's placement pose. Same
+// gate as every dev key; PRODUCTION MUST NEVER SEE IT. (Its sibling, the
+// fleetWaves switch, retired with the PvE fleet at Story 10.8.)
 
 describe('sanitizeRoomOptions — spawnOverride (the dev spawn pose)', () => {
   const R = mapRadius(CONFIG.map.playerCap); // the radius every room's World is built at
@@ -250,15 +252,15 @@ describe('sanitizeRoomOptions — spawnOverride (the dev spawn pose)', () => {
   });
 });
 
-describe('sanitizeRoomOptions — matchOverride.fleetWaves (the dev no-fleet switch)', () => {
-  it('fleetWaves: false survives under devEnabled', () => {
-    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, fleetWaves: false } }, true);
-    expect(out.sanitized.matchOverride?.fleetWaves).toBe(false);
+describe('sanitizeRoomOptions — matchOverride.beacons (the dev no-beacons switch, Story 10.8)', () => {
+  it('beacons: false survives under devEnabled', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, beacons: false } }, true);
+    expect(out.sanitized.matchOverride?.beacons).toBe(false);
     expect(out.rejectedKeys).toEqual([]);
   });
 
   it('is stripped WITH matchOverride without HC_DEV_OPTIONS', () => {
-    const out = sanitizeRoomOptions({ matchOverride: { fleetWaves: false } }, false);
+    const out = sanitizeRoomOptions({ matchOverride: { beacons: false } }, false);
     expect(out.sanitized.matchOverride).toBeUndefined();
     expect(out.rejectedKeys).toEqual(['matchOverride']);
   });
@@ -333,33 +335,60 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
   });
 });
 
-// sanitizeGun (Story 8.14, epic-8 amendment 95) — THE SEAT'S GUN at both
-// doors, and the whole of what replaced the deck door. It is an IDENTITY option
-// like `cls` and `horn`, not a privileged override: it fails OPEN to `deckGun`
-// and can never refuse a join. All three ids are accepted today;
-// `machineGun`/`flak` mount the shipped deck-gun module until Story 8.15.
+// sanitizeShift (Story 10.4 — the retired sanitizeGun's door, Story 8.14
+// amendment 95) — THE SEAT'S SHIFT at every door. An IDENTITY option like
+// `cls` and `horn`, not a privileged override: it fails OPEN to DEFAULT_SHIFT
+// and can never refuse a join.
 
-describe('sanitizeGun — the three ids', () => {
-  it('passes every GunId through verbatim', () => {
-    for (const id of GUN_IDS) expect(sanitizeGun(id)).toBe(id);
-    expect(GUN_IDS).toEqual(['deckGun', 'machineGun', 'flak']);
+// THE LEGACY KIT OPTION (Story 10.5, 2026-11-05, epic-10 amendment 11): the
+// seat's consumable kit is gone with the kit. A client still sending `kit`
+// (a saved `hullracker.kit`) is silently IGNORED — never refused, no log —
+// exactly as the legacy `gun` option: the front door drops it from the
+// travelling options and the seat's server-only auth carries the Shift alone.
+describe('a legacy `kit` join option is ignored (Story 10.5)', () => {
+  it('sanitizeArenaOptions drops it like any unknown key, without a throw', () => {
+    const bag = { name: 'ANNE', kit: ['hullRepair', 'countermeasure', 'shieldBlock', 'radarBuoy'] } as unknown as JoinOptions;
+    const out = sanitizeArenaOptions(bag);
+    expect(Object.hasOwn(out, 'kit')).toBe(false);
+    expect(out).toEqual(sanitizeArenaOptions({ name: 'ANNE' }));
   });
 
-  it('coerces anything else to deckGun — never a throw, never a refusal', () => {
-    for (const bad of ['gun', 'DECKGUN', '', ' deckGun', 'monitor', 42, {}, [], null, true, undefined]) {
-      expect(sanitizeGun(bad), String(bad)).toBe(DEFAULT_GUN);
+  it("the seat's auth carries the Shift and no kit", () => {
+    const client = { auth: undefined } as unknown as Parameters<typeof seatAuth>[0];
+    expect(seatAuth(client, DEFAULT_SHIFT)).toEqual({ shift: DEFAULT_SHIFT });
+  });
+
+  it('sanitizeShift is untouched by a kit riding the same bag', () => {
+    const lines: string[] = [];
+    const log = { warn: (event: string) => lines.push(event) } as unknown as Parameters<typeof sanitizeShift>[1];
+    expect(sanitizeShift(SHIFT_IDS[0], log)).toBe(SHIFT_IDS[0]);
+    expect(lines).toEqual([]);
+  });
+});
+
+describe('sanitizeShift — the seat pick (Story 10.4)', () => {
+  type Log = Parameters<typeof sanitizeShift>[1];
+  it('passes every ShiftId through verbatim', () => {
+    for (const id of SHIFT_IDS) expect(sanitizeShift(id)).toBe(id);
+  });
+
+  it('coerces anything else — the retired gun ids included — to DEFAULT_SHIFT; never a throw, never a refusal', () => {
+    const shifts: readonly unknown[] = SHIFT_IDS;
+    const bad: unknown[] = ['deckGun', 'machineGun', 'flak', '', 42, {}, [], null, true, undefined];
+    for (const raw of bad) {
+      expect(shifts.includes(raw), String(raw)).toBe(false); // the fixture really is off-list
+      expect(sanitizeShift(raw), String(raw)).toBe(DEFAULT_SHIFT);
     }
-    expect(DEFAULT_GUN).toBe('deckGun');
+    expect(shifts).toContain(DEFAULT_SHIFT);
   });
 
-  it('LOGS a present-but-invalid value once, and says nothing at all about an absent one', () => {
+  it('LOGS a present-but-invalid value once, and says nothing at all about an absent or valid one', () => {
     const lines: { event: string; fields: unknown }[] = [];
-    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) };
-    expect(sanitizeGun('bogus', log as unknown as Parameters<typeof sanitizeGun>[1])).toBe(DEFAULT_GUN);
-    expect(lines).toHaveLength(1);
-    expect(lines[0].event).toBe('join.gunCoerced');
-    sanitizeGun(undefined, log as unknown as Parameters<typeof sanitizeGun>[1]);
-    sanitizeGun('flak', log as unknown as Parameters<typeof sanitizeGun>[1]);
+    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) } as unknown as Log;
+    expect(sanitizeShift('bogus', log)).toBe(DEFAULT_SHIFT);
+    expect(lines.map((l) => l.event)).toEqual(['join.shiftCoerced']);
+    sanitizeShift(undefined, log);
+    for (const id of SHIFT_IDS) sanitizeShift(id, log);
     expect(lines).toHaveLength(1); // absent and valid both stay silent
   });
 });
@@ -371,7 +400,7 @@ describe('sanitizeGun — the three ids', () => {
 
 describe('the retired deck keys are dropped like any unknown option', () => {
   it('sanitizeRoomOptions ignores them entirely, dev gate open or shut', () => {
-    const opts = { deck: ['hullPoints'], deckId: 'd', deckOverride: ['hullPoints'] } as unknown as RoomOptions;
+    const opts = { deck: ['armor'], deckId: 'd', deckOverride: ['armor'] } as unknown as RoomOptions;
     for (const dev of [false, true]) {
       const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, dev);
       expect(rejectedKeys, String(dev)).toEqual([]);

@@ -3,7 +3,7 @@
 // ruled fills. Both are pure; no Pixi/DOM involved.
 
 import { describe, it, expect } from 'vitest';
-import { HULL_IDS, hullSilhouette, polygonMaxRadius } from '@salvo/shared';
+import { DEFAULT_CLASS_ID, HULL_IDS, hullSilhouette, polygonMaxRadius } from '@salvo/shared';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 
 /** Pull the `points="..."` coord pairs out of the emitted SVG. */
@@ -52,7 +52,7 @@ describe('silhouetteSvg — traces the shared hull polygon', () => {
   });
 
   it('margin scales with the hull bounding radius (polygonMaxRadius)', () => {
-    const id = 'torpedoBoat';
+    const id = DEFAULT_CLASS_ID;
     const tight = parseViewBox(silhouetteSvg(id, { stroke: 'c', marginFrac: 0 }));
     const padded = parseViewBox(silhouetteSvg(id, { stroke: 'c', marginFrac: 0.2 }));
     const maxR = polygonMaxRadius(hullSilhouette(id));
@@ -61,9 +61,9 @@ describe('silhouetteSvg — traces the shared hull polygon', () => {
   });
 
   it('is color-agnostic — passes stroke/fill strings straight through', () => {
-    const svg = silhouetteSvg('battleship', { stroke: '#00d0ff', fill: '#005e73' });
+    const svg = silhouetteSvg(DEFAULT_CLASS_ID, { stroke: '#00d0ff', fill: '#005e73' });
     expect(svg).toContain('stroke="#00d0ff"');
     expect(svg).toContain('fill="#005e73"');
-    expect(silhouetteSvg('mineLayer', { stroke: 'x' })).toContain('fill="none"');
+    expect(silhouetteSvg(DEFAULT_CLASS_ID, { stroke: 'x' })).toContain('fill="none"');
   });
 });

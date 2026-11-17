@@ -1,17 +1,29 @@
 // Input validation + latest-input store. The ONLY path player intent enters
-// the simulation (drones will use it too). Malformed messages are silently
+// the simulation (bots write through it too). Malformed messages are silently
 // dropped per the plan: every field finite-checked, numeric axes clamped,
 // aim wrapped, fireSeq/aimDist floored/clamped non-negative, seq must
 // strictly exceed the stored seq, and each client is rate-capped at 40
 // accepted-or-not messages per second. fireSeq monotonicity is deliberately
 // NOT enforced here — the World's consumption (lastFireSeq = max(...)) makes
 // a stale or replayed counter value simply read as "no new click".
+//
+// THE RATE CAP COUNTS ARRIVALS, ON THE ARRIVAL CLOCK (Story 11.2 follow-up).
+// `submit`'s `now` is the time the message ARRIVED — the room's own monotonic
+// clock for a socket, the sim clock for an in-process caller (a bot submits
+// once per step, so the sim clock is its arrival clock) — never the sim clock
+// for a socket: when a host steps the sim slower than real time, one sim
+// second is many wall seconds, a 20 Hz client overruns a sim-time window and
+// most of its inputs were silently dropped (the 2026-11-13 slow-tick
+// regression). And an input past the cap is no longer dropped whole: its
+// HELM AND AIM still land, latest-wins (`foldKinematics`), so a released
+// rudder is honoured and the ack keeps advancing; only its ACTIVATIONS are
+// shed.
 
-import { CONFIG, SLOT_COUNT, wrapAngle, type InputMsg } from '@salvo/shared';
+import { CONFIG, SLOT_COUNT, abilityFromCode, wrapAngle, type InputMsg } from '@salvo/shared';
 
 /** Max input messages per client per rolling window. */
 export const INPUT_RATE_CAP = 40;
-/** Rate-cap window length (ms of server time). */
+/** Rate-cap window length (ms on the ARRIVAL clock — see the header). */
 export const INPUT_RATE_WINDOW_MS = 1000;
 /**
  * Hard cap on the accepted-intent queue per client (Story 2.1 — the
@@ -46,7 +58,7 @@ export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -108,11 +120,13 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   const m = raw as Record<string, unknown>;
   if (!numericFieldsFinite(m)) return null;
   if (!isSlotIndex(m.slot)) return null;
-  // Story 1.6 ability-activation fields, validated like their precedents
-  // (actSeq the fireSeq-style counter, actSlot the slot-index): malformed
-  // drops the whole message, never partially applying.
+  // Story 1.6 ability-activation fields, validated like their precedents:
+  // actSeq the fireSeq-style counter, and (Story 10.5, epic-10 amendment 11)
+  // `act` the ABILITY CODE — the shared `abilityFromCode` must name one
+  // (0 Shift, 1 HULL REPAIR, 2 SMOKE); an unknown code drops the whole
+  // message, never partially applying.
   if (!isActSeq(m.actSeq)) return null;
-  if (!isSlotIndex(m.actSlot)) return null;
+  if (abilityFromCode(m.act) === null) return null;
   // Story 4.5 foghorn counter: validated EXACTLY as actSeq (isActSeq is the
   // one monotonic-counter guard — finite int >= 0), whole message dropped on
   // anything malformed. The World's lastHornSeq = max(...) consumption makes
@@ -123,7 +137,10 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   // same sanitize law as every field above. It is never clamped or coerced:
   // a level is either down or up. The World reads it off the LATEST stored
   // input (never the intent queue) for the machine gun's stream.
-  if (typeof m.held !== 'boolean') return null;
+  // Story 10.4 (R3): the SECONDARIES level (`sec`, right mouse held) is a
+  // REQUIRED boolean under exactly `held`'s grammar — anything else drops the
+  // WHOLE message. Both levels are checked in one helper (complexity budget).
+  if (!levelsValid(m)) return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
   return {
@@ -136,10 +153,17 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     slot: m.slot,
     fireT: m.fireT as number,
     actSeq: m.actSeq,
-    actSlot: m.actSlot,
+    act: m.act as number,
     hornSeq: m.hornSeq,
-    held: m.held,
+    held: m.held as boolean,
+    sec: m.sec as boolean,
   };
+}
+
+/** The two LEVEL fields — `held` (Story 8.15) and `sec` (Story 10.4) — are
+ *  required booleans: never clamped, never coerced. */
+function levelsValid(m: Record<string, unknown>): boolean {
+  return typeof m.held === 'boolean' && typeof m.sec === 'boolean';
 }
 
 /** Everything clampFireTime needs to turn a claimed fire time into a safe one. */
@@ -187,8 +211,36 @@ export function clampFireTime(c: FireTimeClaim): number {
 }
 
 interface RateWindow {
-  start: number; // ms — window open time (server clock)
+  start: number; // ms — window open time (the arrival clock)
   count: number;
+}
+
+/**
+ * THE OVER-CAP FOLD: the message a client's `over` input leaves in force when
+ * it arrives past the rate cap. Kinematics are latest-wins — `seq` (so the
+ * ack advances and the client's prediction replays from the right input),
+ * `throttle`, `rudder`, and the aim point (`aim` + `aimDist`, one point) come
+ * from the NEW message, so a stale helm is never left steering while newer
+ * inputs are shed. Every ACTIVATION field (`fireSeq`, `slot`, `fireT`,
+ * `actSeq`, `act`, `hornSeq`) stays at the last fully accepted message's
+ * value: nothing fires, activates or honks off a shed input (the counters are
+ * cumulative, so the next accepted message carries the press). The two HELD
+ * LEVELS (`held`, `sec`) can only be RELEASED by a shed input, never started
+ * — a release is not an activation (the `releaseHeld` posture). A new object,
+ * never a mutation (the stored message is shared by reference with
+ * `ship.input`).
+ */
+export function foldKinematics(prev: InputMsg, over: InputMsg): InputMsg {
+  return {
+    ...prev,
+    seq: over.seq,
+    throttle: over.throttle,
+    rudder: over.rudder,
+    aim: over.aim,
+    aimDist: over.aimDist,
+    held: prev.held === true && over.held === true,
+    sec: prev.sec === true && over.sec === true,
+  };
 }
 
 /**
@@ -209,13 +261,21 @@ export class InputStore {
   private intents = new Map<string, InputMsg[]>();
 
   /**
-   * Submit a raw wire message for `id` at server time `now` (ms).
-   * Returns true iff the message was accepted and stored.
+   * Submit a raw wire message for `id` that ARRIVED at `now` (ms on the
+   * caller's arrival clock — see the header; one clock per id).
+   * Returns true iff the message was accepted WHOLE (stored and queued for
+   * intent evaluation). A well-formed message past the rate cap returns
+   * false, but its helm and aim are still folded into the stored input
+   * (`foldKinematics`) — its activations are shed.
    */
   submit(id: string, raw: unknown, now: number): boolean {
-    if (!this.allowRate(id, now)) return false;
+    const within = this.allowRate(id, now);
     const msg = sanitizeInput(raw, this.ackFor(id));
     if (!msg) return false;
+    if (!within) {
+      this.latest.set(id, foldKinematics(this.latest.get(id) ?? neutralInput(), msg));
+      return false;
+    }
     this.latest.set(id, msg);
     this.queueIntent(id, msg);
     return true;
@@ -254,7 +314,9 @@ export class InputStore {
    */
   releaseHeld(id: string): void {
     const last = this.latest.get(id);
-    if (last?.held) this.latest.set(id, { ...last, held: false });
+    // Story 10.4: the SECONDARIES level is released by the same path, so a
+    // ghost never streams secondaries through the reconnect grace either.
+    if (last?.held === true || last?.sec === true) this.latest.set(id, { ...last, held: false, sec: false });
   }
 
   /** Forget a client entirely (on leave). */
@@ -275,7 +337,9 @@ export class InputStore {
     this.intents.set(id, queue);
   }
 
-  /** Fixed-window rate cap: at most INPUT_RATE_CAP messages per window. */
+  /** Fixed-window rate cap: at most INPUT_RATE_CAP messages per window of
+   *  ARRIVAL time (`now` — see the header). Every message counts, well-formed
+   *  or not. */
   private allowRate(id: string, now: number): boolean {
     const w = this.windows.get(id);
     if (!w || now - w.start >= INPUT_RATE_WINDOW_MS) {

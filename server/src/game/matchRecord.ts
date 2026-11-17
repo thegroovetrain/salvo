@@ -10,7 +10,7 @@
 // perception invariant's forbidden-key walk). ZERO Colyseus imports: this is
 // game/, and the builder is pure over plain snapshots.
 
-import { PROTOCOL_VERSION, type GunId, type HullId, type LineId } from '@salvo/shared';
+import { PROTOCOL_VERSION, type HullId, type IndexId, type ShiftId, type LineId } from '@salvo/shared';
 import type { Match, MatchEndCause, MatchOutcome, Participant } from './match.js';
 import { isParticipant, type ShipRole } from './participants.js';
 
@@ -31,26 +31,34 @@ export interface HandRecord {
   redrawn: boolean;
 }
 
-/** One combatant who sailed in the match — a human captain or a bot; a fleet
- *  hull is world content and never appears (Story 6.3's participant rule). */
+/** One combatant who sailed in the match — a human captain or a bot (Story
+ *  6.3's participant rule). */
 export interface ParticipantRecord {
   id: string;
   name: string;
-  role: Exclude<ShipRole, 'fleet'>;
+  role: ShipRole;
   /** Account link — null for everyone until Epic 9 has accounts. */
   userId: null;
   hullId: HullId;
-  gun: GunId;
+  /** The seat's Shift pick (Story 10.4 — was the seat's gun). */
+  shift: ShiftId;
   placement: number;
   kills: number;
-  pveKills: Record<string, number>;
   damageDealt: number;
+  /** XP ms paid to this combatant by RADIO BEACONS (Story 10.8). */
+  beaconXpMs: number;
+  /** Airdrops this combatant collected (Story 10.9; a wreck pickup counts
+   *  once). Their points ride `indexBonus`. */
+  dropsTaken: number;
   /** The final build: fitted line ids, fit order, repeats intact (devfit
    *  cards included — they are cards, not hands). */
   cards: readonly LineId[];
   hands: readonly HandRecord[];
   /** Levels banked and never spent at the end (an open hand counts). */
   bankedLevels: number;
+  /** The exhausted hull's bonus points per index (Story 10.7, R5): the levels
+   *  that met an empty draw and became +1 on that index — part of the build. */
+  indexBonus: Record<IndexId, number>;
 }
 
 export interface MatchRecord {
@@ -92,17 +100,19 @@ function participantRecord(match: Match, id: string, p: Readonly<Participant>, p
   return {
     id,
     name: p.name,
-    role: p.role as Exclude<ShipRole, 'fleet'>, // narrowed by the caller's isParticipant filter
+    role: p.role,
     userId: null,
     hullId: p.hullId,
-    gun: p.gun,
+    shift: p.shift,
     placement,
     kills: p.kills,
-    pveKills: { ...p.pveKills },
     damageDealt: p.damageDealt,
+    beaconXpMs: p.beaconXpMs,
+    dropsTaken: p.dropsTaken,
     cards: [...p.cards],
     hands: p.hands.map((h) => toTPlus(h, match.activatedAt)),
     bankedLevels: p.bankedLevels,
+    indexBonus: { ...p.indexBonus },
   };
 }
 

@@ -5,7 +5,7 @@
 // an `addChild` argument list or an object literal, so a test can assert it
 // without a GPU and a future refactor cannot quietly re-stack the scene:
 //
-//   worldRoot   (camera-transformed): ocean, wake, projectile, mines, decoys
+//   worldRoot   (camera-transformed): ocean, wake, projectile, mines
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
 //   chartRoot   (camera-transformed): map, fog (the field), smoke, SHIP, PLATE, cloud, blip,
 //                                     OWNSHIP, aim, burstFx, sweep
@@ -100,9 +100,12 @@
 // place the reticle under the fog. Fonts are preloaded before any Text is
 // created.
 
-import { Application, Container } from 'pixi.js';
+import { Application, Container, RendererType } from 'pixi.js';
+import { containAppRender } from '../app/loop.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from './camera.js';
+import { watchContextRestore, type RestoreRenderer } from './contextRestore.js';
+import { setHullDissolveSupport } from './hullDissolve.js';
 
 /**
  * Push the camera's world transform onto the world + chart containers — THE one
@@ -171,9 +174,13 @@ export interface StageLayers {
   projectile: Container;
   /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
   mineWorld: Container;
-  /** Other captains' DECOY BUOYS (render/decoys.ts) — fogged; they only
-   *  arrive when the observer legitimately sees them (mineWorld precedent). */
-  decoyWorld: Container;
+  /** AIRDROPS (render/drops.ts, Story 10.9) — fogged and sight-only, like an
+   *  enemy mine: a crate is never on the chart (on radar it is a plain blip). */
+  dropWorld: Container;
+  /** RADIO BEACON BODIES on the water (render/beacons.ts, Story 10.8) — fogged
+   *  like a hull on the water; under the projectiles so a shell reads over it.
+   *  The beacon's broadcast signal is `beaconChart`, above the fog. */
+  beaconWorld: Container;
   // chartRoot children
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
@@ -200,11 +207,14 @@ export interface StageLayers {
    *  The burn-zone fire (render/fire.ts) shares it. (Countermeasure clouds
    *  drew here until 2026-10-12; they have their own `cloud` layer now.) */
   smoke: Container;
+  /** RADIO BEACON chart marks (render/beacons.ts, Story 10.8) — the marker
+   *  and the 500 u range ring, fog-immune: a public broadcast on every chart
+   *  at every zoom. Above `smoke` (a tactical mark outranks soft plume
+   *  texture — a hurt beacon's own smoke must not bury its marker), below
+   *  the mines and every hull. */
+  beaconChart: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
-  /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
-   *  decoy is always readable; anyone else's goes to decoyWorld. */
-  decoyChart: Container;
   /**
    * CONTACT HULL SILHOUETTES — every other hull (render/contacts.ts). The own
    * hull moved to `ownShip` on 2026-10-12.
@@ -253,6 +263,11 @@ export interface StageLayers {
    *  same reason the reticle lives above the fog. Only `burst`-kind effects
    *  route here; muzzle/spark/splash/sink/wake stay in the fogged world. */
   burstFx: Container;
+  /** THE STRATEGIC-ZOOM CHART MARKS (Story 11.8): the corner brackets on
+   *  small hulls (render/brackets.ts) and the splash pegs (render/pegs.ts) —
+   *  screen-size marks, fog-immune, above every hull and the burst rings so a
+   *  zoomed-out frame or peg is never buried; below the sweep line. */
+  chartMark: Container;
   sweep: Container;
   // screen-space
   /** Out-of-zone STORM vignette (render/zone.ts) — dimensional purple since the
@@ -285,7 +300,7 @@ export type LayerName = keyof StageLayers;
 // keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
-export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld'] as const;
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld', 'dropWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5)
 /** chartRoot, bottom → top: everything above the fog. The legibility contract,
  *  read upward: `ship` (contact hulls), `plate` (the name that outranks terrain
  *  and hulls), `cloud` (countermeasure smoke), `blip` (radar paint), `ownShip`
@@ -309,8 +324,8 @@ export const CHART_LAYER_ORDER = [
   'litZone',
   'fog',
   'smoke',
+  'beaconChart',
   'mineChart',
-  'decoyChart',
   'ship',
   'plate',
   'cloud',
@@ -318,6 +333,7 @@ export const CHART_LAYER_ORDER = [
   'ownShip',
   'aim',
   'burstFx',
+  'chartMark',
   'sweep',
 ] as const;
 /** hudRoot, bottom → top: the vignette wash, the HUD, then the foghorn chevrons
@@ -500,6 +516,15 @@ export async function createStage(): Promise<Stage> {
      */
     powerPreference: 'high-performance',
   });
+  // A lost-and-restored WebGL context brings every layer back except the text,
+  // which Pixi never re-draws on its own (Story 11.2 follow-up, G3).
+  watchContextRestore(app.canvas, app.renderer as unknown as RestoreRenderer);
+  // The hulls' A+D rain filter is a GL program only: any other renderer gets
+  // its plain fade fallback (render/hullDissolve.ts, Story 11.6).
+  setHullDissolveSupport(app.renderer.type === RendererType.WEBGL);
+  // Pixi's own per-frame render runs guarded: a throw in it costs one frame,
+  // never the ticker (app/loop.ts header, Story 11.2 follow-up 3).
+  containAppRender(app);
 
   // Order added == z-order, and the order IS `STAGE_ROOT_ORDER` — mounted by
   // iterating it rather than by an argument list, so the pin cannot drift from

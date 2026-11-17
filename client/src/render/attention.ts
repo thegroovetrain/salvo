@@ -38,14 +38,14 @@
 // consumers is subject to.
 //
 // PURE, and dependency-light by design: no Pixi, no state, no clock of its own —
-// it only COMPOSES the predicates their owning modules export (the HP globe's
-// gates from render/hpGlobe.ts, the denied pulse's liveness from
+// it only COMPOSES the predicates their owning modules export (the hull
+// gauge's gates from render/console/hull.ts, the denied pulse's liveness from
 // render/deniedFire.ts, the ring's urgency flag from ui/chromeBar.ts), so a new
 // channel is one more input, not a rewrite, and no threshold is ever declared
 // twice.
 
 import { CLIENT_CONFIG } from '../config.js';
-import { railCritical } from './hpGlobe.js';
+import { hullCritical } from './console/hull.js';
 
 /** The Tier-1 (threat) channels, as this story knows them. */
 export interface Tier1Input {
@@ -57,7 +57,7 @@ export interface Tier1Input {
   hpFrac: number | null;
   /**
    * ANY denied-fire pulse is live this frame — the on-water pulse OR any of the
-   * per-slot hotbar pulses, OR'd by the caller (main.ts owns those instances).
+   * per-row / per-button console pulses, OR'd by the caller (main.ts owns those instances).
    * The table's "denied pulses" is plural; one boolean carries all of them
    * because the tier question is "is a threat channel animating", not "which".
    */
@@ -77,27 +77,29 @@ export interface Tier2Input {
  *
  * Story 8.6 renamed the HP channel `hpRail` -> `hpGlobe` with the surface it
  * names: the 6 px vertical rail is deleted and the hull now reads as a bowl of
- * water at the HUD bar's left end (render/hpGlobe.ts). The CONFIG list was
+ * water at the HUD bar's left end. The CONFIG list was
  * re-spelled in the same story, so the rank keys ARE these names — no
- * normalisation step stands between the two.
+ * normalisation step stands between the two. Story 10.10 renamed it again,
+ * `hpGlobe` -> `hullGauge`: the globe retired into the ship console's
+ * segmented hull bar (render/console/hull.ts), same gates, same rank.
  */
 export type AmberChannel = (typeof CLIENT_CONFIG.attention.amberRank)[number];
 
 /**
  * Pure: is any Tier-1 (threat) channel animating right now?
  *
- * The HP condition is the CRIMSON band — the globe's own `railCritical` gate
+ * The HP condition is the CRIMSON band — the hull gauge's own `hullCritical` gate
  * (<25%), never a threshold declared here. Amendment 239: `<25%` is the critical
  * `damage-marker` band and 25-50% is the AMBER WARNING band, and a warning is
  * not a threat. The globe's DISPLAY grammar is untouched — it still breathes
- * below 50% at the same ramp (`railPulsing`); only when it claims the threat
+ * below 50% at the same ramp (`hullPulsing`); only when it claims the threat
  * tier changed. That is what makes the amber corollary implementable at all: an
  * amber HP channel that was Tier 1 would outrank the final-10s ring in every
  * wounded endgame, which is the exact opposite of the corollary's purpose.
  */
 export function tier1Active(i: Tier1Input): boolean {
   if (i.deniedLive) return true;
-  return i.hpFrac !== null && Number.isFinite(i.hpFrac) && railCritical(i.hpFrac);
+  return i.hpFrac !== null && Number.isFinite(i.hpFrac) && hullCritical(i.hpFrac);
 }
 
 /** Pure: is any Tier-2 (match) channel animating right now? */

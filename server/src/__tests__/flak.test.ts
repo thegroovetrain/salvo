@@ -2,7 +2,7 @@
 // 105 and 106) — the I/O matrix's flak rows through World.step():
 //   * one shell per click to the clicked point, bursting in a 50 u blast for
 //     D hp at the centre falling to HALF at the rim (`rimFactor`, Story 9.12;
-//     every blow range-attenuated — rangeAttenuation.test.ts) per hull inside
+//     flat with range since Story 11.1) per hull inside
 //     it (`hc`), reload 3.5 s, one round;
 //   * a hull crossing the path takes the 4 hp bodyblock and stops the shell;
 //   * the ORDNANCE side effect (amendment 105): an ENEMY torpedo inside the
@@ -12,9 +12,20 @@
 //   * the reveal carries `w: 'flak'`; a click while reloading is `cooling`.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, flakRimFactor, settleBlow, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
+import {
+  CONFIG,
+  flakRimFactor,
+  hullSilhouette,
+  pointPolygonDistance,
+  settleBlow,
+  transformPolygon,
+  type GameEvent,
+  type InputMsg,
+  type ShellState,
+} from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 const FLAK = CONFIG.flak;
 const SLOT_GUN = 0;
@@ -27,19 +38,20 @@ function bareWorld(seed = 16): World {
 }
 
 function flakker(w: World, id: string, x = 0, y = 0, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, 'flak');
+  // NEUTRAL index (deckGunFixture): this file reads CONFIG.flak verbatim.
+  const rec = mountDeckGun(neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined)), 'flak');
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
 
 function hull(w: World, id: string, x: number, y: number, heading = Math.PI / 2): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'battleship', undefined, undefined);
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'yamato', undefined, undefined));
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Click at `dist` along `aim`, then run until the shell resolves. */
@@ -68,15 +80,21 @@ function fish(w: World, id: string, ownerId: string, x: number, y: number): Shel
 const count = (log: readonly GameEvent[], k: string): number => log.filter((e) => e.k === k).length;
 
 /** The rim hit (Story 9.12) on a hull whose NEAREST outline point is `d` u
- *  off the burst centre, for a click this file keeps inside half the flak's
- *  range (attenuation factor 1 — `NEAR_CLICK` below pins that premise):
- *  settleBlow(D × flakRimFactor(d)). */
+ *  off the burst centre: settleBlow(D × flakRimFactor(d)) (flat with range,
+ *  Story 11.1). */
 const falloffAt = (d: number): number =>
   settleBlow(FLAK.damage * flakRimFactor(d, FLAK.burstRadius, FLAK.rimFactor));
-/** Every click distance this file uses: at most half the flak's Tier I reach,
- *  so the shell flies less than `fullFrac` of it — no attenuation. */
+/** Every click distance this file uses: inside the flak's Tier I reach. */
 const NEAR_CLICK = 300;
-/** The fixture used across this file: a broadside-on battleship at (300, 92), bow tip 30 u off the burst. */
+/** u — how far the target hull's (the default hull, broadside-on along y,
+ *  heading π/2) NEAREST outline point toward a burst dead astern sits short of
+ *  its centre: measured off the shared silhouette (Story 10.4 — the traced
+ *  hulls have blunt ends, so it is read, never hand-copied). */
+const TIP_U = ((): number => {
+  const y0 = 1000;
+  return y0 - pointPolygonDistance({ x: 0, y: 0 }, transformPolygon(hullSilhouette('yamato'), 0, y0, Math.PI / 2));
+})();
+/** The fixture used across this file: a broadside-on hull at (300, TIP_U + 30), stern 30 u off the burst. */
 const AT_30U = falloffAt(30);
 
 describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amendment 105)', () => {
@@ -88,14 +106,14 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
     expect(a.stats.equipment.flak).toMatchObject({
       maxAmmo: FLAK.maxAmmo, reloadMs: FLAK.reloadMs, damage: FLAK.damage, burstRadius: FLAK.burstRadius, contactDamage: FLAK.contactDamage,
     });
-    expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial, 5/12 (Story 9.8, ruling 125)
-    expect(FLAK.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
+    expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial (Story 9.8, ruling 125; a hectometer fact since Story 11.2)
+    expect(FLAK.hits).toEqual(['hull', 'mine', 'ordnance', 'beacon']); // the decoy kind left with Story 10.5; the beacon joined with Story 10.8
   });
 
   it('a click at 300 u: the shell bursts AT the click, the falloff hit to a hull 30 u off the point, one `hc`, `w: flak`', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
-    const b = hull(w, 'b', 300, 92); // broadside-on, its bow tip 30 u off the burst point: inside r50, clear of the shell's path
+    const b = hull(w, 'b', 300, TIP_U + 30); // broadside-on, its bow tip 30 u off the burst point: inside r50, clear of the shell's path
     const log = click(w, 'a', 300);
     expect(count(log, 'burst')).toBe(1);
     const burst = log.find((e) => e.k === 'burst') as { x: number; y: number };
@@ -150,34 +168,40 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
 describe('the lit-zone reach — the flak gun fires into its own flare (amendment 114)', () => {
   /** u — a click past the gun's Tier I reach (Story 9.8: derived, never a literal). */
   const FAR = CONFIG.flak.rangeU + 140;
-  function litClick(owner: string | null): { w: World; a: ShipRecord } {
+  // THE RIM SEAT (Story 11.2): the reach is longer than the board's radius, so
+  // a shot from the origin would be clamped by the map disk first. The gunner
+  // sits one hull length inside the WEST rim and fires EAST across the board;
+  // `x0` is the seat, and every expectation is a distance from it.
+  function litClick(owner: string | null): { w: World; a: ShipRecord; x0: number } {
     const w = bareWorld();
-    const a = flakker(w, 'a');
+    const x0 = -(w.map.radius - CONFIG.shipClasses.bismarck.hull.length);
+    const a = flakker(w, 'a', x0);
+    expect(x0 + FAR).toBeLessThan(w.map.radius); // the far click is on the water
     if (owner !== null) {
       w.litZones.set('z1', {
-        id: 'z1', ownerId: owner, x: FAR, y: 0, r: 120, until: 10 * 60 * 1000,
+        id: 'z1', ownerId: owner, x: x0 + FAR, y: 0, r: 120, until: 10 * 60 * 1000,
       });
     }
     w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, aimDist: FAR }));
     w.step();
-    return { w, a };
+    return { w, a, x0 };
   }
 
   it('a click past reach into an OWN live lit zone lands the shell at the click', () => {
-    const { w, a } = litClick('a');
+    const { w, a, x0 } = litClick('a');
     expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU);
     expect(FAR).toBeGreaterThan(CONFIG.flak.rangeU);
     const shells = [...w.shells.values()];
     expect(shells).toHaveLength(1);
-    expect(shells[0].targetX).toBeCloseTo(FAR, 6);
+    expect(shells[0].targetX).toBeCloseTo(x0 + FAR, 6);
   });
 
   it('the same click into an ENEMY zone, or with no zone, clamps to the gun reach', () => {
     for (const owner of ['b', null]) {
-      const { w } = litClick(owner);
+      const { w, x0 } = litClick(owner);
       const shells = [...w.shells.values()];
       expect(shells, `owner=${owner}`).toHaveLength(1);
-      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(CONFIG.flak.rangeU, 6);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(x0 + CONFIG.flak.rangeU, 6);
     }
   });
 });
@@ -204,7 +228,7 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
   it('the shooter\'s OWN fish inside the blast is untouched — and a hull in the same blast still takes its hit', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
-    const b = hull(w, 'b', 300, 92); // bow tip 30 u off the point (see above)
+    const b = hull(w, 'b', 300, TIP_U + 30); // bow tip 30 u off the point (see above)
     fish(w, 'own-fish', 'a', 300, -20);
     fish(w, 'enemy-fish', 'b', 300, -25);
     const log = click(w, 'a', 300);
@@ -226,15 +250,15 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
     expect(w.torpWakes.has('near')).toBe(false); // its ribbon detached into the orphan store
   });
 
-  it('a fish never reaches the burst DAMAGE loop: no damageDecoy call for it, and a fish-only blast is `sp`, not `hc`', () => {
+  it('a fish never reaches the burst DAMAGE loop: no burstDamage call for it, and a fish-only blast is `sp`, not `hc`', () => {
     const w = bareWorld();
     flakker(w, 'a');
     hull(w, 'b', 2000, 2000);
     fish(w, 'enemy-fish', 'b', 300, 20);
-    const spy = vi.spyOn(w as unknown as { damageDecoy: (id: string, n: number, by: string) => boolean }, 'damageDecoy');
+    const spy = vi.spyOn(w as unknown as { burstDamage: (shell: unknown, t: { id: string }, at: unknown) => number }, 'burstDamage');
     const log = click(w, 'a', 300);
     expect(w.shells.has('enemy-fish')).toBe(false); // still removed, by the ordnance loop
-    expect(spy.mock.calls.some(([id]) => id === 'enemy-fish')).toBe(false);
+    expect(spy.mock.calls.some(([, t]) => t.id === 'enemy-fish')).toBe(false);
     expect(count(log, 'sp')).toBe(1);
     expect(count(log, 'hc')).toBe(0);
   });
@@ -299,18 +323,17 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
 
 // THE FLAK BURST RIM (Eric 2026-10-16, Story 9.12, forge weapon-balance-math —
 // "rim = half damage"; replaces the flat D − 10 of Story 9.8). A caught hull
-// takes settleBlow(D × (1 − rimFactor × clamp01(d / burstRadius)) × atten),
+// takes settleBlow(D × (1 − rimFactor × clamp01(d / burstRadius))),
 // d = the distance from the burst centre to the NEAREST point of its outline
-// (0 inside). Every click here is `NEAR_CLICK` (attenuation 1). The battleship
+// (0 inside). Every click here is `NEAR_CLICK`. The battleship
 // below lies broadside-on along y (heading π/2), so its stern tip sits TIP_U
 // short of its centre toward the burst at (300, 0).
 describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.12)', () => {
   const D = FLAK.damage;
   const R = FLAK.burstRadius;
-  const TIP_U = 62; // the battleship silhouette's half-length (bow / stern tip, local x ±62)
 
-  it('the premise: every click in this file flies under fullFrac of the flak reach (no attenuation)', () => {
-    expect(NEAR_CLICK).toBeLessThanOrEqual(CONFIG.gunAttenuation.fullFrac * FLAK.rangeU);
+  it('the premise: every click in this file is inside the flak reach', () => {
+    expect(NEAR_CLICK).toBeLessThanOrEqual(FLAK.rangeU);
   });
 
   it('a burst CENTRED on a hull deals D', () => {
@@ -361,61 +384,28 @@ describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.
     }
   });
 
-  it('a 0-DAMAGE arm deals nothing: resolveBurst\'s `damage > 0` gate skips the victims entirely — no hp, no aggro seam, no `dmg` (the burst still fires)', () => {
+  it('a 0-DAMAGE arm deals nothing: resolveBurst\'s `damage > 0` gate skips the victims entirely — no hp, no hitShip, no `dmg` (the burst still fires)', () => {
     const saved = CONFIG.flak.damage;
     (CONFIG.flak as { damage: number }).damage = 0;
     try {
       const w = bareWorld();
       flakker(w, 'a');
       const b = hull(w, 'b', 300, 0); // centred: only the damage dial makes the raw blow 0
-      const aggro = vi.spyOn(w.drones, 'onDamaged');
+      const hitShip = vi.spyOn(w as unknown as { hitShip: (...a: unknown[]) => void }, 'hitShip'); // the credit seat: never reached
       const log = click(w, 'a', NEAR_CLICK);
       expect(count(log, 'burst')).toBe(1);
       expect(b.hp).toBe(b.stats.maxHp);
-      expect(aggro).not.toHaveBeenCalled();
+      expect(hitShip).not.toHaveBeenCalled();
       expect(count(log, 'dmg')).toBe(0);
     } finally {
       (CONFIG.flak as { damage: number }).damage = saved;
     }
   });
 
-  it('a POSITIVE-damage blow SETTLED to 0 is NO blow (reading r3, burstDamage\'s `amount <= 0` guard): minFactor 0 at max range → raw D × 0 → no hp, no aggro seam, no `dmg`', () => {
-    const saved = CONFIG.gunAttenuation.minFactor;
-    (CONFIG.gunAttenuation as { minFactor: number }).minFactor = 0;
-    try {
-      const w = bareWorld();
-      flakker(w, 'a', -3000, 0);
-      const b = hull(w, 'b', 0, 0);
-      const inner = w as unknown as {
-        resolveShell(shell: unknown, outcome: unknown, hulls: readonly unknown[]): void;
-        hitTargets(mask: readonly string[]): readonly unknown[];
-        pending: GameEvent[];
-      };
-      // A flak shell that flew EXACTLY its reference range to a burst centred
-      // on the hull: the attenuation factor is minFactor (0) and the rim term
-      // is 1, so the raw blow is D × 0 — positive damage, settled 0.
-      const REACH = FLAK.rangeU;
-      const shell: ShellState = {
-        id: 's1', ownerId: 'a', x: 0, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: w.now, kind: 'shell', family: 'flak',
-        damage: D, hitRadius: FLAK.shellRadius, targetX: 0, targetY: 0, burstRadius: R,
-        contactDamage: FLAK.contactDamage, hits: FLAK.hits, originX: -REACH, originY: 0, attenRangeU: REACH,
-      };
-      expect(D).toBeGreaterThan(0); // the premise: the gate in resolveBurst lets this through
-      const aggro = vi.spyOn(w.drones, 'onDamaged');
-      inner.resolveShell(shell, { kind: 'burst', x: 0, y: 0 }, inner.hitTargets(FLAK.hits));
-      const log = [...inner.pending];
-      expect(count(log, 'burst')).toBe(1);
-      expect(b.hp).toBe(b.stats.maxHp);
-      expect(aggro).not.toHaveBeenCalled();
-      expect(count(log, 'dmg')).toBe(0);
-    } finally {
-      (CONFIG.gunAttenuation as { minFactor: number }).minFactor = saved;
-    }
-  });
-
   it('FLAK ONLY: a cannon burst catching a hull at its rim still deals its flat damage', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined); // the default gun: the cannon
+    // The cannon row (the drones' gun since Story 10.4), mounted for the contrast.
+    const a = mountDeckGun(neutralize(w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined)), 'gun');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     expect(a.loadout[SLOT_GUN].equipmentId).not.toBe('flak');
     const b = hull(w, 'b', 300, TIP_U + CONFIG.gun.burstRadius - 0.01); // tip at the cannon's rim

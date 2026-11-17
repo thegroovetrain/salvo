@@ -10,8 +10,10 @@
 // had no idea what a mine was.
 //
 // THIS FILE holds the WEAPON rows — the three guns and every Q/E/R line —
-// as `WEAPON_TACTICS`, TOTAL over every EquipmentId that is not a class Shift.
-// The three Shift rows live in ai/shift.ts, the belt rows in ai/consumables.ts,
+// as `WEAPON_TACTICS`, TOTAL over every EquipmentId that is not a class Shift
+// (the three lines that left the belt in Story 10.5 — SUPERCAV, FLASH SHELLS,
+// FOULING SHELL — are written in ai/movedWeapons.ts and listed here).
+// The three Shift rows live in ai/shift.ts,
 // the shared vocabulary (types, aiming, appetite) in ai/tacticKit.ts, and
 // ai/tacticRegistry.ts assembles the TOTAL `EQUIPMENT_TACTICS` a fitted slot
 // resolves through.
@@ -31,9 +33,8 @@
 //   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
 //                         a tightened fan demands a live track
-// (PHOSPHOR SHELLS is its own weapon row below; the FOULING SHELL
-// (`foulingShell`, Story 9.4 — FLASH SHELLS' seat) is a row in
-// ai/consumables.ts.)
+// (PHOSPHOR SHELLS is its own weapon row below; FLASH SHELLS and the
+// FOULING SHELL are rows in ai/movedWeapons.ts.)
 //
 // No rng is drawn anywhere in want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
@@ -57,6 +58,7 @@ import {
   hasPersistence,
   isActionable,
   ownLiveMines,
+  ownSightU,
   plotAt,
   tracksOf,
   type BotSituation,
@@ -64,6 +66,8 @@ import {
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { LONGEST_HULL_U, TRACK_PERSIST_MS, trackVelocity } from './plot.js';
+import { mainBatteryTactic } from './battery.js';
+import { dazzleShellsTactic, foulingShellTactic, supercavTorpedoTactic } from './movedWeapons.js';
 import {
   APPETITE_EAGER,
   APPETITE_NEUTRAL,
@@ -373,7 +377,8 @@ const broadsideTactic: EquipmentTactic = {
  * straight-running fish (`homingTurnRate === 0`, every line at tier I) is
  * credible only at knife range (TORPEDO_CREDIBLE_U). A STEERING fish corrects
  * its own terminal error, so the gate widens — bounded by BOTH ruled
- * quantities: the family's `homingMaxRangeU` travel budget, less one half-turn
+ * quantities: the row's own folded run `runU` (Story 11.2, R5 — the family's
+ * `homingMaxRangeU` budget before), less one half-turn
  * of correction room (π × turn radius, where turn radius = speed / turn rate).
  * A LOW tier buys a SLOW turn, so an early rung's credible range is barely
  * wider than a straight-runner's, and a speed-carded fish's turn opens and
@@ -384,7 +389,7 @@ function torpedoReachU(stats: EffectiveStats, id: TorpedoLineId): number {
   const row = stats.equipment[id];
   if (row.homingTurnRate <= 0) return TORPEDO_CREDIBLE_U;
   const turnRadius = row.speed / row.homingTurnRate;
-  return Math.max(TORPEDO_CREDIBLE_U, CONFIG.torpedo.homingMaxRangeU - Math.PI * turnRadius);
+  return Math.max(TORPEDO_CREDIBLE_U, row.runU - Math.PI * turnRadius);
 }
 
 /** ONE TORPEDO TACTIC, built per line (epic-8 amendment 79 — the light
@@ -401,7 +406,7 @@ function torpedoTacticFor(id: TorpedoLineId): EquipmentTactic {
     // a radar paint, fake or decoy, never is).
     want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
     solve: (ctx) =>
-      stamped(ctx, id, solveTorpedoShot(ctx, id, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id))),
+      stamped(ctx, id, solveTorpedoShot(ctx, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id))),
   };
 }
 
@@ -417,16 +422,11 @@ const lightTorpedoTactic: EquipmentTactic = torpedoTacticFor('lightTorpedo');
  * CAPTIVE MINES want differently: the trip ring is 144u (not 32u) and the
  * mine fires a torpedo at the first HOSTILE inside it — so laying is
  * PROACTIVE (no rear-arc requirement on the victim: the torpedo does the
- * chasing) and the victim must be a genuine hostile. A NEUTRAL PvE fleet
- * drone walks straight over a captive mine (isCaptiveMineHostile), so a
- * fleet-only target never justifies one — captive mines cannot farm fleet.
+ * chasing) and the victim must be a genuine hostile (every tracked hull is
+ * one since Story 10.8 retired the neutral PvE fleet).
  */
 function captiveMineWant(ctx: TacticContext): boolean {
   const t = ctx.target;
-  // A FLEET-ONLY target never justifies a captive mine, on any posture: the
-  // trip is HOSTILE-ONLY, so a neutral PvE drone walks straight over it. This
-  // clause is deliberate and stays.
-  if (t !== null && t.fleet) return false;
   // WITHDRAWING WITH NOTHING TRACKED: lay anyway, exactly as the base mine
   // does (review gate, cycle 110). Refusing the whole no-target case made
   // CAPTIVE delete the base mine's unconditional withdrawal lay, so a low-hp
@@ -463,6 +463,15 @@ function captiveMineWant(ctx: TacticContext): boolean {
  *  answer to a live threat. */
 const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm', 'hold']; // `hold` (Story 9.13): a bot lying in wait in cover may seed the water
 
+/** Is the bot SAFE to seed the water this tick? A safe posture — except that
+ *  `farm` counts only with NO target (Story 10.12 review gate): a beacon
+ *  stayer keeps `farm` while it fights from its station (ai/posture.ts), and
+ *  a round spent on a prepared lay mid-fight is an answer not given. */
+function safeToLay(ctx: TacticContext): boolean {
+  if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
+  return ctx.posture !== 'farm' || ctx.target === null;
+}
+
 /**
  * THE PREPARED LAY (Eric ruling 2026-08-20, cycle 111 — chosen INTO scope:
  * *"you just have to be lined up well and prepare"*). A mine may go down with
@@ -486,7 +495,7 @@ const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm', 'hold'];
  * as before, including with the field at the reserve.
  */
 function preparedMineWant(ctx: TacticContext, id: MineLineId): boolean {
-  if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
+  if (!safeToLay(ctx)) return false;
   if (ownLiveMines(ctx.mind) >= CONFIG.bots.preparedMineReserve) return false;
   const appetite = appetiteFor(ctx.sit.profile, id);
   if (appetite >= APPETITE_EAGER) return true;
@@ -575,18 +584,21 @@ function flareStaleFloorMs(profile: BotProfile): number {
 /**
  * THE SENSOR FLARE (Eric ruling C2): the stalest plot worth lighting — an
  * actionable track we have LOST, quiet past this profile's staleness floor,
- * beyond our own truesight bubble, inside flare reach. Nearest wins.
+ * beyond our own truesight bubble, inside flare reach. Nearest wins. The
+ * bubble is the bot's EFFECTIVE sight (`ownSightU` — a flashed bot's clear
+ * circle, gate fix F8).
  */
 function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
   const sit = ctx.sit;
   const floorMs = flareStaleFloorMs(sit.profile);
+  const sight = ownSightU(sit);
   let best: BotTrack | null = null;
   let bestD = Infinity;
   for (const t of tracksOf(ctx.mind)) {
     if (t.live || !isActionable(t, sit.now)) continue;
     if (sit.now - t.seenAt < floorMs) continue;
     const d = distTo(sit, t);
-    if (d <= sit.stats.sightRange || d > sit.stats.equipment.starShells.rangeU) continue;
+    if (d <= sight || d > sit.stats.equipment.starShells.rangeU) continue;
     if (d < bestD) {
       bestD = d;
       best = t;
@@ -598,9 +610,8 @@ function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
 function flareSolve(ctx: TacticContext): Shot | null {
   const t = sensorFlareTarget(ctx);
   if (t === null) return null;
-  // THE TERRAIN GATE IS ON THE SHOT, never on the selector: the bot still
-  // wants the nearest plot; it holds the round when the round cannot arrive.
-  if (!shotReaches(ctx.self, ctx.sit, plotAt(ctx.sit, t))) return null;
+  // NO TERRAIN GATE: the flare ARCS over islands (Eric 2026-11-13, epic-11
+  // amendment 8), so every flare shot arrives.
   const d = Math.min(distTo(ctx.sit, t), ctx.sit.stats.equipment.starShells.rangeU);
   return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
@@ -627,12 +638,12 @@ function flareToShootWant(ctx: TacticContext): boolean {
 }
 
 /** The flare at the plot's PREDICTED point, led at the star shell's own
- *  speed (the lead solve every round uses), terrain-gated, clamped to reach. */
+ *  speed (the lead solve every round uses), clamped to reach. No terrain gate:
+ *  the flare arcs over islands (epic-11 amendment 8). */
 function flareToShootSolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
   if (t === null) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG.starShells.shellSpeed);
-  if (!shotReaches(ctx.self, ctx.sit, p)) return null;
   const d = Math.min(Math.hypot(p.x - ctx.sit.x, p.y - ctx.sit.y), ctx.sit.stats.equipment.starShells.rangeU);
   return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot };
 }
@@ -687,6 +698,7 @@ export const WEAPON_TACTICS: Readonly<Record<WeaponLineId, EquipmentTactic>> = d
   gun: gunTactic,
   machineGun: machineGunTactic,
   flak: flakTactic,
+  mainBattery: mainBatteryTactic, // Story 10.4: the captain's slot 0 (ai/battery.ts)
   heavyTorpedo: torpedoTactic,
   lightTorpedo: lightTorpedoTactic,
   navalMines: mineTactic,
@@ -695,4 +707,8 @@ export const WEAPON_TACTICS: Readonly<Record<WeaponLineId, EquipmentTactic>> = d
   broadside: broadsideTactic,
   starShells: starShellsTactic,
   phosphorShells: phosphorShellsTactic,
+  // Story 10.5 (epic-10 amendment 11): the three lines that left the belt.
+  supercavTorpedo: supercavTorpedoTactic,
+  dazzleShells: dazzleShellsTactic,
+  foulingShell: foulingShellTactic,
 });

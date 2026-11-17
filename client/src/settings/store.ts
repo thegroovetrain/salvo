@@ -21,6 +21,14 @@ export type MotionLevel = 'full' | 'reduced' | 'off';
 /** The three committed UI-scale tiers (percent). */
 export type UiScale = 90 | 100 | 125;
 
+/** Where the offer group sits (epic-10 amendment 18 R26, Eric 2026-11-10:
+ *  "a toggle in settings so the player can choose if they want the offer to
+ *  appear on the right, left, or bottom"). */
+export type OfferPos = 'right' | 'left' | 'bottom';
+
+/** The three offer positions, in the settings row's order. */
+export const OFFER_POSITIONS: readonly OfferPos[] = ['right', 'left', 'bottom'];
+
 /** The complete, committed v1 settings set (Story 2.3 AC — exactly these). */
 export interface Settings {
   motion: MotionLevel;
@@ -37,6 +45,14 @@ export interface Settings {
   monoAudio: boolean;
   /** Master mute — ONE persisted value, shared with the M key. */
   muted: boolean;
+  /** Where the offer group sits (R26); the right edge by default. */
+  offerPos: OfferPos;
+  /** AIM COLOR (Story 11.1 R15 / R18): `#rrggbb`, tints the reticle AND the
+   *  main-battery oval; the palette amber by default. */
+  aimColor: string;
+  /** AIM SIZE (Story 11.1 R15 / R18): the reticle's scale, 1×–5× in 0.5
+   *  steps, 2× by default. Never scales the oval. */
+  aimSize: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -47,6 +63,9 @@ export const DEFAULT_SETTINGS: Settings = {
   effectsVolume: 100,
   monoAudio: false,
   muted: false,
+  offerPos: 'right',
+  aimColor: CLIENT_CONFIG.reticle.defaultColor,
+  aimSize: CLIENT_CONFIG.reticle.defaultSize,
 };
 
 const MOTION_LEVELS: readonly MotionLevel[] = ['full', 'reduced', 'off'];
@@ -55,6 +74,40 @@ const MOTION_LEVELS: readonly MotionLevel[] = ['full', 'reduced', 'off'];
 
 function coerceMotion(v: unknown): MotionLevel {
   return MOTION_LEVELS.includes(v as MotionLevel) ? (v as MotionLevel) : DEFAULT_SETTINGS.motion;
+}
+
+function coerceOfferPos(v: unknown): OfferPos {
+  return OFFER_POSITIONS.includes(v as OfferPos) ? (v as OfferPos) : DEFAULT_SETTINGS.offerPos;
+}
+
+/** AIM COLOR coercion: a `#rrggbb` hex (lower-cased), else the default. */
+export function coerceAimColor(v: unknown): string {
+  return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : DEFAULT_SETTINGS.aimColor;
+}
+
+/** AIM SIZE coercion: a finite number clamped to the slider's range and
+ *  snapped to its step, else the default. */
+export function coerceAimSize(v: unknown): number {
+  const R = CLIENT_CONFIG.reticle;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULT_SETTINGS.aimSize;
+  const snapped = Math.round(v / R.sizeStep) * R.sizeStep;
+  return Math.min(R.sizeMax, Math.max(R.sizeMin, snapped));
+}
+
+/** Pure: a `#rrggbb` (already coerced) as a Pixi tint. */
+function hexTint(hex: string): number {
+  return parseInt(coerceAimColor(hex).slice(1), 16);
+}
+
+/** The last AIM COLOR converted (the frame loop asks every frame). Seeded with
+ *  the DEFAULT's own answer under the key '' (review F-D), so a first call with
+ *  an empty string reads the default tint, never black. */
+let tintMemo = { hex: '', tint: hexTint(DEFAULT_SETTINGS.aimColor) };
+
+/** Pure: the AIM COLOR as a Pixi tint (0xrrggbb); garbage reads the default. */
+export function aimColorTint(hex: string): number {
+  if (hex !== tintMemo.hex) tintMemo = { hex, tint: hexTint(hex) };
+  return tintMemo.tint;
 }
 
 function coerceScale(v: unknown): UiScale {
@@ -89,6 +142,9 @@ export function sanitizeSettings(raw: unknown, legacyMuted = false): Settings {
     effectsVolume: coerceVolume(o.effectsVolume, DEFAULT_SETTINGS.effectsVolume),
     monoAudio: coerceBool(o.monoAudio, DEFAULT_SETTINGS.monoAudio),
     muted: coerceBool(o.muted, legacyMuted),
+    offerPos: coerceOfferPos(o.offerPos),
+    aimColor: coerceAimColor(o.aimColor),
+    aimSize: coerceAimSize(o.aimSize),
   };
 }
 
@@ -136,6 +192,29 @@ export function scaleTierNote(tier: number, viewportW: number): string {
  */
 export function effectiveScale(settings: Settings, viewportW: number): UiScale {
   return scaleTierEnabled(settings.uiScale, viewportW) ? settings.uiScale : 100;
+}
+
+/**
+ * Pure: THE VIEWPORT FACTOR (epic-10 amendment 18 R25). The HUD is authored at
+ * the 1920×1080 reference; a smaller viewport shrinks it by the tighter of its
+ * two ratios, clamped to [min, max] (0.75 … 1.0) — it never grows past the
+ * reference and never shrinks text past three quarters. A degenerate viewport
+ * (0, negative, NaN — a canvas not laid out yet) answers 1, the reference.
+ */
+export function viewportScale(w: number, h: number): number {
+  const V = CLIENT_CONFIG.console.viewport;
+  const raw = Math.min(w / V.refW, h / V.refH);
+  if (!(w > 0) || !(h > 0) || !Number.isFinite(raw)) return 1;
+  return Math.min(V.max, Math.max(V.min, raw));
+}
+
+/**
+ * Pure: THE HUD FACTOR — the viewport factor × the settings tier's factor
+ * (the 125 % tier's 1600 px width gate unchanged). One number scales the Pixi
+ * HUD layer and the DOM `--hc-ui-scale` alike.
+ */
+export function hudScale(settings: Settings, viewportW: number, viewportH: number): number {
+  return viewportScale(viewportW, viewportH) * scaleFactor(effectiveScale(settings, viewportW));
 }
 
 /** Pure: does a mono type size survive a scale tier without breaking the 9px
@@ -261,7 +340,10 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.masterVolume === b.masterVolume &&
     a.effectsVolume === b.effectsVolume &&
     a.monoAudio === b.monoAudio &&
-    a.muted === b.muted
+    a.muted === b.muted &&
+    a.offerPos === b.offerPos &&
+    a.aimColor === b.aimColor &&
+    a.aimSize === b.aimSize
   );
 }
 

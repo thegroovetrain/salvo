@@ -1,47 +1,45 @@
 // THE TACTIC KIT — the shared vocabulary every bot tactic row is written in.
 //
 // The tactic rows live in three files by what they drive: ai/equipment.ts
-// (the weapons: gun, Q/E/R lines), ai/shift.ts (the three class Shifts) and
-// ai/consumables.ts (the belt). ai/tacticRegistry.ts assembles them into the
-// TOTAL registries tactics.ts reads. Everything more than one of those files
-// needs lives HERE, so the imports flow one way and never cycle:
+// (the weapons: gun, Q/E/R lines — the three moved since Story 10.5 in
+// ai/movedWeapons.ts) and ai/shift.ts (the class Shifts); the two cooldown
+// abilities (HULL REPAIR / SMOKE) are ai/abilities.ts. ai/tacticRegistry.ts
+// assembles the slot rows into the TOTAL registry tactics.ts reads.
+// Everything more than one of those files needs lives HERE, so the imports
+// flow one way and never cycle:
 //
-//   tacticKit  <-  equipment / shift / consumables  <-  tacticRegistry  <-  tactics
+//   tacticKit  <-  equipment / shift / abilities  <-  tacticRegistry  <-  tactics
 //
 // (A cycle would read a `const` row before its module had evaluated it.)
 //
 // What lives here: the tactic types, the appetite resolver and thresholds,
 // aiming (lead solve + scatter + the coastline check), the torpedo shot solve
-// (shared by both torpedo lines and the SUPERCAV belt fish), the sector
-// placement (mines and the DECOY BUOY), the live-contact burst (PHOSPHOR
-// SHELLS and the FOULING SHELL) with its astern-filtered pick, the HUNKER (was DAMAGE CUT until Story 9.9)
-// cues (the Shift and SHIELD BLOCK) and the registry freezer.
+// (shared by all three torpedo lines), the sector placement (mines), the
+// live-contact burst (PHOSPHOR SHELLS, FLASH SHELLS and the FOULING SHELL)
+// with its astern-filtered pick, the HUNKER (was DAMAGE CUT until Story 9.9)
+// cues and the registry freezer.
 //
 // No rng is drawn anywhere in a want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
 
 import {
   CONFIG,
+  batteryTerrainStop,
   bearing,
   blockedWater,
-  inArc,
-  sectorArcFor,
-  twinSectorArcFor,
-  twinSectorSide,
   wrapAngle,
-  type ConsumableId,
   type EffectiveStats,
   type EquipmentId,
   type Rng,
-  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
-import { isActionable, lineBlocked, plotAt, tracksOf, type BotSituation, type BotTrack } from './utility.js';
+import { isActionable, lineBlocked, ownSightU, plotAt, tracksOf, type BotSituation, type BotTrack } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
 import { TRACK_PERSIST_MS, trackVelocity } from './plot.js';
 import { mountedReachOf } from './doctrine.js';
+import { torpedoReadyOnTarget } from './torpedoMount.js';
 
 const TAU = Math.PI * 2;
 
@@ -54,14 +52,6 @@ const TAU = Math.PI * 2;
  * that is not a real line id.
  */
 export type TorpedoLineId = Extract<EquipmentId, 'heavyTorpedo' | 'lightTorpedo'>;
-
-/** The HEAVY torpedo's bow sector, the LIGHT torpedo's TWIN beam sectors and
- *  the SUPERCAV consumable's narrow bow cone — resolved ONCE at module load
- *  from the single shared arc source the server rows enforce with, so a bot
- *  never solves a shot its own weapon refuses. */
-const BOW_SECTOR = sectorArcFor('heavyTorpedo');
-const LIGHT_BEAMS = twinSectorArcFor('lightTorpedo');
-const SUPERCAV_SECTOR = sectorArcFor('supercavTorpedo');
 
 /** u — the range inside which a STANDARD torpedo intercept is CREDIBLE. A 60
  *  u/s fish against a 45 u/s hull needs the target inside knife range or the
@@ -91,6 +81,7 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   gun: 0.5,
   machineGun: 0.5,
   flak: 0.5,
+  mainBattery: 0.5, // Story 10.4: the captain's slot 0 — the always-available fallback, tried last
   boost: APPETITE_NEUTRAL,
   instantReload: APPETITE_NEUTRAL,
   hunker: APPETITE_NEUTRAL,
@@ -102,6 +93,11 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   broadside: APPETITE_NEUTRAL,
   starShells: APPETITE_NEUTRAL,
   phosphorShells: APPETITE_NEUTRAL,
+  // Story 10.5: the three moved weapons at the neutral base (their belt rows'
+  // appetite, carried over — no profile names them).
+  supercavTorpedo: APPETITE_NEUTRAL,
+  dazzleShells: APPETITE_NEUTRAL,
+  foulingShell: APPETITE_NEUTRAL,
 });
 
 /** How eager this profile is about one equipment id — the profile's own entry,
@@ -128,8 +124,8 @@ export interface Shot {
 }
 
 /** How a tactic's output reaches the world: a 'shot' needs a target and is
- *  resolved BELOW chooseShot's target guard; a 'placement' (flare / mine /
- *  decoy) is resolved ABOVE it — a placement's own want() decides whether it
+ *  resolved BELOW chooseShot's target guard; a 'placement' (flare / mine) is
+ *  resolved ABOVE it — a placement's own want() decides whether it
  *  needs a target; an 'ability' rides the actSeq channel (chooseAct). */
 export type TacticKind = 'shot' | 'placement' | 'ability';
 
@@ -148,16 +144,12 @@ export interface TacticContext {
 }
 
 /**
- * ONE SLOT ITEM'S BOT TACTIC — the shape every row shares. A fitted slot may
- * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (its kind's fixed slot, 5-10),
- * the two id spaces are disjoint, and each has its OWN registry keyed by its
- * OWN id (`EQUIPMENT_TACTICS` / `CONSUMABLE_TACTICS`) so neither record ever
- * grows a fake row. `tacticFor` is the one lookup that spans them, narrowing
- * through the shared guard rather than a cast — exactly the two-registry
- * discipline `slotRow` uses on the server side.
+ * ONE SLOT ITEM'S BOT TACTIC — the shape every row shares. A fitted slot holds
+ * a piece of EQUIPMENT (Story 10.5 deleted the consumable belt and its
+ * registry); `tacticFor` is the one lookup, `slotRow`'s bot-side twin.
  */
 export interface SlotTactic {
-  readonly id: SlotItemId;
+  readonly id: EquipmentId;
   readonly kind: TacticKind;
   /** u — the effective COMMITTED reach at these stats (the band pull's input;
    *  0 = never pulls). For a shot weapon this is the range it is genuinely
@@ -174,12 +166,6 @@ export interface SlotTactic {
 /** One equipment's bot tactic — the weapon axis (and the Shift slot). */
 export interface EquipmentTactic extends SlotTactic {
   readonly id: EquipmentId;
-}
-
-/** One consumable line's bot tactic — the BELT axis (epic-8 amendment 49).
- *  Same shape, narrower id. */
-export interface ConsumableTactic extends SlotTactic {
-  readonly id: ConsumableId;
 }
 
 /** Freeze every row, then the table — the registries are deep-frozen like the
@@ -225,10 +211,19 @@ export function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
  * The mind's rng feeds this and nothing else.
  */
 function scatter(p: Vec2, sit: BotSituation, rng: Rng): Vec2 {
-  const range = Math.hypot(p.x - sit.x, p.y - sit.y);
-  const r = Math.sqrt(rng.next()) * CONFIG.bots.aimScatterU * (range / CONFIG.bots.aimScatterRefU);
+  const o = scatterOffset(Math.hypot(p.x - sit.x, p.y - sit.y), rng);
+  return { x: p.x + o.x, y: p.y + o.y };
+}
+
+/** The scatter's OFFSET alone at `range` u (the same two draws, same order)
+ *  — exported so the main battery can HOLD one offset across ticks
+ *  (ai/battery.ts) instead of re-drawing it every tick. `scatterU` is the
+ *  disc at the reference range: every weapon's `aimScatterU` by default, the
+ *  guns' own `gunAimScatterU` from the battery. */
+export function scatterOffset(range: number, rng: Rng, scatterU: number = CONFIG.bots.aimScatterU): Vec2 {
+  const r = Math.sqrt(rng.next()) * scatterU * (range / CONFIG.bots.aimScatterRefU);
   const a = rng.float(0, TAU);
-  return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
+  return { x: Math.cos(a) * r, y: Math.sin(a) * r };
 }
 
 /** The scattered lead solution for one weapon against one track. */
@@ -248,6 +243,18 @@ export function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean 
   return !lineBlocked(self.state, p, sit.islands);
 }
 
+/**
+ * THE MAIN BATTERY'S AND SECONDARIES' TERRAIN CHECK (Eric 2026-11-13, epic-11
+ * amendment 8): the server's own launch rule (shared `batteryTerrainStop`)
+ * over the public height raster — the round passes over the chart's lowest
+ * land band and is stopped by higher ground; the coastline alone no longer
+ * stops it. From the hull centre, like `shotReaches`. No raster on the
+ * situation (a hand-built one) = no terrain.
+ */
+export function overLandReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
+  return sit.raster === undefined || batteryTerrainStop(sit.raster, self.state, p) === null;
+}
+
 /** u — the distance to a plot's PREDICTED point (utility.ts plotAt — cycle
  *  165 review, B4): every range, band and placement check reads the same
  *  point the lead solve starts from. Identical to the raw distance for a live
@@ -261,22 +268,13 @@ export function distTo(sit: BotSituation, t: BotTrack): number {
 // THE TORPEDO SHOT — both torpedo lines and the SUPERCAV belt fish.
 // ---------------------------------------------------------------------------
 
-/** Is `aim` legal for this torpedo line? The HEAVY (and the supercav belt
- *  fish) fire into a bow SECTOR; the LIGHT fires into either BEAM and refuses
- *  the fore/aft dead zones — the server's own arc law (equipment/
- *  torpedoCore.ts `torpedoBearing`), read from the same shared descriptors. */
-function torpedoAimLegal(id: TorpedoLineId | 'supercavTorpedo', heading: number, aim: number): boolean {
-  if (id === 'lightTorpedo') return twinSectorSide(heading, aim, LIGHT_BEAMS) !== null;
-  const sector = id === 'supercavTorpedo' ? SUPERCAV_SECTOR : BOW_SECTOR;
-  return inArc(aim, wrapAngle(heading + sector.offset), sector.halfArc);
-}
-
-/** One torpedo shot solve, shared by both equipment lines and the supercav
- *  belt fish: lead at THIS weapon's speed, refuse out of THIS weapon's arc
- *  (ARC FIRST — an arc miss consumes nothing), refuse a blocked line. */
+/** One torpedo shot solve, shared by all three torpedo lines: lead at THIS
+ *  weapon's speed, refuse a blocked line, then CLICK ONLY when the shared
+ *  launcher law says a tube fires after this tick's step (Story 10.6 review
+ *  gate, ai/torpedoMount.ts) — otherwise no shot this tick, so the next slot
+ *  (the main battery) gets it. */
 export function solveTorpedoShot(
   ctx: TacticContext,
-  id: TorpedoLineId | 'supercavTorpedo',
   speed: number,
   reachU: number,
 ): Shot | null {
@@ -287,9 +285,9 @@ export function solveTorpedoShot(
   if (d > reachU) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);
-  if (!torpedoAimLegal(id, ctx.self.state.heading, aim)) return null;
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
-  return { aim, aimDist: d, slot: ctx.slot };
+  if (torpedoReadyOnTarget(ctx.self, { aim, aimDist: d })) return { aim, aimDist: d, slot: ctx.slot };
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +297,7 @@ export function solveTorpedoShot(
 /** A drop commanded at the centre of the given ratified placement sector —
  *  so arc and range pass by construction and only the water can refuse
  *  (`blockedWater` is the SAME predicate the equipment rows deny with). The
- *  mines and the DECOY BUOY both drop this way. */
+ *  mines drop this way. */
 export function sectorPlacement(
   ctx: TacticContext,
   sector: { offset: number },
@@ -312,16 +310,18 @@ export function sectorPlacement(
 }
 
 /** The nearest LIVE, actionable track inside our own truesight bubble — the
- *  target the PHOSPHOR SHELLS row and the engaging FOULING SHELL row burst
- *  on. `keep` narrows the candidates (the astern pick below); the default
- *  keeps every track. */
+ *  target the PHOSPHOR SHELLS row and the engaging FLASH / FOULING SHELL rows
+ *  burst on. `keep` narrows the candidates (the astern pick below); the default
+ *  keeps every track. The bubble is the bot's EFFECTIVE sight (`ownSightU` —
+ *  a flashed bot's clear circle, gate fix F8). */
 export function nearestLiveInSight(ctx: TacticContext, keep: (t: BotTrack) => boolean = () => true): BotTrack | null {
   let best: BotTrack | null = null;
   let bestD = Infinity;
+  const sight = ownSightU(ctx.sit);
   for (const t of tracksOf(ctx.mind)) {
     if (!t.live || !isActionable(t, ctx.sit.now) || !keep(t)) continue;
     const d = distTo(ctx.sit, t);
-    if (d > ctx.sit.stats.sightRange) continue;
+    if (d > sight) continue;
     if (d < bestD) {
       bestD = d;
       best = t;
@@ -346,14 +346,16 @@ function isAstern(ctx: TacticContext, t: BotTrack): boolean {
 }
 
 /** A burst placed ON a live contact (no lead — the zone is an area), clamped
- *  to `rangeU`, coastline-gated on the shot. The target defaults to the
- *  nearest live contact in sight; a row with its own pick passes it. */
+ *  to `rangeU`. Its callers are the ARCING shells (phosphor, flash, fouling —
+ *  Eric 2026-11-13, epic-11 amendment 8: nothing interrupts them en route),
+ *  so there is NO coastline gate: a shot over an island now arrives. The
+ *  target defaults to the nearest live contact in sight; a row with its own
+ *  pick passes it. */
 export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: BotTrack | null = nearestLiveInSight(ctx)): Shot | null {
   const t = target;
   if (t === null) return null;
   const d = distTo(ctx.sit, t);
   if (d > rangeU) return null;
-  if (!shotReaches(ctx.self, ctx.sit, t)) return null;
   return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
@@ -361,12 +363,11 @@ export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: B
 // HOSTILE READS (Story 9.13, amendment 199) — the trigger extensions' cues.
 // ---------------------------------------------------------------------------
 
-/** Is this track a HOSTILE worth a defensive press: a captain (a sighted PvE
- *  fleet hull is neutral — the captive-mine precedent; an unclassed paint is
- *  assumed a captain), not a wreck, past the reaction gate, and LIVE or
- *  refreshed within one base sweep revolution (a fresh paint)? */
+/** Is this track a HOSTILE worth a defensive press: a captain (an unclassed
+ *  paint is assumed a captain), not a wreck, past the reaction gate, and LIVE
+ *  or refreshed within one base sweep revolution (a fresh paint)? */
 export function isFreshHostile(t: BotTrack, now: number): boolean {
-  if (t.sunk || t.fleet || !isActionable(t, now)) return false;
+  if (t.sunk || !isActionable(t, now)) return false;
   return t.live || now - t.seenAt <= TRACK_PERSIST_MS;
 }
 
@@ -415,12 +416,6 @@ export function healthy(sit: BotSituation): boolean {
   return sit.maxHp > 0 && sit.hp / sit.maxHp >= sit.profile.disengageHpFrac;
 }
 
-/** Is one of the bot's OWN decoy buoys on the water? The owner is always sent
- *  its own (`DecoyView.own`, the decoy row's owner-always clause). */
-export function ownDecoyLive(mind: BotMind): boolean {
-  return mind.view?.decoys.some((d) => d.own) ?? false;
-}
-
 /** THE HARNESS STAMP (Story 9.13): record the tactic row that produced a shot
  *  on the mind's `lastTactic` seat and hand the shot through. A null shot
  *  stamps nothing. */
@@ -429,8 +424,8 @@ export function stamped(ctx: TacticContext, row: string, shot: Shot | null): Sho
   return shot;
 }
 
-/** Postures in which HUNKER / SHIELD BLOCK also fire with a hostile in weapon
- *  reach (amendment 199): pursuing, kiting, fleeing, hiding. */
+/** Postures in which HUNKER also fires with a hostile in weapon reach
+ *  (amendment 199): pursuing, kiting, fleeing, hiding. */
 const REACH_GUARD_POSTURES: readonly BotPosture[] = ['pursue', 'kite', 'disengage', 'hide'];
 
 /** The last seconds before a ram (amendment 199): the ram posture with its
@@ -444,8 +439,8 @@ function preRam(ctx: TacticContext): boolean {
  * COMBAT: the bot's own `engage` posture, with a target; (b) a seen enemy
  * torpedo inbound on a collision line within 150 u (ai/torpedoThreat.ts);
  * (c) the last seconds before a ram; (d) pursuing, kiting, fleeing or hiding
- * with ANY fresh hostile inside the mounted gun's reach. Shared by the HUNKER
- * Shift and the SHIELD BLOCK belt row (amendment 124(g)).
+ * with ANY fresh hostile inside the mounted gun's reach. The HUNKER Shift's
+ * (the SHIELD BLOCK belt row that shared them left with Story 10.5).
  */
 export function hunkerCues(ctx: TacticContext): boolean {
   if (ctx.posture === 'engage' && ctx.target !== null) return true;

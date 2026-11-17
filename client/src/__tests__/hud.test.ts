@@ -15,7 +15,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveStats } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, effectiveStats } from '@salvo/shared';
 import type { MatchUx } from '../ui/phase.js';
 import {
   Hud,
@@ -30,36 +30,37 @@ import {
   tellSeconds,
   victimWindows,
 } from '../render/hud.js';
-import { HUD_BAR_WIDTH, hudBarLayout } from '../render/hudBar.js';
-import { monoTextWidth } from '../ui/refitCardFit.js';
+import { consoleLayout } from '../render/console/layout.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
 import { CHROME_BAR_SEGMENTS, RING_LIT_ALPHA, chromeBarSegments, ringReadout, type ChromeBarView } from '../ui/chromeBar.js';
 import { abilityPressDenied } from '../sim/inputSampler.js';
 import { DeniedPulse } from '../render/deniedFire.js';
 import { settings } from '../settings/store.js';
 import { CLIENT_CONFIG } from '../config.js';
 
-const V = CLIENT_CONFIG.vitals;
-/** The floor viewport, and the bar top the chrome hangs off there. */
+const V = CLIENT_CONFIG.chromeBar;
+/** The floor viewport, and the clear water between the two battle consoles
+ *  there — the centre column the satellite tells share with IN STORM. */
 const FLOOR = { w: 1366, h: 768 };
-const BAR_TOP = hudBarLayout(FLOOR.w, FLOOR.h).bar.y;
+const CENTER_CLEAR = consoleLayout(FLOOR.w, FLOOR.h).centerClear;
 
-const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
 function ownStatus(over: Partial<OwnStatus> = {}): OwnStatus {
   return {
     hp: 80,
     repairHp: 0,
-    shield: 0,
     ammo: [null, null, null, null],
     primedSlot: 0,
     alive: true,
     sinking: false,
     respawnInMs: 0,
-    cls: 'torpedoBoat',
+    cls: DEFAULT_CLASS_ID,
     stats,
-    loadout: ['gun', 'heavyTorpedo', null, null],
+    loadout: ['mainBattery', 'heavyTorpedo', null, null],
     boostActive: false,
     slowedMsLeft: 0,
+    dazzledMsLeft: 0,
     ...over,
   };
 }
@@ -151,26 +152,26 @@ describe('the satellite column hangs under the CHROME BAR, centred', () => {
     expect(tells.y + V.tellGap).toBeGreaterThan(tells.y);
   });
 
-  it('does not move with the bar — the column is viewport-width only', () => {
-    // The anchors take NO bar edge any more (amendment 38): a short viewport
-    // moves the HUD bar up, and the satellite column stays put under the chrome.
+  it('is viewport-width only — the column takes no console edge', () => {
+    // The anchors take NO bar edge (amendment 38): the satellite column stays
+    // put under the chrome at every viewport height.
     expect(stormWarnAnchor(1280)).toEqual({ x: 640, y: stormWarnAnchor(FLOOR.w).y });
     expect(tellAnchor(1280)).toEqual({ x: 640, y: tellAnchor(FLOOR.w).y });
-    expect(hudBarLayout(1280, 614).bar.y).not.toBe(BAR_TOP); // the bar DID move
   });
 });
 
 describe('the tells fit their box (amendment 47 — the container-fit law)', () => {
-  // The tells are centred over the HUD bar, so the bar's own width is the column
-  // they share with IN STORM. A tell that outran it would paint over the ocean
-  // beside the bar — so the pin measures a deliberately absurd window, not just
+  // The tells are centred between the two battle consoles (Story 10.10), so the
+  // clear water between them at the floor viewport is the column they share
+  // with IN STORM. A tell that outran it would paint over a console — so the
+  // pin measures a deliberately absurd window, not just
   // today's few-second one.
-  it('every reachable tell line fits the bar`s width', () => {
-    for (const label of ['SLOWED']) {
+  it('every reachable tell line fits the clear water between the consoles', () => {
+    for (const label of ['SLOWED', 'DAZZLED']) {
       for (const ms of [1, 999, 1000, 9000, 60_000, TELL_FIT_MAX_MS]) {
         const line = tellLine(label, ms);
         const w = monoTextWidth(line, TELL_STYLE.fontSize, TELL_STYLE.letterSpacing);
-        expect(w, `${line} @ ${w}px`).toBeLessThanOrEqual(HUD_BAR_WIDTH);
+        expect(w, `${line} @ ${w}px`).toBeLessThanOrEqual(CENTER_CLEAR);
       }
     }
   });
@@ -251,6 +252,24 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     expect(hud.chromeBarText().join('')).toBe('');
     drive(hud, bar(), 2); // ...and comes back the moment the match goes live
     expect(hud.chromeBarText().join('')).toBe(LIVE_ROW);
+  });
+
+  it('sits on a dark-glass BED that hugs the whole text row and goes with it (R24)', () => {
+    const hud = new Hud(new Container());
+    expect(hud.chromeBarBed()).toBeNull(); // nothing drawn yet
+    drive(hud, bar(), 1);
+    const bed = hud.chromeBarBed()!;
+    const pad = CLIENT_CONFIG.hudBed.chromePad;
+    // It encloses the row's line box (top at chromeBar.y, one line of type)
+    // with the bed padding on every side, and is centered on the row.
+    expect(bed.y).toBe(V.y - pad);
+    expect(bed.y + bed.h).toBe(V.y + V.fontSize + pad);
+    expect(bed.x + bed.w / 2).toBeCloseTo(FLOOR.w / 2, 6);
+    expect(bed.w).toBeGreaterThan(2 * pad);
+    hud.updateSpectate(bar(), MATCH, FLOOR.w, FLOOR.h, 'SUNK — SPECTATING', 2);
+    expect(hud.chromeBarBed()).not.toBeNull(); // it outlives the hull with the row
+    drive(hud, bar({ visible: false }), 3);
+    expect(hud.chromeBarBed()).toBeNull(); // hidden with the row
   });
 
   it('redraws the row when the match clock ticks', () => {
@@ -395,6 +414,19 @@ describe('victimWindows — SLOWED covers both slow sources (Story 9.4)', () => 
   });
 });
 
+describe('victimWindows — DAZZLED reads you.dazzledUntil (FLASH SHELLS, Story 10.9)', () => {
+  it('is the remaining dazzle window, independent of the slow sources', () => {
+    expect(victimWindows({ dazzledUntil: 4000 }, 1000).dazzledMsLeft).toBe(3000);
+    expect(victimWindows({ dazzledUntil: 4000, slowedUntil: 9000 }, 1000).dazzledMsLeft).toBe(3000);
+    expect(victimWindows({ slowedUntil: 9000 }, 1000).dazzledMsLeft).toBe(0);
+  });
+
+  it('an absent / expired window, or no hull, reads 0', () => {
+    expect(victimWindows({ dazzledUntil: 900 }, 1000).dazzledMsLeft).toBe(0);
+    expect(victimWindows(null, 1000).dazzledMsLeft).toBe(0);
+  });
+});
+
 describe('Hud — the tells and the storm warning on a live frame', () => {
   const draw = (hud: Hud, status: OwnStatus, inStorm = false): void =>
     hud.update(status, inStorm, QUIET, MATCH, FLOOR.w, FLOOR.h, 10);
@@ -405,7 +437,7 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
     expect(hud.tellText(0)).toBe('');
   });
 
-  it('shows the SLOWED window while it runs, and only it (Story 9.4: one tell)', () => {
+  it('shows the SLOWED window while it runs, and only it', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ slowedMsLeft: 2000 }));
     expect(hud.tellText(0)).not.toBe('');
@@ -413,6 +445,18 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
     expect(hud.tellText(1)).toBe('');
     draw(hud, ownStatus({ slowedMsLeft: 1500 }));
     expect(hud.tellText(0).endsWith(` ${tellSeconds(1500)}s`)).toBe(true);
+  });
+
+  it('shows the DAZZLED window beside SLOWED in the same grammar (Story 10.9)', () => {
+    const hud = new Hud(new Container());
+    draw(hud, ownStatus({ dazzledMsLeft: 3000 }));
+    expect(hud.tellText(0)).toBe('');
+    expect(hud.tellText(1).endsWith(` ${tellSeconds(3000)}s`)).toBe(true);
+    // ...a lone dazzle takes the TOP slot; both running stack SLOWED over DAZZLED.
+    expect(hud.tellPosition(1)).toEqual(tellAnchor(FLOOR.w));
+    draw(hud, ownStatus({ slowedMsLeft: 2000, dazzledMsLeft: 3000 }));
+    expect(hud.tellPosition(0)).toEqual(tellAnchor(FLOOR.w));
+    expect(hud.tellPosition(1)!.y).toBeGreaterThan(hud.tellPosition(0)!.y);
   });
 
   it('the running tell takes the TOP slot, at the column anchor', () => {

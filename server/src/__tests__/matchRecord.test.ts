@@ -14,7 +14,7 @@
 // DECK_FORBIDDEN_KEYS.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_GUN, MULLIGAN_CHOICE, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, MULLIGAN_CHOICE, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 import { buildMatchRecord, type MatchRecord } from '../game/matchRecord.js';
@@ -101,11 +101,10 @@ function playMatch(hooks: MatchHooks = noopHooks(), onBuilt: (ctx: Ctx) => void 
   const m = new Match(w, TIMINGS, hooks);
   const ctx = { w, m };
   onBuilt(ctx);
-  w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-  w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
-  w.addShip('c', 'C', 'captain', 'mineLayer', undefined, undefined);
-  w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined);
-  w.addShip('f1', 'F1', 'fleet', 'droneSmall', undefined, undefined);
+  w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+  w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+  w.addShip('c', 'C', 'captain', 'warspite', undefined, undefined);
+  w.addShip('bot-1', 'BOT', 'bot', 'bismarck', undefined, undefined);
   m.notifyRosterChanged();
   expect(m.phase).toBe('countdown');
   step(ctx); // the countdown is live water-time: the opening hand is dealt
@@ -120,7 +119,6 @@ function playMatch(hooks: MatchHooks = noopHooks(), onBuilt: (ctx: Ctx) => void 
   const y = spendAny(w, 'a');
   m.onPlayerLeave('b');
   w.sinkShip('c', 'a');
-  w.sinkShip('f1', 'a');
   w.sinkShip('bot-1', 'a');
   step(ctx, SINK_TICKS + 2);
   expect(m.phase).toBe('finished');
@@ -159,7 +157,7 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     expect(a.placement).toBe(1);
   });
 
-  it('the leaver is present with placement + hands; the bot with role "bot"; the fleet hull is absent; userId null everywhere', () => {
+  it('the leaver is present with placement + hands; the bot with role "bot"; userId null everywhere', () => {
     const { w, m } = playMatch();
     const rec = buildMatchRecord(m, META);
     const ids = rec.participants.map((p) => p.id).sort();
@@ -170,10 +168,7 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     expect(b.placement).toBe(m.placements.get('b'));
     expect(b.hands).toHaveLength(1);
     expect(rec.participants.find((p) => p.id === 'bot-1')!.role).toBe('bot');
-    for (const p of rec.participants) {
-      expect(p.userId).toBeNull();
-      expect(p.role).not.toBe('fleet');
-    }
+    for (const p of rec.participants) expect(p.userId).toBeNull();
     // Placements are dense 1..n, the record sorted by them.
     expect(rec.participants.map((p) => p.placement)).toEqual([1, 2, 3, 4]);
   });
@@ -219,9 +214,9 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     const results: ResultsMsg[] = [];
     const m = new Match(w, TIMINGS, noopHooks(results));
     const ctx = { w, m };
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
-    w.addShip('c', 'C', 'captain', 'mineLayer', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+    w.addShip('c', 'C', 'captain', 'warspite', undefined, undefined);
     m.notifyRosterChanged();
     expect(m.phase).toBe('countdown');
     step(ctx); // the opening hand is dealt
@@ -249,9 +244,9 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
   it('a leaver CREDITED during its scuttle window keeps that hand: the reap re-snapshots before the hull goes (review gate)', () => {
     const w = bareWorld();
     const m = new Match(w, TIMINGS, noopHooks());
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('c', 'C', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('c', 'C', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
     const bRec = w.ships.get('b')!;
@@ -273,13 +268,13 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
   it('a snapshot never ALIASES the live record: a hand logged after the leave snapshot does not reach it', () => {
     const w = bareWorld();
     const m = new Match(w, TIMINGS, noopHooks());
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
     const bRec = w.ships.get('b')!;
     m.onPlayerLeave('b');
-    bRec.hands[0].taken = 'hullPoints'; // a write to the live record after its snapshot
+    bRec.hands[0].taken = 'armor'; // a write to the live record after its snapshot
     bRec.hands.push({ dealtAtMs: 0, offered: [], taken: null, takenAtMs: null, redrawn: false });
     const snap = m.participantRecords().get('b')!;
     expect(snap.hands).toHaveLength(1);
@@ -288,14 +283,14 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
 });
 
 describe('the hand log — only an OFFER pick is a hand', () => {
-  it('a REFUSED pick (a consumable at its cap) records nothing', () => {
+  it('a REFUSED pick (a second torpedo kind — one kind per slot, Story 10.5) records nothing', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     w.countdownOpen = true;
     w.grantOpening();
     expect(a.hands).toHaveLength(1);
-    for (let i = 0; i < CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
-    a.offer = ['hullRepair'];
+    w.applyCard(a, 'lightTorpedo');
+    a.offer = ['heavyTorpedo'];
     const before = JSON.stringify(a.hands);
     expect(w.spendPoint('a', 0)).toBe(false);
     expect(JSON.stringify(a.hands)).toBe(before);
@@ -304,16 +299,16 @@ describe('the hand log — only an OFFER pick is a hand', () => {
 
   it('the dev spawn fit lands in `cards` but creates NO hand', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, ['hullPoints', 'speed']);
-    expect(a.cards).toEqual(['hullPoints', 'speed']);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, ['armor', 'engines']);
+    expect(a.cards).toEqual(['armor', 'engines']);
     expect(a.hands).toEqual([]);
   });
 
   it('the activation redeploy PRESERVES the log, exactly as it preserves cards and the bank', () => {
     const w = bareWorld();
     const m = new Match(w, TIMINGS, noopHooks());
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     const atCountdown = JSON.stringify(a.hands);
     const bankAtCountdown = a.bankedLevels;
@@ -419,8 +414,8 @@ describe('the results hook hands the record over (pin d)', () => {
     const m = new Match(w, TIMINGS, hooks);
     h.room.world = w;
     h.room.match = m;
-    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
-    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'bismarck', undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
     w.sinkShip('b', 'a');
@@ -470,5 +465,65 @@ describe('the results hook hands the record over (pin d)', () => {
     const h = roomHarness();
     expect(() => playThroughRoom(h)).not.toThrow();
     expect(h.logs.find((l) => l.event === 'account.write.failed')?.fields).toEqual({ matchId: 'room-match', err: 'sync boom' });
+  });
+});
+
+describe('RADIO BEACON XP rides the record (Story 10.8)', () => {
+  it('each participant carries its beaconXpMs — a leaver at its leave, the winner at the finish — and the summary sums it by class', () => {
+    const w = bareWorld();
+    const m = new Match(w, TIMINGS, noopHooks());
+    const ctx = { w, m };
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+    m.notifyRosterChanged();
+    for (let i = 0; i < 100 && m.phase !== 'active'; i++) step(ctx);
+    expect(m.phase).toBe('active');
+    const levelMs = CONFIG.xp.levelMs;
+    w.ships.get('b')!.beaconXpMs = levelMs / 2;
+    m.onPlayerLeave('b'); // snapshot at the leave
+    w.ships.get('a')!.beaconXpMs = 3 * levelMs;
+    for (let i = 0; i < 100 && m.phase !== 'finished'; i++) step(ctx);
+    expect(m.phase).toBe('finished');
+    const byId = new Map(buildMatchRecord(m, META).participants.map((p) => [p.id, p]));
+    expect(byId.get('a')!.beaconXpMs).toBe(3 * levelMs);
+    expect(byId.get('b')!.beaconXpMs).toBe(levelMs / 2);
+    expect(m.endSummary().beaconXpMsByClass).toEqual({ bismarck: 3 * levelMs, yamato: levelMs / 2 });
+  });
+});
+
+describe('AIRDROPS taken ride the record (Story 10.9)', () => {
+  it('each participant carries the drops it collected — a captain and a bot alike, the leaver at its leave', () => {
+    const w = bareWorld();
+    const m = new Match(w, TIMINGS, noopHooks());
+    const ctx = { w, m };
+    w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined);
+    w.addShip('bot-1', 'BOT', 'bot', 'bismarck', undefined, undefined);
+    m.notifyRosterChanged();
+    for (let i = 0; i < 100 && m.phase !== 'active'; i++) step(ctx);
+    expect(m.phase).toBe('active');
+    // Crates sat on each hull's centre: the next step's collectDrops takes them.
+    const seat = (id: string, n: number): void => {
+      const s = w.ships.get(id)!.state;
+      for (let k = 0; k < n; k++) w.drops.set(`t-${id}-${k}`, { id: `t-${id}-${k}`, x: s.x, y: s.y, kind: CONFIG.drops.indices[0] });
+    };
+    seat('a', 2);
+    seat('b', 1);
+    seat('bot-1', 3);
+    const before = new Map([...w.ships.values()].map((r) => [r.id, r.dropsTaken]));
+    step(ctx);
+    const taken = (id: string): number => w.ships.get(id)!.dropsTaken - before.get(id)!;
+    expect([taken('a'), taken('b'), taken('bot-1')]).toEqual([2, 1, 3]);
+    const atLeave = w.ships.get('b')!.dropsTaken;
+    const botAtSink = w.ships.get('bot-1')!.dropsTaken;
+    m.onPlayerLeave('b'); // snapshot at the leave
+    w.sinkShip('bot-1', 'a');
+    for (let i = 0; i < 200 && m.phase !== 'finished'; i++) step(ctx);
+    expect(m.phase).toBe('finished');
+    const byId = new Map(buildMatchRecord(m, META).participants.map((p) => [p.id, p]));
+    expect(byId.get('a')!.dropsTaken).toBe(w.ships.get('a')!.dropsTaken);
+    expect(byId.get('b')!.dropsTaken).toBe(atLeave);
+    expect(byId.get('bot-1')!.dropsTaken).toBe(botAtSink);
+    expect(botAtSink).toBeGreaterThanOrEqual(3);
   });
 });

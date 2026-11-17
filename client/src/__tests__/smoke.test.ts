@@ -17,7 +17,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, type SmokeEvent } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, type SmokeEvent } from '@salvo/shared';
+import { hullTopSpeed } from '../sim/hullKinematics.js';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   puffAlpha,
@@ -47,13 +48,13 @@ function expectStill(d: { dx: number; dy: number }): void {
 // --- the bands are ONE set of numbers (amendment 41) --------------------------
 
 describe('the damage bands are single-sourced from shared CONFIG', () => {
-  it('CLIENT_CONFIG.vitals bands ARE CONFIG.damageBands, not a copy of them', () => {
+  it('CLIENT_CONFIG.console.hull bands ARE CONFIG.damageBands, not a copy of them', () => {
     // The rail (hpColor/railPulsing) and the smoke tier must never be able to
     // fork: exactly one set of band numbers may exist in the codebase, so a
     // future retune of the rail moves the plume with it. This test pins the
     // IDENTITY; the comment in config.ts pins the intent.
-    expect(CLIENT_CONFIG.vitals.amberBelow).toBe(CONFIG.damageBands.amberBelow);
-    expect(CLIENT_CONFIG.vitals.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
+    expect(CLIENT_CONFIG.console.hull.amberBelow).toBe(CONFIG.damageBands.amberBelow);
+    expect(CLIENT_CONFIG.console.hull.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
   });
 });
 
@@ -208,8 +209,8 @@ describe('puffLifeMs keeps the plume an ATTACHED COLUMN, never a track', () => {
   // would encode course, speed and origin — continuous ghost blips, a strictly
   // larger disclosure than "a hull is hurt, right there". Puff lifetime is the
   // ONLY knob deciding which of the two ships, so it is pinned here.
-  const CLASSES = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
-  const FASTEST = Math.max(...CLASSES.map((id) => CONFIG.shipClasses[id].kinematics.maxSpeed));
+  const CLASSES = SHIP_CLASS_IDS;
+  const FASTEST = Math.max(...CLASSES.map((id) => hullTopSpeed(id)));
 
   it('leaves a tail shorter than one hull length at flank speed', () => {
     const tailU = FASTEST * (LIFE / 1000);

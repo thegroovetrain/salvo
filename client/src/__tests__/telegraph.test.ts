@@ -36,17 +36,17 @@ describe('clampIndex / stepIndex', () => {
   });
 });
 
-describe('stepFromKey — edge/repeat + arrow parity', () => {
-  it('W / ArrowUp step ahead, S / ArrowDown step astern', () => {
+describe('stepFromKey — edge/repeat (W / S only since Story 11.8)', () => {
+  it('W steps ahead, S astern; the arrows no longer step (they pan the camera)', () => {
     expect(stepFromKey('KeyW', false)).toBe(1);
-    expect(stepFromKey('ArrowUp', false)).toBe(1);
+    expect(stepFromKey('ArrowUp', false)).toBeNull();
     expect(stepFromKey('KeyS', false)).toBe(-1);
-    expect(stepFromKey('ArrowDown', false)).toBe(-1);
+    expect(stepFromKey('ArrowDown', false)).toBeNull();
   });
 
   it('ignores OS auto-repeat so one physical tap = one step', () => {
     expect(stepFromKey('KeyW', true)).toBeNull();
-    expect(stepFromKey('ArrowDown', true)).toBeNull();
+    expect(stepFromKey('KeyS', true)).toBeNull();
   });
 
   it('is null for rudder / unrelated keys', () => {

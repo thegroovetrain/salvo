@@ -3,13 +3,13 @@
 // One `hitTargets(mask)` is how EVERY ordnance step finds anything. Before this
 // story each step had its own route to its victims — `aliveHulls()` plus a
 // `withBuoyTargets()` merge for shells (the radar buoy, deleted in Story 8.16), a separate iteration over `this.mines`
-// for bursts, another for chains — which is why "shoot any mine", the decoy and
+// for bursts, another for chains — which is why "shoot any mine", the (since deleted) decoy and
 // uncapped mines would each have needed three copies of one rule.
 //
 // What this file pins:
 //   * the memo (per tick, per mask, mask order irrelevant) and its two
 //     invalidations — a SINK and a CONSUMED MINE;
-//   * the four kinds, including `ordnance` — EVERY live torpedo as a point,
+//   * the three kinds (the `decoy` kind left with Story 10.5), including `ordnance` — EVERY live torpedo as a point,
 //     BURST-ONLY like `mine`, populated since Story 8.15 (the flak gun's side
 //     effect, amendment 105; own-fish immunity and the burst outcome are
 //     pinned in flak.test.ts);
@@ -39,8 +39,8 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
-import { addDecoy } from '../game/decoys.js';
 import { flatRaster } from './islandFixture.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 const SLOT_GUN = 0;
 
@@ -57,9 +57,10 @@ function place(
   x: number,
   y: number,
   heading = 0,
-  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+  hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -102,7 +103,7 @@ const kinds = (ts: readonly Target[]): TargetKind[] => ts.map((t) => t.kind);
 function shootAt(w: World, shooter: string, dist: number, seq = 9): void {
   w.submitInput(shooter, {
     seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: dist,
-    slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
   });
   for (let i = 0; i < 60; i += 1) {
     w.step();
@@ -177,7 +178,7 @@ describe('hitTargets — the invalidations', () => {
 // THE KINDS
 // ---------------------------------------------------------------------------
 
-describe('hitTargets — the four kinds', () => {
+describe('hitTargets — the three kinds', () => {
   it('`hull` is afloat silhouettes only — a sinking hull is not a collision subject', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
@@ -200,30 +201,12 @@ describe('hitTargets — the four kinds', () => {
     // are gone; whether a shell hurts a listed mine is the LANDING TEST's
     // question (CONFIG.mine.hitRadiusU at the point the shell lands).
     const w = bareWorld();
-    place(w, 'cap', 800, 800, 0, 'mineLayer');
+    place(w, 'cap', 800, 800, 0, 'warspite');
     mine(w, 'armed', 'b', 100, 0);
     mine(w, 'arming', 'b', 150, 0, 999_999);
     mine(w, 'captive', 'cap', 200, 0, 0, 'captive');
     mine(w, 'fouling', 'b', 250, 0, 0, 'fouling');
     expect(ids(w.hitTargets(['mine']))).toEqual(['armed', 'arming', 'captive', 'fouling']);
-  });
-
-  it('`decoy` is every live DECOY BUOY from the store, carrying its OWNER id (Story 8.16)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    addDecoy(w.decoys, a.id, 300, 0, 'd1');
-    addDecoy(w.decoys, 'b', 400, 0, 'd2');
-    expect(kinds(w.hitTargets(['decoy']))).toEqual(['decoy', 'decoy']);
-    // The owner id rides the target so the shared sweep/acquire/burst math can
-    // skip the OWNER's own decoy (amendment 119) — without it the owner's fish
-    // would detonate on their own float.
-    expect(w.hitTargets(['decoy']).map((t) => [t.id, t.ownerId])).toEqual([
-      ['d1', a.id],
-      ['d2', 'b'],
-    ]);
-    expect(w.hitTargets(['decoy'])[0].poly).toEqual([
-      { x: 294, y: -6 }, { x: 306, y: -6 }, { x: 306, y: 6 }, { x: 294, y: 6 },
-    ]);
   });
 
   it('`ordnance` is every live TORPEDO as a point — never a gun-pattern shell — and still memoized (Story 8.15)', () => {
@@ -238,7 +221,7 @@ describe('hitTargets — the four kinds', () => {
     expect(w.hitTargets(['ordnance'])).toEqual([{ id: 'fish', kind: 'ordnance', poly: [{ x: fishNow.x, y: fishNow.y }] }]);
     expect(w.hitTargets(['ordnance'])).toBe(w.hitTargets(['ordnance']));
     // Neither a hull nor a mine bleeds into the kind, and the build order puts
-    // ordnance LAST (after hulls, mines, decoys).
+    // ordnance LAST (after hulls and mines).
     expect(kinds(w.hitTargets(['hull', 'mine', 'ordnance']))).toEqual(['hull', 'mine', 'ordnance']);
   });
 
@@ -262,14 +245,6 @@ describe('hitTargets — the four kinds', () => {
     // The fish sat 20u OUTSIDE the 50u blast, so it survives untouched.
     expect(w.shells.has('fish')).toBe(true);
   });
-
-  it('the build ORDER is hulls, then mines, then decoys (parity with the old hulls+buoys list)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    mine(w, 'm1', 'b', 100, 0);
-    addDecoy(w.decoys, a.id, 300, 0, 'd1');
-    expect(kinds(w.hitTargets(['hull', 'mine', 'decoy']))).toEqual(['hull', 'mine', 'decoy']);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -277,28 +252,31 @@ describe('hitTargets — the four kinds', () => {
 // ---------------------------------------------------------------------------
 
 describe('gunfire and mines (amendments 18/20/200)', () => {
-  /** The shooter alone at the origin, gun pointing +x. */
-  function board(seed = 21): World {
+  /** The shooter alone at the origin, gun pointing +x. Story 10.4: the
+   *  shooter mounts the CANNON row (the drones' gun, which keeps its mine bit —
+   *  a captain's main battery never touches a mine; mineHp.test.ts pins that). */
+  function board(seed = 21, heading = 0): World {
     const w = bareWorld(seed);
-    place(w, 'a', 0, 0, 0, 'mineLayer');
+    mountDeckGun(place(w, 'a', 0, 0, heading, 'warspite'), 'gun');
     return w;
   }
 
   /** Fire the gun at (dist, 0) over a board carrying `mines`, and record the
    *  SHOOTER'S OWN FRAME EVENTS for every tick of the shot's life. Events, not
-   *  contacts: a mine inside the detect ring legitimately paints as a contact,
+   *  contacts: a mine inside its eye reach legitimately paints as a contact,
    *  and amendment 20 is about what the SHOT tells you, not about what you can
    *  already see. */
   function fireAndRecord(
     dist: number,
     mines: readonly (readonly [string, string, number, number])[],
     seed = 21,
+    heading = 0,
   ): { frames: GameEvent[][]; w: World } {
-    const w = board(seed);
+    const w = board(seed, heading);
     for (const [id, owner, x, y] of mines) mine(w, id, owner, x, y);
     w.submitInput('a', {
       seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist,
-      slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+      slot: SLOT_GUN, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false,
     });
     const frames: GameEvent[][] = [];
     for (let i = 0; i < 40; i += 1) {
@@ -309,20 +287,28 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   }
 
   const flat = (frames: GameEvent[][]): GameEvent[] => frames.flat();
-  /** u — a mine beyond sight on the shot line, and the click past it. */
-  const FAR_MINE = CONFIG.vision.sight + 100;
-  const FAR_AIM = CONFIG.vision.sight + 300;
+  /** u — a mine beyond the MINE eye reach on the shot line (Story 11.2: a
+   *  mine has its own reach, `CONFIG.vision.mineSight`), and the click past it. */
+  const FAR_MINE = CONFIG.vision.mineSight + 100;
+  const FAR_AIM = CONFIG.vision.mineSight + 300;
+  /** The shooter lying BEAM-ON to the +x shot line. The mine eye reach (3 hm,
+   *  measured from the hull's centre) is shorter than a bow plus the mine's
+   *  trip ring, so a mine dead ahead trips before it can be seen; off the
+   *  FLANK there is water that is inside the eye reach yet clear of the ring. */
+  const BEAM_ON = Math.PI / 2;
+  /** u — off the flank, where the trip ring (measured from the hull) ends. */
+  const TRIP_CLEAR = CONFIG.shipClasses.warspite.hull.beam / 2 + CONFIG.mine.triggerRadius;
+  /** u — a mine INSIDE the mine eye reach on the shot line, clear of the trip
+   *  ring of a BEAM_ON shooter: midway between the two. */
+  const NEAR_MINE = (TRIP_CLEAR + CONFIG.vision.mineSight) / 2;
 
   // -------------------------------------------------------------------------
   // AMENDMENT 20 — a shell in flight never touches a mine (Eric 2026-09-16)
   // -------------------------------------------------------------------------
 
   it('(a) an armed ENEMY mine squarely on the path, OUTSIDE sight: the shell flies on and bursts at the clicked point', () => {
-    // FAR_MINE is past both the detect rung and the true-sight bubble, so the
-    // shooter has no sanctioned knowledge of this mine at all (placements off
-    // the live ladder since Story 9.8, amendment 103).
-    expect(CONFIG.vision.detect).toBeLessThan(FAR_MINE);
-    expect(CONFIG.vision.sight).toBeLessThan(FAR_MINE);
+    // FAR_MINE is past the mine eye reach, so the shooter has no sanctioned
+    // knowledge of this mine at all (placements derived, never literals).
     expect(FAR_AIM).toBeLessThanOrEqual(CONFIG.gun.rangeU); // an in-reach click
     const shot = fireAndRecord(FAR_AIM, [['m1', 'x', FAR_MINE, 0]]);
     expect(shot.w.mines.has('m1')).toBe(true); // never detonated
@@ -348,10 +334,11 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   });
 
   it('(b) the same holds with the mine INSIDE the shooter\'s sight — seeing it changes nothing about the shot', () => {
-    expect(CONFIG.vision.detect).toBeGreaterThan(200);
-    const withMine = fireAndRecord(600, [['m1', 'x', 200, 0]]);
-    const cleanWater = fireAndRecord(600, []);
+    expect(TRIP_CLEAR).toBeLessThan(CONFIG.vision.mineSight); // premise: there IS seen, untripped water off the flank
+    const withMine = fireAndRecord(600, [['m1', 'x', NEAR_MINE, 0]], 21, BEAM_ON);
+    const cleanWater = fireAndRecord(600, [], 21, BEAM_ON);
     expect(withMine.w.mines.has('m1')).toBe(true);
+    expect(buildFrame(withMine.w, 'a').mines.map((m) => m.id)).toContain('m1'); // the shooter SEES it
     expect(withMine.frames).toEqual(cleanWater.frames);
   });
 
@@ -399,9 +386,9 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     expect(w.mines.has('m1')).toBe(false);
   });
 
-  it('(c) a NAVAL pop CHAINS ACROSS OWNERS in the same tick (amendments 18/200), skipping captives and arming mines', () => {
+  it('(c) a NAVAL pop chains NOBODY (Eric 2026-11-15: a mine shot to 0 hp is destroyed, never detonated): neighbours of any owner, captives and arming mines all stay', () => {
     const w = board(24);
-    place(w, 'cap', 900, 900, 0, 'mineLayer');
+    place(w, 'cap', 900, 900, 0, 'warspite');
     mine(w, 'shot', 'x', 600, 0); // the one the shell LANDS on
     mine(w, 'mine-mine', 'a', 600, 40); // within the 48u blast — a DIFFERENT owner
     mine(w, 'third', 'y', 600, 80); // chained off the second, a THIRD owner
@@ -409,8 +396,8 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     mine(w, 'captive', 'cap', 600, 45, 0, 'captive'); // captive — immune, propagates nothing
     shootAt(w, 'a', 600);
     expect(w.mines.has('shot')).toBe(false);
-    expect(w.mines.has('mine-mine')).toBe(false);
-    expect(w.mines.has('third')).toBe(false);
+    expect(w.mines.has('mine-mine')).toBe(true);
+    expect(w.mines.has('third')).toBe(true);
     expect(w.mines.has('cold')).toBe(true);
     expect(w.mines.has('captive')).toBe(true);
   });
@@ -438,7 +425,7 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
 
   it('(d) a CAPTIVE mine the shell lands on is DESTROYED: a boom, no blast victim, no fish (amendment 200)', () => {
     const w = board(26);
-    place(w, 'cap', 900, 900, 0, 'mineLayer');
+    place(w, 'cap', 900, 900, 0, 'warspite');
     mine(w, 'm1', 'cap', 600, 0, 0, 'captive');
     shootAt(w, 'a', 600);
     expect(w.mines.has('m1')).toBe(false);
@@ -529,71 +516,22 @@ describe('a hull sunk THIS tick (amendment 19, :594)', () => {
 // mines" above, which allows no emission of ANY kind, not just no `hc`/`sp`.
 
 describe('P2 — the interception dispatches by KIND, not by store membership', () => {
-  it('a HULL whose id equals a live mine id takes contact damage; the mine is untouched', () => {
+  it('a HULL whose id equals a live mine id takes the hit; the mine is untouched', () => {
     // Ids live in different namespaces but NOTHING enforces that. Under the old
     // `this.mines.get(id)` dispatch the collision resolved as the MINE. The
     // in-flight half of that defect is now structurally impossible (amendment
     // 20 keeps mines out of the sweep entirely); the KIND dispatch survives
-    // because hull-vs-decoy still turns on it.
+    // as the guard that only a HULL takes contact damage.
     const w = bareWorld(44);
-    place(w, 'a', 0, 0, 0, 'mineLayer');
+    place(w, 'a', 0, 0, 0, 'warspite');
     const b = place(w, 'collide', 200, 0);
     mine(w, 'collide', 'x', 4000, 4000); // same id, parked far away
     const hp0 = b.hp;
-    shootAt(w, 'a', 600);
+    // Aimed AT the hull: a main-battery shell no longer meets a hull in flight
+    // (epic-11 amendment 8 — it lands, and the landing dispatches by KIND).
+    shootAt(w, 'a', 200);
     expect(b.hp).toBeLessThan(hp0); // the HULL took the hit
     expect(w.mines.has('collide')).toBe(true); // the mine never detonated
-  });
-});
-
-describe('P3 — a destroyed decoy invalidates the memo THE SAME TICK (Story 8.16: the buoy\'s successor)', () => {
-  /** A decoy on the +x axis with a hand-set hp. */
-  function decoy(w: World, id: string, ownerId: string, x: number, hp: number): void {
-    addDecoy(w.decoys, ownerId, x, 0, id).hp = hp;
-  }
-
-  it('a decoy DESTROYED by fire is gone from the next list built the same tick', () => {
-    const w = bareWorld(45);
-    decoy(w, 'b1', 'x', 200, 1); // one point of hp: the first hit destroys it
-    expect(ids(w.hitTargets(['decoy']))).toEqual(['b1']);
-    const inner = w as unknown as { damageDecoy(id: string, amount: number, byId: string): boolean };
-    expect(inner.damageDecoy('b1', 50, 'enemy')).toBe(true);
-    expect(w.decoys.has('b1')).toBe(false);
-    // WITHOUT the generation bump this is the stale memo, and the second shell
-    // of the click dies on a square that is not on the water any more.
-    expect(ids(w.hitTargets(['decoy']))).toEqual([]);
-  });
-
-  it('a NEW decoy is a target the same tick it lands (spawnDecoy bumps the generation)', () => {
-    const w = bareWorld(46);
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-    expect(ids(w.hitTargets(['decoy']))).toEqual([]); // memoized empty
-    const inner = w as unknown as { spawnDecoy(owner: ShipRecord, x: number, y: number): void };
-    inner.spawnDecoy(a, -60, 0);
-    expect(ids(w.hitTargets(['decoy']))).toEqual(['d1']);
-  });
-
-  it('two shells in one tick: the first kills the decoy, the second is NOT consumed by it', () => {
-    const w = bareWorld(47);
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-    decoy(w, 'b1', 'x', 300, 1);
-    const inner = w as unknown as {
-      resolveShell(shell: unknown, outcome: unknown, hulls: readonly Target[]): void;
-      hitTargets(mask: readonly TargetKind[]): readonly Target[];
-      pending: GameEvent[];
-    };
-    const shellAt = (id: string): unknown => ({
-      id, ownerId: a.id, x: 300, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: w.now,
-      kind: 'shell', damage: CONFIG.gun.damage, hitRadius: CONFIG.gun.shellRadius,
-      targetX: 300, targetY: 0, burstRadius: CONFIG.gun.burstRadius,
-      contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
-    });
-    const hit = { kind: 'hitShip', victimId: 'b1', x: 300, y: 0 };
-    inner.resolveShell(shellAt('s1'), hit, inner.hitTargets(CONFIG.gun.hits));
-    expect(w.decoys.has('b1')).toBe(false);
-    // The SECOND shell asks the collector again — and must be offered nothing,
-    // so its own resolution can never name the dead square at all.
-    expect(ids(inner.hitTargets(CONFIG.gun.hits))).not.toContain('b1');
   });
 });
 
@@ -624,23 +562,18 @@ describe('P4 — the per-tick state is cleared in the PROLOGUE', () => {
 
 });
 
-describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
-  it('a FLEET-owned burst never counts a friendly fleet wreck as a geometric victim', () => {
-    // A fleet shell does not see a friendly fleet hull as a collision subject at
-    // all (stepShells filter, amendment 36). Counting one here would let the
-    // wreck list re-admit through the back door what the damage path refuses.
+describe('wrecksInBurst — the owner-immunity rule (amendment 19)', () => {
+  it("a burst over another hull's wreck counts it as a geometric victim; the owner's own wreck is never counted", () => {
     const w = bareWorld(49);
-    w.addShip('fleetA', 'F1', 'fleet', 'torpedoBoat', undefined, { x: 0, y: 0 });
-    const f2 = w.addShip('fleetB', 'F2', 'fleet', 'torpedoBoat', undefined, { x: 300, y: 0 });
-    f2.state = { x: 300, y: 0, heading: 0, speed: 0 };
-    w.sinkShip('fleetB', undefined);
+    const b = w.addShip('b', 'B', 'captain', 'bismarck', undefined, { x: 300, y: 0 });
+    b.state = { x: 300, y: 0, heading: 0, speed: 0 };
+    w.sinkShip('b', undefined);
     const inner = w as unknown as {
       wrecksInBurst(at: { x: number; y: number }, radius: number, ownerId: string): number;
     };
-    expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'fleetA')).toBe(0);
-    // A CAPTAIN burst over the same wreck still counts it (amendment 19).
     place(w, 'a', -900, 0);
     expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'a')).toBe(1);
+    expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'b')).toBe(0);
   });
 });
 
@@ -652,8 +585,8 @@ describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
 // The trip scan collected `CONFIG.mine.hits` ONCE and scanned every armed mine
 // against that one list, whatever rack it came off. `CONFIG.foulingMines.hits`
 // was therefore authored data nothing read — and the day the fouling line's
-// mask diverges from the naval one (a fouling mine that catches a decoy's
-// screws, say) the divergence would have been silently ignored. The masks agree
+// mask diverges from the naval one (a fouling mine that catches something
+// other than a hull, say) the divergence would have been silently ignored. The masks agree
 // today, so the only way to SEE the routing is to make them disagree.
 describe('the mine trip scan routes by KIND (MINE_TRIP_HITS)', () => {
   /** One layer, and two victims each parked on top of one of their mines. */

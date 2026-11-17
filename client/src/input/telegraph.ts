@@ -1,5 +1,5 @@
 // Engine-order telegraph: the throttle is a persistent STEPPED SETTING, not a
-// held key. Nine detents from full astern to full ahead; each W/S (or arrow)
+// held key. Nine detents from full astern to full ahead; each W/S
 // TAP moves the order one step, and the ship's actual speed converges toward it
 // via the shared kinematics (the setting is instant, the hull is not — the
 // naval feel). Pure detent math + edge/repeat handling live here (unit-tested);
@@ -13,9 +13,9 @@ export const DETENTS = [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1] as const;
 export const NEUTRAL_INDEX = 4;
 
 /** Keys that step the order one detent toward AHEAD. */
-export const THROTTLE_AHEAD = ['KeyW', 'ArrowUp'];
+export const THROTTLE_AHEAD = ['KeyW'];
 /** Keys that step the order one detent toward ASTERN. */
-export const THROTTLE_ASTERN = ['KeyS', 'ArrowDown'];
+export const THROTTLE_ASTERN = ['KeyS'];
 
 /** A single detent step: +1 toward ahead, -1 toward astern. */
 export type Step = 1 | -1;

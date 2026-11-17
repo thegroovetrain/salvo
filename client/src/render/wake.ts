@@ -37,12 +37,12 @@ import {
   appendWakeSample,
   createShipWake,
   createTorpWake,
-  hullEnvelope,
   pruneWake,
   type HullId,
   type WakeRibbon,
 } from '@salvo/shared';
 import { CONTACT_STALE_MS } from './contacts.js';
+import { hullTopSpeed } from '../sim/hullKinematics.js';
 
 /**
  * WHAT KIND OF SOURCE laid this water — a hull class, or the fish.
@@ -59,7 +59,7 @@ export type WakeSourceKind = HullId | 'torp';
 /** One visible source, as the wake layer needs it: pose, kind and the tint its
  *  foam carries. `maxSpeedU` provisions the ring buffer — pass the source's
  *  TRUE attainable top speed when it is known (own ship:
- *  `draftedKinematics(boostedKinematics(kinematics, CONFIG.boost.factor, true),
+ *  `draftedKinematics(boostedKinematics(kinematics, topBoostFactor(), true),
  *  CONFIG.wake.draft.lift, true).maxSpeed`, mirroring `World.wakeTopSpeed` —
  *  boost AND full wake-draft lift, Story 8.19); omitted, the class
  *  envelope is used and a boosted or drafting hull loses a little tail early, which is the
@@ -99,7 +99,7 @@ function topSpeedOf(h: WakeHull): number {
   if (h.cls === 'torp') return CONFIG.torpedo.speed;
   const given = h.maxSpeedU;
   if (typeof given === 'number' && Number.isFinite(given) && given > 0) return given;
-  return hullEnvelope(h.cls).kinematics.maxSpeed;
+  return hullTopSpeed(h.cls);
 }
 
 /** A fresh ribbon for this source, from the SHARED model's own factories — the

@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CanvasSource, Container, Texture, TextureSource, updateRenderGroupTransforms } from 'pixi.js';
-import { CONFIG, cloudOutlineRadius, mulberry32, wrapPositive, type CloudView, type Island } from '@salvo/shared';
+import { CATALOG, CONFIG, SHIP_CLASS_IDS, baseSmokeStats, cloudOutlineRadius, effectiveStats, mulberry32, wrapPositive, type CloudSize, type CloudView, type Island } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Countermeasure } from '../render/countermeasure.js';
 import { Camera } from '../render/camera.js';
@@ -20,6 +20,8 @@ import {
   RNG_PER_PUFF,
   advanceField,
   cellOffsetU,
+  fieldSpent,
+  largestCloudR1,
   decayField,
   fieldToRgba,
   makeField,
@@ -58,10 +60,13 @@ vi.mock('../render/textures.js', async (importOriginal) => {
   };
 });
 
-const LIFE = CONFIG.countermeasure.lifeMs;
+/** A no-card ship's stamped cloud (Story 10.6, I6 — the wire carries each
+ *  cloud's own life and disc; the suite's default cloud is the bare one). */
+const { lifeMs: LIFE, r0: R0, r1: R1 } = baseSmokeStats();
+const BASE: CloudSize = { lifeMs: LIFE, r0: R0, r1: R1 };
 const K = CLIENT_CONFIG.countermeasure;
 const MAX = Math.fround(K.maxAlpha); // float32 storage
-const cloud = (id: string, t0 = 0, x = 0, y = 0): CloudView => ({ id, x, y, t0 });
+const cloud = (id: string, t0 = 0, x = 0, y = 0, size: CloudSize = BASE): CloudView => ({ id, x, y, t0, ...size });
 
 /** A seeded RNG so a test's brush is reproducible. */
 const seeded = (seed = 1): (() => number) => mulberry32(seed).next;
@@ -101,7 +106,7 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     expect(s.texture.source.width).toBe(CLOUD_CELLS);
     expect(s.texture.source.height).toBe(CLOUD_CELLS);
     expect(s.texture.source.scaleMode).toBe('linear');
-    expect(CLOUD_CELLS * K.cellU).toBeGreaterThanOrEqual(2 * (CONFIG.countermeasure.r1 + K.puffMaxU));
+    expect(CLOUD_CELLS * K.cellU).toBeGreaterThanOrEqual(2 * (largestCloudR1() + K.puffMaxU));
     expect(s.scale.x).toBe(K.cellU);
     expect(s.tint).toBe(CLIENT_CONFIG.colors.countermeasureSmoke);
     expect([s.x, s.y]).toEqual([300, -120]);
@@ -124,8 +129,8 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     expect(main).toContain('new Countermeasure(stage.layers.cloud)');
     expect(main, 'the radar reads the clouds as a return source').toContain('radar.setCloudSource(countermeasure)');
     expect(main).toContain('stage.layers.ownShip.addChild(ownView.gfx)');
-    expect(main, 'the halo follows the live intel range, beside radar.setRanges')
-      .toContain('g.countermeasure.setHaloU(hazeHaloU(stats.radarRange))');
+    expect(main, 'the halo is set beside radar.setRanges, off the muzzle-flash reach')
+      .toContain('g.countermeasure.setHaloU(hazeHaloU())');
     expect(main, 'the alive path centres the halo on the own pose, clipped to the screen')
       .toContain('g.countermeasure.render(now, pose, g.camera.screenWorldRect)');
     expect(main, 'the halo sees past no island: the map\'s islands, beside the radar\'s wake sources')
@@ -142,9 +147,9 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     return { cm: new Countermeasure(layer, seeded()), layer };
   };
 
-  it('the halo radius is the wounded-smoke rung: radarRange × muzzleFlashFactor, starting at the base intel range', () => {
-    expect(hazeHaloU(CONFIG.vision.radar)).toBe(CONFIG.vision.muzzleFlash);
-    expect(BASE_HAZE_HALO_U).toBe(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor);
+  it('the halo radius is the wounded-smoke reach — the muzzle-flash fact (Story 11.2), the starting value too', () => {
+    expect(hazeHaloU()).toBe(CONFIG.vision.muzzleFlash);
+    expect(BASE_HAZE_HALO_U).toBe(hazeHaloU());
     const { cm } = fresh();
     expect(cm.haloU).toBe(BASE_HAZE_HALO_U);
     expect(haloBakes.calls).toEqual([{ haloU: BASE_HAZE_HALO_U, into: undefined }]);
@@ -197,9 +202,6 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
       defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
       closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
       ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-      followRate: 5,
-      leadSeconds: 4,
-      leadMax: 110,
     });
     cam.setViewport(1600, 900);
     cam.setRing(0, 0, 100_000);
@@ -252,7 +254,7 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     cm.setHaloU(Number.NaN);
     cm.setHaloU(0);
     expect(haloBakes.calls, 'no-change / degenerate values cost nothing').toHaveLength(1);
-    const wider = hazeHaloU(CONFIG.vision.radar * 1.2);
+    const wider = BASE_HAZE_HALO_U * 1.2;
     cm.setHaloU(wider);
     expect(haloBakes.calls.at(-1)).toEqual({ haloU: wider, into: tex });
     expect(cm.haloMask.texture).toBe(tex);
@@ -261,10 +263,10 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     expect(haloBakes.calls).toHaveLength(2);
   });
 
-  it('a radar-range rise widens the opaque disc and the sprite with it', () => {
+  it('a wider halo widens the opaque disc and the sprite with it', () => {
     const { cm } = fresh();
     const before = cm.haloMask.scale.x;
-    const wider = hazeHaloU(CONFIG.vision.radar * 1.2);
+    const wider = BASE_HAZE_HALO_U * 1.2;
     cm.setHaloU(wider);
     expect(cm.haloU).toBe(wider);
     expect(cm.haloMask.scale.x).toBeGreaterThan(before);
@@ -310,7 +312,7 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
       expect(haloBakes.calls, 'a small move costs nothing').toHaveLength(n);
       cm.render(32, { x: OWN.x + K.losRecastMoveU, y: OWN.y });
       expect(haloBakes.calls).toHaveLength(n + 1);
-      cm.setHaloU(hazeHaloU(CONFIG.vision.radar * 1.2));
+      cm.setHaloU(BASE_HAZE_HALO_U * 1.2);
       cm.render(48, { x: OWN.x + K.losRecastMoveU, y: OWN.y });
       expect(haloBakes.rays.at(-1)![K.losRays / 2], 'the new reach').toBe(reach(cm));
     });
@@ -478,7 +480,7 @@ describe('the smoke brush: one soft puff', () => {
   const R = 6.5 * K.cellU;
   const S = (K.puffMinAlpha + K.puffMaxAlpha) / 2;
   const puffed = (): CloudField => {
-    const f = makeField();
+    const f = makeField(BASE);
     stampPuff(f, cellOffsetU(IC), cellOffsetU(IC), R, S, K.shadeMin);
     return f;
   };
@@ -500,7 +502,7 @@ describe('the smoke brush: one soft puff', () => {
   });
 
   it('composites "over": repeated puffs raise a cell by ever smaller steps, saturating toward maxAlpha and never past it', () => {
-    const f = makeField();
+    const f = makeField(BASE);
     let prev = 0;
     let prevStep = Infinity;
     for (let n = 0; n < 200; n++) {
@@ -533,7 +535,7 @@ describe('the smoke brush: one soft puff', () => {
 
 describe('the brush over a cloud life, and the fade', () => {
   it('every painted cell carries a grey within [shadeMin, shadeMax], and fieldToRgba writes it as rgb with the alpha in a', () => {
-    const f = makeField();
+    const f = makeField(BASE);
     const rng = seeded(13);
     for (let t = 0; t < 4000; t += 16) stepField(f, 16, rng);
     const rgba = new Uint8Array(f.alpha.length * 4);
@@ -554,11 +556,11 @@ describe('the brush over a cloud life, and the fade', () => {
   it('puffs land only inside the current outline (plus one largest puff)', () => {
     const rng = seeded(3);
     for (const age of [500, 5000, LIFE]) {
-      const f = makeField();
+      const f = makeField(BASE);
       const startAge = Math.max(0, age - 400);
       f.age = startAge;
       for (let t = startAge; t < age; t += 20) stepField(f, 20, rng);
-      const reach = cloudOutlineRadius(age) + K.puffMaxU;
+      const reach = cloudOutlineRadius(age, BASE) + K.puffMaxU;
       let painted = 0;
       for (let j = 0; j < CLOUD_CELLS; j++) {
         for (let i = 0; i < CLOUD_CELLS; i++) {
@@ -572,7 +574,7 @@ describe('the brush over a cloud life, and the fade', () => {
   });
 
   it('no cell ever exceeds maxAlpha', () => {
-    const f = makeField();
+    const f = makeField(BASE);
     const rng = seeded(11);
     for (let t = 0; t < 6000; t += 16) stepField(f, 16, rng);
     expect(f.peak).toBeLessThanOrEqual(K.maxAlpha);
@@ -580,7 +582,7 @@ describe('the brush over a cloud life, and the fade', () => {
   });
 
   it('decay is LINEAR: every cell drops by maxAlpha·dt/fadeMs (floored at 0) and a full fadeMs takes any cell to 0', () => {
-    const f = makeField();
+    const f = makeField(BASE);
     const rng = seeded(7);
     for (let t = 0; t < 2000; t += 16) stepField(f, 16, rng);
     const before = Float32Array.from(f.alpha);
@@ -593,7 +595,7 @@ describe('the brush over a cloud life, and the fade', () => {
 
   it('the same number of puffs lands at a low frame rate as at a high one (the fractional carry)', () => {
     const count = (frameMs: number): number => {
-      const f = makeField();
+      const f = makeField(BASE);
       let draws = 0;
       const rng = (): number => {
         draws++;
@@ -607,9 +609,9 @@ describe('the brush over a cloud life, and the fade', () => {
   });
 
   it('a pre-rolled mid-life cloud has a dense body and a wispy rim (centre thicker than 0.9 R)', () => {
-    const f = makeField();
+    const f = makeField(BASE);
     advanceField(f, 9000, seeded(5));
-    const R = cloudOutlineRadius(9000);
+    const R = cloudOutlineRadius(9000, BASE);
     expect(annulusMean(f, 0, 0.2 * R)).toBeGreaterThan(annulusMean(f, 0.85 * R, 0.95 * R));
   });
 });
@@ -654,7 +656,7 @@ describe('pre-roll: a cloud first seen mid-life looks mid-life', () => {
         if (f.alpha[j * CLOUD_CELLS + i] > 0) farthest = Math.max(farthest, Math.hypot(cellOffsetU(i), cellOffsetU(j)));
       }
     }
-    expect(farthest).toBeGreaterThan(CONFIG.countermeasure.r0 + K.puffMaxU);
+    expect(farthest).toBeGreaterThan(R0 + K.puffMaxU);
   });
 
   it('a cloud first seen long after its paint would have faded despawns on its first render', () => {
@@ -670,6 +672,53 @@ describe('pre-roll: a cloud first seen mid-life looks mid-life', () => {
     cm.render(900);
     expect(total(cm.fieldOf('young')!)).toBe(0);
     expect(cm.size).toBe(1);
+  });
+});
+
+// STORY 10.6 (R9 / I6): a cloud's life and disc are the OWNER's SMOKE SCREEN
+// cards at the press, stamped on the wire — the paint reads THEM, never CONFIG.
+describe('the cloud\'s OWN stamped life and disc', () => {
+  const FIVE = effectiveStats(CONFIG.shipClasses[SHIP_CLASS_IDS[0]], new Array<string>(CATALOG.smokeScreen.cap).fill('smokeScreen')).smoke;
+  const BIG: CloudSize = { lifeMs: FIVE.lifeMs, r0: FIVE.r0, r1: FIVE.r1 };
+
+  it('the grid is sized for the LARGEST cloud the catalog can stamp — the full ladder, every hull', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const r1 = effectiveStats(CONFIG.shipClasses[id], new Array<string>(CATALOG.smokeScreen.cap).fill('smokeScreen')).smoke.r1;
+      expect(largestCloudR1()).toBeGreaterThanOrEqual(r1);
+    }
+    expect(largestCloudR1()).toBeGreaterThan(R1); // bigger than the bare cloud
+  });
+
+  it('a field sprays for ITS life: a longer-lived cloud is still spraying when a bare one has stopped', () => {
+    expect(BIG.lifeMs).toBeGreaterThan(LIFE);
+    const bare = makeField(BASE);
+    const big = makeField(BIG);
+    advanceField(bare, LIFE + K.fadeMs + 100, seeded(2));
+    advanceField(big, LIFE + K.fadeMs + 100, seeded(2));
+    expect(fieldSpent(bare)).toBe(true);
+    expect(fieldSpent(big)).toBe(false);
+  });
+
+  it('a bigger stamped disc paints farther out than the bare one ever can', () => {
+    const f = makeField(BIG);
+    const rng = seeded(4);
+    f.age = BIG.lifeMs - 2000;
+    for (let t = f.age; t < BIG.lifeMs; t += 20) stepField(f, 20, rng);
+    let farthest = 0;
+    for (let j = 0; j < CLOUD_CELLS; j++) {
+      for (let i = 0; i < CLOUD_CELLS; i++) {
+        if (f.alpha[j * CLOUD_CELLS + i] > 0) farthest = Math.max(farthest, Math.hypot(cellOffsetU(i), cellOffsetU(j)));
+      }
+    }
+    expect(farthest).toBeGreaterThan(R1 + K.puffMaxU);
+    expect(farthest).toBeLessThanOrEqual(BIG.r1 + K.puffMaxU);
+  });
+
+  it('the renderer stamps each cloud\'s field with its wire size', () => {
+    const cm = new Countermeasure(new Container(), seeded());
+    cm.sync([cloud('bare', 0), cloud('big', 0, 900, 0, BIG)]);
+    expect(cm.fieldOf('bare')!.size).toEqual(BASE);
+    expect(cm.fieldOf('big')!.size).toEqual(BIG);
   });
 });
 

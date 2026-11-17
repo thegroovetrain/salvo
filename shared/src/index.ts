@@ -3,6 +3,230 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  110 — ACOUSTIC HOMING STANDARD (2026-11-16, Eric; epic-11 amendment 20;
+ *  cycle 242, 0.19.36): boon-catalog content — the light / heavy / captive
+ *  homing tier steps are gone (they home from Tier I at the CONFIG reference
+ *  rate, scaled in flight by the target's engine noise, server only); heavy
+ *  reload 40 s, light damage 250, Iowa ARMOR 95.
+ *  109 — WEAPON POWER (2026-11-16, Eric; epic-11 amendment 17; cycle 239,
+ *  0.19.33): boon-catalog content — every weapon damage ladder is gone (a
+ *  weapon's damage stays its Tier I base; each tier above I adds
+ *  `CONFIG.armor.weaponPowerPerTier` = 10 POWER to that weapon's own hits at
+ *  the server gate); supercav base damage 400 → 300; naval / fouling trigger
+ *  factor 2/3 → 0.4 and captive trip ring 120 → 180. A mine shot to 0 hp is
+ *  destroyed, never detonated (server only).
+ *  108 — RAIN FIRST: THE STORM EYE AND PARTIAL SIGHT (2026-11-14, Eric;
+ *  Story 11.6; epic-11 amendment 13; cycle 234, 0.19.28): wire shape — the
+ *  schema loses `fogCut` (the coverage-target cut is gone; the rain is a pure
+ *  shared function of the welcome's `fogSeed`, the zone clock and the live
+ *  ring); the set of contacts a client is sent changed (a hull is sent while
+ *  any point of its outline grid sees through rain + smoke; rain and smoke
+ *  gate every eye row by optical depth). FrameMsg LOSES the `pc` channel and
+ *  the `PlainContact` type (Eric 2026-11-15: the anonymous plain-hull tier of
+ *  104 is removed — a hull is a full `Contact` out to the hull sight, fading
+ *  with distance haze between the class-and-name sight and the hull sight),
+ *  and the rain is there from the start line (no onset; the ring-0 state
+ *  before the zone starts).
+ *  107 — OWN SHELLS ALWAYS END ON SCREEN; SECONDARIES HIT WHERE THEY LAND
+ *  (2026-11-13, Eric; epic-11 amendment 11; cycle 233,
+ *  0.19.27): no wire shape change — the SET of events a client is sent
+ *  changed, and the client relies on it: the firer is now sent the terminal
+ *  `boom` of every gun shell he fired, however it ended (his track is retired
+ *  by it), and a secondaries round ends in a landing `boom` (`hit` = the hull
+ *  whose silhouette holds the landing point) instead of an interception boom
+ *  on the first hull along its path.
+ *  106 — GUN CADENCE RETUNE (2026-11-13, Eric; epic-11 amendment
+ *  9; cycle 232, 0.19.26): wire shape — `OwnShip.sec` loses
+ *  `locked` (full heat never locks any more; it carries `heat` only). The
+ *  CONFIG the client reads changed: `mainBattery.reloadMs` 10000 -> 15000;
+ *  `secondaries.rateMs` RETIRED for `coldRatePerS` / `hotRatePerS`,
+ *  `overheatMs` 4000 -> 10000, `coolMs` 6000 -> 10000.
+ *  105 — HULL-SCALE DISPERSION (2026-11-13, Eric; epic-11 amendment 8; cycle
+ *  231, 0.19.25): no wire shape change — the CONFIG the client reads changed:
+ *  `dispersion.alongFrac` 0.01 -> 0.02 and `acrossFrac` 1/3 -> 0.2 (the aim
+ *  oval is drawn from them, so a stale client would draw the wrong pattern).
+ *  104 — Story 11.2 THE HECTOMETER RULER AND REAL REACH (2026-11-12, Eric's
+ *  rulings R1–R20; 104 is confirmed: cycle 227, 0.19.21): FrameMsg gains the optional `pc` channel (PlainContact
+ *  {h,x,y,heading,speed} — a hull seen by eye beyond the class-and-name reach
+ *  and inside the plain-hull reach, under an anonymous per-observer handle;
+ *  no class, no roster id, no turret / launcher angles; omitted when empty).
+ *  The CONFIG the client reads changed: the twelfths ladder retires — every
+ *  reach is a named hectometer fact (`vision.sight` 200 hm, new
+ *  `vision.hullSight` / `splashSight` / `shellSight` / `torpedoSight` /
+ *  `mineSight` / `crateKindSight`, `vision.radar` 400 hm, the weapon reaches);
+ *  `vision.detect` / `detectFactor` / `muzzleFlashFactor` / `dropout` and
+ *  `torpedo.homingMaxRangeU` are RETIRED; every torpedo kind gains `runU` /
+ *  `runUAtV` and the equipment row `runU`; hull `battery.reachFrac` replaces
+ *  the RANGE index. RANGE LEAVES THE INDEX (`INDEX_IDS` five; the `range`
+ *  catalog line, stat path and `EffectiveStats.range` are gone — catalog
+ *  content changed), so the maxed-hull roll and the airdrop crate kinds
+ *  roll five. Perception exception count stays SIX.
+ *  103 — Story 11.1 REAL DISPERSION (2026-11-12, Eric's rulings R1–R17): the
+ *  CONFIG the client reads changed — `gunAttenuation` RETIRED (damage is flat
+ *  with range), `mainBattery.traverseDegPerS` / `onTargetDeg` RETIRED (no
+ *  traverse: a turret or launcher fires only inside its arc, at the aim
+ *  point), `dispersion` new (the preview's ellipse). The wire SHAPE is
+ *  unchanged: `OwnShip.turrets[].a` / `launchers[].a` and `Contact.tu` /
+ *  `lu` now carry the DERIVED angle (at the aim inside the arc, rest
+ *  otherwise); a burst's center is the shell's dispersed landing point. No
+ *  landing point, seed or origin ever reaches a client before a shell lands.
+ *  Every shell of one main-battery salvo flies PARALLEL to the salvo bearing
+ *  (station → aim center), leaving abreast off the muzzle line, each to its
+ *  own landing — so the reveals of one salvo carry ONE velocity direction and
+ *  their tracks never intersect: an observer gets the back-bearing line set
+ *  (as one shell always gave), NOT the aim point or the shooter's range by
+ *  triangulation. What it can still read: the salvo's lateral spread, which
+ *  scales with the (station → center) range at `dispersion.acrossFrac ×
+ *  alongFrac` — a noisy statistical range hint over 2–3 samples, of the order
+ *  of 1 u per 300 u of range. The per-shell seed is an HMAC under a per-room
+ *  random key (server World `mintShell`), independent of every other stream.
+ *  CONFIG `mainBattery.barrelSpacingU` is RETIRED (no client reads it).
+ *  102 — Story 10.13 THE SOUND PASS (2026-11-11, Eric's ruling: four
+ *  selectable horns — Foghorn, Whistle, Bell, Sad Trombone): the
+ *  horn CATALOG's content widens, `HORN_IDS` = ['standard', 'whistle', 'bell',
+ *  'trombone'] ('standard' stays the Foghorn's id and the default; the airhorn
+ *  was dropped — Eric may add his own later). The wire SHAPE is unchanged — the `horn`
+ *  join option and FoghornEvent.h carry a wider id space, and an older client
+ *  would fold a new id to the default voice, so the gate is bumped to keep
+ *  every client hearing the horn its owner chose.
+ *  101 — Story 10.9 THE AIRDROPS (cycle 219, 0.19.13, epic-10 amendment 18,
+ *  Eric's rulings R1–R4 of 2026-11-08): FrameMsg gains the optional,
+ *  sight-gated contact-like channel `drops` (DropView {id,x,y,c}, `c` the
+ *  crate's KIND only — an IndexId or `'wreck'`; the amount is rolled at
+ *  pickup, Eric 2026-11-08; omitted when empty, the litZones rule) and
+ *  GameEvent gains the self-private `dp` kind (DropPickupEvent {k,id,t,g},
+ *  `g` the `[IndexId, n]` rolls granted at pickup, delivered only to the
+ *  collector); CONFIG the client reads gains `drops`; new shared
+ *  sim/drops.ts (count law, `rollKind` / `rollPickup`, `dropTouches`,
+ *  `isDropKind`, `isDropRoll`) and radarRaster `paintDiscCoverage` (a drop's radar paint
+ *  is a plain anonymous `blip` — no new blip shape on the wire). Perception
+ *  exception count stays SIX.
+ *  100 — Story 10.8 THE RADIO BEACONS (Eric 2026-11-06, epic-10 amendment
+ *  14, rulings R1–R13): the SCHEMA shape changed — ArenaState gains the flat
+ *  public beacon fields (`beaconCycle`, `beaconCount`, `bcn0..7X` / `Y` /
+ *  `SinkT`; no new Schema class, no ArraySchema), from which the client
+ *  derives every beacon's phase, rate and body through the shared
+ *  `sim/beacons.ts` model (`beaconStateAt`, `zoneGroupMs`) and the CONFIG the
+ *  client now reads (`CONFIG.beacons`); `TargetKind` gains `'beacon'`. The PvE
+ *  DRONE FLEET IS RETIRED: on the wire `Contact.aggro`, `SunkEvent.vcls` and
+ *  `SunkEvent.kcls` are gone and `HullId` narrows to `ShipClassId` (no drone
+ *  hull id can ride `Contact.cls`); CONFIG the client read is deleted
+ *  (`drones`, `fleet`, `xp.droneTierLevels`, the drone hull-id exports,
+ *  `fleetHullIds` / `fleetLevels`); `loadoutFor` / `slotsWithCards` lose the
+ *  `fleet` parameter. Catalog CONTENT unchanged. No beacon id ever enters a
+ *  frame; perception exception count stays SIX.
+ *  99 — Story 10.7 OFFER COMPOSITION (Eric 2026-11-06, epic-10 amendment 13,
+ *  rulings R1–R4): OwnShip gains the REQUIRED `rd` (the captain's one
+ *  countdown REDRAW is used — server truth, self-private, replacing the
+ *  client's inference so the pip survives a reconnect); the offer draw law
+ *  changed — `drawOffer` deals the four-slot TYPE plan [ship, equipment,
+ *  wildcard, wildcard] (a wildcard a 50 / 50 flip), the kind-share stage
+ *  (epic-8 amendment 92) and the level-zero weapon guarantee (amendment 93)
+ *  are retired, and a hull with nothing dealable banks no level (`pts` 0):
+ *  each level it earns becomes a +1 BONUS POINT on a random index (R5), which
+ *  OwnShip carries as the REQUIRED `ib` (self-private, the non-zero counts per
+ *  index) and the client folds through `effectiveStats()` for prediction.
+ *  `BoonOffer` stays line ids; no slot type rides the wire. Perception
+ *  exception count stays SIX. R6 (2026-11-06): the INTEL sweep cap is gone —
+ *  `CONFIG.vision.sweepRpmMax` is deleted and the sweep is the plain linear
+ *  INTEL law for cards and bonus points alike (a derived-stat change both
+ *  sides fold); R7: a sinking / sunk hull's exhausted levels are dropped.
+ *  98 —Story 10.6 THE CATALOG UNDER THE INDEX (Eric 2026-11-05, epic-10
+ *  amendment 12): torpedoes leave deck LAUNCHERS and mines leave RACKS —
+ *  OwnShip gains optional `launchers` (per launcher: angle + per-tube reload,
+ *  present while the torpedo slot is filled) and `racks` (per rack: mines +
+ *  its one clock, present while the mine slot is filled), both self-private
+ *  and appended LAST; the torpedo and mine entries of `OwnShip.ammo` become
+ *  SUMMARIES of them (`launcherSummary` / `rackSummary`); Contact gains
+ *  optional `lu` (a sighted hull's launcher angles in whole degrees off rest —
+ *  appended AFTER `tu`, angles only, under the contact row's own gate);
+ *  `CloudView` gains `lifeMs` / `r0` / `r1` (the cloud's stamped life and
+ *  size); the three fixed torpedo launch sectors are RETIRED (`ArcShape` gains
+ *  `launcher`; CONFIG `torpedo` / `lightTorpedo` / `supercavTorpedo` lose
+ *  `offset` / `halfArc`; `torpedoSpawn` is gone for `torpedoLaunchPoint`);
+ *  CONFIG the client reads changed (`launcher` new, `shipClasses.*.launchers`
+ *  stations, `index.rudder` and every hull's `rudder` deleted, the R8 / R9
+ *  ability bases); EffectiveStats loses `rudder` and gains the four mount
+ *  counts and the per-ship `repair` / `smoke` blocks; catalog CONTENT changed
+ *  (eight SHIP ladders, ten WEAPON lines on the per-weapon RELOAD bonus, four
+ *  one-off WEAPON cards; no tier steps a capacity). Perception exception
+ *  count stays SIX.
+ *  97 — Story 10.5 THE KIT RETIRE AND THE THREE EQUIPMENT SLOTS (Eric
+ *  2026-11-05, epic-10 amendment 11): the consumable kit is GONE — join option
+ *  `kit`, `OwnShip.kit`, `ConsumableKit` / `ConsumableId`, the `stock` effect
+ *  and the `consumable` line and draw kinds; SLOT_COUNT 9 → 5 (`InputMsg.slot`
+ *  0..4, `OwnShip.ammo` length 5) with slots 2 / 3 / 4 the torpedo / mine /
+ *  special-shell FAMILY slots (one kind per slot); `InputMsg.actSlot` is
+ *  REPLACED by `InputMsg.act` (the ability's wire code: 0 Shift, 1 HULL
+ *  REPAIR, 2 SMOKE); OwnShip gains `repairReadyAt` / `smokeReadyAt` (the two
+ *  fixed cooldowns — self-private, omitted while ready) and loses `shield`,
+ *  `buoyShield`, `speedBuoyAt`; `DecoyView`, `FrameMsg.decoys`,
+ *  `BlipEvent.src` and `DropEvent` (`dp`) are deleted with the buoys and the
+ *  drone drops; `BurstEvent.r` (a flash burst's tiered radius, present iff
+ *  `f`, appended LAST, under the burst's unchanged gate); `DeniedView.act`
+ *  (the denied ability's code, appended LAST); catalog CONTENT changed (28 →
+ *  21 lines: −hullRepair −shieldBlock −countermeasure −radarBuoy −healingBuoy
+ *  −shieldBuoy −speedBuoy; `supercavTorpedo` / `dazzleShells` /
+ *  `foulingShell` are EQUIPMENT ids and lines with five tiers); CONFIG the
+ *  client reads moved (`shieldBlock` / `buoy` / `droneDrops` deleted, `regen`
+ *  back, the R1 / R2 cooldowns, the R4 reloads, the R7 radius steps);
+ *  `TargetKind` loses `decoy`. Perception exception count stays SIX.
+ *  96 — Story 10.4 THE FOUR BATTLESHIPS (Eric 2026-11-04, epic-10 amendments
+ *  7 and 9): the class id space is `yamato` / `bismarck` / `warspite` / `iowa`
+ *  (`torpedoBoat` / `battleship` / `mineLayer` are gone — `OwnShip.cls`,
+ *  `Contact.cls`, the join option); slot 0 mounts the new `mainBattery`
+ *  equipment id (`EquipmentId` + its stat row; `OwnShip.ammo[0]` is the
+ *  battery SUMMARY — turrets ready + soonest reload); InputMsg.sec (right
+ *  mouse held, REQUIRED boolean); OwnShip.gun is REPLACED by OwnShip.shift
+ *  (the seat's Shift pick) and OwnShip gains `turrets` (per-turret angle +
+ *  reload) and `sec` (secondaries heat + lock), all self-private; Contact.tu
+ *  (a sighted battleship's turret angles in whole degrees off rest — optional,
+ *  appended LAST, angles only); the join option `gun` is retired for `shift`;
+ *  CONFIG the client reads changed (`shipClasses` — four hulls with
+ *  `battery`, no `shift` field; `mainBattery` and `secondaries` new);
+ *  EffectiveStats gains `secondaryRangeU`; the Regatta hue exports are gone
+ *  (the roster color field is the server's to drop). Perception exception
+ *  count stays SIX.
+ *  95 — Story 10.3 THE INDEX MODEL (Eric 2026-11-04, epic-10 amendment 8):
+ *  the client reads the stat block, and it changed shape — EffectiveStats
+ *  gains the authored indices `reload` / `engines` / `rudder` / `intel` /
+ *  `range` (with `armor` / `power` seeded at 100), loses `regen`, and derives
+ *  `kinematics.maxSpeed` / `turnRate` / `sweepRpm` / `cooldownScale` from
+ *  them; `HullEnvelope` gains `index` and loses `maxSpeed` / `turnRate`;
+ *  every hull is 1000 hp (`CONFIG.shipClasses.*.hp`, read by the client);
+ *  catalog CONTENT changed (the six ship ladders write their own indices, the
+ *  HULL POINTS / PASSIVE HEALING lines are gone — 30 → 28 — and
+ *  `armorPiercing` / `speed` / `turning` / `radarSweep` are `power` /
+ *  `engines` / `rudder` / `intel`; the weapon damage rungs re-ruled); CONFIG
+ *  the client reads moved (`index` new, `regen` deleted, every damage dial,
+ *  `ram`, `zone.stormDps`, `hullRepair`, `shieldBlock.hp`, the drones).
+ *  Nothing new rides the wire; `OwnShip.hp` stays 0–1000 raw. Perception
+ *  exception count stays SIX.
+ *  94 — FLASH SHELLS re-cut (Eric 2026-10-29, THE WHITEOUT LAW): a flashed
+ *  hull's truesight is 0 through `rampMs + holdMs`, then grows linearly to the
+ *  full sightRange across `clearMs`; `OwnShip.dazzledUntil` = hit + 10 s
+ *  (`FLASH_WINDOW_MS`, the sum); `effectiveSight(stats, dazzledUntil, now)`
+ *  replaces the boolean; `CONFIG.flashShells` shape changes (durationMs +
+ *  sightFraction → rampMs / holdMs / clearMs — the client reads it);
+ *  BurstEvent.f (flash burst tag — present only on a FLASH SHELLS round's
+ *  burst, under the burst's unchanged visibility gate, appended LAST).
+ *  93 — Story 10.9 THE FLASH SHELL AND THE FOUR BUOYS (Eric 2026-10-27/28,
+ *  epic-10 amendments 2 and 4): catalog −decoyBuoy +dazzleShells +radarBuoy
+ *  +healingBuoy +shieldBuoy +speedBuoy (26 → 30 lines, catalog content is
+ *  wire contract — `LINE_IDS` order is the fold); OwnShip.dazzledUntil /
+ *  buoyShield / speedBuoyAt (self-private, omitted when inactive);
+ *  DecoyView.kind for every observer + own-only sweep/until; BlipEvent.src
+ *  (buoy-origin paints — self-private, the owner's own RADAR BUOY id).
+ *  Perception exception count stays SIX.
+ *  92 — Story 10.1 FOUR CONFIGURABLE CONSUMABLE SLOTS (Eric 2026-10-25/27,
+ *  epic-10 amendments 1(c) and 3): the consumable KIT rides the seat (join
+ *  option `kit`, validated by `isConsumableKit`, fail-open to `DEFAULT_KIT`)
+ *  and comes back self-privately as `OwnShip.kit`; SLOT_COUNT 11 → 9
+ *  (`InputMsg.slot` / `actSlot` 0..8, `OwnShip.ammo` length 9), the four kit
+ *  slots 5..8 on keys 1–4 bound per ship by the kit (`CONSUMABLE_KEY_ORDER`
+ *  deleted); the draw deals no consumable outside the kit; the
+ *  `countermeasure` line's player-facing name is SMOKE SCREEN again (id
+ *  untouched). Perception exception count stays SIX.
  *  91 — THE ENTIRE SWEEP (Eric 2026-10-21, epic-9 amendment 210): the server
  *  paints radar returns at every distance inside radar range (no sight-radius
  *  inner edge on blips, decoy paints or wakes; amendment 163 superseded) and
@@ -14,7 +238,8 @@
  *  predictor's ramming mass (setOwnMass) and the class-select HULL pips;
  *  nothing new on the wire.
  *  89 — Story 9.12: catalog content + CONFIG gun/machineGun/flak/
- *  gunAttenuation/torpedo/lightTorpedo/supercavTorpedo/mine/captiveMines read
+ *  gunAttenuation (retired 2026-11-12, Story 11.1)/torpedo/lightTorpedo/
+ *  supercavTorpedo/mine/captiveMines read
  *  by the client; nothing new on the wire.
  *  88 — Story 9.10 fog tune 3 (Eric 2026-10-16 on staging, epic-9 amendment
  *  179): the shared field the client draws from changes shape — density is
@@ -716,8 +941,8 @@
  *  max()-consumed, the fireSeq/actSeq grammar). Tiers derive from the
  *  LISTENER's effective ranges, so no vision constant was added (amendments
  *  42/53); islands MUFFLE by one tier instead of blocking (amendment 54). New
- *  shared HORN_IDS/HornId/DEFAULT_HORN_ID/sanitizeHornId catalog (exactly one
- *  horn, 'standard' — a second horn is Eric-gated content, amendment 52) and
+ *  shared HORN_IDS/HornId/DEFAULT_HORN_ID/sanitizeHornId catalog (one horn,
+ *  'standard', at the time — widened at PV 102, see above) and
  *  a new CONFIG.foghorn block (cooldownMs) riding the welcome config
  *  snapshot; join options gain an optional `horn`. No roster/PlayerMeta
  *  schema field, no kill-feed line, no XP or damage — it is an emote.
@@ -897,7 +1122,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 91;
+export const PROTOCOL_VERSION = 110;
 
 // Tunables
 export * from './constants.js';
@@ -917,6 +1142,14 @@ export * from './sim/hull.js';
 export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';
+export * from './sim/indexStats.js';
+export * from './sim/abilityStats.js';
+export * from './sim/mountStats.js';
+export * from './sim/turrets.js';
+export * from './sim/launchers.js';
+export * from './sim/racks.js';
+export * from './sim/secondaries.js';
+export * from './sim/hullOutlines.js';
 export * from './sim/effects.js';
 export * from './sim/catalog.js';
 export * from './sim/boons.js';
@@ -924,6 +1157,8 @@ export * from './sim/hooks.js';
 export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';
+export * from './sim/abilities.js';
+export * from './sim/regen.js';
 export * from './sim/slow.js';
 export * from './sim/draft.js';
 export * from './sim/sight.js';
@@ -934,18 +1169,27 @@ export * from './sim/contact.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';
 export * from './sim/island.js';
+export * from './sim/islandIndex.js';
 export * from './sim/aim.js';
 export * from './sim/spread.js';
 export * from './sim/shell.js';
 export * from './sim/attenuation.js';
+export * from './sim/dispersion.js';
+export * from './sim/hm.js';
 export * from './sim/map.js';
 export * from './sim/nav.js';
 export * from './sim/noise.js';
 export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
-export * from './sim/dropout.js';
+export * from './sim/terrainBlock.js';
+// `./sim/dropout.js` (the radar paint dropout) — REMOVED 2026-11-12, Story
+// 11.2, epic-11 amendment 4 (R8).
 export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/fog.js';
+export * from './sim/fogDepth.js';
+export * from './sim/smokeDepth.js';
 export * from './sim/zone.js';
+export * from './sim/beacons.js';
+export * from './sim/drops.js';

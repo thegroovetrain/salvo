@@ -17,6 +17,7 @@ import {
   createTorpWake,
   createWakeRibbon,
   eachWakeSegment,
+  effectiveStats,
   hullEnvelope,
   HULL_IDS,
   mulberry32,
@@ -86,8 +87,8 @@ function components4(cells: Array<[number, number]>): number {
 
 describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
   it('is ceil(life[s] × maxSpeed ÷ wakeSampleU) + 2 for every hull envelope', () => {
-    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
-      const speed = CONFIG.shipClasses[cls].kinematics.maxSpeed;
+    for (const cls of ['iowa', 'yamato', 'warspite'] as const) {
+      const speed = effectiveStats(CONFIG.shipClasses[cls]).kinematics.maxSpeed;
       expect(wakeCapacity(speed, LIFE)).toBe(Math.ceil(((LIFE / 1000) * speed) / STEP) + 2);
     }
     // The ring is sized from the clock (the cycle-71 cut roughly halved it;
@@ -105,8 +106,8 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
   });
 
   it('a source at max speed for exactly one life never overwrites an unexpired sample (the margin is real)', () => {
-    const speed = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
-    const r = createShipWake('torpedoBoat', speed);
+    const speed = effectiveStats(CONFIG.shipClasses.iowa).kinematics.maxSpeed;
+    const r = createShipWake('iowa', speed);
     // 40s at 50ms ticks, straight line at full ahead, pruning as the server would.
     for (let tick = 0; tick <= 800; tick++) {
       const t = tick * 50;
@@ -128,7 +129,7 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
 });
 
 describe('hullAheadU — the attached hull that sits ahead of the newest sample (Story 8.19, amendment 159)', () => {
-  it('a ship wake carries half its own hull length, for every class and drone hull', () => {
+  it('a ship wake carries half its own hull length, for every hull', () => {
     for (const id of HULL_IDS) {
       expect(createShipWake(id, 40).hullAheadU).toBe(hullEnvelope(id).hull.length / 2);
     }
@@ -297,17 +298,17 @@ describe('torpedo wake — half life, one-cell core, fixed fish speed (amendment
   });
 
   it('ribbon widths are DERIVED from the source: a hull core is its own beam, a torpedo core is one radar cell', () => {
-    expect(shipWakeWidthU('torpedoBoat')).toBe(CONFIG.shipClasses.torpedoBoat.hull.beam);
-    expect(shipWakeWidthU('battleship')).toBe(CONFIG.shipClasses.battleship.hull.beam);
-    expect(shipWakeWidthU('mineLayer')).toBe(CONFIG.shipClasses.mineLayer.hull.beam);
-    expect(shipWakeWidthU('droneSmall')).toBe(CONFIG.drones.small.hull.beam);
+    expect(shipWakeWidthU('iowa')).toBe(CONFIG.shipClasses.iowa.hull.beam);
+    expect(shipWakeWidthU('yamato')).toBe(CONFIG.shipClasses.yamato.hull.beam);
+    expect(shipWakeWidthU('warspite')).toBe(CONFIG.shipClasses.warspite.hull.beam);
+    expect(shipWakeWidthU('bismarck')).toBe(CONFIG.shipClasses.bismarck.hull.beam);
     expect(torpWakeWidthU()).toBe(CONFIG.vision.radarCellU);
   });
 
   it('the SOURCE-KIND flag travels with the ribbon (review-gate P2): torpedo factories mark it, ship factories never do', () => {
     expect(createTorpWake().torp).toBe(true);
-    expect(createShipWake('torpedoBoat', 45).torp).toBe(false);
-    expect(createShipWake('battleship', 35).torp).toBe(false);
+    expect(createShipWake('iowa', 45).torp).toBe(false);
+    expect(createShipWake('yamato', 35).torp).toBe(false);
     expect(createWakeRibbon(45, LIFE, 9).torp).toBe(false); // the default: a ship source by construction
   });
 });
@@ -324,7 +325,7 @@ describe('rasterizeSegmentCoverage — the ribbon on the lattice', () => {
       [-1, 1],
       [-2, -3],
     ];
-    for (const width of [torpWakeWidthU(), shipWakeWidthU('battleship')]) {
+    for (const width of [torpWakeWidthU(), shipWakeWidthU('yamato')]) {
       for (const phase of [0, 2.7, 4.5, 6.3]) {
         for (const [dx, dy] of dirs) {
           const len = Math.hypot(dx, dy);
@@ -454,7 +455,7 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
       [2, 1],
       [-2, -3],
     ];
-    for (const width of [torpWakeWidthU(), shipWakeWidthU('mineLayer'), shipWakeWidthU('battleship')]) {
+    for (const width of [torpWakeWidthU(), shipWakeWidthU('warspite'), shipWakeWidthU('yamato')]) {
       for (const [dx, dy] of dirs) {
         for (let k = 0; k < 8; k++) {
           const len = Math.hypot(dx, dy);
@@ -500,7 +501,7 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
   // unreliable", not cryptographic: every neighbouring source pair's range
   // must OVERLAP, so no single glance at a track width names a class. A
   // torpedo boat's wake reading like a torpedo's is the INTENDED outcome.
-  it('measured width ranges overlap between neighbouring sources: torp ↔ torpedo boat ↔ mine layer ↔ battleship', () => {
+  it('measured width ranges overlap between neighbouring sources — a torpedo, then every hull by beam', () => {
     const widthsFor = (coreU: number): Set<number> => {
       const seen = new Set<number>();
       for (const phase of [0, 2.7, 4.5, 6.3]) {
@@ -512,16 +513,15 @@ describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', (
       return seen;
     };
     const overlap = (a: Set<number>, b: Set<number>): boolean => [...a].some((v) => b.has(v));
-    const torp = widthsFor(torpWakeWidthU()); // 9u — one cell
-    const tb = widthsFor(shipWakeWidthU('torpedoBoat')); // 9u beam
-    const ml = widthsFor(shipWakeWidthU('mineLayer')); // 20u beam
-    const bs = widthsFor(shipWakeWidthU('battleship')); // 32u beam
-    expect(overlap(torp, tb)).toBe(true); // identical cores — indistinguishable by construction
-    expect(overlap(tb, ml)).toBe(true);
-    expect(overlap(ml, bs)).toBe(true);
-    // Size still reads in aggregate (the cycle's deliverable, amendment 66):
-    // the extremes stay separable at their MAXIMA even though single paints
-    // are ambiguous.
-    expect(Math.max(...bs)).toBeGreaterThan(Math.max(...torp));
+    // The sources in width order: the torpedo's one-cell core, then every hull
+    // narrowest to widest.
+    const hulls = [...HULL_IDS].sort((x, y) => shipWakeWidthU(x) - shipWakeWidthU(y));
+    const ranges = [widthsFor(torpWakeWidthU()), ...hulls.map((id) => widthsFor(shipWakeWidthU(id)))];
+    for (let i = 1; i < ranges.length; i += 1) expect(overlap(ranges[i - 1], ranges[i]), `source ${i - 1} ↔ ${i}`).toBe(true);
+    // The "extremes still separate at their MAXIMA" clause (amendment 66) is
+    // RETIRED with the drones (Story 10.8, 2026-11-06): the widest source was
+    // a drone, and the true-to-scale battleships are narrow enough that the
+    // widest one's maximum paint equals a torpedo's (measured: 2 cells each).
+    // Recorded, not re-tuned.
   });
 });

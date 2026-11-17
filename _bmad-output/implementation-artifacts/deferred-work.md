@@ -361,7 +361,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
   summary: Client-side random default makes the server's no-pref branch (seeded-random free hue in regatta.ts assignHue) production-dead for current clients — every join now carries a colorPref, so the server path survives only as defense for legacy/absent clients. Deliberate (Eric ruled persist-at-client so home/modal/match agree); awareness entry only, no change proposed. Also: with the caption gone, a displaced preference (pref taken → nearest free clockwise) has no UI explanation anywhere pre-join; if players report color confusion, the tooltip/copy question reopens.
   evidence: connection.ts ensureColorPref() (this patch) + connect() colorPref forwarding; server/src/game/regatta.ts assignHue no-pref branch unchanged; DESIGN.md:157 FCFS semantics.
 - source_spec: `_bmad-output/implementation-artifacts/spec-home-page-maintenance.md`
-  status: open — client/src/ui/home.ts + client/src/main.ts applyRenderSettings — 2026-10-23 (Story 9.16, cycle 206): still true: the colorblind toggle only calls setColorblindAssist (main.ts:5164-5166); home's repaintAccent/repaintChip run at mount and on hoist change only (home.ts:990,1118-1119), with no settings subscription, so home chrome keeps the pre-toggle hue.
+  status: MOOT 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9(f)): the 20-color wheel and the PLAYER_HUES tables are removed; ships draw cyan or red relation linework, so the assist toggle no longer swaps any hue table (it keeps only the radar alpha floor, R14). Was: open — client/src/ui/home.ts + client/src/main.ts applyRenderSettings — 2026-10-23 (Story 9.16, cycle 206): still true: the colorblind toggle only calls setColorblindAssist (main.ts:5164-5166); home's repaintAccent/repaintChip run at mount and on hoist change only (home.ts:990,1118-1119), with no settings subscription, so home chrome keeps the pre-toggle hue.
   summary: Colorblind-assist toggle leaves already-painted home chrome stale — main.ts swaps the PLAYER_HUES tables live, but home's `repaintAccent` runs only at mount and on hoist picks, so chip/callsign tint keeps the pre-toggle hue while a re-opened bay shows the remapped palette; pre-existing pattern (chip border predates this patch), surface widened by the broader-tinting ruling. Fix shape: settings toggle notifies the home surface (or repaint rides the settings-change event) — needs a small main.ts↔home seam, not a one-liner.
   evidence: Blind Hunter traced main.ts:2293 (live PLAYER_HUES swap) vs home.ts repaintAccent's mount-time-only subscription; divergence reproducible by toggling the assist with the home page up.
 
@@ -498,7 +498,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
   evidence: `server/src/game/perception.ts` `blipOrder` + `view()` push order; Blind Hunter finding 2 (PLAUSIBLE, explicitly flagged for the record rather than for action).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-2-class-legible-blips.md`
-  status: open — client/src/render/hueLatch.ts — 2026-10-23 (Story 9.16, cycle 206): still true — retryHue sets state.rev = rev before `if (hue === null) return`, so a latched marker whose owner left the roster consumes the revision bump and keeps its pre-toggle hue (client/src/render/hueLatch.ts:57-65). Live callers remain: render/decoys.ts, render/nameplates.ts, main.ts. A one-function fix plus a test.
+  status: MOOT 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9(f)): the wheel is removed and `client/src/render/hueLatch.ts` no longer exists. Was: open — client/src/render/hueLatch.ts — 2026-10-23 (Story 9.16, cycle 206): still true — retryHue sets state.rev = rev before `if (hue === null) return`, so a latched marker whose owner left the roster consumes the revision bump and keeps its pre-toggle hue (client/src/render/hueLatch.ts:57-65). Live callers remain: render/decoys.ts, render/nameplates.ts, main.ts. A one-function fix plus a test.
   summary: PRE-EXISTING `hueLatch.ts` gap (Story 1.12, untouched by this cycle) — `retryHue` writes `state.rev = rev` BEFORE its null-hue early return, so a marker whose owner has left the roster consumes a hue-revision bump without being repainted, and keeps its pre-toggle hue for the rest of its life after a colorblind-assist toggle. Nil visible effect today (an unresolved marker wears amber, which clears both luminance floors), but the latch's documented contract — "a revision bump repaints every live marker" — is silently false for that population. Newly exercised, not caused, by 4.2's 12s-lived blips.
   evidence: `client/src/render/hueLatch.ts` `retryHue`; flagged independently by both review hunters (Blind finding 4, Edge finding 2) from different directions.
 
@@ -939,6 +939,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 
 - source_spec: `spec-4-7-the-real-time-sound-map.md`
   status: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): an hp-band sting hysteresis margin is a feel number — regen (CONFIG.regen) can still oscillate a band under fire; hpBandEdge re-arms with only the 300 ms floor (client/src/audio/hpSting.ts).
+  status_10_3: MOOT 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8): `CONFIG.regen` and the out-of-combat regen are deleted; the only remaining heal is the HULL REPAIR pool and the healing buoy, so the oscillation named here needs a repair to be in flight. The hysteresis question stands only for those two sources.
   summary: THE HP-BAND STINGS ARE BOUNDED BY THE REUSED 300ms FLOOR BUT HAVE NO HYSTERESIS MARGIN, so DAMAGE CONTROL regen oscillating across a band under sustained fire can still re-fire the sting seconds apart.
   evidence: `repairHp` pays into hp every server tick while incoming fire subtracts, and `hpBandEdge` re-arms by construction (the property its tests celebrate is the same one that makes this unbounded). The 300ms floor bounds the pathological rapid case; a proper margin is a feel number that is Eric's to set, so the code comments in `hpSting.ts` and `main.ts` say so explicitly to stop a future agent inventing one. Amendment 236.
 
@@ -2442,11 +2443,12 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 ## 2026-09-17 — Story 8.8 Heal Is a Card (cycle 143): threads for later stories
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
-  status: open — harness maintenance — 2026-10-23 (Story 9.16, cycle 206): still true: the RL env's action space is `slot` 0..3 plus a `boost` that fires the first non-weapon slot (Shift), so a HULL REPAIR or any consumable is never pressed (server/scripts/rl/env.ts:51-55, 196-199, 283-290); `autoSpend` still picks uniformly (:209-217). Was: OPEN — Story 8.20 (bots sail decks) or the next RL harness pass
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the HULL REPAIR card is gone from the catalog (HULL REPAIR is the `C` ability now), so an RL agent can no longer draw a card it cannot fire. Was: open — harness maintenance — 2026-10-23 (Story 9.16, cycle 206): still true: the RL env's action space is `slot` 0..3 plus a `boost` that fires the first non-weapon slot (Shift), so a HULL REPAIR or any consumable is never pressed (server/scripts/rl/env.ts:51-55, 196-199, 283-290); `autoSpend` still picks uniformly (:209-217). Was: OPEN — Story 8.20 (bots sail decks) or the next RL harness pass
   summary: RL AGENTS DRAW HULL REPAIR CARDS THEY CAN NEVER FIRE — `server/scripts/rl/env.ts` autoSpend picks uniformly over the front offer (which now holds `hullRepair`) and the RL action space has no belt press, so those levels are dead for RL runs; batchsim bots are unaffected (they use the tactic table and the 8.8 consumable row).
   evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
   status: RESOLVED-AS-RESTATED 2026-10-01 (Story 8.22, cycle 161, amendment 207(d)) — the page imports no game module by design (`how-to-play/main.ts`), so the numbers stay prose; every sentence that states a number now carries a `// CONFIG.xxx` citation comment beside it in `copy.ts`, so a retune greps its way to the copy. Not derived, deliberately. (Earlier note 2026-09-30, cycle 156, amendment 175: the delay moved 30 s → 15 s and the sentence was corrected to "fifteen seconds" in the same PR.)
+  status_10_3: MOOT 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8): there is no regen to hardcode. The sentence at `client/src/how-to-play/copy.ts:92` is now simply WRONG (see the 2026-11-04 Story 10.3 entry below); 10.14 rewrites it.
   summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.22 owns the re-cut and should derive or restate them.
   evidence: Blind Hunter finding 5; client/src/how-to-play/copy.ts UPGRADING paragraph; howToPlay.test.ts pin.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
@@ -2497,7 +2499,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 ## 2026-09-18 — Story 8.10 review gate (cycle 145): three findings deferred
 
 - source_spec: `spec-8-10-the-opening.md`
-  status: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): add a `mulliganed` field to the `you` wire row so the REDRAW pip cannot stay hollow after a reconnect / late ack? A wire addition nobody asked for; today the client still infers it (`mulliganLanded`, client/src/ui/upgradeMenu.ts:763; main.ts:947-949).
+  status: RESOLVED by Story 10.7, 2026-11-06 (cycle 216, epic-10 amendment 13) - Eric ruled R4 "Fix it here": the own row carries `rd` (PV 99) and the pip reads it; the client inference (`mulliganLanded`, `g.mulliganUsed`) is deleted - was: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): add a `mulliganed` field to the `you` wire row so the REDRAW pip cannot stay hollow after a reconnect / late ack? A wire addition nobody asked for; today the client still infers it (`mulliganLanded`, client/src/ui/upgradeMenu.ts:763; main.ts:947-949).
   summary: THE REDRAW PIP CAN STAY HOLLOW AFTER THE SERVER HAS SPENT THE MULLIGAN — the client infers the ack from the front offer's signature changing at unchanged `pts`; a reconnect mid-countdown (fresh `Game`, `mulliganUsed false`), an ack landing after the 1.5 s spend-latch timeout, or a byte-identical redraw (~1 in 1000 with today's two usable lines per deck) leaves a live REDRAW whose every press is a server no-op with a denied pulse. Cosmetic, self-corrects at the live edge. The clean fix is `mulliganed` on the `you` wire row — a wire addition nobody asked for; do not add it without a ruling.
   evidence: Edge Case Hunter #1, Blind Hunter #3/#4 at the 8.10 gate; `client/src/ui/upgradeMenu.ts` `mulliganLanded`, `server/src/game/world.ts` `mulligan()`.
 - source_spec: `spec-8-10-the-opening.md`
@@ -2777,7 +2779,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 ## 2026-09-29 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (cycle 151)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): sign off or redraw the remaining 8.16 drafts: the SHIELD BLOCK and DECOY BUOY glyphs and the owner-only decoy hp masthead arc (CHAFF's glyph is moot — CHAFF retired by epic-9 amendment 31; the hover prose half was already resolved by amendment 185). Was: OPEN — Eric's eye on staging (amendment 124(f)); the three HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 158, amendment 185: tooltips print stats, no prose) — the glyphs and the hp readout stay open
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the SHIELD BLOCK, CHAFF and DECOY BUOY glyphs, their hover descriptions and the owner-only decoy hp masthead arc are deleted with the kit, the shield and the decoys. Was: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): sign off or redraw the remaining 8.16 drafts: the SHIELD BLOCK and DECOY BUOY glyphs and the owner-only decoy hp masthead arc (CHAFF's glyph is moot — CHAFF retired by epic-9 amendment 31; the hover prose half was already resolved by amendment 185). Was: OPEN — Eric's eye on staging (amendment 124(f)); the three HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 158, amendment 185: tooltips print stats, no prose) — the glyphs and the hp readout stay open
   summary: FIVE IMPLEMENTER DRAFTS AWAIT ERIC'S SIGN-OFF. The three belt glyphs (SHIELD BLOCK, CHAFF, DECOY BUOY) drawn in the existing Pixi line-glyph style, the three hover descriptions, and the owner-only decoy hp readout (the old buoy marker's masthead arc re-used as `hp / CONFIG.decoyBuoy.hp`) were authored by the implementer, not Eric (the amendment 110 precedent).
   evidence: amendment 124(f); `client/src/render/equipmentIcons.ts` (`shieldBlock`/`chaff`/`decoyBuoy` glyphs), `client/src/ui/boonCopy.ts` (hover copy), `client/src/render/decoys.ts` (own hp arc).
 
@@ -2792,13 +2794,13 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `server/src/__tests__/perception.test.ts` (`for (let world = 0; world < 20; world++)`, `CHAFF_EXPECTED` / `DECOY_PAINT_EXPECTED`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — awareness for Story 8.20
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): `BotSelf` carries no shield or chaff read any more; both consumables are deleted. Was: OPEN — awareness for Story 8.20
   status: RESOLVED by Story 8.20, 2026-09-30 — kept as self-only reads; the registries read them and no wire field exists (amendment 173(d))
   summary: `BotSelf.shield?` / `BotSelf.chaff?` ARE BOT SELF-READS, NOT WIRE FIELDS. The interim tactics read the bot's own shield and chaff off its `BotSelf` view so a live copy is not re-fired; neither is on any client frame (`OwnShip.shield` is the wire field; chaff has none). 8.20's table should keep them self-only.
   evidence: `server/src/game/ai/types.ts:131`, `:138`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — Story 8.20
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the DECOY BUOY card and its bot weighting are deleted with the decoys. Was: OPEN — Story 8.20
   status: RESOLVED by Story 8.20, 2026-09-30 — DECOY BUOY is now a favorite consumable of forager and trapper (amendment 165)
   summary: DECOY BUOY SCORES AT THE PLAIN CONSUMABLE BASE IN THE BOT CARD POLICY. The radar buoy's profile weights died with it and no decoy weight replaced them, so a bot values a DECOY BUOY card exactly like any other belt line; the three consumable tactics are interim (SHIELD BLOCK on the DAMAGE CUT cues, CHAFF on disengage, DECOY BUOY astern when a torpedo is inbound — amendment 124(g)).
   evidence: `server/src/game/ai/spending.ts` (consumable kind base); `server/src/game/ai/equipment.ts` `CONSUMABLE_TACTICS`; amendment 124(g).
@@ -2819,7 +2821,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `server/src/game/world.ts` `resolveShell` → `targetKindOf(hulls, outcome.victimId)`; `spawnDecoy` `d${this.decoySeq}`; the pre-existing namespace comment beside `targetKindOf`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: open — client/src/render/decoys.ts — 2026-10-23 (Story 9.16, cycle 206): the own-decoy spawn hook still fires for every own decoy in a fresh renderer's first frame (decoys.ts:210), as onOwnMineSpawn does for mines (mines.ts:355); no first-sync suppression was added. Was: OPEN — cosmetic (review gate, Edge Case Hunter; the mines precedent)
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): `client/src/render/decoys.ts` and the `placeDecoy` tone are deleted with the decoys. Was: open — client/src/render/decoys.ts — 2026-10-23 (Story 9.16, cycle 206): the own-decoy spawn hook still fires for every own decoy in a fresh renderer's first frame (decoys.ts:210), as onOwnMineSpawn does for mines (mines.ts:355); no first-sync suppression was added. Was: OPEN — cosmetic (review gate, Edge Case Hunter; the mines precedent)
   summary: THE `placeDecoy` TONE REPLAYS ONCE PER LIVE OWN DECOY ON A REFRESH-REJOIN — `Decoys`' own-spawn hook fires for every own decoy a fresh renderer receives in its first frame, exactly as `onOwnMineSpawn` does for mines; decoys have no lifetime so the set can be up to five. Suppress the hook on the first sync after construction if it grates.
   evidence: `client/src/render/decoys.ts` `onOwnDecoySpawn`; the mines precedent in `client/src/render/mines.ts`.
 
@@ -3120,7 +3122,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: ledger §7 (death timelines), §9.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-2-every-consumable-has-a-key.md`
-  status: open — shared/src/sim/boons.ts — 2026-10-23 (Story 9.16, cycle 206): still true: pickRefusal (:319-335) checks only key existence and cap for a consumable, while applyStock (:349-358) no-ops on a foreign id or short slot array; unreachable in production; one fail-closed line restores agreement by construction Was: open — latent, unreachable in production (2026-10-11, Story 9.2 review, Blind Hunter)
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): `stockSlotFor`, `applyStock` and the consumable branch of `pickRefusal` are deleted with the stock model. Was: open — shared/src/sim/boons.ts — 2026-10-23 (Story 9.16, cycle 206): still true: pickRefusal (:319-335) checks only key existence and cap for a consumable, while applyStock (:349-358) no-ops on a foreign id or short slot array; unreachable in production; one fail-closed line restores agreement by construction Was: open — latent, unreachable in production (2026-10-11, Story 9.2 review, Blind Hunter)
   summary: `pickRefusal` AND `stockSlotFor`/`applyStock` NOW AGREE BY ARGUMENT, NOT BY CONSTRUCTION: for a consumable the predicate checks only key-existence and cap, while the fold also no-ops when the kind's fixed slot holds a foreign id or the slot array is short — so a malformed array could pass the predicate and land a copy in `cards` with no slot (the 8.7 P4 class the old `beltFull` refusal closed). Every production caller passes an 11-long loadout and nothing but `stock` writes slots 5–10, so it cannot happen today; a one-line fail-closed check in the predicate (foreign id or short array → refuse) would restore agreement by construction.
   evidence: `shared/src/sim/boons.ts` `pickRefusal` vs `stockSlotFor`/`applyStock`; the weapon-row half still fails closed.
 
@@ -3162,6 +3164,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
   status: open — shared/src/sim/collision.ts — 2026-10-23 (Story 9.16, cycle 206): still true: resolveShipPose's full-revert path returns {contact: true, headOn: 1} (collision.ts:236) with no reverted bit, so world.ts damageLand can price a phantom dead-on strike; recorded, not ruled, at epic-9 amendment 84(k)
+  status_10_3: STAMPED 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8): ram mass is now the ARMOR index (`landHitDamage(stats.armor, preDampSpeed)`, `energyPerHp` 126.5625), so the phantom strike prices the SAME FRACTION of hull as before on a 1000-hp hull; the 50-hp figure above is 9.5-era. Still open, unchanged in kind.
   summary: THE LAND PASS'S FULL-REVERT BRANCH PRICES A PHANTOM DEAD-ON STRIKE — `resolveShipPose` returns `{contact: true, headOn: 1}` on a full revert, so a hull running PARALLEL to a coast that is shoved by another hull farther than `pushLimit` (beam + speed·dt, ≈ 11 u) in one tick reverts and pays `landHitDamage(maxHp, preDampSpeed)` (50 hp for a speedboat at 45 u/s) for land it never drove at; needs an overlap push over ~11 u in a tick (a three-hull squeeze or an overlapping placement), so rare, and the guard is to carry a `reverted` bit on `ShipPoseResult` and skip the strike on it.
   evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-13 review gate — probe P5 produced 18 + 50 in one tick with a deep-overlap placement; the clean-geometry rerun resolved as a scrape with headOn 0.
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
@@ -3291,7 +3294,7 @@ Closure stamps for three older entries (the originals are left as written), then
   summary: `foulZones.ts` `advanceWeedPhase` has no finite guard: one NaN `nowSec` makes the integrated weed phase NaN for the rest of the session and parks the weed layer at a NaN position (invisible), while the alert clock in the same frame ignores a NaN reading. Fix: mirror `alertBlend.ts`'s `Number.isFinite` guard.
   evidence: Edge Case Hunter finding 5 at the 9.11 gate (context lines, not in the diff).
 - source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
-  status: open — client/src/render/hotbar.ts — 2026-10-23 (Story 9.16, cycle 206): still true: heldId (:531-535) treats ammo {n: 0} as held; fix = (view.ammo[slot]?.n ?? 0) <= 0 Was: OPEN — pre-existing (8.7 / 9.2), low
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the consumable belt and its `heldId` read are deleted; the hotbar no longer has stock squares. Was: open — client/src/render/hotbar.ts — 2026-10-23 (Story 9.16, cycle 206): still true: heldId (:531-535) treats ammo {n: 0} as held; fix = (view.ammo[slot]?.n ?? 0) <= 0 Was: OPEN — pre-existing (8.7 / 9.2), low
   summary: `hotbar.ts` `heldId` treats a consumable with a live ammo entry at `{n: 0}` as held (a solid square, bright glyph, no count, nothing to fire; the LOADOUT twin does the same), unlike `loadout[slot] = null` or `ammo[slot] = null`, which both draw the zero-stock square. Reachable only if the server ever sends an id with n 0 (world.ts clears the slot the same tick). Fix: `(view.ammo[slot]?.n ?? 0) <= 0` in `heldId`.
   evidence: Edge Case Hunter finding 6 at the 9.11 gate.
 
@@ -3372,7 +3375,7 @@ Closure stamps for three older entries (the originals are left as written), then
   evidence: amendment 210 (b).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
-  status: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): an own-zone decoy arrives twice (on decoys and as an anonymous blip) under 'the entire sweep' — accept or change? Was: OPEN — Eric's call (own-zone decoy half only)
+  status: MOOT 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11): the decoys are deleted, so no own-zone decoy can arrive twice. Was: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): an own-zone decoy arrives twice (on decoys and as an anonymous blip) under 'the entire sweep' — accept or change? Was: OPEN — Eric's call (own-zone decoy half only)
   summary: The bot-fold half is RESOLVED 2026-10-21 (review-gate patch P2): the `ANON_ASSOC_U` disc around a sighted hull was replaced by the paint-rect criterion — a paint is skipped only when its coverage rect (± one cell) covers the sighted hull's cell, so a second hull or decoy nearby now folds. STILL OPEN: an own-zone decoy arrives twice (on `decoys` and as an anonymous blip), a direct consequence of "the entire sweep" covering own-zone hulls.
   evidence: server/src/game/ai/utility.ts `foldBlip` / `paintCoversSighted`; amendment 210 (a).
 
@@ -3530,3 +3533,349 @@ Open work by owner: harness maintenance 21; 9.17 (How-to-Play, copy Eric's) 14; 
   status: RULED 2026-10-23 (Story 9.16, cycle 206; epic-9 amendment 215): YES — a decoy buoy that intercepts a cannon or flak shell takes the FULL burst damage, like a hull (Eric, AskUserQuestion, 2026-10-23); the bodyblock work item may now be built. Was: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206)
   summary: DESIGN GAP SURFACED BY THE TRIAGE (put to Eric before the 9.16 PR; his answer is in epic-9 amendment 215 and re-stamped on this entry): epic-8 amendment 228 left one clause of the bodyblock ruling "not yet asked" — when a DECOY BUOY intercepts a cannon or flak shell, does it take the full burst damage like a hull? The bodyblock work item (contactDamage 6 / 4 still shipped) cannot be built until it is answered.
   evidence: reader 2674-3167; epic-8 amendment 228
+
+## 2026-10-25 — Correct-course: the roadmap rebuilt (no build cycle; `sprint-change-proposal-2026-10-25.md`)
+
+Eric-approved 2026-10-25. Append-only pointer entry — the older text in this ledger stands as history; the status line of each entry it touches is NOT rewritten, the re-pointing below is by reference.
+
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-10-25.md`
+  status: STANDING RECORD, NOT WORK — 2026-10-25 (correct-course)
+  summary: OWNERS RE-POINTED BY THIS PROPOSAL. (1) Every entry owned by "9.17 (How-to-Play, copy Eric's)" (14 in the 2026-10-23 triage) now belongs to **Story 10.14 How-to-Play and Record** of Epic 10 The Playtest Pass. (2) Every entry owned by "Epic 10 (The Account)" (8) now belongs to **Epic 13 The Account** — the epic is shifted right with its text whole; its store half (database, absence-gating, migrations, PGlite, `/metrics`, the staging database, `/liveness` as healthCheckPath) is built FIRST by **Story 11.1 The Match Ledger**, anonymously, so entries about the STORE are 11.1's and entries about auth / profiles / unlocks / deletion stay Epic 13's. (3) The two "production smoke once Google's CMP renders" entries belong to **Story 12.3 Publisher Approval**. (4) The npm-audit entry's "NEXT STORY: the dependency sweep takes 9.17's slot" pointer is CLOSED: Eric cancelled 9.17 on 2026-10-24 (epic-9 amendment 217) and on 2026-10-25 ruled the branch `worktree-create-story-9-17-dep-sweep` (research + patch commit e92b0596, 29 → 16 low) **ABANDONED — "revisit dependencies later when it matters"**; the 29 production advisories stay an open operator fact with no story.
+  evidence: `sprint-change-proposal-2026-10-25.md` §2 Artifact conflicts, §4; epic-10-context-amendments.md #1; the 2026-10-23 triage table above ("Open work by owner")
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-10-25.md`
+  status: open — Eric's call — 2026-10-25 (correct-course)
+  summary: A NEW GAP RECORDED, NOT RULED: the standing "Eric's call — the list for one sitting" (68 lines, 2026-10-23) is still unconvened (epic-9 retro action 5). Several lines now have a natural home in Epic 10 — :1551 / :1561 (the liveness `queue` block, Story 10.11 touches the queue), :2499 (REDRAW pip, Story 10.7 touches the offer), :2730 / :2779 / :2828 (glyph sign-offs, Story 10.16 adds a card face), :3278 (results dismissal, Story 10.10 touches the battle UI). The spec author of each story raises its lines at the spec step; the rest wait for the sitting.
+  evidence: this ledger "Eric's call — the list for one sitting"; `sprint-change-proposal-2026-10-25.md` §1 Evidence
+
+## 2026-11-04 — Correct-course: Epic 10 re-cut around the beacons / battleships / index slice (no build cycle; `sprint-change-proposal-2026-11-04.md`)
+
+Eric-approved 2026-11-04. Append-only entry — the older text in this ledger stands as history; nothing above is rewritten.
+
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-04.md`
+  status: STANDING RECORD, NOT WORK — 2026-11-04 (correct-course)
+  summary: THE BUILT SURFACES OF STORIES 10.1 AND 10.2 ARE RETIRED BY STORY 10.5 WHEN IT LANDS (cycles 207–210, PRs #309–#312: the CONSUMABLES row and picker, the four-slot kit on keys 1–4, the ten consumable lines and their caps, the four buoys and their rings / glyph family, SHIELD BLOCK, the DECOY store's catalog ids). FLASH SHELLS survives as a special-shell option keeping amendment 5's whiteout; SUPERCAVITATING TORPEDO as a torpedo option. An accepted cost (forge premise 6); not a defect, not a rollback — 10.5 owns the removal as a forward change. Every entry in this ledger owned by "10.1" or "10.2" (hotbar timer 4n, buoy stacking, flash numbers) is MOOT once 10.5 lands and is closed by 10.5's PR with a pointer here.
+  evidence: `sprint-change-proposal-2026-11-04.md` §2 Story impact; epic-10 amendments 3–5 (the record of what was built), 6(e)
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-04.md`
+  status: open — owned, with a home — 2026-11-04 (correct-course)
+  summary: THE FOUR OPEN THREADS CARRIED OUT OF THE 2026-11-03 BRAINSTORM, EACH WITH AN OWNING STORY (none is a deferred design gap): (1) radar noise without drones → OBSERVED on Story 10.8's staging pass and recorded, not solved (brainstorm #65; options logged under #12: guards-as-noise, a beacon radar return, airdrop blips, accept every blip is a captain); (2) POWER on torpedo / mine damage and ARMOR against them → Story 10.6 builds BOTH settings behind one dev dial each, Eric chooses on staging (#52 / #53); (3) the four buoys as random map spawns → TABLED, no story (#62; 10.5 removes the consumable buoys); (4) every number in the brainstorm's ship table and the beacon / airdrop rates → Eric's harness session when 10.3 / 10.4 / 10.8 are created (Open Thread 4). Also `[unruled]` at spec steps: the airdrop stat glyph at sight vs radar range (10.9); FOULING SHELL as a special-shell option and the DEPTH CHARGE stub (10.6); what a drone drops between 10.5 and 10.8 (reading: XP only).
+  evidence: `brainstorming-session-2026-11-03.md` Open Threads; `forge/beacons-battleships-index/.memlog.md`; epic-10 amendment 6(e)–(h)
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-04.md`
+  status: STANDING RECORD, NOT WORK — 2026-11-04 (correct-course)
+  summary: TABLED WITH THE DECK GUNS (Stories 10.15 / 10.16 CANCELLED): per-gun range attenuation (flak flat) and HIGH EXPLOSIVE on a tiered ladder. CANNON / MACHINE GUN / FLAK stay in `catalog.ts` for reference, never dealt (brainstorm #25). If the deck-gun pick ever returns these two ideas return with it; no story holds them. The "Eric's call — the list for one sitting" lines the 2026-10-25 entry mapped to 10.16 (:2730 / :2779 / :2828 glyph sign-offs) lose that home and fall back to the sitting.
+  evidence: `sprint-change-proposal-2026-11-04.md` §4 ruling 3; epic-10 amendment 6(a)
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-04.md`
+  status: STANDING RECORD, NOT WORK — 2026-11-04 (renumbering)
+  summary: EPIC 10 RENUMBERED THE SAME DAY (Eric): done first in the order done, then build order — 10.1 slots, 10.2 flash + buoys (was 10.9), 10.3 index (was 10.10), 10.4 battleships (10.11), 10.5 kit retire (10.12), 10.6 catalog (10.13), 10.7 offer (10.4), 10.8 beacons (10.2), 10.9 airdrops (10.14), 10.10 battle UI (10.3), 10.11 bot fill (10.6), 10.12 bot posture (10.15), 10.13 sound (10.16), 10.14 How-to-Play (10.8); cancelled 10.15 flak (10.5), 10.16 MG (10.7). The 2026-10-25 and 2026-11-04 entries above carry the NEW numbers; entries older than 2026-10-25 and every code comment keep the old ones — read them through this line.
+  evidence: epics.md Epic 10 intro renumbering table; epic-10-context-amendments.md header note
+
+## 2026-11-04 - Story 10.3 The Index Model (cycle 211, 0.19.5, PV 95) - review-gate and wave defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-3-the-index-model.md`
+  status: open - Eric's call - 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8 R-F)
+  summary: THE PREDICTOR'S PEER MASS IS THE CLASS-BASE ARMOR WHILE THE SERVER'S IS THE FOLDED ARMOR - the 9.5 / 84(j) seam, now reaching 2:1 at five ARMOR cards. A contact's cards are private, so the client prices a push split on the contact's class-base `index.armor` while the authority reads `stats.armor`; the server wins, the error is bounded by overlap depth and reconciled (a snap, not a leak). PRE-EXISTING in kind (it was maxHp vs class hp under HULL POINTS cards); 10.3 widens its range. Fixing it would need a contact's ARMOR on the wire, a widening of what a contact carries - not proposed.
+  evidence: flagged independently by the Fable Blind Hunter, the Fable Edge Case Hunter and Codex gpt-5.6-sol at the 2026-11-04 gate; `client/src/sim/contactBodies.ts` vs `server/src/game/world.ts` `contactBodyOf`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-3-the-index-model.md`
+  status: open - harness note - 2026-11-04 (Story 10.3, cycle 211)
+  summary: `FASTEST_HULL_SPEED` (`server/src/game/ai/plot.ts`) AND `FIELD_MARGIN_U` (`server/src/game/navCache.ts`) ARE EVALUATED AT IMPORT, so they are blind to `--tune shipClasses.*.index.engines|rudder`; a tuned run's bots keep the untuned fastest-hull and field-margin heuristics. Bounded bot heuristics, harness only. Also from the Edge Case Hunter: RELOAD index 1 gives cooldownScale 100 (no ceiling, unreachable by the catalog) and `--tune armor=0` on both hulls switches contact damage off (`pairIsPriceable` false).
+  evidence: Edge Case Hunter (Fable) at the 2026-11-04 gate, traced; none reachable in a real match.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-3-the-index-model.md`
+  status: open - owned by Story 10.14 - 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8 R-K)
+  summary: THE HOW-TO-PLAY REGEN SENTENCE IS WRONG SINCE 10.3 - `client/src/how-to-play/copy.ts:92` ("You slowly regenerate HP...") describes a regen that no longer exists; the HULL REPAIR and "run out of HP" sentences still say HP, and no ARMOR / POWER / index entries exist. The copy was left FROZEN on purpose (the 9.6 amendment-96 precedent): 10.14 owns the rewrite.
+  evidence: Story 10.3 wave 2b (284a4e9a) title-only How-to-Play changes; epic-10 amendment 8 R-K.
+
+## 2026-11-04 - Story 10.4 The Four Battleships (cycle 212, 0.19.6, PV 96) - review-gate and wave defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): the 2026-08-04 progress-fraction ruling holds - `rescaleReloadTimers` now scales each running turret reload by new / old and re-derives the slot pair; regression test in `upgrades.test.ts`. Was: open - Eric's call - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R6)
+  summary: A RELOAD CARD DOES NOT RESCALE A RUNNING TURRET RELOAD - RELOAD / RANGE cards apply at the next fire and a turret mid-reload keeps its countdown, which may conflict with the 2026-08-04 renormalization ruling (a RELOAD card rescales running reloads). The implementer's reading, not a ruling; flagged for Eric, not resolved.
+  evidence: Story 10.4 wave 1 (93af0c02) `sim/turrets.ts`; epic-10 amendment 9 R6.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): the two thresholds are `CONFIG.bots.secReleaseHeat` / `secRepressHeat` with harness bounds; 10.12 tunes the values. Was: open - owned by Story 10.12 - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R11)
+  summary: THE BOT SECONDARIES HEAT THRESHOLDS (release at 0.8, re-press at 0.2) ARE MODULE CONSTANTS in `server/src/game/ai/battery.ts`; they belong in `CONFIG.bots` when 10.12 tunes the bots under the four hulls.
+  evidence: Story 10.4 wave 2a (0b3b558a).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): `U_PER_M` is exported from shared and the client's copy is deleted. Was: open - harness note - 2026-11-04 (Story 10.4, cycle 212)
+  summary: `U_PER_M` IS NOT EXPORTED FROM SHARED - the client restates it in `client/src/render/hullArt/data.ts`; a test ties it to the CONFIG hull lengths. Export it from shared if a third reader appears.
+  evidence: Story 10.4 wave 2c (7385d992).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by Story 10.5 - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R13)
+  summary: DEAD-FOR-CAPTAINS CLIENT CODE - the deck-gun tier code in `equipmentInfo` (`GUN_FAMILY`) and the machine-gun drain / swap wipe in `hotbar.ts` are never reached for a captain now. Clean up when 10.5 re-cuts the hotbar.
+  evidence: Story 10.4 waves 2b (60f00fbf) and 2c (7385d992).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - harness note - 2026-11-04 (Story 10.4, cycle 212)
+  summary: THE BATCH-SIM TELLS A MAIN-BATTERY SHELL FROM A BROADSIDE SHELL BY `attenRangeU !== undefined || contactDamage !== damage` - a distinct tag would be cleaner. `--tune secondaries.rangeFrac`, `mainBattery.traverseDegPerS` and `onTargetDeg` have no bounds.
+  evidence: Story 10.4 wave 2a (0b3b558a) harness changes.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - note - 2026-11-04 (Story 10.4, cycle 212)
+  summary: ESLINT IGNORES `__tests__` IN ALL WORKSPACES, so test code never gets the complexity check. Pre-existing; noticed during this story.
+  evidence: Story 10.4 gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by the full UI / UX pass - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R16, R17)
+  summary: THE SHIP CARD'S PIP SCALE HIDES BELOW-AVERAGE INDICES (on `{ base 100, step 20 }` every index at or below 100 reads one pip); the secondaries heat square has no tooltip or label; the gun square has no tier numeral. None is final (amendment 8(o)).
+  evidence: Story 10.4 waves 2b / 2c.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - tune on staging - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R18)
+  summary: CONTACT TURRET ANGLES ARE SNAPPED FROM THE LATEST FRAME while the hull is drawn an interpolation delay behind. Smooth them if it reads badly on staging.
+  evidence: Story 10.4 wave 2b (60f00fbf).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - flaky test - 2026-11-04 (Story 10.4, cycle 212)
+  summary: THE `client/src/__tests__/radarMarch.test.ts` SOFT COVER CASE TAKES ~5-7 s and can time out under machine load. Pre-existing; observed once during this story, green alone and in the final gate.
+  evidence: Story 10.4 wave 2b run (one timeout under load).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): MEASURED, not re-plumbed - a one-tick excursion drags an aft turret one traverse step (4.5 deg) and it is on target again on the next decision (the on-target check steps a tick ahead); forward turrets hold; test `botSweep.test.ts` THE AIM STEAL; a second aim channel would be a wire change - was: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  summary: A BOT'S NON-BATTERY SHOT STEALS ITS TURRET AIM - when a torpedo, mine or consumable row returns a shot, `triggerOf` writes that shot's aim and the turrets chase it for the tick, so the main battery reads off-target for the ticks it takes to swing back at 90 deg/s; a bot with a torpedo fit fires its main guns less than intended.
+  evidence: `server/src/game/ai/tactics.ts` `triggerOf` (the aim written is the chosen shot's); `ai/battery.ts` `readyOnTarget`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): `readyOnTarget` reads `mind.nextPose` (the shared `stepShip` under this decision's helm); residual below (rated kinematics only) - was: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  summary: A BOT'S ON-TARGET CHECK READS THE PRE-MOVE POSE - `readyOnTarget` steps a copy of the turrets with the pose from the bots tick, but the server's `stepTurrets` row runs after `stepShips` / `resolveCollisions`; in a hard turn or after a shove the aim offset can move by more than the 0.5 deg tolerance and the click resolves through the early-click fallback (fires along the current bearing).
+  evidence: `server/src/game/ai/battery.ts` `readyOnTarget`; `STEP_ORDER` (botsTick first, stepTurrets after the motion block).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - own story: smoke rewrites - 2026-11-04 (Story 10.4, cycle 212)
+  summary: THE THREE HEURISTIC-PILOT SMOKES ARE RED UNDER THE FOUR HULLS - `fogSmoke` ("timeout: park in radar band"), `combatSmoke` ("A never sank B", zero shells, range stuck at 6515 u) and `zoneSmoke` (a 37 hp contact blow plus grind bleed on the hull piloting to the ring centre, read by the smoke as storm damage). All three still sail heuristic pilots from random ring spawns; the default hull is now slower (28.5 u/s) and longer. Same family as the standing entry on the heuristic-pilot smokes; migrated to the new wire (they parse and send `sec`), not rewritten. `zoneSmoke` now prints its own dmg events in the failing assert.
+  evidence: Story 10.4 wave 3 runs (7a623e54) on a scratch server; matchSmoke and weaponsSmoke (the scripted scenarios) pass first try.
+
+## 2026-11-05 - Story 10.4 follow-up, arc-only fire and hold outside the arc (cycle 213, 0.19.7, PV 96)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - Eric's call on staging - 2026-11-05 (cycle 213, epic-10 amendment 10(d))
+  summary: A CLOSE-IN DEAD ZONE - an aim on or just beside the own hull between the forward and aft turret groups is inside no turret's arc, so a click there fires nothing and reads as `cooling` with every turret loaded. A consequence of the arc-only rule and the real turret stations, not a defect; recorded for Eric.
+  evidence: measured by the implementer: within about 21-29 u of the ship's center and 11-17 u to the side on the four hulls; `shared/src/sim/turrets.ts` doc; the long-range coverage property test in `turrets.test.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - note - re-checked by Story 10.12 (2026-11-11): still tests and `weaponsSmoke.mjs` only; kept because the smoke uses them - was: open - note - 2026-11-05 (cycle 213)
+  summary: `desiredTurretAngle` AND `desiredTurretAngleFrom` HAVE NO PRODUCTION CALLER after the hold-outside-arc law (tests and `weaponsSmoke.mjs` only). Kept exported; delete if still unused when 10.12 retools the bots.
+  evidence: `shared/src/sim/turrets.ts`; grep of `server/src` and `client/src`.
+
+## 2026-11-05 - Story 10.5 The Kit Retire and the Three Equipment Slots (cycle 214, 0.19.8, PV 97) - owed work and leftovers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: RESOLVED by Story 10.7, 2026-11-06 (cycle 216, epic-10 amendment 13) - Eric ruled R5 (replacing his first R3 "nothing"): short offers, then every level with nothing left to deal becomes +1 index point on a random one of ARMOR / POWER / ENGINES / RELOAD / RANGE / INTEL (`server/src/game/world.ts` `convertBank`) - was: open - owned by Story 10.7 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (k))
+  summary: AN EXHAUSTED HULL DRAWS AN EMPTY OFFER - a hull holding every ladder and three capped slot weapons gets no cards; the built behavior is that an empty offer never opens the refit window and never throws, a short offer shows fewer cards. Eric: "Empty offer is fine, I think what should happen is you get some random stats. But I don't think ships reaching that level will be overly common. We'll address in 10.7". Story 10.7 owes random stats for an exhausted hull.
+  evidence: Story 10.5 wave 1 finding; epic-10 amendment 11 (k).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): supercav / FOULING / FLASH shell appetites restored on the rows that name their family; the decoy cues `stillSweeps` / `paintCells` / `hasWake` deleted; wait-to-heal NOT built (no ruling asked for it; the break-off latch already waits on hull + broken contact) - was: open - owned by Story 10.12 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 R10)
+  summary: BOT LEFTOVERS AFTER THE KIT RETIRE - bot favorites for fouling shell and supercav were dropped; bots have no wait-to-heal behavior (passive regen runs, but a bot does not hold back to let it work); and the decoy-cue bookkeeping on bot tracks (`stillSweeps`, `paintCells`, `hasWake`) has no consumer now that decoys are deleted.
+  evidence: Story 10.5 server and bot waves; `server/src/game/ai/types.ts` (the decoy-cues block); epic-10 amendment 11 R10.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.14 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (n), (o))
+  summary: HOW-TO-PLAY IS MORE STALE SINCE 10.5 - its consumable tables render no table, it has a "1-4: use a consumable" row, shield / buoy / decoy entries, and RELOAD wording that is wrong under R10 / R11 (RELOAD scales the main battery and the Q / E / R weapons, never the Shift, the secondaries or C / V). The copy was left FROZEN on purpose; 10.14 owns the rewrite, along with the GDD Consumables v3 sentences, catalog-v3, the DESIGN.md rows stamped by this story and `game-architecture.md` wherever it names the kit or decoys.
+  evidence: Story 10.5 client waves; epic-10 amendment 11 (o).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - cleanup - 2026-11-05 (Story 10.5, cycle 214)
+  summary: CLIENT LEFTOVERS - the `interaction` model field in `client/src/ui/refitTooltip.ts` is unused, and the tint primitives in `equipmentIcons` are unused.
+  evidence: Story 10.5 client follow-ups.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: RESOLVED by Story 10.7, 2026-11-06 (cycle 216, epic-10 amendment 13) - R5: an empty draw converts the bank into bonus index points, so `you.pts` is 0 and the chip stays blank while `lvl` keeps counting - was: open - owned by Story 10.7 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: AN EXHAUSTED HULL KEEPS BANKING LEVELS - with every eligible line at cap (45 cards) a hull still banks levels: `you.pts` stays above 0 with an empty offer, and the XP strip's banked-level chip and its pulse keep advertising levels that cannot be spent. Rides with Eric's 2026-11-05 ruling "Empty offer is fine … We'll address in 10.7" (random stats for an exhausted hull).
+  evidence: both Fable hunters (probe: 80 levels → 45 picks, 35 banked, offer null); `server/src/game/world.ts` `grantPoint` / `materializeOffer`, `server/src/game/frames.ts` `pts`, `client/src/render/xpStrip.ts` `chipLabel` / `nextChipState`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by the full HUD / UX pass or a later client story - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: INSTANT RELOAD IS NOT PREDICTED ON THE CLIENT - after the press the turrets and the secondaries heat show the old state until the next own frame. Turret reloads behaved this way before this story; the heat vent is new with R10. Recorded reading: the own frame corrects.
+  evidence: Codex, confirmed; `client/src/main.ts` `handleShiftPress` predicts only Speed Boost.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: RESOLVED by Story 10.6, 2026-11-06 (cycle 215, epic-10 amendment 12 (r) I8) - the four one-off cards are eligible only while their family slot is FILLED and the card unheld (`shared/src/sim/draw.ts`, `boons.ts`); was: open - owned by Story 10.6 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: ADD-ON ELIGIBILITY STILL ASKS "ANY WEAPON SLOT OPEN", NOT "THE HOST'S FAMILY SLOT" - under one kind per slot an add-on whose hosts all sit in a family held by another kind could be dealt though its host can never be fitted. Latent: the only add-on line is the undealable `depthCharge` stub.
+  evidence: Edge Case Hunter; `shared/src/sim/draw.ts` `addonKind` / `weaponRowOpen`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - low, no owner story - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: AN `actSeq` JUMP OF MORE THAN ONE EVALUATES ONLY THE NEWEST `act` - a skipped press (rate cap, queue cap, a dropped message) is lost with no denial; since this story the lost press can be a different ability than the one that fires. Needs a throttled or modified client; the grammar predates the story.
+  evidence: Edge Case Hunter; `server/src/game/world.ts` `consumePress`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.14 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (s))
+  summary: HOW-TO-PLAY MUST TEACH RIGHT MOUSE AS THE SECONDARIES ONLY - right mouse fires the secondaries whether or not a weapon is readied and never cancels anything; a readied Q / E / R weapon is un-readied by pressing its key again (or by firing it). Eric: "actually, lets just make RMB secondaries no matter what, and get rid of the "right click to cancel" mechanic. Its complex for no reason. Pressing the key a second time already unreadies."
+  evidence: epic-10 amendment 11 (s); `client/src/input/mouse.ts`; the settings `RIGHT CLICK` row in `client/src/ui/settings.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - cleanup, no owner story - 2026-11-06 (Story 10.6, cycle 215, epic-10 amendment 12 (s))
+  summary: A SIDE-FIRED TORPEDO'S LAUNCH POINT CAN SIT UP TO ABOUT 3.4 u SHORT OF THE FULL SPAWN CLEARANCE - it is always outside the hull, and owner immunity makes it harmless, but the clearance the muzzle helper promises is not exact on a side shot from a launcher station. Pre-existing in the shared muzzle helper; the side-firing bands (R28-R30) make the case common.
+  evidence: Story 10.6 server wave; `shared/src/sim/aim.ts` `muzzleSpawn`; epic-10 amendment 12 (s).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: RESOLVED by Story 10.6's review gate, 2026-11-06 (epic-10 amendment 12 (t): the bot's torpedo row decides with the shared `pickTube` over its own launchers; `torpedoAimLegal` deleted) - was: open - owned by Story 10.12 - 2026-11-06 (Story 10.6, cycle 215, epic-10 amendment 12 (r) I9 and (s))
+  summary: BOT TORPEDO PLANNING USES CENTER-MEASURED ARCS - a bot checks whether a torpedo shot is legal with the launcher arcs measured from the ship's center (heading and aim), while the server decides from each launcher's own station, so the two can disagree near the edge of a band. Tuning and the bot pass are 10.12's.
+  evidence: `server/src/game/ai/tacticKit.ts` (the launcher-arc check, `launcherArcHolds(hullId, torpedoLaunchers, heading, aim)`); `shared/src/sim/launchers.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - cleanup, no owner story - 2026-11-06 (Story 10.6, cycle 215)
+  summary: `arcUnion` IS EXPORTED BUT USED BY NO PRODUCTION CODE - the union-of-sectors helper in `client/src/render/weaponArc.ts` built the torpedo wedge's fewest fills before the wedge became the per-launcher side bands (R29, R30); only `client/src/__tests__/weaponArc.test.ts` calls it now.
+  evidence: grep over `shared/src`, `server/src`, `client/src` at the Story 10.6 HEAD.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - cleanup, no owner story - 2026-11-06 (Story 10.6, cycle 215)
+  summary: THE CLIENT'S `weaponArcHit` / `clickInArc` KEEP A CENTER-MEASURED TORPEDO BRANCH THAT PRODUCTION NO LONGER REACHES - torpedo clicks now go through the launcher verdict (the launcher's own station, the shared R16 pick); the center-measured torpedo branch in `client/src/render/weaponArc.ts` is unreached by production and can be removed with its tests.
+  evidence: Story 10.6 client wave; `client/src/render/weaponArc.ts` `weaponArcHit` / `clickInArc`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-6-the-catalog-under-the-index.md`
+  status: open - no owner story - 2026-11-06 (Story 10.6 review gate, Edge Case Hunter, epic-10 amendment 12 (t))
+  summary: THE CLIENT'S CLOUD GRID IS SIZED FROM ITS OWN CATALOG - `CLOUD_CELLS` is sized once from the largest smoke disc the client's bundled catalog can produce (five SMOKE SCREEN cards); a server running a tuned or injected catalog with a larger stamped disc would have its cloud clipped square at the grid edge. No production path today: only a tuning run changes the catalog, and it has no client.
+  evidence: `client/src/render/cloudPaint.ts` (`CLOUD_CELLS`, `largestCloudR1`).
+
+## 2026-11-06 - Story 10.7 Offer Composition (cycle 216, 0.19.10, PV 99) - review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-7-offer-composition.md`
+  status: RESOLVED 2026-11-06 (Story 10.7, epic-10 amendment 13 (h2)) - traced: NOT reachable in production (rooms locked at birth, a countdown drop is torn down, a resume reuses its record); the walls are pinned by regression tests, no behavior change; dev-door only - was: open - Eric's call, untraced - 2026-11-06 (Story 10.7 review gate, Blind Hunter, epic-10 amendment 13 (h))
+  summary: A LEAVE AND REJOIN DURING THE COUNTDOWN MAY GRANT A FRESH REDRAW AND A FRESH OPENING - `mulliganed` and `openingGranted` live on the ship record; if a consented leave plus a new join mid-countdown reaches `addShip`, the new record starts with both false. Older than this story (the `rd` flag is right per record, so the pip is not wrong). The `ArenaRoom` leave path was NOT traced to confirm a countdown rejoin gets through.
+  evidence: `server/src/game/world.ts` `addShip` (the `mulliganed` / `openingGranted` initializers and the returning-captain comment above them).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-7-offer-composition.md`
+  status: open - harness note, owned by the next balance-sim run - 2026-11-06 (Story 10.7 review gate, Blind Hunter, epic-10 amendment 13 (h))
+  summary: THE BATCH-SIM "LEVELS UNSPENT" READOUT UNDER-READS FOR A MAXED HULL - `levelsEarned` reads `ship.level` (still counting) while `levelsUnspent` reads `ship.bankedLevels` (emptied on an empty draw - the levels become bonus index points, R5), so levels a maxed hull earns count as spent and the spent rate over-reads. Only a hull holding every dealable card is affected; a comment marks it in the code.
+  evidence: `server/scripts/batchsim/botMetrics.ts` (`levelsUnspent`), `botReport.ts`, `poolReadouts.ts`; `server/src/game/match.ts` `Participant.bankedLevels`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-7-offer-composition.md`
+  status: open - Eric's call, visual only - 2026-11-06 (Story 10.7, R6, epic-10 amendment 13 (c2))
+  summary: WITH NO INTEL CAP A RADAR WAKE BLIP CAN FADE BEFORE ITS WATER DOES ABOVE INTEL ~218 - the phosphor is three sweep periods long and the wake lives `CONFIG.vision.wakeLifeMs`; the cover holds only up to about 32.7 RPM. The fastest cards-only build (Iowa, INTEL 215, 32.25 RPM) still covers by 81 ms; about four bonus INTEL points on it break the cover. Same shape as the cycle-69 shortfall that was accepted. The two "at the sweep maximum" phosphor pins were deleted with the cap; the base-rate pins remain.
+  evidence: `shared/src/constants.ts` (`vision.wakeLifeMs` comment), `shared/src/sim/indexStats.ts` (`sweepRpm`), `shared/src/__tests__/zone.test.ts`, `client/src/__tests__/wake.test.ts`.
+
+## 2026-11-07 - Story 10.8 The Radio Beacons (cycle 217, 0.19.11, PV 100; epic-10 amendment 14) - review-gate and leftover defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): eligibility is a farming point inside the patrol disc (`farmableIn`); a standoff the water snap carries out of the disc yields no goal - was: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Codex, epic-10 amendment 14 (n))
+  summary: BOT BEACON ELIGIBILITY IS JUDGED BY THE BEACON CENTRE, NOT A REACHABLE FARMING POINT - a beacon whose centre sits just outside the bot's patrol disc but whose paying circle is half inside is ignored.
+  evidence: `server/src/game/ai/` beacon pick (patrol-disc test on the centre); `CONFIG.bots.beaconStandoffFrac`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: RESOLVED by Story 10.12, 2026-11-11 (cycle 223, epic-10 amendment 21): `avoidBeacons` in the helm's avoidance sum, every posture - was: open - owner Story 10.12 - 2026-11-07 (Story 10.8 review gate, Blind Hunter, epic-10 amendment 14 (n))
+  summary: NO BEACON-BODY AVOIDANCE IN A COMBAT POSTURE - a bot chasing, fleeing or kiting routes straight through the solid octagon and takes the ramming law.
+  evidence: `server/src/game/ai/` combat steering (no beacon obstacle).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - harness only, shipped radii never reach it - 2026-11-07 (Story 10.8 review gate, Edge Case Hunter, epic-10 amendment 14)
+  summary: A `--tune` RING WHOSE LIVE RADIUS IS AT MOST `CONFIG.beacons.edgeMarginU` COLLAPSES EVERY PICK TO THE RING CENTRE - coincident immovable bodies paying N times. Fix: skip placement and log when `maxRadius < bodyRadiusU`.
+  evidence: beacon placement (`placeBeacons`) and the batch-sim `--tune` ring override.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - later cleanup - 2026-11-07 (Story 10.8, epic-10 amendment 14 (o), amendment 6)
+  summary: `CONFIG.gun` AND THE `'gun'` EQUIPMENT ROW NOW HAVE NO HULL THAT MOUNTS THEM - the drones retired; kept as the catalog record per amendment 6. Full removal is a later cleanup.
+  evidence: `shared/src/constants.ts` (`CONFIG.gun`), the equipment catalog `'gun'` row.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - to be OBSERVED on the 10.8 staging pass and recorded, not solved - 2026-11-07 (Story 10.8, epic-10 amendment 14 (o), amendment 6(g))
+  summary: RADAR NOISE WITHOUT DRONES - the drones were the noise; options are logged under brainstorm #12 / #65. Two drone-anchored radar / wake 'extremes' test assertions were recorded, not re-tuned. Eric's staging pass on the beacons is what closes this.
+  evidence: `_bmad-output/planning-artifacts/brainstorming-session-2026-11-03.md` (#12, #65); the radar and wake tests that lost their drone anchors.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - Eric's pen (Story 10.14 owns the page) - 2026-11-07 (Story 10.8, epic-10 amendment 14)
+  summary: HOW-TO-PLAY: 'Players are worth more, drones are worth less' is stale and the beacons are unexplained.
+  evidence: `client/src/how-to-play/copy.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: CLOSED 2026-11-07 - RULED by Eric on the third candidate (epic-10 amendment 14 (s)): a true-size top-down LANBY buoy whose rim is the hit octagon, `bodyRadiusU` 8 u, chart icon hides when the real buoy draws larger; A / B and the side-view glyph rejected and deleted. Was: open - PROVISIONAL pending Eric's ruling on the rendered candidate - 2026-11-07 (Story 10.8, epic-10 amendment 14 (q))
+  summary: THE BEACON LOOK - glyph A vs B (`CLIENT_CONFIG.beacons.glyph`; delete the loser at his ruling), `bodyRadiusU` 8 u, and whether the body shows under fog. The ruling and the How-to-Play sentence follow as one commit.
+  evidence: `client/src/config.ts` (`CLIENT_CONFIG.beacons`), `client/src/render/beacons.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-8-the-radio-beacons.md`
+  status: open - needs Eric to lift the CLAUDE.md hook - 2026-11-07 (Story 10.8, epic-10 amendment 14 (m))
+  summary: `CLAUDE.md`'S SCHEMA SENTENCE IS STALE - it says the schema syncs only the roster, the revealed zone rings, `matchPhase` and `bountyId`; it also carries the 26 beacon fields (`beaconCycle`, `beaconCount`, `bcn0..7 X / Y / SinkT`). The same sentence in `_bmad-output/project-context.md` was amended in this story.
+  evidence: `CLAUDE.md` (Architecture invariants), `server/src/schema/`.
+
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-08.md`
+  status: open - OWNED by Epic 11's stories as named; nothing here is a design gap - 2026-11-08 (correct-course; epic-11 amendment 1(t))
+  summary: THE BIG OCEAN'S CARRIED THREADS - (1) the clear-day turkey shoot: the ghost floor at zero gain is 11.4's dial, judged on the clear arm at 11.10; (2) ghost rate and the "ghost near a real ship" rule are unmeasured: the bench page + 11.4's staging pass; (3) a range-scaled radar cell is lumpy up close: 11.3 measures the frame on staging at 9,000 u, zoom-level lattices (#30) only if the frame demands; (4) bots see ghosts: 11.9's persistence read; (5) brainstorm #60 island heights at real scale vs forge lock 5 "raster untouched": 11.2's spec step rules whether 9,000 u radar needs real-height shadows; (6) 10.12 / 10.13 / 10.14 are written for today's reach and revisited by 11.9 / 11.11 (Eric: finish Epic 10 first); (7) the rung-ratio tests (zone / dropout / catalog / stats / foghorn / radarShadow / radarWire) die as a RULING at 11.2, never patched to pass; (8) ideas from the 2026-11-07 session that were NOT ruled and have NO story - delayed thunder #65, distant battle as a compass #66, star shell as the long-range eye #87, the admiral's chart #98, fire-where-you-look #29, follow a contact #27, the range ring #28, hull-down marks #22, INTEL-as-signal-strength #46 (back pocket) - a story author must not read them as rulings.
+  evidence: `_bmad-output/forge/big-ocean/forged-idea.md` ("Weak points that survived"), `_bmad-output/brainstorming-session-2026-11-07.md`, `_bmad-output/implementation-artifacts/epic-11-context-amendments.md` #1.
+
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's idea, parked for a later story by his ruling (epic-10 amendment 16 (h), R8) - 2026-11-09 (Story 10.10 design sitting)
+  summary: MANUAL MOUNT SELECTION ON THE BARE DIGITS - Eric, verbatim: "I was thinking perhaps that bare digits could be used to select a specific turret or torpedo launcher? Like ~ to go back to 'auto' mode, but i could manually fire my fore turret by pressing 1. Or if I have torpedoes active, I can press 1 to select just my fore turret." A shared fire-pick change (`pickTurret` / `pickTube`) plus an input field (`inputs.ts`, PROTOCOL_VERSION) - not a HUD change; bare digits stay inert in 10.10; Tab+1..4 is the card pick.
+  evidence: `shared/src/sim/turrets.ts` (`pickTurret`), `shared/src/sim/launchers.ts` (`pickTube`), `server/src/game/inputs.ts`, `client/src/input/keyboard.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's pen (copy) - 2026-11-09 (Story 10.10 build, cycle 218)
+  summary: THE SETTINGS ROW `(NONE) · GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT` IS FALSE SINCE THE CONSOLES - there is no hotbar tile; a click on the MAIN BATTERY row is swallowed. Needs Eric's wording (or deletion of the row).
+  evidence: `client/src/ui/settings.ts` `bindingRows()`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's call on staging - 2026-11-09 (Story 10.10 build, cycle 218; orchestrator readings, epic-10 amendment 17)
+  summary: CONSOLE READINGS FOR ERIC'S VETO - (1) the FIT flash (the fitted square's frame flash) and the ability ACTIVATED pop were DROPPED, not re-homed: the console shows a fit as the values changing plus the `◆ … FITTED` toast; (2) at 1366×768 the ship console fills its column by growing elements to their caps and then spreading ~160 px of slack into the gaps (~36 px section / ~28 px row) - judge on staging whether that reads "filled"; (3) the weapon-row stat words are the refit card's (`DAMAGE` / `RANGE` / …) so `RANGE` appears on a weapon row and as the RANGE index; (4) REDRAW sits BESIDE the offer header (the footer did not fit at 1366×768 under the weapons console); (5) the kill-leader `YOU ARE THE KILL LEADER` toast and the `◆ … FITTED` receipts still use the top-center toast stack - only the level-up line died (R10).
+  evidence: `client/src/main.ts` (`onBoonFitted` no-op), `client/src/render/console/layout.ts` (`shipFill`, `offerLayout`), `client/src/render/console/readouts.ts` (`rowStatFields`), `client/src/ui/upgradeToast.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-9-airdrops.md`
+  summary: A spectator frame carries every live airdrop crate every tick (the `drop` row is spectator-public like mines) — up to ~84 rows × ~30 B at 20 Hz ≈ 50 KB/s per spectator before the first close, through the results window; correct by the mine model, a bandwidth cost if spectators grow.
+  evidence: `server/src/game/signals.ts` `dropSignal.visible` returns true for `ctx.mode === 'spectator'`; the Blind Hunter's count at the 10.9 gate (24 + 22 + 20 + 18 crates before 4:00).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-9-airdrops.md`
+  summary: A scuttle (disconnect / abandon) pays the assist share of the kill pot to everyone who hit the leaver inside the window but NO killer share and no bounty bonus (Story 6.7: no killer by construction) — Eric's 2026-11-09 gate sentence calls a denied kill "pretty shitty"; the wreck half is ruled (R11), the XP half is his to rule.
+  evidence: `server/src/game/match.ts` `onPlayerLeave` → `world.sinkShip(id)` with no killer; epic-10 amendment 18(n).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: CLOSED 2026-11-10 - Eric renamed the card RACK CAPACITY (epic-10 amendment 19(k), cycle 221, 0.19.15); it fits the two-line name box.
+  summary: `EXPANDED MINE RACKS` WRAPS TO THREE LINES ON THE NARROW OFFER CARD (136×64, 28 px name box, 9 mono chars a line at 14 px) and is clipped top and bottom; every other catalog name fits in two. Pre-existing from PR #329's card face. Options: a shorter card name (Eric's word), or a taller card for the whole stack (changes the face he loved). Not shrunk (the text rule).
+  evidence: `client/src/ui/offerGroup.ts` NAME_CSS, `shared/src/sim/catalog.ts` the `expandedMineRacks` line, `monoWrapLines('EXPANDED MINE RACKS', 14, .42, 88)` = 3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-10-the-battle-ui-xp-seen-the-offer-in-the-corner.md`
+  status: open - Eric's call on staging - 2026-11-10 (Story 10.10 follow-up, cycle 220; orchestrator ruling after the Fable gate C1)
+  summary: THE RIGHT OFFER STACK HAS TWO HOMES - under the kill feed at the right edge when the screen is tall enough (16:10 and up, e.g. a 1440×900 fullscreen MacBook), else BESIDE the weapons box (left of it, top-aligned) - because the stack + the kill-feed clearance + the 568 px weapons box need ~1100 logical px and a 16:9 1080p screen or a MacBook browser window (~1440×790) has less. Eric saw and picked the under-the-feed stack; the beside-the-box home is the orchestrator's fallback so RIGHT never silently becomes the bottom row. Veto = pick BOTTOM as the default, or shrink the kill-feed clearance to four lines.
+  evidence: `client/src/render/console/layout.ts` `offerPlacement` (`'right' | 'rightBeside'`), `consoleLayout.test.ts` placement contracts at 1920×1080 / 1920×1200 / 1821×1024.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-11-bots-fill-the-standard-queue-at-1-00.md`
+  summary: ERIC'S CALL — with bot fill ON one anonymous socket gets a full 16-ship arena (15 bot minds at 20 Hz) per queue hold; the Solo vs AI door has a per-IP create throttle (`soloThrottle.ts`) for exactly this cost and the standard queue door has none.
+  evidence: open — 2026-11-10 (Story 10.11 review gate, Blind Hunter): `StandardQueueRoom.formMatch` → `ArenaRoom.finishCreate` `buildBotFleet`; before this story a queue arena needed two sockets and held no bots. Whether the queue door gets the solo throttle (and at what rate) is a ruling, not a patch.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-11-bots-fill-the-standard-queue-at-1-00.md`
+  summary: ERIC'S CALL — a bot-filled queue match is recorded as `MatchRecord.mode: 'standard'` and counted in `/liveness` `modes.standard`, indistinguishable from an all-human match; Epic 12 (the Ledger) cannot backfill the difference later.
+  evidence: open — 2026-11-10 (Story 10.11 review gate, Blind Hunter; spec O4): `ArenaRoom.listingModeOf` is untouched by design (the arena learns `botFill`, never a mode). If the Ledger must tell them apart, the record needs a bot count or a flag before accounts land.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-11-bots-fill-the-standard-queue-at-1-00.md`
+  summary: A queued captain who is seated but never boards leaves an empty seat — the bot fleet is sized from the cohort at form time (`playerCap − expectedCaptains`), so that match starts below the cap. Same behavior as the private lobby's bot fill since cycle 167.
+  evidence: open — 2026-11-10 (Story 10.11 review gate, Codex): `ArenaRoom.ts` `finishCreate`; bots must be in the water before the first tick, so topping up after the boarding grace is a design change, not a patch.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-11-bots-fill-the-standard-queue-at-1-00.md`
+  summary: `HC_QUEUE_BOT_FILL` has no upper bound and no warning on a mistyped value — `"60000"` (ms assumed) arms a 16 h 40 m hold; `"60s"` silently reads as OFF with only `botFill:false` in the `queue.create` log line. With a hold under `CONFIG.net.joiningDeadlineSeconds` (10 s) a socket that never completes its handshake can form a bot arena for nobody (smoke-sized values only).
+  evidence: open — 2026-11-10 (Story 10.11 review gate, both hunters): `server/src/rooms/queueFill.ts` `botFillHoldMs`; Eric ruled the value's meaning, not a ceiling — none was invented.
+
+## 2026-11-11 - Story 10.12 Bot Posture Under the Four Hulls (cycle 223, 0.19.17, PV 101; epic-10 amendment 21) - review-gate defers and Eric's calls
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - 2026-11-11 (review gate, Codex CONFIRMED + Blind Hunter)
+  summary: THE BOT'S NEXT-TICK POSE IS PREDICTED ON RATED KINEMATICS - boost, mine / fouling slow, wake draft, card hooks and collision rollback are not modeled, so on such a hull the on-target check reads a slightly different pose than the server steps turrets against (the click then resolves through the early-click fallback). Better than the pre-move pose it replaced.
+  evidence: `server/src/game/ai/tactics.ts` `stampNextPose`; `server/src/game/world.ts` the kinematics fold before `stepShip`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - harness - 2026-11-11 (review gate, Codex + Blind Hunter, PLAUSIBLE)
+  summary: THE HARNESS MINES-SWEPT READOUT CAN MIS-CREDIT - a mine that trips or chains on a tick when a bot's round lands on its marker is credited to the shooter (over-credit while a bot streams at a mine ahead); a round created and consumed inside one tick is never seen (under-credit). A trend readout, not a count of record.
+  evidence: `server/scripts/batchsim/botReadouts.ts` `noteSwept` doc comment.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - Eric's call on staging - 2026-11-11 (review gate, Blind Hunter; W1a report)
+  summary: THREE BOT BEHAVIORS BUILT AS READINGS - (1) a stayer parked on a paying beacon sits at throttle 0 in a fight: it cannot turn to open its arcs or dodge a ram, and it never hides when outnumbered (only its break-off line moves it); (2) a bot with no enemy about sweeps any hostile mine in secondaries reach, which shows muzzle flashes from an otherwise silent ship (never while holding, hiding or disengaging); (3) the angle off the bow is the arc edge plus `CONFIG.bots.arcOpenMarginDeg` 5 deg, about 35 deg off the bow (Bismarck 40).
+  evidence: `server/src/game/ai/posture.ts` `staysOnBeacon`, `ai/tactics.ts` `sitsStill`; `ai/battery.ts` `planSecondaries`; `ai/arcs.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - low - 2026-11-11 (review gate, Blind Hunter PLAUSIBLE; fix agent)
+  summary: SWEEP EDGES - a sweep round passes through a solid beacon lying on its line (the land check does not see the 8 u body) and a popped naval mine beside a beacon blasts the beacon; a tick the sweep holds the aim but another weapon takes costs the battery that tick's click; the stand-off uses half the hull length, 0.001 u short of the silhouette's bow tip.
+  evidence: `server/src/game/ai/battery.ts` `sweepable`, `sweepStandOffU`; `ai/tactics.ts` decide (plan before chooseShot).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-12-bot-posture-under-the-four-hulls.md`
+  status: open - tooling outside the repo - 2026-11-11
+  summary: THE BALANCE-SIM SKILL SCRIPTS ARE STILL THREE-CLASS - `analyze_campaign.py` `EVEN = 1/3`, `gun_tier_analysis.py` and `run_tuned_campaign.sh` name torpedoBoat / battleship / mineLayer, `SKILL.md` targets 31-35 % a class. They live untracked in Eric's checkout (`.claude/skills/balance-sim`), so this story reported them and did not edit them; `run_campaign.py` works as is.
+  evidence: Story 10.12 harness survey; the 2026-11-11 ledger was aggregated by a throwaway script, not `analyze_campaign.py`.
+
+## 2026-11-11 - Story 10.13 The Sound Pass (cycle 224, 0.19.18, PV 102; epic-10 amendment 22) - review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-13-the-sound-pass.md`
+  status: open - low - 2026-11-11 (review gate)
+  summary: THE LEGACY TONE `fitExclusive` HAS NO CALLER and is not a fallback target (`fireBroadside`, its sibling, was deleted in the record-keeping pass); only its tone-table row, twin-map row and tests reference it.
+  evidence: grep of `client/src` for `fitExclusive` shows only `audio/tones.ts`, `audio/twinMap.ts`, and `__tests__/tones.test.ts` / `twinMap.test.ts`; it is not a value in `LEGACY_FALLBACK` (`audio/synth/cues.ts`).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-13-the-sound-pass.md`
+  status: open - low - tooling outside the repo - 2026-11-11 (review gate)
+  summary: THE AUDITION PAGE'S `--selftest` DEPENDS ON A PLAYWRIGHT INSTALL OUTSIDE THE REPO (`~/.claude/skills/gstack/node_modules/playwright-core`); without it the self-test cannot run.
+  evidence: `client/scripts/perfLib.mjs` `playwrightCandidates()`.
+
+
+## 2026-11-13 - Gun cadence retune (cycle 232, 0.19.26, PV 106; epic-11 amendment 9) - review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-gun-cadence-retune.md`
+  status: open - low - cosmetic - 2026-11-13 (review gate)
+  summary: THE OWN HEAT BAR CAN STEP BACK AND FORTH BY ONE ROUND'S HEAT UNDER LATENCY, and one round's heat is now up to about 9 % of the bar (it was a fixed 3 %): `OwnBattery.correct` overwrites the predicted heat from every own frame with no unacked-input guard (the turrets have one).
+  evidence: `client/src/sim/ownBattery.ts` (`correct`); the mechanism predates this change, the step size is new (a round fired near full heat adds its ~900 ms interval / 10 s).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-6-rain-first.md`
+  summary: Dev rooms with a `zoneOverride` timeline compute different rain on server and client (the client's `FogFieldView.frameAt` always passes `CONFIG.zone`; the server passes the room's own timeline).
+  evidence: Codex + Blind Hunter (Story 11.6 review); dev-only (`HC_DEV_OPTIONS=1`), real matches unaffected; fixing needs the override on the wire.
+
+## 2026-11-16 - Story 11.11 How-to-Play and Record (cycle 240, 0.19.34, PV 109; epic-11 amendment 18)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-11-how-to-play-and-record.md`
+  status: open - needs Eric's ear - 2026-11-16
+  summary: 10.13'S SOUND CUES ARE NOT RE-AUDITIONED FOR THE BIG OCEAN'S REACHES (epic-11 amendment 2(c)); an audition needs Eric listening (sound audition process: one artifact page from the real audio modules).
+  evidence: Story 11.11 AC; cue distances in `client/src/audio/`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-11-how-to-play-and-record.md`
+  status: resolved - 2026-11-16 (Eric: "You can change the obvious shit on the settings page"; row now SPECIAL, stale (NONE) gun row removed)
+  summary: THE SETTINGS CONTROLS LIST SAYS "SHIFT — CLASS SPECIAL" but the Special is the captain's pick on YOUR SHIP, not the hull's; left as is (no in-game copy unasked).
+  evidence: `client/src/ui/settings.ts` controls rows.
+
+## 2026-11-16 - Story 11.9 Bot Posture on the Big Ocean (cycle 241, 0.19.35, PV 109; epic-11 amendment 19)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-9-bot-posture-on-the-big-ocean.md`
+  status: open - parked until 11.4 - 2026-11-16
+  summary: THE BIG OCEAN THREAD (4) "BOTS SEE GHOSTS: 11.9'S PERSISTENCE READ" IS NOT BUILT - there is nothing for it to filter: no ghosts (11.4 not built), no splash returns (11.5 shelved), rain clutter is client-only, and no radar knobs exist for "one honest setting". If 11.4 is ever built, the persistence read and the bots' knob setting are owed by that story.
+  evidence: bot view = ships + airdrops only (`server/src/game/signals.ts` paint rows; `perception.ts` offers bots no shells); `server/src/game/ai/utility.ts` `foldBlip`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-11-9-bot-posture-on-the-big-ocean.md`
+  status: open - low - Eric's if it matters - 2026-11-16
+  summary: THE STAR-SHELL LIT LIFT NO LONGER HELPS A BOT'S MAIN BATTERY IN PRACTICE - a shot past gun reach is far below the 20 % hit bar, so the bot holds; the lift still works for a human captain.
+  evidence: review gate (Blind Hunter); `server/src/game/ai/doctrine.ts` `effectiveReach`, `battery.ts` `clearsHitBar`.

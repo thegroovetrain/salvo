@@ -26,7 +26,7 @@
 // back across our bow would eat a standing latch — the exact misattribution the
 // one-shot rule above exists to prevent, arriving by a different door.
 
-import type { SlotItemId } from '@salvo/shared';
+import type { EquipmentId } from '@salvo/shared';
 import type { OwnFire } from '../render/projectiles.js';
 
 /**
@@ -42,15 +42,15 @@ export const OWN_FIRE_WINDOW_MS = 400;
 
 /** The BALLISTIC ids a reveal can be attributed to — the only slot contents
  *  that ever produce a `shell`/`torp` event. An ability (the boost), the
- *  CLICK-PLACED ids (the three mine lines and the DECOY BUOY — placed, never
+ *  CLICK-PLACED ids (the three mine lines and the four BUOYS — placed, never
  *  revealed as a track) and every non-firing consumable can never leak through
  *  into a projectile's identity, so they are rejected at the claim.
  *
  *  STORY 8.13 ADDED TWO FISH: the LIGHT TORPEDO (its own line) and the SUPERCAV
  *  TORPEDO, which is a BELT consumable (epic-8 amendment 74) and is exactly why
- *  the list is typed over `SlotItemId` rather than `EquipmentId` — a stack can
+ *  the list is typed over `EquipmentId` rather than `EquipmentId` — a stack can
  *  fire a torpedo now. */
-const BALLISTIC: readonly SlotItemId[] = [
+const BALLISTIC: readonly EquipmentId[] = [
   'gun', 'broadside', 'starShells', 'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
   // STORY 8.15: the FLAK GUN fires one shell per click, exactly like the
   // cannon. The MACHINE GUN is deliberately ABSENT: a click never fires it (the
@@ -62,10 +62,18 @@ const BALLISTIC: readonly SlotItemId[] = [
   // fire one shell per click.
   'phosphorShells',
   'foulingShell',
+  // STORY 10.9: FLASH SHELLS (`dazzleShells`) returns beside the fouling shell
+  // on its click path — one shell per click. The four BUOYS are click-PLACED
+  // (like the decoy they replace), never revealed as a track: absent here.
+  'dazzleShells',
+  // STORY 10.4: the MAIN BATTERY — one click fires one turret's salvo on the
+  // cannon's `shell` wire kind. The latch is one-shot, so the salvo's FIRST
+  // shell claims it; its sister shells take the generic own-shell read.
+  'mainBattery',
 ];
 
 /** Pure: is this slot content one a `shell`/`torp` reveal could have come from? */
-export function isBallisticFire(id: SlotItemId): boolean {
+export function isBallisticFire(id: EquipmentId): boolean {
   return BALLISTIC.includes(id);
 }
 
@@ -75,7 +83,7 @@ export function isBallisticFire(id: SlotItemId): boolean {
  * on the Game record); every rule about it is on the three methods below.
  */
 export class OwnFireLatch {
-  private held: { id: SlotItemId; t: number } | null = null;
+  private held: { id: EquipmentId; t: number } | null = null;
   /** Server-clock instant the local captain was last sampled HOLDING the
    *  machine gun's stream (Story 8.15); -Infinity = never / cleared. */
   private streamT = -Infinity;
@@ -86,7 +94,7 @@ export class OwnFireLatch {
    * would leave a stale claim for the next reveal to pick up) — that gate lives
    * at the callsite, which is the only place the prediction exists.
    */
-  latch(id: SlotItemId, t: number): void {
+  latch(id: EquipmentId, t: number): void {
     this.held = { id, t };
   }
 

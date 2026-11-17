@@ -15,13 +15,19 @@
 //   4. THE RAM EXIT (amendment 201): a ram that has touched its target falls
 //      to disengage once CONFIG.bots.ramExitMs passes without the target
 //      sinking, and never re-arms on that target until the pair separate.
-//   5. NO TARGET: siege / trapper standing at a cover point HOLD (amendments
-//      199/202); everyone else repositions (the routed patrol is wave 2's).
+//   5. NO TARGET: a beacon worth farming -> farm (Story 10.8: sail to its
+//      standoff and hold); else siege / trapper standing at a cover point
+//      HOLD (amendments 199/202); everyone else repositions (the routed
+//      patrol is wave 2's).
 //   6. THE RING CLAUSES (amendment 200(2)): a target outside the live ring is
 //      never chased (engaged only from where the bot is, if in reach); with
 //      the close under CONFIG.bots.ringOpenMarginMs no fight is opened.
+//   6b. THE BEACON STAYER (Story 10.12, R4): a profile that does not contest
+//      a beacon, with a beacon goal on its mind, stays in `farm` with a
+//      target; raider and duelist (and a bot with no goal) go on below.
 //   7. NO LINE OF FIRE -> pursue (unchanged; wave 2 routes it).
-//   8. A fleet prize the profile values -> farm (unchanged).
+//   8. (Retired at Story 10.8 with the PvE fleet: the fleet-prize `farm`.
+//      `farm` is now the target-less beacon farm of clause 4 alone.)
 //   9. IN OWN REACH -> engage. BEYOND IT, THE ODDS GATE (amendments 194–195):
 //      pass -> pursue; fail -> lean in (raider / duelist at
 //      CONFIG.bots.leanInFactor of the bar), else SHADOW at own reach (`kite`)
@@ -35,16 +41,16 @@
 // built test situation still reads exactly what it reads.
 //
 // PARITY. Everything read is the bot's own self-read, its own track store
-// and fogged view (decoys included), the public map / fog, and the zone
+// and fogged view, the public map / fog, and the zone
 // readouts of amendment 190. No world import, no rng, no clock read.
 
 import {
   CONFIG,
+  beaconInRange,
   contactHitDamage,
   effectiveStats,
   hullBumper,
   hullEnvelope,
-  type DecoyView,
   type HullId,
   type NavGrid,
   type Vec2,
@@ -57,7 +63,6 @@ import {
   closingSpeed,
   damageEstimate,
   estimatedRemainingHp,
-  isDecoyPlot,
   ownReachU,
   plotAt,
   ringDeadband,
@@ -166,11 +171,26 @@ function engagement(sit: BotSituation, target: BotTrack | null, prev: BotPosture
   if (outsideRing(sit.ring, p)) return lineBlocked(sit, p, sit.islands) ? idle(sit, inp) : 'engage';
   const inReach = Math.hypot(p.x - sit.x, p.y - sit.y) <= ownReachU(sit);
   if (!inReach && closeImminent(sit, inp)) return 'reposition';
+  if (staysOnBeacon(sit, prev, inp)) return 'farm';
   if (lineBlocked(sit, p, sit.islands)) return 'pursue';
-  const w = sit.profile.targetWeights;
-  if (target.fleet && w.fleet >= w.captain) return 'farm';
   if (inReach) return 'engage';
   return beyondReach(sit, target, p, prev, inp);
+}
+
+/** THE BEACON STAYER (Story 10.12, Eric 2026-11-11, epic-10 amendment 21,
+ *  R4): a profile that does not contest a beacon (`contestsBeacon` false),
+ *  already FARMING (the previous posture `farm`), INSIDE its beacon goal's
+ *  paying circle while the beacon is PAYING, is not pulled off it by a target
+ *  — it stays in `farm` (the helm keeps station; the guns shoot from there).
+ *  A stayer already fighting that merely orbits across a beacon's circle is
+ *  not pulled out of its fight, and a charted / spent beacon holds nobody.
+ *  The break-off, ring run and ring clauses still outrank it. */
+function staysOnBeacon(sit: BotSituation, prev: BotPosture, inp: PostureInputs): boolean {
+  const goal = inp.mind?.beaconGoal ?? null;
+  if (sit.profile.contestsBeacon || prev !== 'farm' || goal === null) return false;
+  // PARKED AND COLLECTING is the ruling: a stayer still on its way to a
+  // beacon answers a contact like any bot (the paying circle is the test).
+  return goal.paying && beaconInRange(goal.x, goal.y, sit.x, sit.y);
 }
 
 /** Clause 9's far half: the odds gate on a contact beyond own reach. A
@@ -209,9 +229,8 @@ function freshGate(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind |
  *  contact with the longer gun is left for cover). */
 function gateVerdict(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind | null): Exclude<GateVerdict, 'decline'> | null {
   const tracks = mind === null ? [target] : tracksOf(mind);
-  const decoys = mind?.view?.decoys ?? [];
-  if (outnumbered(sit, target, tracks, decoys)) return null;
-  const odds = oddsFor(sit, target, tracks, decoys);
+  if (outnumbered(sit, target, tracks)) return null;
+  const odds = oddsFor(sit, target, tracks);
   const bar = sit.profile.oddsThreshold;
   if (odds >= bar) return 'pursue';
   if (sit.profile.leansIn && odds >= bar * CONFIG.bots.leanInFactor) return 'pursue';
@@ -225,9 +244,13 @@ function hideOrLeave(sit: BotSituation, mind: BotMind | null, threat: Vec2, prev
   return mind.coverPoint ? 'hide' : 'disengage';
 }
 
-/** Clause 5: no target. Siege / trapper lie in wait at a cover point. */
+/** Clause 5: no target. A public beacon worth farming in the patrol disc
+ *  (the deliberation's `mind.beaconGoal`, ai/beacons.ts — Story 10.8) is
+ *  farmed by every profile; otherwise siege / trapper lie in wait at a cover
+ *  point. */
 function idle(sit: BotSituation, inp: PostureInputs): BotPosture {
   const mind = inp.mind ?? null;
+  if ((mind?.beaconGoal ?? null) !== null) return 'farm';
   if (mind === null || !sit.profile.holdsInCover) return 'reposition';
   if (!coverUsable(sit, mind.coverPoint, inp.nextRing)) {
     mind.coverPoint = findCover(mind, coverSite(sit), null, sit.islands, mind.fogAt, coverOptions(sit, inp));
@@ -243,8 +266,8 @@ function idle(sit: BotSituation, inp: PostureInputs): BotPosture {
  * THE ODDS of closing on `target` (amendment 195, the orchestrator's form):
  *   ownHpFrac × (1 + damageEstimate) / peerFactor − crowdPenalty × max(0, nearby − 1)
  * `damageEstimate` is the bot's own Hit-Call estimate (counted per click);
- * `peerFactor` the sighted class's BASE hull over the bot's own class base
- * hull (1 for an unclassed plot — a peer); `nearby` the other hostiles
+ * `peerFactor` the sighted class's BASE ARMOR over the bot's own class base
+ * ARMOR (Story 10.3 — toughness is ARMOR; 1 for an unclassed plot — a peer); `nearby` the other hostiles
  * tracked within radar range (nearbyHostiles). Passes at
  * `profile.oddsThreshold`.
  */
@@ -252,10 +275,9 @@ export function oddsFor(
   sit: BotSituation,
   target: BotTrack,
   tracks: readonly BotTrack[],
-  decoys: readonly DecoyView[],
 ): number {
   const hpFrac = sit.maxHp > 0 ? sit.hp / sit.maxHp : 0;
-  const crowd = CONFIG.bots.crowdPenalty * Math.max(0, nearbyHostiles(sit, target, tracks, decoys) - 1);
+  const crowd = CONFIG.bots.crowdPenalty * Math.max(0, nearbyHostiles(sit, target, tracks) - 1);
   return (hpFrac * (1 + damageEstimate(target))) / peerFactor(sit, target) - crowd;
 }
 
@@ -265,46 +287,47 @@ export function outnumbered(
   sit: BotSituation,
   target: BotTrack,
   tracks: readonly BotTrack[],
-  decoys: readonly DecoyView[],
 ): boolean {
-  return nearbyHostiles(sit, target, tracks, decoys) >= CONFIG.bots.outnumberedCount;
+  return nearbyHostiles(sit, target, tracks) >= CONFIG.bots.outnumberedCount;
 }
 
 /** Other HOSTILE tracks within the bot's radar range: not the target, not a
- *  wreck, not PvE fleet, not a decoy (known or probable — amendment 197). */
-export function nearbyHostiles(
-  sit: BotSituation,
-  target: BotTrack,
-  tracks: readonly BotTrack[],
-  decoys: readonly DecoyView[],
-): number {
+ *  wreck (the decoy exclusion left with the buoys, Story 10.5; the PvE fleet
+ *  exclusion with the fleet, Story 10.8). */
+export function nearbyHostiles(sit: BotSituation, target: BotTrack, tracks: readonly BotTrack[]): number {
   let n = 0;
   for (const t of tracks) {
-    if (t === target || t.sunk || t.fleet || isDecoyPlot(t, decoys)) continue;
+    if (t === target || t.sunk) continue;
     const p = plotAt(sit, t);
     if (Math.hypot(p.x - sit.x, p.y - sit.y) <= sit.stats.radarRange) n += 1;
   }
   return n;
 }
 
-/** The sighted class's BASE hull over the bot's own class base hull (never
- *  either side's upgrades — amendment 195); 1 for an unclassed plot. Without
- *  a hull id on the situation the bot's own folded max hull stands in. */
+/** The sighted class's BASE toughness over the bot's own class base
+ *  toughness (never either side's upgrades — amendment 195); 1 for an
+ *  unclassed plot. Toughness is the ARMOR index since Story 10.3 ("toughness
+ *  = ARMOR, never HP" — every hull is 1000 hp), read off the envelope's
+ *  `index.armor`; 1 for every scaffold pair today, the relation stands.
+ *  Without a hull id on the situation the bot's own folded ARMOR stands in. */
 function peerFactor(sit: BotSituation, target: BotTrack): number {
   if (target.cls === null) return 1;
-  const own = sit.hullId === undefined ? sit.maxHp : hullEnvelope(sit.hullId).hp;
-  return own > 0 ? hullEnvelope(target.cls).hp / own : 1;
+  const own = sit.hullId === undefined ? sit.stats.armor : hullEnvelope(sit.hullId).index.armor;
+  return own > 0 ? hullEnvelope(target.cls).index.armor / own : 1;
 }
 
 /** u — the reach a SIGHTED class carries by what the seat can see: its base
- *  deck-gun reach (the seat default; upgrades and a picked gun are private),
- *  memoized per class. An unclassed plot is a peer: own reach. */
+ *  MAIN-BATTERY reach — `CONFIG.mainBattery.rangeU ×` that hull's
+ *  `battery.reachFrac`, the zero-card fold (Story 11.2, R2 / R9: reach is a
+ *  fact on the hull's battery; the retired RANGE index and the unmounted
+ *  `gun` row are not read) — memoized per class. An unclassed plot — a radar
+ *  paint — is a peer: own reach. */
 const BASE_REACH = new Map<HullId, number>();
 export function targetReachU(sit: BotSituation, target: BotTrack): number {
   if (target.cls === null) return ownReachU(sit);
   let r = BASE_REACH.get(target.cls);
   if (r === undefined) {
-    r = effectiveStats(hullEnvelope(target.cls)).equipment.gun.rangeU;
+    r = effectiveStats(hullEnvelope(target.cls)).equipment.mainBattery.rangeU;
     BASE_REACH.set(target.cls, r);
   }
   return r;
@@ -379,15 +402,13 @@ function stillLatched(mind: BotMind | null, sit: BotSituation): boolean {
 /**
  * THE CONTACT CLOCK (amendment 196's broken-contact half): stamp
  * `mind.lastContactAt` with the latest moment any hostile was SEEN (a live
- * track: now) or PAINTED (its last paint time). Wrecks and decoys (known or
- * probable) are not contact. Reads paint times, not "painted this tick", so
+ * track: now) or PAINTED (its last paint time). Wrecks are not contact. Reads paint times, not "painted this tick", so
  * a paint between two deliberations still counts.
  */
 export function noteContact(mind: BotMind, now: number): void {
-  const decoys = mind.view?.decoys ?? [];
   let last = mind.lastContactAt ?? -1;
   for (const t of mind.contacts.values()) {
-    if (t.sunk || isDecoyPlot(t, decoys)) continue;
+    if (t.sunk) continue;
     last = Math.max(last, t.live ? now : t.paintAt);
   }
   mind.lastContactAt = last;
@@ -437,11 +458,10 @@ function refreshCover(mind: BotMind, sit: BotSituation, threat: Vec2 | null, pre
  *  hostile the bot tracks, else nothing. */
 function threatOf(sit: BotSituation, target: BotTrack | null, mind: BotMind): Vec2 | null {
   if (target !== null) return plotAt(sit, target);
-  const decoys = mind.view?.decoys ?? [];
   let best: Vec2 | null = null;
   let bestD = Infinity;
   for (const t of mind.contacts.values()) {
-    if (t.sunk || isDecoyPlot(t, decoys)) continue;
+    if (t.sunk) continue;
     const p = plotAt(sit, t);
     const d = Math.hypot(p.x - sit.x, p.y - sit.y);
     if (d < bestD) {
@@ -482,16 +502,19 @@ function ramRefused(mind: BotMind | null, key: string | null, now: number): bool
 }
 
 /** The amendment-77 arithmetic: in reach, and the priced hit lands and
- *  covers the estimated remaining hull. */
+ *  covers the estimated remaining hull. MASS = ARMOR (Story 10.3, ruling 2):
+ *  the bot's own folded ARMOR against the target class's BASE ARMOR (its
+ *  cards are private — amendment 84(j)); the remaining hull is still the
+ *  class's base hp. */
 function ramLands(sit: BotSituation, target: BotTrack, cls: HullId): boolean {
   const p = plotAt(sit, target);
   const dx = p.x - sit.x;
   const dy = p.y - sit.y;
   const d = Math.hypot(dx, dy);
   if (d > CONFIG.bots.ramReachU) return false;
-  const baseHp = hullEnvelope(cls).hp;
-  const hit = contactHitDamage(sit.maxHp, baseHp, closingSpeed(sit, target, dx, dy, d), CONFIG.ram).b;
-  return hit > 0 && hit >= estimatedRemainingHp(target, baseHp);
+  const env = hullEnvelope(cls);
+  const hit = contactHitDamage(sit.stats.armor, env.index.armor, closingSpeed(sit, target, dx, dy, d), CONFIG.ram).b;
+  return hit > 0 && hit >= estimatedRemainingHp(target, env.hp);
 }
 
 /** The strike happened (`ramStruckAt` stamped) and CONFIG.bots.ramExitMs has

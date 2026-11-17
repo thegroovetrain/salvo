@@ -1,4 +1,4 @@
-// THE SETTLED-POSE SKIP (fix 2026-10-14 — the post-fleet-wave tick cost; see
+// THE SETTLED-POSE SKIP (fix 2026-10-14 — the many-hulls tick cost; see
 // World.settledPoses). A hull whose candidate pose is exactly a pose the
 // island resolver already returned untouched and contact-free skips the
 // resolver — it would get the identical answer. These pins: a still hull far
@@ -28,7 +28,7 @@ vi.mock('@salvo/shared', async (importOriginal) => {
 const callsFor = (rec: ShipRecord): number => calls.get(rec.state) ?? 0;
 
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Open water but for one far rock. */
@@ -40,7 +40,7 @@ function farRockWorld(): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
+function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'bismarck'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
@@ -68,13 +68,13 @@ describe('settled-pose skip — the island resolver runs only for a hull whose p
 
   it('a still hull displaced by a hull push IS resolved that tick', () => {
     const w = farRockWorld();
-    const still = place(w, 'still', 0, 0, 'battleship');
+    const still = place(w, 'still', 0, 0, 'yamato');
     for (let i = 0; i < 5; i++) w.step();
     calls.clear();
     w.step();
     expect(callsFor(still)).toBe(0); // settled
     // An overlapping hull arrives: the hull pass shoves the still hull this tick.
-    place(w, 'rammer', 12, 0, 'battleship');
+    place(w, 'rammer', 12, 0, 'yamato');
     w.step();
     expect(still.state.x).not.toBe(0);
     expect(callsFor(still)).toBe(1);
@@ -91,7 +91,7 @@ describe('settled-pose skip — byte-identical poses', () => {
     calls.clear();
     const w = new World(0x9876, 20, CONFIG.zone);
     w.settledPoseSkip = skip;
-    const ids = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
+    const ids = ['bismarck', 'yamato', 'warspite'] as const;
     const recs: ShipRecord[] = [];
     for (let i = 0; i < 20; i++) {
       const rec = w.addShip(`c${i}`, `C${i}`, 'captain', ids[i % ids.length], undefined, undefined);

@@ -13,7 +13,7 @@
 // for a pure rules module reading CLIENT_CONFIG. Pure of SIDE EFFECTS and of the
 // audio stack; not free of configuration.
 
-import { CONFIG, type LineKind, type SlotItemId } from '@salvo/shared';
+import { CONFIG, type LineKind } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Every distinct cue the client can play. */
@@ -21,9 +21,7 @@ export type ToneId =
   | 'fireGun'
   | 'fireTorp'
   | 'fireMine'
-  | 'fireBroadside'
   | 'fireStarShells'
-  | 'placeDecoy'
   | 'denied'
   | 'damage'
   | 'kill'
@@ -35,10 +33,9 @@ export type ToneId =
   | 'burn'
   | 'hitCall'
   | 'slowed'
+  | 'dazzled'
   | 'sink'
   | 'bounty'
-  | 'aggroLock'
-  | 'aggroRelease'
   // --- the SOUND MAP (Story 4.7): things that happen out in the world --------
   | 'gunReport'
   | 'impact'
@@ -48,7 +45,6 @@ export type ToneId =
   | 'hpCritical'
   | 'tick'
   | 'matchStart'
-  | 'stormWarn'
   | 'telegraphUp'
   | 'telegraphDown'
   // --- HULL CONTACT (Story 9.5, epic-9 amendment 79) --------------------------
@@ -79,15 +75,11 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Broadside barrage (Story 7-5 wave 2, inherited from the cannon it replaced):
   // a HEAVIER gun report — lower + more body than the gun crack, with a bigger
   // noise transient (the Battleship's big shells, several at once).
-  fireBroadside: { freqStart: 520, freqMid: 200, freqEnd: 80, duration: 0.14, volume: 0.55, type: 'square', noise: true },
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
-  // Decoy buoy placement (Story 8.16 — the deleted radar buoy's sound, renamed):
-  // a hollow water "bloop" — same soft sine drop family as the mine plop but
-  // pitched a touch higher + brighter so dropping a decoy is audibly distinct
-  // from dropping a mine.
-  placeDecoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
+  // (The decoy/buoy placement cue left with the buoys — Story 10.5,
+  // 2026-11-05, epic-10 amendment 11: nothing is placed but a mine.)
   // Denied press (Story 1.10 — FR12 "never silence"): a curt low square BLAT,
   // pitched fast downward with no noise layer — reads as a refusal, distinct
   // from every success cue (the gun family cracks start ≥520Hz with noise, the
@@ -145,8 +137,8 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //
   // WHY IT CANNOT BE MISTAKEN FOR ITS NEIGHBOURS, all three of which are things
   // happening TO you while this is something happening FOR you:
-  //   • the CONTOUR is unique in the low register — damage (220→110), burn
-  //     (150→90) and stormWarn (160→70) all fall monotonically to their floor
+  //   • the CONTOUR is unique in the low register — damage (220→110) and burn
+  //     (150→90) both fall monotonically to their floor
   //     and stop; this one dips and comes back, so it lands as a swell, not a
   //     hit;
   //   • it starts BELOW all three (130 < 150 < 160 < 220), so even the contour
@@ -160,6 +152,11 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Fouled (PROP-FOULING): a sagging low sine — the engine losing revs. Falls
   // like the denied blat but soft and round, never that curt square refusal.
   slowed: { freqStart: 300, freqMid: 190, freqEnd: 130, duration: 0.14, volume: 0.34, type: 'sine' },
+  // Dazzled (FLASH SHELLS, Story 8.17's tone restored by 10.9): a bright glassy
+  // sting that washes UP and thins out — the optical opposite of the fouled
+  // sag, and audibly nothing like the shell's own launch whistle (that one is
+  // the firer's, this one is the victim's: shorter, higher, no body).
+  dazzled: { freqStart: 900, freqMid: 1400, freqEnd: 1250, duration: 0.12, volume: 0.34, type: 'sine' },
   // Own sink: the one long tone — alarm warble sliding down into a low boom.
   sink: { freqStart: 320, freqMid: 180, freqEnd: 60, duration: 0.4, volume: 0.55, type: 'sawtooth' },
   // --- THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) -------------------------
@@ -178,28 +175,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // 700→1500. Draft spec (the standing draft-copy
   // rule); the visual twin is the toast + the bar's own BOUNTY register.
   bounty: { freqStart: 990, freqMid: 660, freqEnd: 990, duration: 0.15, volume: 0.46, type: 'square' },
-  // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 40) ----------------------
-  // A PvE fleet ship has taken you as its target — or has just lost you. Eric
-  // asked for BOTH edges to be *"very visually obvious"*, and the audio follows
-  // the same pairing: the two cues are the SAME contour played in opposite
-  // directions, so they are a matched pair by construction rather than by
-  // adjective, exactly as the bracket's one `spread` channel runs down on
-  // acquire and up on release.
-  //
-  // THE LOCK is a hard ASCENDING triangle sting — a mid-register snap UP that
-  // stops dead. It is not the klaxon (that square shape is the bounty's alone
-  // and fires on a status change about YOU, not about a threat), it is well
-  // above `hitCall`'s 130Hz thud, and it
-  // rises where `slowed` sags. Deliberately SHORTER and quieter than `damage`:
-  // being aimed at is not being hit, and the catalog must not let the two
-  // trade places in a fight.
-  aggroLock: { freqStart: 420, freqMid: 700, freqEnd: 760, duration: 0.11, volume: 0.36, type: 'triangle' },
-  // THE RELEASE is the same contour inverted and softened — a descending sine
-  // that thins out, *"a distinct, softer descending cue"* (amendment 40). Lower
-  // peak volume than its own lock, because losing a hunter is relief rather
-  // than an event demanding a reaction; sine rather than triangle so the two
-  // differ in TIMBRE as well as in direction and survive a noisy mix.
-  aggroRelease: { freqStart: 700, freqMid: 460, freqEnd: 340, duration: 0.13, volume: 0.26, type: 'sine' },
   // --- THE SOUND MAP (Story 4.7, Eric ruling 2026-08-10) ----------------------
   //
   // Six cues for things that happen OUT IN THE WORLD rather than to you — the
@@ -271,8 +246,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //     and stays centred).
   //   • `sink` (320→180→60) shares the sawtooth voice but is 3× longer and is
   //     still at 180Hz where this one has already collapsed to 100.
-  //   • `stormWarn` (160→110→70, sawtooth, no noise) falls 2.3×; this falls 4.3×
-  //     from well above it, and carries a transient the growl has not.
   impact: { freqStart: 260, freqMid: 100, freqEnd: 60, duration: 0.13, volume: 0.44, type: 'sawtooth', noise: true },
   // A shell falling into WATER. The catalog's only high, soft, noise-forward
   // cue: a sine (no edge whatsoever) with a spray hiss under it, sliding down
@@ -291,9 +264,9 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //     and centred.
   //   • `point` (700→1100→1500) and `kill` (500→900→1200) start in the same place
   //     and RISE through two octaves; nothing about a miss rises.
-  //   • `fireMine` (220) and `placeDecoy` (340) are the catalog's other soft sine
-  //     drops, an octave or more below and both transient-free — the hiss is what
-  //     says "water", and both of those are your own hand, centred.
+  //   • `fireMine` (220) is the catalog's other soft sine drop, an octave or
+  //     more below and transient-free — the hiss is what says "water", and that
+  //     one is your own hand, centred.
   splash: { freqStart: 700, freqMid: 460, freqEnd: 280, duration: 0.1, volume: 0.24, type: 'sine', noise: true },
   // A hull you can SEE going down. Witnessed sinkings only: the Public
   // Register's fog kills stay silent, because `sunk` carries no position and the
@@ -326,9 +299,9 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // yourself is meaningless (amendment 55 settled that with the foghorn's own
   // honk, which gets a hull bloom instead of a chevron).
   //
-  // They join the ALARM family on purpose. `stormWarn` and `sink` are the
-  // catalog's sawtooths, and these carry the same class of message — your ship
-  // is in trouble — so stormWarn → hpHurt → hpCritical → sink is meant to be
+  // They join the ALARM family on purpose. `sink` is the catalog's other
+  // sawtooth, and these carry the same class of message — your ship is in
+  // trouble — so hpHurt → hpCritical → sink is meant to be
   // heard as ONE voice getting worse rather than four unrelated noises. What
   // separates them from that family is CONTOUR: both alarm siblings fall
   // monotonically, while these WHOOP — up to a peak at the 40% mark, then down
@@ -358,8 +331,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
   tick: { freqStart: 700, freqMid: 700, freqEnd: 700, duration: 0.06, volume: 0.3, type: 'square' },
   // Match start: bright rising-then-settling tone.
   matchStart: { freqStart: 400, freqMid: 900, freqEnd: 650, duration: 0.14, volume: 0.5, type: 'triangle' },
-  // Storm-enter warning: descending growl.
-  stormWarn: { freqStart: 160, freqMid: 110, freqEnd: 70, duration: 0.15, volume: 0.5, type: 'sawtooth' },
   // Engine-telegraph detent clicks: tiny, dry ticks — a brass bell chime. The
   // ahead click sits a fifth above the astern click so ringing up vs down the
   // scale is audibly distinct without reading as a "real" cue.
@@ -372,7 +343,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // gain scaled by the sliding speed — each scrape spans about one retrigger,
   // so the run reads as one continuous rasp. The catalog's lowest, flattest
   // voice: a sawtooth sagging barely a fifth under a noise layer, far below
-  // `stormWarn`'s growl (160→70, a long fall) and `impact`'s collapse, and it
+  // `impact`'s collapse, and it
   // never arrives alone — the hulls are visibly pressed together on the water.
   // Peak level is the feel knob `grindGainMax`. UNRATIFIED DRAFT — Eric judges
   // it on staging (amendment 79).
@@ -392,69 +363,6 @@ export function telegraphTone(dir: number): ToneId {
   return dir > 0 ? 'telegraphUp' : 'telegraphDown';
 }
 
-/** Equipment with a discrete own-fire/placement cue routed through fireTone. The
- *  instant abilities that have NO such cue here are excluded at the type level:
- *  boost (a pure speed window) and the DECOY BUOY (Story 8.16 — its placement
- *  cue is played as 'placeDecoy' from the decoy reconcile own-spawn hook, not
- *  via fireTone). The MINE stays included even though it is now an ability
- *  (Story 1.8) — its 'fireMine' drop cue still fires, via the Mines reconcile
- *  own-spawn hook (main.ts); the decoy's cue rides the same hook shape. */
-type FiringEquipmentId = Extract<
-  SlotItemId,
-  | 'gun'
-  | 'broadside'
-  | 'starShells'
-  // STORY 8.17: PHOSPHOR SHELLS (equipment) and — since Story 9.4 — the
-  // FOULING SHELL (`foulingShell`, FLASH SHELLS' successor,
-  // a click-fired consumable) — both launch one shell like the star shell.
-  | 'phosphorShells'
-  | 'foulingShell'
-  // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
-  // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
-  // Extract widened from `EquipmentId` to `SlotItemId`.
-  | 'lightTorpedo'
-  | 'heavyTorpedo'
-  | 'supercavTorpedo'
-  // THE THREE MINE LINES (amendments 76/81) — naval, captive and fouling all
-  // drop off the same rack and report with the same cue.
-  | 'navalMines'
-  | 'captiveMines'
-  | 'foulingMines'
->;
-
-/** TOTAL over the ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
- *  catalog v3's thirteen weapons plus two legacy ids, so the old
- *  `Exclude<..., 'boost' | 'radarBuoy'>` (the radar buoy is deleted since
- *  Story 8.16) would now demand a cue for weapons
- *  that have no module to fire - the union names exactly the ones that do.
- *
- *  NO NEW `ToneId` (Story 8.13): every torpedo reports with the TORPEDO cue and
- *  every mine with the MINE cue. A player cannot hear which line launched — and
- *  should not have to: the cue says "a fish just left" / "a mine is on the
- *  water", which is the fact the player needs, and inventing five new sounds
- *  for five lines would be new game feel nobody asked for (the a11y twin map
- *  pairs tones by MEANING, and these mean the same thing). */
-const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
-  gun: 'fireGun',
-  lightTorpedo: 'fireTorp',
-  heavyTorpedo: 'fireTorp',
-  supercavTorpedo: 'fireTorp',
-  navalMines: 'fireMine',
-  captiveMines: 'fireMine',
-  foulingMines: 'fireMine',
-  broadside: 'fireBroadside',
-  starShells: 'fireStarShells',
-  // NO NEW ASSET (Story 8.17): a phosphor or fouling shell leaves the deck
-  // exactly as a flare does, so it reuses the star-shell launch cue.
-  phosphorShells: 'fireStarShells',
-  foulingShell: 'fireStarShells',
-};
-
-/** Pure: which tone a weapon's own-fire cue plays. */
-export function fireTone(id: FiringEquipmentId): ToneId {
-  return FIRE_TONE[id];
-}
-
 /**
  * Card KIND -> its fit cue (Story 2.9, re-keyed to catalog v3 in Story 8.1).
  * Rarity is gone from the catalog, so the ONE audible axis is now the kind: an
@@ -469,7 +377,6 @@ const FIT_TONE: Record<LineKind, ToneId> = {
   equipment: 'fitRare',
   ladder: 'fitCommon',
   addon: 'fitCommon',
-  consumable: 'fitCommon',
 };
 
 /** Pure: the fit cue for a fitted card's kind. Fail-open to the light weight -
@@ -501,7 +408,6 @@ const FIT_KIND_CENTS: Readonly<Record<string, number>> = {
   equipment: -2 * SEMITONE_CENTS,
   ladder: 0,
   addon: 1 * SEMITONE_CENTS,
-  consumable: 2 * SEMITONE_CENTS,
 };
 
 /**
@@ -511,6 +417,25 @@ const FIT_KIND_CENTS: Readonly<Record<string, number>> = {
  */
 export function fitDetune(kind: string): number {
   return Object.hasOwn(FIT_KIND_CENTS, kind) ? FIT_KIND_CENTS[kind] : 0;
+}
+
+/**
+ * Pure (Story 10.13): the fit cue's transposition as a frequency RATIO for the
+ * layered `cardFitted` cue's `pitch` — the same cents table, so the old
+ * relationship survives (equipment lowest, ladder at the root, addon higher).
+ */
+export function fitPitch(kind: string): number {
+  return Math.pow(2, fitDetune(kind) / 1200);
+}
+
+/**
+ * Pure (Story 10.13): the fit cue's relative LEVEL, carried over from the two
+ * legacy weights — the kind's tone volume over the loudest fit tone, so an
+ * equipment fit stays slightly louder than a ladder rung or an add-on.
+ */
+export function fitGain(kind: LineKind | undefined): number {
+  const loudest = Math.max(TONES[FIT_TONE.equipment].volume, TONES[FIT_TONE.ladder].volume, TONES[FIT_TONE.addon].volume);
+  return TONES[fitTone(kind)].volume / loudest;
 }
 
 /** The kinds the fit transposition covers (test seam - pinned against the live
@@ -574,11 +499,6 @@ export function audioCues(
   };
 }
 
-/** Pure: true the instant the own ship crosses from inside to outside the storm. */
-export function stormEnterEdge(prevInStorm: boolean, inStorm: boolean): boolean {
-  return inStorm && !prevInStorm;
-}
-
 // --- THE SOUND MAP's two pure helpers (Story 4.7) ---------------------------
 //
 // Both live here rather than beside their call sites for the same reason the
@@ -620,7 +540,7 @@ export interface WorldCue {
  * reach test here would be a SECOND implementation of a perception rule, which
  * is exactly the desync/leak class this project forbids (the `effectiveStats()`
  * argument, applied to sensing rather than to stats). Every world cue therefore
- * passes the SAME reach, `CONFIG.vision.radar` (the twelfths ladder's 12/12 rung,
+ * passes the SAME reach, `CONFIG.vision.radar` (the twelfths ladder [retired 2026-11-12, Story 11.2]'s 12/12 rung,
  * full intel range). Per-cue rungs (muzzleFlash for `mz`, sight for `boom`) were
  * considered and rejected on that ground: they would have re-derived the
  * server's answer client-side.
@@ -660,6 +580,29 @@ export function worldCue(dxWorld: number, dyWorld: number, reachU: number): Worl
   const gain = floor + (1 - floor) * Math.max(0, 1 - d / reachU);
   const pan = Math.max(-1, Math.min(1, dxWorld / reachU)) * CLIENT_CONFIG.audio.panMax;
   return { pan, gain };
+}
+
+/** Where a LAYERED world cue (Story 10.13) sits: `worldCue`'s pan, and the
+ *  distance over the same reach as a 0..1 fraction for the recipe's own
+ *  distance shaping (synth/recipe.ts `distanceShape`). */
+export interface WorldPlacement {
+  pan: number;
+  distance01: number;
+}
+
+/**
+ * Pure: the placement of a layered world cue. The pan IS `worldCue`'s (same
+ * math, same cap, same clamp past the reach); `distance01` is the same
+ * distance over the same reach, clamped to 1 past it — clamped, never dropped,
+ * for `worldCue`'s reason. ONE level curve applies to a layered cue: the
+ * recipe's `distanceShape` (quieter, darker, later, wetter with distance); the
+ * legacy linear gain is deliberately NOT multiplied on top. Null for the same
+ * unusable input `worldCue` rejects.
+ */
+export function worldPlacement(dxWorld: number, dyWorld: number, reachU: number): WorldPlacement | null {
+  const cue = worldCue(dxWorld, dyWorld, reachU);
+  if (!cue) return null;
+  return { pan: cue.pan, distance01: Math.min(1, Math.hypot(dxWorld, dyWorld) / reachU) };
 }
 
 /** Which damage band the hull just fell through. */

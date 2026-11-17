@@ -45,6 +45,7 @@ import { Container, FillGradient, Graphics, Texture, type Sprite } from 'pixi.js
 import { CONFIG, generateMap, paintCoverage, type GameMap, type WakeBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
+import { expDecay } from '../util/math.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Camera } from './camera.js';
@@ -53,7 +54,8 @@ import { Effects } from './effects.js';
 import { Fog } from './fog.js';
 import { buildMap, type MapChart } from './map.js';
 import { Radar } from './radar.js';
-import { ShipView, contactStyle, hueRevision, type ShipStyle } from './ships.js';
+import { ShipView, type ShipStyle } from './ships.js';
+import { relationStyle } from './relationColor.js';
 import { applyCamera, type Stage, type StageLayers } from './stage.js';
 import { WakeSources, type WakeHull } from './wake.js';
 import {
@@ -241,6 +243,8 @@ export class AmbientScene {
   private readonly map: GameMap;
   private readonly world: AmbientWorld;
   private readonly camera: Camera;
+  /** The eased point the backdrop camera rides (A.followRate). */
+  private readonly drift = { x: 0, y: 0 };
   private readonly chart: MapChart;
   private readonly radar: Radar;
   private readonly effects: Effects;
@@ -253,8 +257,6 @@ export class AmbientScene {
   /** Each hull's resolved style, held so the silhouette and its wake are drawn
    *  from ONE value per frame (see `syncStyles`). */
   private readonly styles = new Map<string, ShipStyle>();
-  /** The hue-table revision these styles were resolved at (`ships.ts`). */
-  private styleRev = hueRevision();
   /** The ids inside truesight THIS FRAME — the visibility authority for the
    *  drawn hulls (see `drawHulls`), refreshed by `feedContacts`. */
   private readonly sightedIds = new Set<string>();
@@ -278,36 +280,35 @@ export class AmbientScene {
     // wrong" is unreproducible by construction.
     console.info(`[home] scene seed ${seeds.mapSeed} (reproduce with ?homeseed=${seeds.mapSeed})`);
     const stats = this.world.stats;
-    // Lead is deliberately zero: the in-match camera throws itself ahead of the
-    // bow, which is right when you are steering and wrong for a backdrop that
-    // must hold a composed picture behind a column of text.
     // The scene frames its own composed span (A.spanU), never radar (Story 9.8):
-    // there is no user zoom and no ring here, so close = default = that span.
+    // there is no user zoom and no ring here, so close = default = that span
+    // (and with no ring and no board fed, the camera never slides).
     this.camera = new Camera({
       defaultSpanU: A.spanU,
       closeSpanU: A.spanU,
       ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
-      followRate: A.followRate,
-      leadSeconds: 0,
-      leadMax: 0,
     });
     this.camera.setViewport(this.viewW, this.viewH);
-    this.camera.snapTo(ambientCameraTarget(this.world));
+    const target = ambientCameraTarget(this.world);
+    this.drift.x = target.x;
+    this.drift.y = target.y;
+    this.camera.snapTo(this.drift);
     this.chart = buildMap(this.map, stage.layers, this.camera.zoom);
     // `return` grammar, and no hue resolver: under `return` the scope carries no
     // identity at all (amendments 65/67), so there is nothing for one to answer.
     this.radar = new Radar(stage.layers.blip, stage.layers.sweep);
     this.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
     this.radar.setHeightRaster(this.map.heightRaster);
+    this.radar.setMapRadius(this.map.radius);
     // One layer for all three of Effects' sinks: the scene spawns wake and
     // NOTHING else, so the one-shot and burst layers are never reached. That is
     // the "no combat on the menu" rule expressed as wiring rather than as a
     // check somebody has to remember.
     this.effects = new Effects(stage.layers.wake);
     this.fog = new Fog(stage.fogSprite);
-    this.fog.setSightRange(stats.sightRange, stats.radarRange);
+    this.fog.setSightRange(stats.sightRange, stats.radarRange, stats.hullSightRange);
     for (const h of this.world.hulls) {
-      const style = contactStyle(h.cls, h.hue);
+      const style = relationStyle(h.relation);
       this.styles.set(h.id, style);
       const view = new ShipView(style, h.cls);
       stage.layers.ship.addChild(view.gfx);
@@ -360,12 +361,19 @@ export class AmbientScene {
     // The camera eases on the MOTION-SCALED step, so `motion: off` stops the
     // drift as well as the fleet (an unscaled dt kept gliding toward a target
     // that never moved again — motion that outlived the setting that forbade it).
-    this.camera.update(tick.travelSec, ambientCameraTarget(this.world));
+    // THE BACKDROP DRIFTS (Story 11.8 moved the ease here: the in-match camera
+    // lost its follow easing, the scene keeps its slow `A.followRate` glide).
+    const target = ambientCameraTarget(this.world);
+    this.drift.x = expDecay(this.drift.x, target.x, A.followRate, tick.travelSec);
+    this.drift.y = expDecay(this.drift.y, target.y, A.followRate, tick.travelSec);
+    this.camera.update(tick.travelSec, this.drift);
     applyCamera(this.camera, this.stage.worldRoot, this.stage.chartRoot, this.stage.layers.plate);
     this.chart.update(this.camera.zoom);
     this.drawHulls(tick);
     this.effects.update(tick.dtSec, now, this.wakes);
-    this.radar.render(this.world.observer.state, now, this.camera.worldView);
+    // The screen rect bounds the dim-masked pass (radar.ts `dimPassRect`) and
+    // clips the heat sprite, exactly as in a match (Story 11.2 follow-up, G1).
+    this.radar.render(this.world.observer.state, now, this.camera.worldView, this.camera.screenWorldRect);
     const hole = this.camera.worldToScreen(this.world.observer.state);
     this.fog.update(hole.x, hole.y);
   }
@@ -449,29 +457,6 @@ export class AmbientScene {
   // --- drawing ----------------------------------------------------------------
 
   /**
-   * Re-resolve every hull's style if the hue tables were swapped under us.
-   *
-   * The colorblind assist is a TABLE SWAP at the `ships.ts` chokepoint and it
-   * bumps a revision precisely so latched consumers can notice; the settings
-   * overlay is reachable pre-join through the home gear, so this really does
-   * change while the menu is up. The scene latched its styles once at
-   * construction and then recomputed only the WAKE's colour per frame, so
-   * toggling the assist recoloured a hull's foam and not the hull. One resolve
-   * per hull per frame, shared by the silhouette and the wake, makes the two
-   * incapable of disagreeing.
-   */
-  private syncStyles(): void {
-    const rev = hueRevision();
-    if (rev === this.styleRev) return;
-    this.styleRev = rev;
-    for (const h of this.world.hulls) {
-      const style = contactStyle(h.cls, h.hue);
-      this.styles.set(h.id, style);
-      this.views.get(h.id)?.setColors(style.stroke, style.fill);
-    }
-  }
-
-  /**
    * Place every visible hull and collect this frame's wake sources.
    *
    * The observer draws at its LIVE pose (it is the local ship); every other hull
@@ -497,7 +482,6 @@ export class AmbientScene {
    * live client's own join behaviour and it resolves itself in three frames.
    */
   private drawHulls(tick: AmbientTick): void {
-    this.syncStyles();
     this.wakes.length = 0;
     const at = tick.nowMs - CLIENT_CONFIG.net.interpDelayMs;
     for (const h of this.world.hulls) {
@@ -519,7 +503,7 @@ export class AmbientScene {
         // that knows the fleet stopped.
         speed: tick.travelSec > 0 ? pose.speed : 0,
         cls: h.cls,
-        color: (this.styles.get(h.id) ?? contactStyle(h.cls, h.hue)).stroke,
+        color: (this.styles.get(h.id) ?? relationStyle(h.relation)).stroke,
       });
     }
   }

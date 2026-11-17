@@ -1,5 +1,5 @@
 // Island geometry queries — THE single seam every island consumer uses
-// (LOS, swept shells, mine legality, spawn clearance, drone avoidance,
+// (LOS, swept shells, mine legality, spawn clearance, bot avoidance,
 // collision push-out). No consumer may iterate polygon edges itself: every
 // function here runs the mandatory bounding-circle broadphase (`isle.x/y/r`)
 // BEFORE any exact polygon test, and all polygon math delegates to the

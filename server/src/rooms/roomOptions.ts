@@ -7,13 +7,12 @@
 
 import {
   CONFIG,
-  DEFAULT_GUN,
-  isGunId,
+  DEFAULT_SHIFT,
+  isShiftId,
   mapRadius,
   PROTOCOL_VERSION,
-  REGATTA_HUES,
   wrapAngle,
-  type GunId,
+  type ShiftId,
   type ZoneTimeline,
 } from '@salvo/shared';
 import type { Logger } from '../log.js';
@@ -31,24 +30,17 @@ export const NAME_MAX = 14;
 export interface JoinOptions {
   name?: string;
   /**
-   * Client-chosen ship class ('torpedoBoat' | 'battleship' | 'mineLayer'). A
-   * plain join option (NOT gated by HC_DEV_OPTIONS): onJoin runs it through
+   * Client-chosen ship class (one of the four hulls, Story 10.4). A plain
+   * join option (NOT gated by HC_DEV_OPTIONS): onJoin runs it through
    * sanitizeClassId, so any garbage/absent/legacy value falls back to
-   * 'torpedoBoat'.
+   * DEFAULT_CLASS_ID (Bismarck, R7). (The `colorPref` hue option is GONE with
+   * the hue wheel — Story 10.4, R6; a client still sending it is ignored.)
    */
   cls?: string;
   /**
-   * Regatta Hoist personal-hue PREFERENCE (Story 1.12): an integer hue index
-   * 0..19 into the shared REGATTA_HUES wheel. A plain join option (NOT gated by
-   * HC_DEV_OPTIONS, like `cls`): onJoin runs it through sanitizeColorPref, so any
-   * out-of-range / non-integer / absent value falls back to undefined (the
-   * no-preference path — a seeded-random free hue). This story only PLUMBS the
-   * option (connection.ts forwards a persisted value); no UI writes it yet (1.14).
-   */
-  colorPref?: number;
-  /**
-   * Client-chosen foghorn variant (Story 4.5, amendment 52) — the cosmetic
-   * seam for a future purchased horn. A plain join option (NOT gated by
+   * Client-chosen foghorn variant (Story 4.5, amendment 52; the catalog is
+   * Eric's ruling of 2026-11-11 — five selectable horns, picked in the class
+   * bay, Story 10.13). A plain join option (NOT gated by
    * HC_DEV_OPTIONS, like `cls`): onJoin runs it through the shared
    * sanitizeHornId, so any garbage/absent/unknown value falls back to
    * DEFAULT_HORN_ID ('standard'). Deliberately NO PlayerMeta/roster schema
@@ -73,23 +65,25 @@ export interface JoinOptions {
    * else's match. That is the whole security argument for letting a
    * client-supplied flag through ungated: the only thing it can do is spawn the
    * asker's own 20-hull room, which is exactly what a legitimate solo player
-   * costs. NOT dev-gated (like `cls`/`colorPref`), but coerced STRICTLY: see
+   * costs. NOT dev-gated (like `cls`), but coerced STRICTLY: see
    * sanitizeSolo — only the boolean `true` counts.
    */
   solo?: boolean;
   /**
-   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
-   * captain picked — `deckGun` | `machineGun` | `flak`. A PLAIN join option
-   * (NOT gated by HC_DEV_OPTIONS, like `cls`): onJoin runs it through
-   * `sanitizeGun`, so anything missing, unknown or non-string becomes
-   * `deckGun`. The queue freezes the sanitized value into the seat
-   * reservation's server-only `auth`, exactly as the deck used to ride it.
+   * THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — in the seat GUN's
+   * place): which Shift ability this captain picked (a `ShiftId`). A PLAIN
+   * join option (NOT gated by HC_DEV_OPTIONS, like `cls`): onJoin runs it
+   * through `sanitizeShift`, so anything missing, unknown or non-string
+   * becomes `DEFAULT_SHIFT` (Speed Boost, R7). The queue freezes the sanitized
+   * value into the seat reservation's server-only `auth`.
    *
-   * All three ids are ACCEPTED NOW and `machineGun`/`flak` mount the shipped
-   * deck-gun module until Story 8.15 builds the other two (MOUNTED_GUN); the
-   * shipped client sends `deckGun` until the picker exists.
+   * The LEGACY `gun` option (Story 8.14) is no longer read: an old client
+   * still sending it is ignored, never refused.
    */
-  gun?: unknown;
+  shift?: unknown;
+  // (The seat's consumable `kit` option — Story 10.1 — was DELETED with the
+  // kit, Story 10.5: a legacy client still sending it is silently ignored,
+  // never refused, exactly as the legacy `gun` option above.)
   /**
    * DEV SMOKE ARM for tests/smokes only (Story 8.10, epic-8 amendment 65) —
    * the real client NEVER sets it, and production never sees it. A list of
@@ -132,22 +126,22 @@ export interface SpawnPose {
 }
 
 /**
- * THE SEAT'S GUN, SANITIZED (Story 8.14, amendment 95). One of the three
- * `GunId`s, or `DEFAULT_GUN` for anything else — missing, unknown, non-string,
- * an object, a number. FAIL-OPEN TO THE DEFAULT, never a refusal: a gun is an
+ * THE SEAT'S SHIFT, SANITIZED (Story 10.4, epic-10 amendment 9 — the retired
+ * `sanitizeGun`'s successor, same door). One of the `SHIFT_IDS`, or
+ * `DEFAULT_SHIFT` for anything else — missing, unknown, non-string, an object,
+ * a number. FAIL-OPEN TO THE DEFAULT, never a refusal: the Shift is an
  * identity option like `cls` and `horn`, not a privileged override, and a
- * captain whose client sends junk sails the deck gun rather than bouncing off
+ * captain whose client sends junk sails the default rather than bouncing off
  * the door.
  *
- * A PRESENT-BUT-INVALID value is LOGGED once, in the coerced-option style the
- * other doors use, so a client shipping a bad id is visible instead of silently
- * reinterpreted; an ABSENT value logs nothing (that is every shipped client
- * until the Story 8.15 picker). Pure apart from the optional logger.
+ * A PRESENT-BUT-INVALID value is LOGGED once (`join.shiftCoerced`), in the
+ * coerced-option style the other doors use; an ABSENT value logs nothing.
+ * Pure apart from the optional logger.
  */
-export function sanitizeGun(raw: unknown, log?: Logger): GunId {
-  if (isGunId(raw)) return raw;
-  if (raw !== undefined) log?.warn('join.gunCoerced', { to: DEFAULT_GUN });
-  return DEFAULT_GUN;
+export function sanitizeShift(raw: unknown, log?: Logger): ShiftId {
+  if (isShiftId(raw)) return raw;
+  if (raw !== undefined) log?.warn('join.shiftCoerced', { to: DEFAULT_SHIFT });
+  return DEFAULT_SHIFT;
 }
 
 /** Bounds on a dev id list: entries, and code points per entry. Generous —
@@ -268,7 +262,7 @@ export interface MatchOverride {
   /** DEV: unlocked gathering window (ms) at minHumans before the countdown
    *  arms; <= 0 = legacy immediate countdown + lock (the smokes' fast path). */
   joinWindowMs?: number;
-  /** DEV: humans needed to start the countdown (e.g. 1 for a solo drone smoke). */
+  /** DEV: humans needed to start the countdown (e.g. 1 for a solo smoke). */
   minHumans?: number;
   /**
    * DEV SMOKE ARM (Story 8.10): the room performs the level-zero MULLIGAN for
@@ -281,15 +275,25 @@ export interface MatchOverride {
   mulligan?: boolean;
   sandbox?: boolean;
   /**
-   * DEV SMOKE ARM (Story 9.15): `false` switches the PvE WAVE SCHEDULER off —
-   * `World.spawnFleetWaves` becomes a no-op, so a scripted fight is never
-   * joined by `CONFIG.fleet.waves` arriving off the zone clock. Only the
-   * boolean `false` disables; absent / anything else is today's schedule. It
-   * rides into the World as `WorldOptions.fleetWaves` (sandbox rooms too — no
-   * Match needed), and is read ONLY by the scheduler: bots, `solo` and
-   * `botFill` are untouched. Dev-gated with the rest of matchOverride.
+   * DEV SMOKE ARM (Story 10.8, in the retired `fleetWaves` arm's seat): `false`
+   * switches the RADIO BEACONS off — no beacon is ever placed, nothing is paid
+   * and the public chart stays empty (`beaconCycle` -1, `beaconCount` 0). Only
+   * the boolean `false` disables; absent / anything else is the shipped
+   * beacons. It rides into the World as `WorldOptions.beacons` (sandbox rooms
+   * too — no Match needed), and is read ONLY by the beacon rows: bots, `solo`
+   * and `botFill` are untouched. Dev-gated with the rest of matchOverride.
    */
-  fleetWaves?: boolean;
+  beacons?: boolean;
+  /**
+   * DEV SMOKE ARM (Story 10.9, epic-10 amendment 18): `false` switches the
+   * SCHEDULED AIRDROPS off — no crate is ever scattered by the minute
+   * schedule. Wreck pickups are still placed, and collection and the storm
+   * sweep run as ever. Only the boolean `false` disables; absent / anything
+   * else is the shipped schedule. It rides into the World as
+   * `WorldOptions.drops` (sandbox rooms too), exactly the `beacons` pattern.
+   * Dev-gated with the rest of matchOverride.
+   */
+  drops?: boolean;
 }
 
 /**
@@ -332,7 +336,8 @@ export interface RoomOptions extends JoinOptions {
    * PRIVATE LOBBY (cycle 167, Eric ruling 4): fill the empty slots to
    * CONFIG.map.playerCap with combat bots before activation. Honoured ONLY in a
    * bag carrying the server's lobby ticket (see lobbyTicket.ts) — a client bag
-   * naming it is stripped and reported.
+   * naming it is stripped and reported. The standard queue sends it too, with
+   * no `mode`, when its bot fill is on (Story 10.11, epic-10 amendment 20).
    */
   botFill?: boolean;
   /** PRIVATE LOBBY: the arena was formed by a private lobby. Ticket-gated like
@@ -504,17 +509,6 @@ function sanitizeMapSeed(v: unknown): number | undefined {
 }
 
 /**
- * Sanitize a client-supplied Regatta hue PREFERENCE (Story 1.12): a valid pick is
- * an integer in [0, REGATTA_HUES.length) — anything else (out of range, fractional,
- * NaN, non-number, absent) becomes undefined, the no-preference path. Pure +
- * unit-testable; NEVER dev-gated (a plain join option like `cls`). Called from
- * onJoin, not sanitizeRoomOptions — preference is not a privileged dev override.
- */
-export function sanitizeColorPref(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < REGATTA_HUES.length ? v : undefined;
-}
-
-/**
  * Unicode category C — control (Cc), format (Cf, which includes the zero-width
  * joiner/non-joiner AND the bidi overrides U+202A–202E / U+2066–2069),
  * surrogate (Cs), private-use (Co) and unassigned (Cn) code points. NONE of
@@ -540,7 +534,7 @@ const CONTROL_OR_FORMAT = /\p{C}/gu;
  *     combining sequence is never split mid-character. A name that is empty,
  *     all-whitespace, or all-invisible after the strip falls back too.
  * Pure + unit-tested; NEVER dev-gated (a plain join option like `cls`). Mirrors
- * sanitizeClassId / sanitizeColorPref: fail to the safe default, never throw.
+ * sanitizeClassId / sanitizeShift: fail to the safe default, never throw.
  */
 export function sanitizeName(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;

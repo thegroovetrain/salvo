@@ -21,7 +21,7 @@
 // pins the wire half over random worlds.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_GUN, lineWeight, type LineId } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, lineWeight, type LineId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -39,7 +39,7 @@ function bareWorld(seed = 9): World {
 }
 
 const captain = (w: World, id: string): ShipRecord =>
-  w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
 
 /** This ship's weight for one line — ABSENT means the base 1.0, which is what
  *  `sim/draw.ts` reads an absent id as. */
@@ -59,26 +59,18 @@ describe('the take ledger — what goes in, and what never does', () => {
     expect([...w.takes.keys()]).toEqual([WEAPON]);
   });
 
-  it('LADDERS, ADD-ONS and CONSUMABLES never record a take', () => {
+  it('LADDERS and ADD-ONS never record a take', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
-    for (const id of ['hullPoints', 'speed', 'reload', 'deckGun', 'hullRepair'] as LineId[]) w.applyCard(a, id);
-    expect(a.cards).toHaveLength(5); // they really were fitted...
+    const lines = ['armor', 'engines', 'reload', 'deckGun'] as LineId[];
+    for (const id of lines) w.applyCard(a, id);
+    expect(a.cards).toHaveLength(lines.length); // they really were fitted...
     expect(w.takes.size).toBe(0); // ...and not one of them is a take
-  });
-
-  it('a FLEET DRONE never appears in the ledger (it never picks a card at all)', () => {
-    const w = bareWorld();
-    const d = w.addShip('fleet-1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
-    w.grantXp(d, 5); // a drone banks nothing, so it can never spend
-    expect(d.bankedLevels).toBe(0);
-    expect(d.offer).toBeNull();
-    expect(w.takes.size).toBe(0);
   });
 
   it('a DEV SPAWN FIT counts as a take — it goes through the same applyCard', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, [WEAPON]);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, [WEAPON]);
     expect(a.cards).toEqual([WEAPON]);
     expect([...w.takes.get(WEAPON)!]).toEqual(['a']);
   });

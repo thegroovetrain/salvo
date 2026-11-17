@@ -2,7 +2,7 @@
 //
 // THE RUNNER SEAM (AR12): one match = build lobby -> drive to finished ->
 // collect stats. World + Match are Colyseus-free and wall-clock-free, so the
-// harness constructs them DIRECTLY (the drones.test.ts fillingHooks pattern):
+// harness constructs them DIRECTLY (the solo.test.ts hooks pattern):
 // no sockets, no rooms, no frame/perception builds anywhere in the hot loop —
 // the loop is exactly `controls(); world.step(); match.update(); observe()`.
 // The later load-test duty reuses runMatch with a different ControlFactory
@@ -10,7 +10,7 @@
 // is beyond the CaptainControl interface.
 //
 // Determinism: matchSeed = mixSeed(runSeed, matchIndex); every stream in the
-// match (map, spawns, drones, draws, controls) derives from it. No Math.random,
+// match (map, spawns, beacons, draws, controls) derives from it. No Math.random,
 // no Date.now — wall-clock metadata lives in main.ts, outside the run key.
 //
 // Timings: production CONFIG.match values EXCEPT a short 1000ms countdown,
@@ -20,28 +20,26 @@
 // room — would only burn batch budget in the ready room where nothing
 // measurable happens; minHumans=1 lets the scripted-captain lobby arm without
 // a second "human". All three ride the same MatchTimings dev seam the
-// drone/solo tests use — no production code changes.
+// solo tests use — no production code changes.
 
 import {
   CATALOG,
   CONFIG,
-  GUN_IDS,
   SHIP_CLASS_IDS,
-  mulberry32,
   zoneClosedAtMs,
   zoneGroups,
-  type GunId,
+  type Catalog,
+  type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
 import { spawnRingRadii } from '../../src/game/spawn.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
-import { isFleetHull } from '../../src/game/participants.js';
 import { CONTROL_REGISTRY, type CaptainControl, type ControlFactory } from './controls.js';
 import { BOT_PROFILE_SCHEME } from './args.js';
 import { TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
 import type { BotEngageGate, TestProfileId } from '../../src/game/ai/types.js';
-import { BotCollector, type BotSample } from './botMetrics.js';
+import { BotCollector, bonusFields, type BotSample } from './botMetrics.js';
 import { CatalogCollector, type CatalogSample } from './catalogMetrics.js';
 import { PoolCollector, type PoolMatchSample } from './poolReadouts.js';
 import { mixSeed, tally } from './stats.js';
@@ -59,12 +57,15 @@ const COUNTDOWN_MS = 1000;
  *  ring index; captains use 0x100 + i — keep this band outside any
  *  roster-sized range). */
 const ZONE_SEED_ORDINAL = 0x7a0e;
-/** mixSeed ordinal reserved for a match's BOT-GUN stream (Story 8.15) — outside
- *  the captain band (0x100 + i) and the zone band (ZONE_SEED_ORDINAL + ring). */
-const BOT_GUN_SEED_ORDINAL = 0x6a4e;
+/* (mixSeed ordinal 0x6a4e was the BOT-SHIFT stream, Stories 8.15–10.11;
+ * retired by Story 10.12 — the controller deals a bot's Shift now. Keep it
+ * out of any new band.) */
 
 export interface RunSpec {
   seed: number;
+  /** The run's tuned catalog (catalogTune.ts buildTunedCatalog) — absent on
+   *  an untuned run, which then plays the shipped CATALOG. */
+  catalog?: Catalog;
   matches: number;
   captains: number;
   /**
@@ -76,8 +77,8 @@ export interface RunSpec {
   bots?: number;
   /**
    * TEST-ONLY profile forcing (Story 7-6 wave 4): a TestProfileId forces every
-   * bot onto that row; the 'random' scheme deals the three test rows
-   * round-robin (TB, BS, ML). Validated upstream by args.ts — only test ids
+   * bot onto that row; the 'random' scheme deals the test rows round-robin
+   * (one per hull, hull order). Validated upstream by args.ts — only test ids
    * ever arrive here, so the in-game rolled path (undefined) is the only way
    * an in-game profile is assigned. A forced profile governs the hull, so
    * addBot is called with the profile alone.
@@ -90,35 +91,36 @@ export interface RunSpec {
    *  (BotController.spend — the engage-gate seam's sibling). Default
    *  undefined = 'profile', the shipped weighted policy, byte-identical.
    *  'gun' takes the mounted gun's ladder card whenever dealt, else weighted. */
-  botSpend?: 'profile' | 'random' | 'gun';
+  botSpend?: 'profile' | 'random';
   /** Force every rolled-path bot's hull (mono-class arms with tuned
    *  temperaments); personalities still roll among all six (Story 8.20: any
    *  personality on any hull). args.ts
    *  refuses the combinations this would contradict (--bot-profile, --roster
    *  even). */
   botHull?: ShipClassId;
-  /** FORCED GUN for every bot (Story 8.15, `--gun`). Undefined = production's
-   *  rule: each bot mounts a gun drawn UNIFORMLY off a seeded per-match stream
-   *  (the ArenaRoom.buildBotFleet rule, amendment 109), so a harness run
-   *  fights all three guns exactly as staging does. */
-  botGun?: GunId;
+  /** FORCED SHIFT for every bot (Story 10.4, `--shift` — the `--gun` arm's
+   *  successor). Undefined = production's rule: each bot picks a Shift drawn
+   *  UNIFORMLY off a seeded per-match stream (the ArenaRoom.buildBotFleet
+   *  rule), so a harness run fights every Shift exactly as staging does. */
+  botShift?: ShiftId;
   /** Scripted captain control factory; defaults to the storm-pacing pacifist
    *  (CONTROL_REGISTRY.pacifist — the only row there is). */
   control?: ControlFactory;
   /**
    * LOBBY HULL POLICY (see rotate/botHull). 'rolled' — the default and the
    * shipped behaviour — lets each bot roll its own class off the controller's
-   * stream, and deals captains the un-offset `i % 3` rotation they have always
-   * had. 'even' deals SHIP_CLASS_IDS round-robin across BOTH halves of the
-   * lobby, OFFSET BY MATCH INDEX, so per-class win share measures balance
-   * rather than representation.
+   * stream, and deals captains the un-offset `i % SHIP_CLASS_IDS.length`
+   * rotation they have always had. 'even' deals SHIP_CLASS_IDS round-robin
+   * across BOTH halves of the lobby, OFFSET BY MATCH INDEX, so per-class win
+   * share measures balance rather than representation.
    *
    * THE GUARANTEE, exactly: within one match the per-class spread is at most 1
-   * (it cannot be better — 20 hulls over 3 classes is 7/7/6). Campaign totals
-   * are EXACTLY even when the match count or the hull count is a multiple of 3;
-   * otherwise the offset carries the shortfall around the classes and the
-   * totals land within one hull per class (e.g. 20 bots x 4 matches = 27/27/26,
-   * and at --matches 1 the offset buys nothing at all: 7/7/6).
+   * (it cannot be better — 18 hulls over the 4 classes is 5/5/4/4). Campaign
+   * totals are EXACTLY even when the match count or the hull count is a
+   * multiple of the class count (4); otherwise the offset carries the
+   * shortfall around the classes and the totals land within one hull per class
+   * (e.g. 18 bots x 3 matches = 14/14/13/13, and at --matches 1 the offset
+   * buys nothing: 5/5/4/4).
    *
    * Undefined => 'rolled' => every existing run key is byte-identical.
    */
@@ -155,44 +157,42 @@ export function botProfileFor(
  *  seeded stream and the brain drives itself from World's `botsTick` row.
  *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
  *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
-export function buildBotLobby(world: World, spec: RunSpec, botCount: number, matchSeed: number, index: number): string[] {
+export function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
   if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
-  const guns = botGunDealer(spec, matchSeed);
+  const shifts = botShiftDealer(spec);
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
     // WHICH DEALER WINS THE HULL. A forced TEST profile is per-hull
-    // (randomTorpedoBoat / randomBattleship / randomMineLayer), so it governs
-    // the class and the roster policy must not fight it — passing a hull too
-    // would let `--roster even` silently put a randomMineLayer row on a
-    // battleship. On the rolled path (no forcing) a forced --bot-hull beats
+    // (one random* row per hull), so it governs the class and the roster
+    // policy must not fight it — passing a hull too would let `--roster even`
+    // silently put one hull's test row on another hull. On the rolled path
+    // (no forcing) a forced --bot-hull beats
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
     // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-    // and MOUNT A GUN (Story 8.15): the forced --gun, else a seeded uniform
-    // draw — production's rule (see botGunDealer).
+    // and PICK A SHIFT: the forced --shift, else the controller's weighted
+    // roll at enrollment — production's rule (see botShiftDealer).
     const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
-    ids.push(world.addBot(hull, profile, guns()).id);
+    ids.push(world.addBot(hull, profile, shifts()).id);
   }
   return ids;
 }
 
 /**
- * THE BOT GUN DEAL (Story 8.15, amendment 109). `--gun` forces every bot onto
- * one gun; without it each bot draws one of GUN_IDS UNIFORMLY off a stream
- * seeded from the MATCH seed on its own ordinal — the mirror of
- * ArenaRoom.buildBotFleet's seeded draw, so a harness lobby fights the gun mix
- * staging fights, and the deal is part of the reproducible run key. A stream
- * of its own, never the World's or the controller's: drawing guns must not
- * move any other roll. Exported for the determinism pin.
+ * THE BOT SHIFT DEAL (Story 10.4; Story 10.12, Eric 2026-11-11, R5).
+ * `--shift` forces every bot onto one Shift; without it the dealer hands
+ * World.addBot NO Shift (undefined), so the bot controller's weighted roll at
+ * enrollment stands (ai/profiles.ts rollShift, on the controller's own seeded
+ * Shift stream) — exactly what ArenaRoom.buildBotFleet does, so a harness
+ * lobby fights the Shift mix staging fights. (Until Story 10.12 this drew one
+ * of SHIFT_IDS uniformly off its own match-seed stream.) Exported for the pin.
  */
-export function botGunDealer(spec: Pick<RunSpec, 'botGun'>, matchSeed: number): () => GunId {
-  const forced = spec.botGun;
-  if (forced !== undefined) return () => forced;
-  const rng = mulberry32(mixSeed(matchSeed, BOT_GUN_SEED_ORDINAL));
-  return () => GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
+export function botShiftDealer(spec: Pick<RunSpec, 'botShift'>): () => ShiftId | undefined {
+  const forced = spec.botShift;
+  return () => forced;
 }
 
 export interface ReachSample {
@@ -216,7 +216,20 @@ export interface CaptainSample {
   firstDoctrineFitted: ReachSample | null;
   /** levelCurve[k] = level at k*LEVEL_SAMPLE_MS since activation. */
   levelCurve: number[];
+  /** Levels of XP RADIO BEACONS paid this captain (Story 10.8 —
+   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`). */
+  beaconXpLevels: number;
+  /** AIRDROPS this captain collected (Story 10.9 — `ShipRecord.dropsTaken`;
+   *  a wreck pickup counts once). */
+  dropsTaken: number;
+  /** Bonus index points at the end per random-index stat
+   *  (`CONFIG.drops.indices` order — `ShipRecord.indexBonus`: drops AND the
+   *  exhausted hull's levels, Story 10.7). */
+  indexBonus: Record<string, number>;
+  /** The sum of `indexBonus`. */
+  indexBonusTotal: number;
 }
+
 
 /**
  * How a harness match concluded: a real MatchEndCause, or 'unresolved' — the
@@ -245,8 +258,6 @@ export interface MatchSample {
    *  3.4 evidence: a resolved endgame match must name a real winner class. */
   winnerClass: string | null;
   stormDeaths: number;
-  /** Victims of CAPTAIN killers, by tier: captain / droneSmall / droneMedium / droneLarge. */
-  killsByVictimTier: Record<string, number>;
   /** Captains still in world.ships at the finish — the ONLY rows that feed the
    *  per-captain aggregates (see departedCaptains). */
   captains: CaptainSample[];
@@ -268,12 +279,15 @@ export interface MatchSample {
    *  the live-mine peak. OPTIONAL for the same reason `bots` is. */
   pool?: PoolMatchSample;
   /** STORY 9.13 MATCH READOUTS (botReadouts.ts MatchReadouts) — the endgame
-   *  stall and the drone grounding. OPTIONAL for the same reason `bots` is;
-   *  present on every bot-lobby sample. */
+   *  stall. OPTIONAL for the same reason `bots` is; present on every
+   *  bot-lobby sample. */
   lastTwoS?: number;
   endgameNoContactMaxS?: number;
-  droneGroundedTicks?: number;
-  droneStormDeaths?: number;
+  /** RADIO BEACON CROWDING (Story 10.8): `[n]` = paying beacon-ticks, over
+   *  the whole match and every beacon, with n hulls in range (World.beacons.
+   *  inRangeTicks, holes read as 0). OPTIONAL for the same reason `bots` is:
+   *  sample literals predating the field exist in the harness's own tests. */
+  beaconInRangeHist?: number[];
 }
 
 export interface BatchResult {
@@ -329,7 +343,6 @@ function firstReach(cur: ReachSample | null, hit: boolean, at: ReachSample): Rea
 /** Per-match stats collection: tick events + captain trackers + level curve.
  *  Exported only for the capSample pin (see capSample). */
 export class MatchCollector {
-  readonly killsByVictimTier: Record<string, number> = {};
   private readonly trackers = new Map<string, CaptainTracker>();
   private nextBucket = 0;
 
@@ -357,23 +370,12 @@ export class MatchCollector {
   private consumeEvents(world: World): void {
     for (const e of world.tickEvents) {
       if (e.k === 'bn') this.recordPick(e.id);
-      else if (e.k === 'sunk' && e.by !== undefined) this.recordKill(world, e.by, e.id);
     }
   }
 
   private recordPick(id: string): void {
     const t = this.trackers.get(id);
     if (t) t.picks += 1;
-  }
-
-  /** Tally a CAPTAIN's kill by victim tier (drone killers cannot happen —
-   *  drones are weaponless — but stay fail-closed on the lookup anyway). */
-  private recordKill(world: World, by: string, victimId: string): void {
-    const killer = world.ships.get(by);
-    const victim = world.ships.get(victimId);
-    if (!killer || isFleetHull(killer) || !victim) return;
-    const tier = isFleetHull(victim) ? victim.hullId : 'captain';
-    this.killsByVictimTier[tier] = (this.killsByVictimTier[tier] ?? 0) + 1;
   }
 
   captainSample(ship: ShipRecord): CaptainSample {
@@ -391,14 +393,16 @@ export class MatchCollector {
       firstDoctrineOffered: t.firstDoctrineOffered,
       firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,
+      beaconXpLevels: ship.beaconXpMs / CONFIG.xp.levelMs,
+      dropsTaken: ship.dropsTaken,
+      ...bonusFields(ship),
     };
   }
 }
 
 /** Inert lobby hooks. The round-robin drone fill they used to carry died
- *  with the fill itself (Story 5.6, amendment 41) — the harness's committed
- *  drone-lobby tuning method loses its implementation with it, homed at Epic
- *  6's combat bots (see deferred-work.md). */
+ *  with the fill itself (Story 5.6, amendment 41); the combat bots are the
+ *  lobby now. */
 function harnessHooks(): MatchHooks {
   return {
     lock: () => {},
@@ -418,22 +422,22 @@ function harnessHooks(): MatchHooks {
  * World.addBot is behaviourally identical to omitting the argument (the roll
  * comes off the same stream position), so the default run key is unchanged.
  *
- * THE `+ index` OFFSET IS LOAD-BEARING under 'even': 20 bots over 3 classes is
- * 7/7/6 at best, so without rotating by match index the SAME class is short in
- * every match and a campaign stays ~14% skewed — which is precisely the
- * representation artefact the even roster exists to remove.
+ * THE `+ index` OFFSET IS LOAD-BEARING under 'even': 18 bots over the 4
+ * classes is 5/5/4/4 at best, so without rotating by match index the SAME
+ * classes are short in every match and a campaign stays ~25% skewed — which is
+ * precisely the representation artefact the even roster exists to remove.
  */
 /** THE ONE ROUND-ROBIN DEAL, shared by both halves of the lobby: slot `i` of
  *  the SHIP_CLASS_IDS rotation, started at `offset`. A match-index offset is
- *  what makes the campaign totals even — without it the SAME class is short in
- *  every match and a 20-hull lobby stays ~14% skewed forever, which is the
+ *  what makes the campaign totals even — without it the SAME classes are short
+ *  in every match and an 18-hull lobby stays ~25% skewed forever, which is the
  *  representation artefact --roster even exists to remove. */
 function rotate(offset: number, i: number): ShipClassId {
   return SHIP_CLASS_IDS[(i + offset) % SHIP_CLASS_IDS.length];
 }
 
 /** The rotation offset for this match: the match index under 'even', and ZERO
- *  under 'rolled' — which is what keeps the captain deal (`i % 3`, dealt since
+ *  under 'rolled' — which is what keeps the captain deal (`i % SHIP_CLASS_IDS.length`, dealt since
  *  the harness shipped) byte-identical on every pre-existing run key. */
 function rosterOffset(spec: RunSpec, index: number): number {
   return spec.roster === 'even' ? index : 0;
@@ -460,7 +464,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(matchSeed, ZONE_SEED_ORDINAL + i));
   // NO POOL SEED ANY MORE (Story 8.14): the hidden match pool is retired, and
   // a draw is a pure read of the drawing ship's own state off its own stream.
-  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds });
+  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds, catalog: spec.catalog }); // undefined = shipped
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,
@@ -471,8 +475,8 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     // therefore models the FUTURE solo-vs-AI shape (Epic 6) / this dev seam,
     // NOT a lobby that ships today — a real solo captain never leaves the
     // weapons-safe ready room. Read 1vN rows as forward-looking, not current.
-    // SINCE AMENDMENT 4 a `--captains 1 --bots 0` run is DEGENERATE: drones
-    // no longer gate the win, so the lone captain wins on the activation tick
+    // SINCE AMENDMENT 4 a `--captains 1 --bots 0` run is DEGENERATE: the
+    // lone captain wins on the activation tick
     // and the sample carries no combat at all. A `--captains 1 --bots N` run
     // is NOT (Story 6.4): bots are participants, so the match runs and the
     // fighting is real — that IS the solo-vs-AI shape. Story 6-5 still owes
@@ -493,9 +497,9 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const controls: CaptainControl[] = [];
   const captainIds: string[] = [];
   // CAPTAINS TAKE THE SAME ROTATION AS THE BOTS under 'even'. Dealing them the
-  // un-offset `i % 3` while the bots rotate leaves the captain half of a mixed
-  // lobby (`--captains 2 --bots 18`) short the SAME class in every single
-  // match — the exact representation artefact the flag exists to remove, and
+  // un-offset `i % SHIP_CLASS_IDS.length` while the bots rotate leaves the
+  // captain half of a mixed lobby (`--captains 2 --bots 18`) short the SAME
+  // class in every single match — the exact representation artefact the flag exists to remove, and
   // it matters because BatchAggregate.winnerClass pools captains and bots into
   // one tally. Under 'rolled' rosterOffset is 0, so this line deals exactly
   // what it always dealt.
@@ -512,7 +516,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
   // bot-shaped in the per-tick loop below. The roster policy deals the hull
   // and the test rig deals the profile; buildBotLobby resolves which wins.
-  const botIds = buildBotLobby(world, spec, botCount, matchSeed, index);
+  const botIds = buildBotLobby(world, spec, botCount, index);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);
@@ -562,7 +566,6 @@ function spawnDiagOf(world: World): SpawnDiag {
   let spawnHulls = 0;
   let spawnOffLattice = 0;
   for (const ship of world.ships.values()) {
-    if (isFleetHull(ship)) continue;
     spawnHulls += 1;
     const r = Math.hypot(ship.state.x, ship.state.y);
     if (!radii.some((ring) => Math.abs(r - ring) <= SPAWN_LATTICE_TOL)) spawnOffLattice += 1;
@@ -691,13 +694,13 @@ function buildSample(
     endedBy: outcome.endedBy,
     winnerClass: outcome.winnerClass,
     stormDeaths: outcome.stormDeaths,
-    killsByVictimTier: collector.killsByVictimTier,
     // Match.placements is only computed at finish — on an 'unresolved' sample
     // it is empty and every bot's placement honestly reads null.
     bots: bots?.samples(world, match.placements) ?? [],
     catalog: catalog?.result(),
     captains,
     departedCaptains,
+    beaconInRangeHist: Array.from(world.beacons.inRangeTicks, (n) => n ?? 0),
   };
 }
 

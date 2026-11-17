@@ -20,6 +20,7 @@ import {
   scaleTierEnabled,
   scaleTierNote,
   type MotionLevel,
+  type OfferPos,
   type Settings,
   type SettingsStore,
   type UiScale,
@@ -49,6 +50,27 @@ export const MOTION_OPTIONS: readonly OptionModel<MotionLevel>[] = [
   { value: 'full', label: 'FULL', enabled: true, note: '' },
   { value: 'reduced', label: 'REDUCED', enabled: true, note: '' },
   { value: 'off', label: 'OFF', enabled: true, note: '' },
+];
+
+/** THE OFFER POSITION row (epic-10 amendment 18 R26, Eric 2026-11-10: "a
+ *  toggle in settings so the player can choose if they want the offer to
+ *  appear on the right, left, or bottom"). The row's four words are new
+ *  in-game copy, put to Eric `[Eric may reword]`. */
+export const OFFER_POS_LABEL = 'OFFER POSITION';
+/** THE AIM ROWS (Story 11.1, R15 / R18): the reticle + oval color picker and
+ *  the reticle's size slider. The two labels are the only new copy (R17). */
+export const AIM_COLOR_LABEL = 'AIM COLOR';
+export const AIM_SIZE_LABEL = 'AIM SIZE';
+
+/** Pure: the AIM SIZE readout for a value (`2×`, `2.5×`). */
+export function aimSizeReadout(v: number): string {
+  return `${v}×`;
+}
+
+export const OFFER_POS_OPTIONS: readonly OptionModel<OfferPos>[] = [
+  { value: 'right', label: 'RIGHT', enabled: true, note: '' },
+  { value: 'left', label: 'LEFT', enabled: true, note: '' },
+  { value: 'bottom', label: 'BOTTOM', enabled: true, note: '' },
 ];
 
 /**
@@ -85,9 +107,9 @@ export interface BindingRow {
  * keys because it is a conning-position action, not chrome.
  *
  * Story 7-3 (Eric ruling 2026-08-19): this list disagreed with keyboard.ts on
- * three points and is now reconciled — W/S and A/D alias the arrows
- * (`THROTTLE_AHEAD`/`THROTTLE_ASTERN` in telegraph.ts, `LEFT`/`RIGHT` in
- * keyboard.ts), the refit digit row disagreed about the digits themselves, and
+ * three points and is now reconciled — W/S and A/D aliased the arrows then
+ * (Story 11.8 took the arrows off the helm: they pan the camera,
+ * `PAN_KEY_CODES`, and Space is CAMERA HOME), the refit digit row disagreed about the digits themselves, and
  * the gun (slot 0) had no row at all even
  * though it is the permanently-selected default reachable ONLY by clicking
  * its hotbar tile — Q/E/R are the OTHER slots, never the gun's key. `P`
@@ -99,35 +121,57 @@ export interface BindingRow {
  * gave them (`REFIT_DIGIT_CODES` with the window open, `CONSUMABLE_KEY_CODES` with it
  * closed), which is what the row now states. The numpad aliasing is unchanged.
  *
+ * STORY 10.5 (2026-11-05, epic-10 amendment 11) re-cut it again: the digits
+ * keep only the refit pick (the kit keys left with the kit), `C` / `V` are the
+ * two cooldown abilities, and the right button is the secondaries alone
+ * (amendment 11(s): it never cancels a readied weapon).
+ *
+ * STORY 10.10 (2026-11-09, epic-10 amendments 16–17, R3) folded the two refit
+ * rows into one: there is no refit window any more, Tab is the HELD MODIFIER
+ * and Tab + a digit (numpad aliased, unchanged) takes that card from the
+ * offer group; Tab alone and bare digits do nothing.
+ *
  * STORY 8.22 (2026-10-01) re-cut the slot rows: they became false when Story
  * 8.5 made Q/E/R three weapon slots and Story 8.15 put the class SPECIAL on
  * Shift, so `Q / E` + `R` are one `Q / E / R` row and SHIFT has its own. The
  * word DEFAULT left the gun row because no client copy may carry it.
+ *
+ * 2026-11-16 (after Story 11.11, Eric: "You can change the obvious shit on the
+ * settings page"): the `(NONE)` gun row is gone — the hotbar it pointed at left
+ * with Story 10.10 and firing reverts to the main battery by itself (the CLICK
+ * row says so); SHIFT is the captain's SPECIAL picked on YOUR SHIP, not the
+ * class's (Story 10.4 made it a per-seat pick).
  */
 export function bindingRows(): BindingRow[] {
   return [
-    { keys: 'W / S (+ ARROWS)', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
-    { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
-    { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
-    { keys: 'Q / E / R', action: 'WEAPON SLOTS — PRESS TO SELECT, AGAIN TO CANCEL' },
-    { keys: 'SHIFT', action: 'CLASS SPECIAL' },
+    { keys: 'W / S', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
+    { keys: 'A / D', action: 'RUDDER — HELD' },
+    // Story 10.5 (2026-11-05, epic-10 amendment 11): the three family slots, the
+    // two cooldown abilities and the digits' one meaning.
+    { keys: 'Q / E / R', action: 'TORPEDO / MINE / SPECIAL SHELL — PRESS TO READY, AGAIN TO CANCEL' },
+    { keys: 'C', action: 'HULL REPAIR' },
+    { keys: 'V', action: 'SMOKE SCREEN' },
+    { keys: 'SHIFT', action: 'SPECIAL' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
-    { keys: 'CLICK', action: 'FIRE THE SELECTED WEAPON / PRIME A SKILLSHOT' },
-    { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
-    { keys: '1 – 4 (+ NUMPAD)', action: 'PICK A REFIT CARD (WINDOW OPEN) / FIRE A BELT SLOT (WINDOW CLOSED)' },
+    { keys: 'CLICK', action: 'FIRE THE MAIN BATTERY, OR THE READIED WEAPON' },
+    { keys: 'RIGHT CLICK', action: 'SECONDARIES (HOLD)' },
+    { keys: 'TAB + 1 – 4 (+ NUMPAD)', action: 'TAKE AN UPGRADE' },
     { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },
     { keys: 'Z / X', action: 'CAMERA ZOOM OUT / IN — WHEEL ZOOMS SMOOTHLY' },
+    // Story 11.8 (Eric 2026-11-15): the free camera — the arrows left the helm.
+    { keys: 'MIDDLE DRAG / ARROWS', action: 'PAN MAP' },
+    { keys: 'SPACE', action: 'CAMERA HOME' },
     { keys: 'M', action: 'MUTE' },
     { keys: 'ENTER', action: 'CONFIRM THE TOPMOST SURFACE' },
   ];
 }
 
-/** Which surfaces are currently up, topmost-first in the ratified order. */
+/** Which surfaces are currently up, topmost-first in the ratified order.
+ *  (Story 10.10 retired the Tab refit modal — the offer group is never a
+ *  surface ESC closes.) */
 export interface OpenSurfaces {
   /** The elimination / game-end results modal. */
   results: boolean;
-  /** The TAB refit modal. */
-  refit: boolean;
   /** This overlay. */
   settings: boolean;
 }
@@ -135,14 +179,13 @@ export interface OpenSurfaces {
 /** What ESC does, given the open surfaces. */
 export type EscapeAction =
   | 'closeResults'
-  | 'closeRefit'
   | 'closeSettings'
   | 'openSettings'
   | 'reopenResults';
 
 /**
  * Pure: THE uniform ESC law (amendment 23). ESC closes the TOPMOST open surface
- * — results modal, then refit modal, then this overlay — and only opens/toggles
+ * — results modal, then this overlay — and only opens/toggles
  * settings when nothing is open at all. Consequences of note, all encoded here:
  *   • settings NEVER opens over another surface (no stacking, ever);
  *   • ESC never returns to port — closing the results modal equals pressing
@@ -166,15 +209,13 @@ export type EscapeAction =
  */
 export function escapeAction(open: OpenSurfaces, spectating = false): EscapeAction {
   if (open.results) return 'closeResults';
-  if (open.refit) return 'closeRefit';
   if (open.settings) return 'closeSettings';
   return spectating ? 'reopenResults' : 'openSettings';
 }
 
 /**
- * Pure: may a surface OPEN right now? Nothing stacks — the refit modal cannot
- * open over settings and settings cannot open over the refit modal or the
- * results screen (the I/O matrix's "Never stack" row, both directions).
+ * Pure: may a surface OPEN right now? Nothing stacks — settings cannot open
+ * over the results screen (the I/O matrix's "Never stack" row).
  */
 export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces): boolean {
   return !Object.entries(open).some(([k, v]) => v && k !== surface);
@@ -187,8 +228,7 @@ export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces):
  * never a zoom (Eric 2026-10-01, cycle 162: *"if the ESC menu is open in-game,
  * the scroll wheel does NOT zoom in/out … the intent of the user when that is
  * open is to scroll that menu"*; the results half is the cycle-100 review
- * finding this generalizes). The refit modal is NOT scrollable and is not in
- * this set — zoom stays live under it. The one `window` wheel listener
+ * finding this generalizes). The one `window` wheel listener
  * (main.ts bindWheelZoom) consults this before touching either zoom path.
  */
 export function wheelScrollsSurface(open: OpenSurfaces): boolean {
@@ -295,6 +335,16 @@ const CHOICE_CSS = [
   'cursor:pointer',
 ].join(';');
 
+const COLOR_CSS = [
+  'width:64px',
+  'height:36px',
+  'padding:3px',
+  'background:var(--hc-panel-deep)',
+  'border:1px solid var(--hc-hairline)',
+  'border-radius:4px',
+  'cursor:pointer',
+].join(';');
+
 const DANGER_CSS = [
   'padding:9px 20px',
   'background:var(--hc-panel-deep)',
@@ -391,26 +441,58 @@ function makeChoiceRow<T>(
  * deliberately LEFT alone (arrows must keep nudging); the chokepoint's
  * range-input fallthrough is what keeps ESC alive in that state.
  */
-function makeSliderRow(label: string, value: number, onInput: (v: number) => void): HTMLElement {
+/** A slider's range, step and readout format (the volume rows' by default). */
+interface SliderSpec {
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+}
+
+const VOLUME_SLIDER: SliderSpec = { min: 0, max: S.volumeMax, step: 1, format: String };
+const R = CLIENT_CONFIG.reticle;
+const AIM_SIZE_SLIDER: SliderSpec = { min: R.sizeMin, max: R.sizeMax, step: R.sizeStep, format: aimSizeReadout };
+
+function makeSliderRow(label: string, value: number, onInput: (v: number) => void, spec: SliderSpec = VOLUME_SLIDER): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText = ROW_CSS;
   const input = document.createElement('input');
   input.type = 'range';
-  input.min = '0';
-  input.max = String(S.volumeMax);
-  input.step = '1';
+  input.min = String(spec.min);
+  input.max = String(spec.max);
+  input.step = String(spec.step);
   input.value = String(value);
   input.style.cssText = 'flex:1 1 220px;accent-color:var(--hc-phosphor)';
   const readout = document.createElement('span');
-  readout.textContent = String(value);
+  readout.textContent = spec.format(value);
   readout.style.cssText = VALUE_CSS;
   input.addEventListener('input', () => {
     const v = Number(input.value);
-    readout.textContent = String(v);
+    readout.textContent = spec.format(v);
     onInput(v);
   });
   input.addEventListener('pointerup', () => input.blur());
   row.append(makeLabel(label), input, readout);
+  return row;
+}
+
+/**
+ * A color-picker row (AIM COLOR): label + a native `<input type="color">`
+ * dressed as the panel's choice buttons. Like a slider it writes through on
+ * `input` WITHOUT a repaint (a rebuild would destroy the picker mid-drag), and
+ * it blurs on `change` — a focused input would trip the keyboard chokepoint's
+ * text-entry guard and swallow the ESC that closes the overlay.
+ */
+function makeColorRow(label: string, value: string, onInput: (hex: string) => void): HTMLElement {
+  const row = document.createElement('div');
+  row.style.cssText = ROW_CSS;
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = value;
+  input.style.cssText = COLOR_CSS;
+  input.addEventListener('input', () => onInput(input.value));
+  input.addEventListener('change', () => input.blur());
+  row.append(makeLabel(label), input);
   return row;
 }
 
@@ -591,7 +673,16 @@ export class SettingsOverlay {
     panel.replaceChildren(
       this.makeHeader(),
       makeSection('MOTION', makeChoiceRow('SCREEN MOTION', MOTION_OPTIONS, s.motion, (v) => this.set({ motion: v }))),
-      makeSection('DISPLAY', this.makeScaleRow(s), makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v }))),
+      makeSection(
+        'DISPLAY',
+        this.makeScaleRow(s),
+        makeChoiceRow(OFFER_POS_LABEL, OFFER_POS_OPTIONS, s.offerPos, (v) => this.set({ offerPos: v })),
+        makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v })),
+        // Story 11.1 (R15 / R18): both write through WITHOUT a repaint, like
+        // the volume sliders — a rebuild would destroy the control in use.
+        makeColorRow(AIM_COLOR_LABEL, s.aimColor, (v) => this.set({ aimColor: v }, false)),
+        makeSliderRow(AIM_SIZE_LABEL, s.aimSize, (v) => this.set({ aimSize: v }, false), AIM_SIZE_SLIDER),
+      ),
       makeSection(
         'AUDIO',
         // Sliders write through WITHOUT a repaint (they own their readout) —

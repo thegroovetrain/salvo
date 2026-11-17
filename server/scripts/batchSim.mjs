@@ -4,7 +4,7 @@
 // FIRST DUTY of the triple-duty harness: an IN-PROCESS headless batch sim.
 // World + Match are Colyseus-free and wall-clock-free, so N full matches run
 // directly in one node process — no sockets, no rooms, no frames — with
-// a scripted storm-pacing control + drone fill, all deterministically seeded.
+// a scripted storm-pacing control + combat bots, all deterministically seeded.
 // See batchsim/runner.ts (the runner seam) and batchsim/controls.ts (the
 // control seam; the spend policy lives in batchsim/spendPolicy.ts): those
 // interfaces are the documented reuse points for the later load-test and

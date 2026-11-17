@@ -1,157 +1,72 @@
 // Procedural ship hull view, now driven by the SHARED silhouette polygon
 // (sim/silhouette.ts — the silhouette IS the hitbox). One code path keyed by
-// hull id: the three pickable classes render their ratified board silhouettes;
-// drone hull ids render the legacy chevron (exactly what hullSilhouette returns
-// for a drone id) plus their TIER's rank ticks (Story 7.6 — see RANK_TICKS).
+// hull id: every pickable class renders its battleship art.
 //
-// Story 1.12 (Regatta Hoist): every combatant hull — own AND contact — draws as
-// a 1.5px stroke in the pilot's BRIGHT personal hue over a SOLID interior in that
-// hue's darker ~45%-value fill. Drones (roster sentinel 255) wear the drone greys.
-// A roster-miss / pre-roster hull falls back to an amber hollow outline (the old
-// contact look). The style is per-view and swappable (setColors) so the own hull
-// can boot on the fallback and recolor the instant its roster hue is known.
+// Story 10.4 (Eric's ruling R6): the personal hue wheel is gone. Every captain
+// hull — own AND contact — draws in its RELATION color (render/relationColor.ts:
+// own cyan, everyone else red) as one stroke over that color's dark interior.
+// The style is per-view and swappable (setColors).
+//
+// THE BATTLESHIP ART (Story 10.4 wave 2c — render/hullArt/*): a captain hull
+// is three layers in the view's container — the DECK Graphics (skin fill,
+// superstructure tiers, tower rings, funnels, secondaries, casemates, rails,
+// cranes, barbette rings), one Graphics per main turret of its shared
+// `battery` at `turretStation(hullId, i)` rotated by its hull-relative angle
+// (`setTurretAngles`), and the OUTLINE Graphics on top (the one bold relation
+// line). Fills are the hull's skin, every line the relation color (epic-10
+// amendment 7(m)). The geometry lives in shared Pixi `GraphicsContext`s built
+// once per (hull, line color) and borrowed by every view — per frame only
+// rotations and the container's pose / tint / alpha / scale are written.
+// Children inherit the hull's pose, settle, sight fade and hit-flash tint for
+// free.
+//
+// THE DECK TORPEDO LAUNCHERS (Story 10.6 — render/launcherViews.ts) sit
+// on the deck UNDER the turrets (Eric 2026-11-05: "It needs to render under
+// the gun barrels, not over"): one Graphics per launcher
+// at its shared station, rotated by its angle (`setLaunchers`); the own hull
+// draws its tubes, a sighted enemy one generic housing (its tube count is not
+// on the wire).
+//
+// THE RAIN LOOK (Story 11.6, Eric's A+D — render/rainSight.ts +
+// hullDissolve.ts): a CONTACT view is handed the frame's rain eye
+// (`setRain`), marches its class's shared sight grid from the observer, and
+// wears the A+D filter on the whole container (deck, turrets, launchers,
+// outline) while any part reads below clear water — or, with no WebGL, a
+// plain fade by the grid's mean V, folded into the alpha below. The OWN view
+// is never handed an eye, so it is never dissolved.
 //
 // The render polygon is the shared local-frame silhouette VERBATIM (bow at +x,
 // origin-centered, world units) — no independent geometry, so what you see is
 // the collision/hit-test hull. The view is added to a camera-transformed layer,
 // so world heading == sprite rotation (no y-flip — see camera.ts).
 
-import { Graphics } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import {
-  DRONE_HULL_IDS,
-  DRONE_SIZE_IDS,
-  REGATTA_HUES,
-  droneSizeOf,
-  hullSilhouette,
+  CONFIG,
+  DEFAULT_CLASS_ID,
+  turretMounts,
+  turretRest,
+  turretStation,
   type HullId,
-  type Vec2,
+  type ShipClassId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
+import type { ShipStyle } from './relationColor.js';
+import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
+import { turretDrawOrder } from './hullArt/shapes.js';
+import { LauncherMounts } from './launcherViews.js';
+import { HullRainVis, meanVisibility, type RainEye } from './rainSight.js';
+import { HullDissolve } from './hullDissolve.js';
+
+export type { ShipStyle } from './relationColor.js';
 
 const C = CLIENT_CONFIG.colors;
 const FB = CLIENT_CONFIG.flashBudget;
 
-/** The full 20-hue Regatta wheel (bright outline / darker fill), wheel order. */
-const REGATTA_OUTLINES: readonly number[] = REGATTA_HUES.map((n) => C.players[n]);
-const REGATTA_FILLS: readonly number[] = REGATTA_HUES.map((n) => C.playerFills[n]);
-
-/** The eight colorblind-assist families (config key order IS family order). */
-const CVD_OUTLINES: readonly number[] = Object.values(C.cvd);
-const CVD_FILLS: readonly number[] = Object.values(C.cvdFills);
-
-/**
- * Pure: the assist FAMILY index a Regatta wheel index collapses onto
- * (amendment 18). Modulo keeps the 20 wheel indices evenly spread over the 8
- * families — adjacent wheel entries (which are adjacent HUES, the pairs the
- * assist exists to separate) always land on different families.
- */
-export function cvdFamilyIndex(wheelIndex: number, families = CVD_OUTLINES.length): number {
-  return ((wheelIndex % families) + families) % families;
-}
-
-/**
- * Bright outline hue by Regatta wheel index. LIVE binding: `setColorblindAssist`
- * swaps the whole table at this ONE chokepoint, and every consumer (hulls,
- * nameplates, wake, kill feed, ordnance tint) reads through it, so the assist
- * needs no per-consumer wiring. ESM live bindings mean importers see the swap.
- */
-export let PLAYER_HUES: readonly number[] = REGATTA_OUTLINES;
-/** Darker interior fill by Regatta wheel index — swapped with PLAYER_HUES. */
-export let PLAYER_FILLS: readonly number[] = REGATTA_FILLS;
-
-/** Bumped every time the hue tables are swapped, so latched consumers (own hull
- *  color, contact styles, nameplates) know to re-resolve. */
-let revision = 0;
-let assistOn = false;
-
-/** The current hue-table revision (see `revision` above). */
-export function hueRevision(): number {
-  return revision;
-}
-
-/** Is the colorblind-assist remap currently applied? */
-export function colorblindAssist(): boolean {
-  return assistOn;
-}
-
-/**
- * THE colorblind-assist chokepoint: project the 20-hue wheel onto the eight
- * separated families (on) or restore the ratified Regatta wheel (off). Cheap
- * and idempotent — a no-op call leaves the revision untouched.
- */
-export function setColorblindAssist(on: boolean): void {
-  if (on === assistOn) return;
-  assistOn = on;
-  PLAYER_HUES = on ? REGATTA_OUTLINES.map((_, i) => CVD_OUTLINES[cvdFamilyIndex(i)]) : REGATTA_OUTLINES;
-  PLAYER_FILLS = on ? REGATTA_FILLS.map((_, i) => CVD_FILLS[cvdFamilyIndex(i)]) : REGATTA_FILLS;
-  revision += 1;
-}
-
-export interface ShipStyle {
-  /** Hull outline (stroke) color. */
-  stroke: number;
-  /** Solid interior fill color, or null for a hollow outline (the fallback). */
-  fill: number | null;
-}
-
 /** Roster-miss / pre-roster fallback: amber hollow outline. */
 export const FALLBACK_STYLE: ShipStyle = { stroke: C.amber, fill: null };
-/** Drone hull style (roster sentinel 255): grey outline + solid grey interior. */
-export const DRONE_STYLE: ShipStyle = { stroke: C.droneOutline, fill: C.droneFill };
-
-/**
- * Personal-hue style for a Regatta wheel index — bright stroke + darker fill —
- * or the amber-hollow fallback when the index is null (roster miss / not yet
- * assigned) or out of range. Drones never route here (they use DRONE_STYLE via
- * their hull id).
- */
-export function hullStyle(index: number | null): ShipStyle {
-  if (index === null || index < 0 || index >= PLAYER_HUES.length) return FALLBACK_STYLE;
-  return { stroke: PLAYER_HUES[index], fill: PLAYER_FILLS[index] };
-}
-
-/** Style for a contact, given its hull id and resolved roster hue index. A drone
- *  hull id wins (greys); otherwise the personal-hue style (or fallback). */
-export function contactStyle(hullId: HullId, index: number | null): ShipStyle {
-  return isDroneHull(hullId) ? DRONE_STYLE : hullStyle(index);
-}
-
-/**
- * True for the three drone hull ids (which never carry a personal hue).
- *
- * WHY THIS IS HULL-ID-BASED, AND NOT A FLAG (Story 6.3, epic-6 amendment 13).
- * The server's answer is a field — `ShipRecord.isDrone` / the ship-role seam —
- * and that field is NOT on the wire: there are zero occurrences of it in
- * `shared/`, by design (an explicit "this one is a bot" bit would be a
- * perception widening the frame chokepoint has never granted). What the client
- * holds is `Contact.cls`, a `HullId`, so the hull id IS the client's only
- * evidence and this predicate is the client's SECOND, independent
- * non-combatant test. `deferred-work.md` has carried the warning since Story
- * 5.6: two predicates exist by necessity and must be kept in step.
- *
- * THE INVARIANT THAT KEEPS THEM ALIGNED: a hull id is a drone hull id **iff**
- * it is in shared's `DRONE_HULL_IDS`. PvE fleet hulls spawn on those three ids
- * and nothing else does — a captain, human or AI, carries a real class hull id
- * (`torpedoBoat` / `battleship` / `mineLayer`), which is precisely why Story
- * 6.4's bot captains do not move this function: a bot is a participant that is
- * not a fleet hull, and it will render in a personal hue like any captain.
- *
- * This predicate answers "is this a PvE FLEET HULL" — presentation and economy
- * (greyscale style, nameplate, kill-feed suppression). It is NOT the
- * participant test; the client never runs one, because the match outcome is
- * decided server-side and arrives as `ResultsMsg`.
- *
- * `ships.test.ts` PINS the set against `DRONE_HULL_IDS` / `HULL_IDS` so a hull
- * id added server-side fails a test rather than silently mis-classifying a ship
- * (a new drone hull would render in a personal hue and count as a contestant; a
- * new class listed as a drone would lose its hue).
- */
-export function isDroneHull(hullId: HullId): boolean {
-  return hullId === 'droneSmall' || hullId === 'droneMedium' || hullId === 'droneLarge';
-}
-
 /** Pure: per-channel linear blend of two packed 0xRRGGBB colors (t=0 → a, 1 → b). */
 function mixColor(a: number, b: number, t: number): number {
   const ch = (shift: number): number =>
@@ -231,8 +146,7 @@ export function hullLook(flash: number, sink: number, fade: number): HullLook {
 // over-budget flash DEGRADES rather than disappearing: same 130 ms, same hull,
 // `degradeAlphaFactor` of the intensity it would have held.
 //
-// A MODULE-LEVEL GATE, deliberately, in the same shape as this module's live
-// hue tables (`setColorblindAssist`): `ShipView`s are constructed in several
+// A MODULE-LEVEL GATE, deliberately: `ShipView`s are constructed in several
 // places (own hull in main.ts, every contact in render/contacts.ts), and a
 // constructor parameter would leave the CONTACT hulls — the twenty that actually
 // stack — unbudgeted while budgeting the one hull that cannot stack with itself.
@@ -265,100 +179,41 @@ export function hullFlashIntensity(amount: number, degraded: boolean): number {
   return degraded ? amount * FB.degradeAlphaFactor : amount;
 }
 
-// --- DRONE RANK TICKS (Story 7.6, Eric ruling 2026-08-21) ----------------------
-//
-// *"We actually do need better distinction, size isn't enough."* … *"just use
-// the rank ticks on the silhouette, which is way better."*
-//
-// 1 / 2 / 3 transverse bars across a fleet hull's afterdeck for small / medium /
-// large. THE TICK COUNT IS THE TIER, and it is the only channel that could be:
-// drones are locked greyscale (DESIGN.md:157), so colour was never available,
-// and Eric has ruled the 85 → 100 → 115u length ladder insufficient on its own.
-// The tier matters because the tier IS the payout — 1/4, 1/2, 3/4 of a level
-// (`CONFIG.xp.droneTierLevels`).
-//
-// SCOPE: the RENDERED HULL ONLY. Radar returns cannot carry this. Since cycle
-// 105's ONE-RADAR ruling every blip is an identity-free coverage footprint
-// rasterised onto the phosphor lattice (render/radar.ts: *"the retired
-// `silhouette` grammar went with cycle 105's ONE-RADAR ruling"*) — there is no
-// outline out there to tick, and adding one would be a perception widening
-// besides. A drone's tier is legible exactly where its hull is: inside truesight.
-//
-// GEOMETRY IS DERIVED FROM THE SILHOUETTE, NEVER FROM CONFIG.drones DIMS. The
-// polygon is what actually gets drawn, so measuring the marks against its own
-// bounding box is what keeps them on the deck if a hull is ever reshaped. Every
-// fraction lives in `CLIENT_CONFIG.droneRank`.
-
-/**
- * One rank tick in the hull's LOCAL frame (bow at +x, origin-centred, world
- * units): a transverse segment on the keel at `x`, spanning ±`halfLenU` in y.
- */
-export interface RankTick {
-  readonly x: number;
-  readonly halfLenU: number;
+/** What a hull hands the corner brackets each frame (`ShipView.bracketSource`). */
+export interface BracketSource {
+  x: number;
+  y: number;
+  /** The hull's drawn length (u). */
+  lengthU: number;
+  /** The relation stroke color (own cyan, everyone else red). */
+  color: number;
+  /** The alpha the hull itself draws at this frame. */
+  alpha: number;
 }
 
-const NO_TICKS: readonly RankTick[] = [];
-
-/** Bounding-box extent of a local-frame silhouette: bow-to-stern span (length)
- *  and port-to-starboard span (beam). */
-function hullExtent(poly: readonly Vec2[]): { lengthU: number; beamU: number } {
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let maxAbsY = 0;
-  for (const p of poly) {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (Math.abs(p.y) > maxAbsY) maxAbsY = Math.abs(p.y);
-  }
-  return { lengthU: maxX - minX, beamU: maxAbsY * 2 };
-}
-
-/**
- * Pure: the `count` ticks for a hull, centred as a group `aftOffsetLengthFrac`
- * of the hull's length abaft amidships and spaced along the keel. Index 0 is
- * the FORWARD-most tick; a single tick sits exactly on the group centre.
- */
-function buildRankTicks(hullId: HullId, count: number): readonly RankTick[] {
-  const cfg = CLIENT_CONFIG.droneRank;
-  const { lengthU, beamU } = hullExtent(hullSilhouette(hullId));
-  const spacing = lengthU * cfg.spacingLengthFrac;
-  const centerX = -lengthU * cfg.aftOffsetLengthFrac;
-  const halfLenU = (beamU * cfg.tickBeamFrac) / 2;
-  const out: RankTick[] = [];
-  for (let i = 0; i < count; i++) out.push({ x: centerX + (i - (count - 1) / 2) * spacing, halfLenU });
-  return out;
-}
-
-/**
- * The rank ticks per drone hull id, built ONCE at module load — `draw()` runs on
- * every hull construction and on every recolor, and this is fixed geometry.
- *
- * THE COUNT IS THE SHARED SIZE LADDER'S OWN ORDER (`DRONE_SIZE_IDS`), not a
- * second table: a fourth fleet tier added server-side gets its rank for free and
- * in the right place, the same reason `fleetSizeName` derives from `droneSizeOf`
- * instead of listing the three sizes again.
- */
-const RANK_TICKS: Readonly<Record<string, readonly RankTick[]>> = Object.fromEntries(
-  DRONE_HULL_IDS.map((id) => [id, buildRankTicks(id, DRONE_SIZE_IDS.indexOf(droneSizeOf(id) ?? 'small') + 1)]),
-);
-
-/** The rank ticks a hull wears: 1 / 2 / 3 for the small / medium / large fleet
- *  hulls, and NONE for every captain hull (a captain's class is already carried
- *  by a distinct silhouette and a personal hue). */
-export function droneRankTicks(hullId: HullId): readonly RankTick[] {
-  return RANK_TICKS[hullId] ?? NO_TICKS;
-}
-
-/** Trace the shared silhouette polygon (local frame, bow at +x, closed). */
-function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
-  g.moveTo(poly[0].x, poly[0].y);
-  for (let i = 1; i < poly.length; i++) g.lineTo(poly[i].x, poly[i].y);
-  g.closePath();
+/** The battleship-art class of a hull id — every hull id is a captain class. */
+function artClass(hullId: HullId): ShipClassId {
+  return hullId as ShipClassId;
 }
 
 export class ShipView {
-  readonly gfx: Graphics;
+  /** The view's root — position, heading, settle, fade and flash tint live
+   *  here and reach the hull and every turret child. */
+  readonly gfx: Container;
+  /** The hull's DECK Graphics — the battleship art's deck layer (skin fill,
+   *  features, barbette rings). Under the turrets. */
+  readonly hull: Graphics;
+  /** The captain hull's ONE bold relation line (amendment 7(o)), drawn over
+   *  the turrets so nothing covers it (the sitting page's order). The view
+   *  borrows the shared, cached art contexts (render/hullArt/pixiArt). */
+  readonly outline: Graphics;
+  /** One Graphics per battery mount, bow to stern. */
+  private turrets: Graphics[] = [];
+  /** The deck torpedo launchers (Story 10.6), seated on the deck, UNDER the turrets. */
+  private readonly launchers: LauncherMounts;
+  /** The last launcher angles / tubes handed in — redrawn on a hull or color change. */
+  private launcherAngles: readonly number[] = [];
+  private launcherTubes: number | null = null;
   /** THE SETTLE (Story 5.2 fix): progress through the sinking window, [0,1].
    *  0 alive, 1 the wreck. Was a boolean `downed` — see `hullLook`. */
   private sink = 0;
@@ -372,55 +227,128 @@ export class ShipView {
   private positioned = false;
   private hullId: HullId;
   private style: ShipStyle;
+  /** The rain look (Story 11.6): the drawn V grid, the filter, and the
+   *  no-WebGL fade multiplier (1 unless that fallback is in force). */
+  private readonly rainVis = new HullRainVis();
+  private readonly dissolve: HullDissolve;
+  private rainAlpha = 1;
+  /** The drawn rain grid's mean V (1 with no grid) — the corner brackets'
+   *  share of the A+D dissolve (Story 11.8). */
+  private rainMean = 1;
 
-  constructor(style: ShipStyle, hullId: HullId = 'torpedoBoat') {
-    this.gfx = new Graphics();
+  constructor(style: ShipStyle, hullId: HullId = DEFAULT_CLASS_ID) {
+    this.gfx = new Container();
+    this.dissolve = new HullDissolve(this.gfx);
+    this.hull = new Graphics();
+    this.outline = new Graphics();
+    this.gfx.addChild(this.hull, this.outline);
+    this.launchers = new LauncherMounts(this.gfx, this.hull);
     this.style = style;
     this.hullId = hullId;
     this.draw();
+    this.buildTurrets();
   }
 
   /** Re-draw for a new hull id (own ship only; contacts know their hull at
-   *  creation). Preserves position/rotation/tint applied by update(). */
+   *  creation). Preserves position/rotation/tint applied by update(); the
+   *  turrets are rebuilt at their rest bearings. */
   setHullId(hullId: HullId): void {
+    if (hullId === this.hullId) return;
     this.hullId = hullId;
     this.draw();
+    this.launchers.clear(); // first: the turrets re-seat by index; the next setLaunchers seats the launchers on the new hull's stations
+    this.buildTurrets();
   }
 
-  /** Swap the hull colors (Story 1.12): stroke = bright personal hue, fill =
-   *  its darker interior (null = hollow fallback). Redraws in place. */
+  /** Swap the hull colors: stroke = the linework (every line — the relation
+   *  color), fill = the style's interior. The hull's fills are its skin, so
+   *  only the stroke moves its art. Swaps
+   *  contexts in place; nothing is redrawn unless the style changed. */
   setColors(stroke: number, fill: number | null): void {
+    if (stroke === this.style.stroke && fill === this.style.fill) return;
     this.style = { stroke, fill };
     this.draw();
+    this.skinTurrets();
+    this.setLaunchers(this.launcherAngles, this.launcherTubes);
   }
 
-  private draw(): void {
-    const g = this.gfx;
-    g.clear();
-    tracePolygon(g, hullSilhouette(this.hullId));
-    // Solid personal-hue interior (the darker ~45%-value fill) under the bright
-    // outline; a null fill leaves a hollow outline (the roster-miss fallback).
-    if (this.style.fill !== null) g.fill({ color: this.style.fill, alpha: 1 });
-    g.stroke({ width: 1.5, color: this.style.stroke, alpha: 1 });
-    this.drawRankTicks();
+  /** How many turret children this view carries (tests/debug). */
+  get turretCount(): number {
+    return this.turrets.length;
+  }
+
+  /** Turret `i`'s child Graphics (tests/debug), or undefined. */
+  turretView(i: number): Graphics | undefined {
+    return this.turrets[i];
   }
 
   /**
-   * The tier mark on a PvE fleet hull (Story 7.6) — a no-op for every captain
-   * hull. Drawn AFTER the silhouette so the bars sit over the interior fill,
-   * and in the hull's OWN stroke colour so the greyscale rule needs no
-   * exception: for a drone that colour is `DRONE_STYLE.stroke`, and a hull
-   * recoloured through `setColors` carries its ticks with it.
+   * Point the turrets: `angles[i]` is turret i's HULL-RELATIVE angle (shared
+   * sim/turrets.ts convention, 0 = the bow). A missing entry holds the turret
+   * at its rest bearing. Rotation writes only — no redraw, no allocation.
    */
-  private drawRankTicks(): void {
-    const ticks = droneRankTicks(this.hullId);
-    if (ticks.length === 0) return;
-    const g = this.gfx;
-    for (const t of ticks) {
-      g.moveTo(t.x, -t.halfLenU);
-      g.lineTo(t.x, t.halfLenU);
+  setTurretAngles(angles: readonly number[]): void {
+    const mounts = turretMounts(this.hullId);
+    for (let i = 0; i < this.turrets.length; i++) {
+      const a = angles[i];
+      this.turrets[i].rotation = a === undefined ? turretRest(mounts[i]) : a;
     }
-    g.stroke({ width: CLIENT_CONFIG.droneRank.widthU, color: this.style.stroke, alpha: 1 });
+  }
+
+  /**
+   * The deck torpedo launchers (Story 10.6): one per entry of `angles` (fore
+   * first, HULL-RELATIVE — shared sim/launchers.ts convention), each with
+   * `tubes` tubes, or the generic housing when `tubes` is null (a sighted
+   * enemy — its tube count is not on the wire). An empty list draws none.
+   * Rotation writes only, unless the count / tubes / color changed.
+   */
+  setLaunchers(angles: readonly number[], tubes: number | null): void {
+    this.launcherAngles = angles;
+    this.launcherTubes = tubes;
+    this.launchers.set(artClass(this.hullId), angles, tubes, this.style.stroke);
+  }
+
+  /** How many launcher children this view carries (tests/debug). */
+  get launcherCount(): number {
+    return this.launchers.count;
+  }
+
+  /** Launcher `i`'s child Graphics (tests/debug), or undefined. */
+  launcherView(i: number): Graphics | undefined {
+    return this.launchers.view(i);
+  }
+
+  /** Point the deck and outline Graphics at this hull's shared cached art. */
+  private draw(): void {
+    const cls = artClass(this.hullId);
+    this.hull.context = deckContext(cls, this.style.stroke);
+    this.outline.context = outlineContext(cls, this.style.stroke);
+  }
+
+  /** Re-point every turret at the shared context for the current stroke. */
+  private skinTurrets(): void {
+    const cls = artClass(this.hullId);
+    for (let i = 0; i < this.turrets.length; i++) this.turrets[i].context = turretContext(cls, i, this.style.stroke);
+  }
+
+  /** One turret Graphics per mount, borrowing its shared art context, seated
+   *  at its shared station between the deck and the outline — stacked in
+   *  `turretDrawOrder` (a superfiring turret over the one it fires over; Eric
+   *  2026-11-06), each just under the outline, so every launcher (seated on
+   *  the deck) stays below them all. `turrets[i]` stays turret `i`. */
+  private buildTurrets(): void {
+    for (const t of this.turrets) t.destroy();
+    this.turrets = [];
+    const cls = artClass(this.hullId);
+    const mounts = turretMounts(cls);
+    for (let i = 0; i < mounts.length; i++) {
+      const g = new Graphics(turretContext(cls, i, this.style.stroke));
+      const p = turretStation(cls, i);
+      g.position.set(p.x, p.y);
+      g.rotation = turretRest(mounts[i]);
+      this.turrets.push(g);
+    }
+    for (const i of turretDrawOrder(cls)) this.gfx.addChildAt(this.turrets[i], this.gfx.getChildIndex(this.outline));
   }
 
   /**
@@ -509,6 +437,27 @@ export class ShipView {
     this.applyLook();
   }
 
+  /**
+   * THE RAIN LOOK (Story 11.6): per frame, AFTER `update`, with this frame's
+   * rain eye (null = no observer or no rain — the hull draws as before). The
+   * grid is the class's CONFIG length × beam at the last-applied pose.
+   */
+  setRain(eye: RainEye | null, dtMs: number): void {
+    const hull = CONFIG.shipClasses[artClass(this.hullId)].hull;
+    const p = this.gfx.position;
+    const vis = this.positioned ? this.rainVis.step(eye, p.x, p.y, this.gfx.rotation, hull.length, hull.beam, dtMs) : null;
+    this.rainMean = vis === null ? 1 : meanVisibility(vis);
+    const a = this.dissolve.apply(vis, hull.length, hull.beam);
+    if (a === this.rainAlpha) return;
+    this.rainAlpha = a;
+    this.applyLook();
+  }
+
+  /** Is the A+D filter on this hull right now? (tests/debug) */
+  get rainFiltered(): boolean {
+    return this.dissolve.active;
+  }
+
   /** Position + orient the hull from a world pose, applying tint/alpha state. */
   update(x: number, y: number, heading: number): void {
     this.positioned = true;
@@ -517,14 +466,34 @@ export class ShipView {
     this.applyLook();
   }
 
+  /**
+   * THE CORNER BRACKETS' READ (Story 11.8, render/brackets.ts): writes this
+   * hull's last-applied pose, its drawn LENGTH (u, through the settle's
+   * shrink), its relation stroke and the alpha the hull itself draws at
+   * (sight fade × settle; under the A+D dissolve filter, which leaves the
+   * container alpha alone, × the grid's mean V) into `out`. False — nothing
+   * written — while the view is hidden or has never been posed.
+   */
+  bracketSource(out: BracketSource): boolean {
+    if (!this.positioned || !this.gfx.visible) return false;
+    const p = this.gfx.position;
+    out.x = p.x;
+    out.y = p.y;
+    out.lengthU = CONFIG.shipClasses[artClass(this.hullId)].hull.length * this.gfx.scale.x;
+    out.color = this.style.stroke;
+    out.alpha = this.gfx.alpha * (this.dissolve.active ? this.rainMean : 1);
+    return true;
+  }
+
   private applyLook(): void {
-    const look = hullLook(this.flashIntensityAt(), this.sink, this.fade);
+    const look = hullLook(this.flashIntensityAt(), this.sink, this.fade * this.rainAlpha);
     this.gfx.tint = look.tint;
     this.gfx.alpha = look.alpha;
     this.gfx.scale.set(look.scale);
   }
 
   destroy(): void {
-    this.gfx.destroy();
+    this.dissolve.detach(); // the filter (and the noise it binds) outlives the view, never destroyed
+    this.gfx.destroy({ children: true });
   }
 }

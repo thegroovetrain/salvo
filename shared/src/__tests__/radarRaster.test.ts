@@ -24,8 +24,9 @@ import {
   transformPolygon,
   type HullCoverage,
   type HullId,
+  polygonArea,
 } from '../index.js';
-import { COVERAGE_WORD } from '../sim/radarRaster.js';
+import { COVERAGE_WORD, paintSegmentCoverage, segmentPaintSeed } from '../sim/radarRaster.js';
 
 const CELL = CONFIG.vision.radarCellU;
 
@@ -63,10 +64,10 @@ function spineCells(cls: HullId, x: number, y: number, heading: number): Set<str
 describe('rasterizeHullCoverage — the coverage contract', () => {
   it('covers exactly the cells whose CENTRE is inside the posed silhouette, plus the spine and the hull cell', () => {
     const [x, y, heading] = [412, -230, 0.83];
-    const c = rasterizeHullCoverage('battleship', x, y, heading, CELL);
-    const poly = transformPolygon(hullSilhouette('battleship'), x, y, heading);
+    const c = rasterizeHullCoverage('yamato', x, y, heading, CELL);
+    const poly = transformPolygon(hullSilhouette('yamato'), x, y, heading);
     const hullCell = { gx: Math.floor(x / CELL), gy: Math.floor(y / CELL) };
-    const spine = spineCells('battleship', x, y, heading);
+    const spine = spineCells('yamato', x, y, heading);
     // Two-sided: every covered cell is earned, every earned cell is covered.
     for (let row = 0; row < c.h; row++) {
       for (let col = 0; col < c.w; col++) {
@@ -94,15 +95,15 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
     // the orientation read amendment 151 exists to deliver. The bow→stern
     // centre-line always rasterizes, at any phase.
     for (const y of [0, 4.5, 9, 13.5]) {
-      const c = rasterizeHullCoverage('torpedoBoat', 200, y, 0, CELL);
+      const c = rasterizeHullCoverage('iowa', 200, y, 0, CELL);
       expect(Math.max(c.w, c.h), `phase y=${y}`).toBeGreaterThanOrEqual(
-        Math.floor(CONFIG.shipClasses.torpedoBoat.hull.length / CELL),
+        Math.floor(CONFIG.shipClasses.iowa.hull.length / CELL),
       );
     }
   });
 
   it('the bits array is sized exactly to the rect and packed LSB-first row-major', () => {
-    const c = rasterizeHullCoverage('mineLayer', 100, 100, 0.4, CELL);
+    const c = rasterizeHullCoverage('warspite', 100, 100, 0.4, CELL);
     expect(c.bits.length).toBe(Math.ceil((c.w * c.h) / 32));
     // coverageHas agrees with a hand-decoded read of every bit.
     for (let i = 0; i < c.w * c.h; i++) {
@@ -116,15 +117,15 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
   });
 
   it('a bow-on and a broadside pose of the same hull produce DIFFERENT rects', () => {
-    const east = rasterizeHullCoverage('battleship', 300, 300, 0, CELL); // long axis in x
-    const north = rasterizeHullCoverage('battleship', 300, 300, Math.PI / 2, CELL); // long axis in y
+    const east = rasterizeHullCoverage('yamato', 300, 300, 0, CELL); // long axis in x
+    const north = rasterizeHullCoverage('yamato', 300, 300, Math.PI / 2, CELL); // long axis in y
     expect(east.w).toBeGreaterThan(east.h * 2);
     expect(north.h).toBeGreaterThan(north.w * 2);
   });
 
   it('is WORLD-ANCHORED: translating the pose by whole cells translates the mask verbatim', () => {
-    const base = rasterizeHullCoverage('torpedoBoat', 60, 90, 1.1, CELL);
-    const moved = rasterizeHullCoverage('torpedoBoat', 60 + 7 * CELL, 90 - 3 * CELL, 1.1, CELL);
+    const base = rasterizeHullCoverage('iowa', 60, 90, 1.1, CELL);
+    const moved = rasterizeHullCoverage('iowa', 60 + 7 * CELL, 90 - 3 * CELL, 1.1, CELL);
     expect(moved.gx).toBe(base.gx + 7);
     expect(moved.gy).toBe(base.gy - 3);
     expect(moved.w).toBe(base.w);
@@ -135,25 +136,25 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
   it('THE CENTRE-CELL FAIL-SAFE: the cell containing the hull position is always covered', () => {
     for (let k = 0; k < 16; k++) {
       const heading = (k * Math.PI) / 8;
-      const c = rasterizeHullCoverage('torpedoBoat', 1234.5, -987.6, heading, CELL);
+      const c = rasterizeHullCoverage('iowa', 1234.5, -987.6, heading, CELL);
       expect(coverageCellCount(c)).toBeGreaterThan(0);
       expect(coverageHas(c, Math.floor(1234.5 / CELL) - c.gx, Math.floor(-987.6 / CELL) - c.gy)).toBe(true);
     }
   });
 
   it('degrades to a single-cell mask on a degenerate cell size or unknown hull, never throws', () => {
-    const zero = rasterizeHullCoverage('torpedoBoat', 10, 10, 0, 0);
+    const zero = rasterizeHullCoverage('iowa', 10, 10, 0, 0);
     expect(zero.w).toBe(1);
     expect(zero.h).toBe(1);
     expect(zero.bits).toEqual([1]);
-    const inf = rasterizeHullCoverage('torpedoBoat', 10, 10, 0, Infinity);
+    const inf = rasterizeHullCoverage('iowa', 10, 10, 0, Infinity);
     expect(coverageCellCount(inf)).toBe(1);
     const bad = rasterizeHullCoverage('notAHull' as never, 10, 10, 0, CELL);
     expect(bad).toEqual({ gx: 1, gy: 1, w: 1, h: 1, bits: [1] });
   });
 
   it('all covered cells lie inside the rect (the packing cannot leak outside it)', () => {
-    const c = rasterizeHullCoverage('mineLayer', -333, 777, 2.2, CELL);
+    const c = rasterizeHullCoverage('warspite', -333, 777, 2.2, CELL);
     for (const cell of cellsOf(c)) {
       expect(cell.gx).toBeGreaterThanOrEqual(c.gx);
       expect(cell.gx).toBeLessThan(c.gx + c.w);
@@ -166,9 +167,9 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
     // The "never throws" contract used to stop one guard short: a NaN
     // coordinate made emptyRectFor compute w*h = Infinity and
     // `new Array(Infinity)` raised inside the per-tick scan.
-    expect(rasterizeHullCoverage('torpedoBoat', Number.NaN, 10, 0, CELL)).toEqual({ gx: 0, gy: 0, w: 1, h: 1, bits: [1] });
-    expect(rasterizeHullCoverage('torpedoBoat', 10, Infinity, 0, CELL)).toEqual({ gx: 0, gy: 0, w: 1, h: 1, bits: [1] });
-    const badHeading = rasterizeHullCoverage('torpedoBoat', 10, 10, Number.NaN, CELL);
+    expect(rasterizeHullCoverage('iowa', Number.NaN, 10, 0, CELL)).toEqual({ gx: 0, gy: 0, w: 1, h: 1, bits: [1] });
+    expect(rasterizeHullCoverage('iowa', 10, Infinity, 0, CELL)).toEqual({ gx: 0, gy: 0, w: 1, h: 1, bits: [1] });
+    const badHeading = rasterizeHullCoverage('iowa', 10, 10, Number.NaN, CELL);
     expect(badHeading).toEqual({ gx: Math.floor(10 / CELL), gy: Math.floor(10 / CELL), w: 1, h: 1, bits: [1] });
   });
 });
@@ -237,8 +238,8 @@ describe('fuzzCoverage — the mechanism contract', () => {
     // server's one-slot memo sound, and the decoy's counter-intel paint
     // byte-identical to a genuine hull at the same pose (amendment 11: both
     // run this same pipeline; there is no observer input to diverge on).
-    const a = paintCoverage('mineLayer', 321.5, -77.25, 1.9, CELL, 4321);
-    const b = paintCoverage('mineLayer', 321.5, -77.25, 1.9, CELL, 4321);
+    const a = paintCoverage('warspite', 321.5, -77.25, 1.9, CELL, 4321);
+    const b = paintCoverage('warspite', 321.5, -77.25, 1.9, CELL, 4321);
     expect(b).toEqual(a);
   });
 
@@ -249,7 +250,7 @@ describe('fuzzCoverage — the mechanism contract', () => {
     // this fails.
     const masks = new Set<string>();
     for (let t = 0; t < 12; t++) {
-      masks.add(JSON.stringify(paintCoverage('battleship', 400, 250, 0.6, CELL, 1000 + t * 50)));
+      masks.add(JSON.stringify(paintCoverage('yamato', 400, 250, 0.6, CELL, 1000 + t * 50)));
     }
     expect(masks.size).toBeGreaterThan(8);
   });
@@ -301,25 +302,16 @@ describe('THE CALIBRATION (amendments 156-157): measured, not asserted', () => {
     }
   });
 
-  it('SIZE STILL DISCRIMINATES AT THE EXTREMES: over the 3-paint phosphor window, a battleship always reads clearly bigger than a torpedo boat', () => {
-    // The read a player actually gets is the persistence window, so the pin is
-    // the median of 3 consecutive paints: every battleship window out-reads
-    // every torpedo-boat window on covered-cell count, at every tested aspect.
-    for (const a of [0, Math.PI / 4, Math.PI / 2]) {
-      const medians = (cls: HullId): number[] => {
-        const out: number[] = [];
-        for (let g = 0; g < 16; g++) {
-          const w = [0, 1, 2].map((j) => coverageCellCount(fuzzedPaint(cls, g * 3 + j, a))).sort((p, q) => p - q);
-          out.push(w[1]);
-        }
-        return out;
-      };
-      expect(Math.min(...medians('battleship')), `aspect ${a.toFixed(2)}`).toBeGreaterThan(Math.max(...medians('torpedoBoat')));
-    }
-  });
+  // RETIRED with the drones (Story 10.8, 2026-11-06): 'SIZE STILL
+  // DISCRIMINATES AT THE EXTREMES' measured the smallest silhouette against
+  // the largest, and the smallest was a PvE drone. Among the four
+  // true-to-scale battleships alone the fuzzed 3-paint medians of the
+  // smallest and largest hull overlap (measured at aspect 0: largest min 50
+  // cells vs smallest max 59), so the measurement no longer holds. Recorded,
+  // not re-tuned — the radar fuzz is Eric's dial.
 
   it('ORIENTATION STILL READS: broadside vs bow-on differ in the expected axis, on EVERY paint of the two most elongated hulls', () => {
-    for (const cls of ['battleship', 'torpedoBoat'] as const) {
+    for (const cls of ['yamato', 'iowa'] as const) {
       for (let k = 0; k < 24; k++) {
         const east = fuzzedPaint(cls, k, 0);
         const north = fuzzedPaint(cls, k, Math.PI / 2);
@@ -339,5 +331,71 @@ describe('COVERAGE_WORD — the packing width of a coverage mask', () => {
         expect(coverageCellCount(c)).toBeLessThanOrEqual(c.w * c.h);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 11.2 review gate (F1): THE PAINT SALT. The fuzz seed takes an explicit
+// salt; 0 (the default) is the public seed a keyless caller gets, any other
+// value moves the fuzz off it. The server passes a room-private per-paint
+// salt (server/src/game/paintSalt.ts) so a paint cannot be replayed from the
+// pose a contact row discloses.
+// ---------------------------------------------------------------------------
+describe('the paint salt — the fuzz of a paint is a function of (pose, time, SALT)', () => {
+  const same = (a: HullCoverage, b: HullCoverage): boolean => JSON.stringify(a) === JSON.stringify(b);
+  /** Exact, fractional poses spread over the lattice phases. */
+  const poses = Array.from({ length: 40 }, (_, k) => ({ x: 137.31 + k * 23.7, y: -412.9 + k * 11.3, heading: k * 0.37, t: 5000 + k * 50 }));
+
+  it('salt 0 IS the unsalted pipeline (the default a keyless caller gets): identical seed and identical mask, hull and segment', () => {
+    for (const p of poses) {
+      expect(paintSeed(p.t, p.x, p.y, p.heading, 0)).toBe(paintSeed(p.t, p.x, p.y, p.heading));
+      expect(segmentPaintSeed(p.t, p.x, p.y, p.x + 60, p.y + 25, 0)).toBe(segmentPaintSeed(p.t, p.x, p.y, p.x + 60, p.y + 25));
+      for (const cls of HULL_IDS) {
+        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0)).toEqual(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t));
+      }
+    }
+  });
+
+  it('a salt MOVES the fuzz: for the same hull, pose and tick, two different salts — and a salt against none — give different masks for most poses, and it is deterministic per salt', () => {
+    for (const cls of HULL_IDS) {
+      let twoSalts = 0;
+      let saltedVsPublic = 0;
+      for (const [k, p] of poses.entries()) {
+        const a = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k);
+        const b = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x7654321 + k);
+        expect(paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0x1234567 + k)).toEqual(a);
+        if (!same(a, b)) twoSalts += 1;
+        if (!same(a, paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t))) saltedVsPublic += 1;
+      }
+      expect(twoSalts, cls).toBeGreaterThan(poses.length / 2);
+      expect(saltedVsPublic, cls).toBeGreaterThan(poses.length / 2);
+    }
+  });
+
+  it('the salt changes the FUZZ only, never the footprint: every salted mask still covers the whole sharp rasterization (the hull\'s own cells are core)', () => {
+    for (const cls of HULL_IDS) {
+      for (const [k, p] of poses.entries()) {
+        const sharp = rasterizeHullCoverage(cls, p.x, p.y, p.heading, CELL);
+        const salted = paintCoverage(cls, p.x, p.y, p.heading, CELL, p.t, 0xabcdef + k);
+        const lit = new Set(cellsOf(salted).map((c) => `${c.gx},${c.gy}`));
+        for (const c of cellsOf(sharp)) expect(lit.has(`${c.gx},${c.gy}`), `${cls} pose ${k}`).toBe(true);
+      }
+    }
+  });
+
+  it('a WAKE segment\'s glint moves with the salt too (a wide ribbon: most poses differ), and its spine survives every salt', () => {
+    const WIDE = CELL * 4; // wide enough to carry flank cells to glint
+    let differ = 0;
+    for (const [k, p] of poses.entries()) {
+      const bx = p.x + Math.cos(p.heading) * 80;
+      const by = p.y + Math.sin(p.heading) * 80;
+      const a = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x1111 + k);
+      const b = paintSegmentCoverage(p.x, p.y, bx, by, WIDE, CELL, p.t, 0x2222 + k);
+      if (!same(a, b)) differ += 1;
+      const spine = new Set(cellsOf(paintSegmentCoverage(p.x, p.y, bx, by, 0, CELL, p.t)).map((c) => `${c.gx},${c.gy}`));
+      const lit = new Set(cellsOf(a).map((c) => `${c.gx},${c.gy}`));
+      for (const cell of spine) expect(lit.has(cell), `pose ${k}`).toBe(true);
+    }
+    expect(differ).toBeGreaterThan(poses.length / 2);
   });
 });

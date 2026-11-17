@@ -19,7 +19,7 @@ function ensureEl(): HTMLDivElement {
       // 42 logical), not over it: 50 logical px, scaled like the chrome it
       // sits beneath (Eric 2026-09-17 — "GOING DOWN WITH THE SHIP!" was
       // covering the AFLOAT · KILLS · timer row). The IN STORM / tells column
-      // starts below this box (CLIENT_CONFIG.vitals.stormAbove).
+      // starts below this box (CLIENT_CONFIG.chromeBar.stormAbove).
       'top:calc(50px * var(--hc-ui-scale, 1))',
       'left:50%',
       // HUD-tier DOM chrome scales with the accessibility UI scale (Story 2.3).

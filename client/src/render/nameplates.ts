@@ -11,9 +11,9 @@
 // at its hull's PROJECTED screen position (the same camera transform the hull
 // gets) and bottom-center anchored above the hull's bounding circle.
 //
-// Latch discipline (mirrors render/contacts.ts tryRecolor / render/hueLatch.ts):
-// a plate's text + color are resolved ONCE — the moment the roster name/hue land —
-// then latched. A human contact whose name/color hasn't synced gets NO plate (we
+// Latch discipline: a plate's text + color are resolved ONCE — the moment the
+// roster name lands — then latched. A human contact whose name hasn't synced
+// gets NO plate (we
 // never render a session id); once latched, the plate persists even if the player
 // later leaves the roster. Per-frame work is position + alpha writes only (Pixi
 // re-rasterizes Text on .text assignment, so the driver only calls set() once).
@@ -23,9 +23,6 @@ import { hullSilhouette, polygonMaxRadius, HULL_IDS, type HullId } from '@salvo/
 import { CLIENT_CONFIG } from '../config.js';
 import { textSafe } from '../util/color.js';
 import { ellipsizeName, NAME_MAX } from '../util/text.js';
-import { PLAYER_HUES } from './ships.js';
-
-const C = CLIENT_CONFIG.colors;
 
 /** Constant screen font size (px) — the hud-micro register, lifted 9 → 14 by
  *  Story 2.3 (amendment 15, which supersedes DESIGN.md's 9px pin). Plates never
@@ -51,65 +48,43 @@ export function plateText(name: string): string {
   return [...up].length > NAME_MAX ? ellipsizeName(up) : up;
 }
 
-/** Plate text color: a drone is the `droneOutline` grey VERBATIM (never through
- *  textSafe); a human is its personal hue's text-safe (≥4.5:1) variant. The
- *  caller only passes a human `hueIndex` once it has resolved (non-null). */
-export function plateColor(hueIndex: number, isDrone: boolean): number {
-  // `?? amber` guards an out-of-range index so textSafe never gets undefined —
-  // belt-and-braces like the 1.12 siblings (amber is the roster-miss fallback).
-  return isDrone ? C.droneOutline : textSafe(PLAYER_HUES[hueIndex] ?? C.amber);
+/** Plate text color: a captain's RELATION stroke's text-safe (≥4.5:1) variant
+ *  (Story 10.4 — render/relationColor.ts). */
+export function plateColor(stroke: number): number {
+  return textSafe(stroke);
 }
 
-/**
- * THE ONE LABEL A PvE FLEET HULL EVER WEARS.
- *
- * The plate has resolved to this literal since Story 1.13 — *"a drone always
- * resolves to the literal 'DRONE' (never its roster 'DRONE-NN' name)"* — and
- * Story 5.6 makes it load-bearing in a second place: fleet hulls no longer hold
- * roster rows at all (amendment 39), so the KILL FEED lost its name source and
- * follows this precedent rather than printing the feed's neutral
- * `UNKNOWN VESSEL` for a hull whose identity is perfectly well known. Exported
- * so the two surfaces cannot drift into two spellings of one word.
- */
-export const DRONE_PLATE_TEXT = 'DRONE';
-
 /** The plate a hull should show, or null when it cannot yet resolve (the latch
- *  gate): a drone always resolves to the literal "DRONE" (never its roster
- *  "DRONE-NN" name); a human needs BOTH a synced name and a hue index. */
-export function resolvePlate(
-  name: string | null,
-  hueIndex: number | null,
-  isDrone: boolean,
-): { text: string; color: number } | null {
-  if (isDrone) return { text: DRONE_PLATE_TEXT, color: plateColor(0, true) };
-  if (name === null || hueIndex === null) return null;
+ *  gate): a captain needs a synced name. `stroke` is the captain's relation
+ *  stroke. */
+export function resolvePlate(name: string | null, stroke: number): { text: string; color: number } | null {
+  if (name === null) return null;
   // Strip control chars only (a newline must never reach Pixi as a multi-line
   // plate) — KEEP format chars (\p{Cf}) so emoji ZWJ sequences survive intact.
   // A name that is empty or ALL whitespace/format chars can't latch a blank
   // plate: treat as unresolved (null) so the driver keeps retrying.
   const stripped = name.replace(/\p{Cc}/gu, '');
   if ([...stripped].every((ch) => /[\s\p{Cf}]/u.test(ch))) return null;
-  return { text: plateText(stripped), color: plateColor(hueIndex, false) };
+  return { text: plateText(stripped), color: plateColor(stroke) };
 }
 
 /** One latch step for a plate driver: given the current latch flag + resolver
  *  inputs, the plate to SET this frame (null = set nothing) and the next latch.
  *  Once latched it never re-resolves — the plate persists even if the roster
- *  entry later vanishes (name/hue back to null). */
+ *  entry later vanishes (name back to null). */
 export function latchPlate(
   latched: boolean,
   name: string | null,
-  hueIndex: number | null,
-  isDrone: boolean,
+  stroke: number,
 ): { plate: { text: string; color: number } | null; latched: boolean } {
   if (latched) return { plate: null, latched: true };
-  const plate = resolvePlate(name, hueIndex, isDrone);
+  const plate = resolvePlate(name, stroke);
   return { plate, latched: plate !== null };
 }
 
 /** Plate offset radius (world u) per hull id — each hull's silhouette
- *  bounding-circle radius, computed ONCE at module load (HULL_IDS covers the
- *  three classes + the three drone ids) so plateScreenY runs no per-frame
+ *  bounding-circle radius, computed ONCE at module load (HULL_IDS covers
+ *  every class) so plateScreenY runs no per-frame
  *  polygon scan in the render hot path. */
 const PLATE_OFFSET_R: Readonly<Record<HullId, number>> = Object.fromEntries(
   HULL_IDS.map((id) => [id, polygonMaxRadius(hullSilhouette(id))]),

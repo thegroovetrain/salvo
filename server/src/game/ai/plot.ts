@@ -35,9 +35,9 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   WAKE_AGE_BUCKETS,
+  effectiveStats,
   hullEnvelope,
-  islandBlocksSegment,
-  type DecoyView,
+  sharedIslandIndex,
   type GameEvent,
   type GhostPaint,
   type Island,
@@ -57,11 +57,12 @@ type TrackMap = Map<string, RememberedContact>;
 export const TRACK_PERSIST_MS = 60000 / CONFIG.vision.sweepRpm;
 
 /** u/s — the fastest PARTICIPANT hull's rated top speed, off the class table
- *  (never a literal): the reach of a wake ribbon, the plausibility cap on a
+ *  through the fold (never a literal — since Story 10.3 the envelope carries
+ *  ENGINES and the speed is DERIVED by effectiveStats()): the reach of a wake ribbon, the plausibility cap on a
  *  course estimate and the association radius for a course-less plot all
  *  scale with it, so a hull retune moves them together. */
 export const FASTEST_HULL_SPEED = Math.max(
-  ...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).kinematics.maxSpeed),
+  ...SHIP_CLASS_IDS.map((id) => effectiveStats(hullEnvelope(id)).kinematics.maxSpeed),
 );
 
 /** u — the LONGEST participant hull (off the class table, never a literal):
@@ -116,10 +117,10 @@ export const ANON_ASSOC_U = CONFIG.vision.radarCellU * 6;
  * every tick for coastline avoidance.
  */
 export function lineBlocked(a: Vec2, b: Vec2, islands: readonly Island[]): boolean {
-  for (const isle of islands) {
-    if (islandBlocksSegment(a, b, isle)) return true;
-  }
-  return false;
+  // Through the shared broadphase index of this island list (Story 11.2
+  // follow-up): the same answer as asking every island in turn — the index
+  // only skips islands and edges the line provably cannot touch.
+  return !sharedIslandIndex(islands).losClear(a, b);
 }
 
 /** Centroid of a lattice rect's LIT cells in world units, or null for an
@@ -145,69 +146,17 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
   return n === 0 ? null : { x: sx / n, y: sy / n };
 }
 
-/** How many lattice cells a paint lights — the FOOTPRINT a human reads off
- *  the scope (Story 9.13, epic-9 amendment 197): a decoy buoy's paint square
- *  (`CONFIG.decoyBuoy.sizeU`) lights a handful, a hull's silhouette many. */
-export function paintCellCount(e: GhostPaint): number {
-  let n = 0;
-  for (let bit = 0; bit < e.w * e.h; bit += 1) {
-    if (((e.bits[bit >> 5] ?? 0) & (1 << (bit & 31))) !== 0) n += 1;
-  }
-  return n;
+/** The paint footprint's LONGEST SIDE in world units — `max(w, h)` lattice
+ *  cells × `radarCellU` (Story 10.9: the crate-paint filter's measure; see
+ *  `CONFIG.bots.cratePaintMaxU`). */
+export function paintLongestSideU(e: GhostPaint): number {
+  return Math.max(e.w, e.h) * CONFIG.vision.radarCellU;
 }
 
-// ---------------------------------------------------------------------------
-// DECOY CUES (Story 9.13, epic-9 amendment 197)
-// ---------------------------------------------------------------------------
-
-/** u — how near a plot must sit to a KNOWN decoy (one in `view.decoys`: the
- *  bot's own, at any range, or an enemy buoy inside its sight / own light) to
- *  be that buoy's paint: the buoy's paint square plus one lattice cell of
- *  rasterization slop (amendment 197(a)). */
-export const DECOY_SLOP_U = CONFIG.decoyBuoy.sizeU + CONFIG.vision.radarCellU;
-
-/** Lit cells at or under which a paint is buoy-sized (amendment 197(b), the
- *  orchestrator's reading: the 12 u buoy square on the 9 u lattice lights at
- *  most a 2 × 2 block). A footprint, not a distance — no CONFIG dial. */
-export const DECOY_MAX_CELLS = 4;
-
-/** Is the identity-free plot at `p` the paint of a decoy the view names?
- *  Only an ANONYMOUS plot can be a buoy's paint: a plot carrying an id is a
- *  hull the bot saw (amendment 197(a)). */
-export function nearKnownDecoy(t: RememberedContact, p: Vec2, decoys: readonly DecoyView[]): boolean {
-  if (t.id !== null) return false;
-  for (const d of decoys) {
-    if (Math.hypot(d.x - p.x, d.y - p.y) <= DECOY_SLOP_U) return true;
-  }
-  return false;
-}
-
-/** A radar-only plot that reads as a PROBABLE BUOY (amendment 197(b)): never
- *  sighted, buoy-sized paint, no wake ever fitted, and measured stationary for
- *  CONFIG.bots.decoyStillSweeps consecutive sweeps. A plot with no paint
- *  evidence (no `paintCells`) is never one. */
-export function probableDecoy(t: RememberedContact): boolean {
-  if (t.live || t.id !== null || t.hasWake === true) return false;
-  if (t.paintCells === undefined || t.paintCells > DECOY_MAX_CELLS) return false;
-  return (t.stillSweeps ?? 0) >= CONFIG.bots.decoyStillSweeps;
-}
-
-/** u/s — a paint-to-paint speed below this reads STILL (fix wave P17, the
- *  orchestrator's reading under amendment 197(b)): half a radar paint cell
- *  per sweep revolution, so a moored buoy whose paint centre jitters a cell
- *  edge between sweeps still counts as stationary, while any hull under way
- *  (tens of u/s even at a crawl) resets the run. A float equality on the
- *  measured course was never going to read a real paint as zero. */
-export const STILL_SPEED_U_S = 3;
-
-/** The stationary-sweep count after a paint whose paint-to-paint velocity is
- *  `v`: a measured course below STILL_SPEED_U_S extends the run, measured
- *  motion resets it, no measurement (a first paint, a sub-second pair) leaves
- *  it as it was. */
-export function nextStillSweeps(prev: number | undefined, v: { vx: number; vy: number } | null): number {
-  const n = prev ?? 0;
-  if (v === null) return n;
-  return Math.hypot(v.vx, v.vy) < STILL_SPEED_U_S ? n + 1 : 0;
+/** Is this radar return too small to be a hull — an airdrop crate's disc
+ *  imprint (Story 10.9, `CONFIG.bots.cratePaintMaxU`)? Never a track. */
+export function isCrateSizedPaint(e: GhostPaint): boolean {
+  return paintLongestSideU(e) < CONFIG.bots.cratePaintMaxU;
 }
 
 // ---------------------------------------------------------------------------
@@ -645,6 +594,5 @@ export function refitWakeCourses(tracks: TrackMap, cells: readonly WakeCell[], n
     t.vy = v.vy;
     t.vAt = now;
     t.vSrc = 'wake';
-    t.hasWake = true; // a buoy lays no wake (amendment 197(b))
   }
 }

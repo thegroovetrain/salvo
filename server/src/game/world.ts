@@ -21,8 +21,19 @@ import {
   applyGroundingDamp,
   applySinkingDecel,
   applySlotEffect,
+  beaconCycleAt,
+  beaconCycleStartMs,
   cardBehaviors,
   boostedKinematics,
+  abilityCode,
+  abilityFromCode,
+  abilityReadyAt,
+  abilitySlot,
+  repairRefusal,
+  smokeRefusal,
+  regenDue,
+  regenGain,
+  type CooldownAbilityId,
   contactGrindRate,
   contactHitDamage,
   landGrindRate,
@@ -31,39 +42,49 @@ import {
   boonStackCount,
   pickRefusal,
   polyInBlast,
-  CONSUMABLE_SLOTS,
   burstVictims,
   drawOffer,
+  drawBonusIndex,
+  INDEX_IDS,
+  type IndexId,
   lineWeight,
-  DEFAULT_GUN,
+  DEFAULT_CLASS_ID,
   DEFAULT_SHIFT,
-  MOUNTED_GUN,
+  SLOT_BOOST,
   SLOT_GUN,
+  EQUIPMENT_IS_WEAPON,
   WEAPON_SLOTS,
-  classShift,
+  batteryAimPoint,
+  initialSecondaries,
+  ventSecondaries,
+  initialTurrets,
+  reloadAllTurrets,
+  stepSecondaries,
+  stepTurrets,
   DEFAULT_HORN_ID,
   damageMultiplierFor,
+  weaponPowerFor,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
-  fleetHullIds,
   generateMap,
+  dropCountFor,
+  dropMinuteAt,
+  dropTouches,
+  rollKind,
+  rollPickup,
   hasFoundered,
   hookKinematics,
-  hullIsFull,
   isAfloat,
-  isConsumableId,
   isSinking,
   isSunk,
   slotsWithCards,
-  isWeaponItem,
   loadoutFor,
   MULLIGAN_CHOICE,
   hullEnvelope,
   hullSilhouette,
   pointPolygonDistance,
   flakRimFactor,
-  rangeAttenuation,
   settleBlow,
   mulberry32,
   resolveShipPose,
@@ -86,21 +107,32 @@ import {
   stormDpsFor,
   zoneStateAt,
   isOutside,
-  FOG_NO_CUT,
   makeFogField,
-  FOG_SOLID_DENSITY,
+  fogFrameAt,
+  fogHazeDepth,
+  fogMaxDepth,
+  zoneLiveState,
+  fogHullGrid,
   fogDensityAt as fieldDensityAt,
-  fogNoiseAt,
-  fogCutForTarget,
-  fogLattice,
+  smokeDepthAlong,
+  cloudOutlineRadius,
+  islandIndexFor,
+  newLosHints,
+  polyBox,
+  type PolyBox,
+  type IslandIndex,
+  type LosHints,
   type FogField,
+  type FogFrame,
   type BallisticEvent,
   type BoonBehaviorEffect,
   type Catalog,
   type CatalogLine,
   type DrawShip,
-  type GunId,
+  type PickRefusal,
+  type SecondariesState,
   type ShiftId,
+  type TurretState,
   type Weights,
   type BoonOffer,
   type LineId,
@@ -108,7 +140,6 @@ import {
   type DenialReason,
   type EffectiveStats,
   type ShipConfig,
-  type ConsumableId,
   type ContactBody,
   type HookRegistry,
   type HullContact,
@@ -123,9 +154,12 @@ import {
   type LitCircle,
   type LoadoutSlot,
   type MineKind,
-  type SlotItemId,
+  type EquipmentId,
   type Rng,
+  type LauncherState,
+  type RackBank,
   type ShellOutcome,
+  type DropState,
   type ShellState,
   type CloudRecord,
   type ShipClassId,
@@ -140,7 +174,6 @@ import {
   type ZoneTimeline,
 } from '@salvo/shared';
 import {
-  CONSUMABLES,
   EQUIPMENT,
   MINE_ROW_ID,
   addMine,
@@ -148,45 +181,35 @@ import {
   checkMineTriggers,
   configTriggerRadius,
   contactBlastRadius,
+  fireSecondaryRound,
   mineBlastVictims,
   slotRow,
+  syncBatterySlot,
   type ActivationContext,
   type ActivationDenial,
   type ActivationResult,
-  type ConsumableRegistry,
   type MineState,
   type MineTripRules,
 } from './equipment/index.js';
-import type { BurstSubject } from './signals.js';
+import { emptyRackBank, instantReloadMounts, isMountBacked, refitMounts, resetMounts, stepShipLaunchers } from './equipment/mounts.js';
+import type { BoomSubject, BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
-import { addDecoy, decoyTarget, type DecoyState } from './decoys.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
-import { FleetController, fleetSizeOf } from './drones.js';
+import { BeaconField, type BeaconChart, type BeaconRecord } from './beacons.js';
+import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
+import { paintSalt, paintSaltKey, type PaintKind } from './paintSalt.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
 import type { AnyProfileId, BotTickEntry } from './ai/types.js';
 import { observe } from './perception.js';
-import {
-  insideIntelDisc,
-  islandClearance,
-  isSpawnClear,
-  pickFleetAnchor,
-  pickSpawn,
-  SPAWN_ISLAND_CLEARANCE,
-  type FleetAnchor,
-  type IntelDisc,
-} from './spawn.js';
+import { SPAWN_ISLAND_CLEARANCE, islandClearance, isSpawnClear, pickBeaconSpot, pickSpawn } from './spawn.js';
 import { logWarn } from '../log.js';
 import { leadIntercept } from './lead.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
-// The ship-role seam (Story 6.3). ALIASED on import purely to keep them
-// distinct from World's own `isFleetHull(id)` method, which answers the same
-// question from an id (and fails closed on an absent record) rather than from
-// a record — the method is expressed in terms of `roleIsFleetHull` below, so
-// there is still exactly ONE definition.
+// The ship-role seam (Story 6.3). Aliased on import for symmetry with the
+// World's own id-keyed predicates.
 import {
-  isFleetHull as roleIsFleetHull,
   isHuman as roleIsHuman,
   isParticipant as roleIsParticipant,
   type ShipRole,
@@ -194,28 +217,12 @@ import {
 
 const TAU = Math.PI * 2;
 
-/** Floor on the fleet-anchor sampling radius as a fraction of the live ring —
- *  the guard for the late game, where `ring.r - spreadU` would go negative.
- *  NOTE this floor can push the anchor close enough to the rim that a hull
- *  scattering `spreadU` would land in the storm; `fleetOffset` tests ring
- *  containment per hull for exactly that reason (epic-6 amendment 24). */
-const FLEET_ANCHOR_MIN_FRACTION = 0.35;
-/** Attempts to land one fleet hull's scatter offset in water AND outside every
- *  captain's intel disc before giving up and stationing it on the anchor
- *  itself (island-clear always, intel-clear whenever the anchor was not the
- *  logged fallback — see fleetOffset). */
-const FLEET_OFFSET_TRIES = 12;
-/** The ShipRecord.name every fleet hull carries (Story 5.6, amendment 39):
- *  fleet hulls hold no roster row, and every client surface resolves `DRONE`
- *  off the hull id — so there is no numbered identity to mint. */
-const FLEET_SHIP_NAME = 'DRONE';
-
 /** The frozen zero-card behavior list — one shared identity so every
  *  card-less ShipRecord's per-tick hook fold is allocation-free. */
 const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
 
 /** The frozen empty DEV SPAWN FIT (Story 8.10, epic-8 amendment 65) — what
- *  every hull in production, every bot and every fleet hull carries, so the
+ *  every hull in production and every bot carries, so the
  *  no-fit case is one shared allocation-free identity. */
 const EMPTY_FIT: readonly string[] = Object.freeze([]);
 
@@ -273,16 +280,6 @@ export interface WorldOptions {
   hookRegistry?: HookRegistry;
   catalog?: Catalog;
   /**
-   * THE CONSUMABLE-ROW SEAM (Story 8.7), beside `catalog` and for the same
-   * reason. Production ships the EMPTY `CONSUMABLES` registry — every
-   * consumable line is still `stub`, so nothing can be stocked and the belt is
-   * unreachable in play (Eric ruling 2026-09-17, epic-8 amendment 41) — while
-   * tests inject a non-stub catalog AND the rows that back it, and drive the
-   * whole stock/use/clear mechanism end to end. Story 8.8 ships the first real
-   * row; nothing else here changes when it does.
-   */
-  consumables?: ConsumableRegistry;
-  /**
    * PER-RING seed material of the SERVER-PRIVATE zone ring streams (Story
    * 3.1, amendment 10 + review FIX 2): one uint32 per rolled ring
    * (zoneSeeds[i] → ring i+1), each seeding an INDEPENDENT stream so a
@@ -307,23 +304,46 @@ export interface WorldOptions {
    */
   pseudonymSeed?: number;
   /**
-   * THE PVE WAVE SCHEDULER SWITCH (Story 9.15, a DEV SMOKE ARM). `false` makes
-   * `spawnFleetWaves` a no-op, so no `CONFIG.fleet.waves` hull ever arrives —
-   * a scripted socket scenario's fight stays between the hulls it placed.
-   * Absent / `true` = the shipped schedule. ArenaRoom passes it ONLY from the
-   * dev-gated `matchOverride.fleetWaves` (stripped without HC_DEV_OPTIONS=1);
-   * bots, solo and bot fill never read it.
+   * THE DISPERSION KEY (Story 11.1 review fix — anti-cheat): 32 bytes of
+   * per-room secret from which every gun shell's dispersion seed is minted
+   * (`HMAC-SHA256(key, ordinal)`, see `mintShell`). It is INDEPENDENT of
+   * `pseudonymSeed` and of every other stream on purpose: a shooter sees its
+   * own shells' exact landings, so any one shell's 32-bit seed is
+   * brute-forceable — and under an HMAC that reveals nothing about the key,
+   * any other shell or any other stream. ArenaRoom passes
+   * `crypto.randomBytes(32)` for every real room. Omitted => a deterministic
+   * key derived from the World's seeds (SHA-256 over a fixed label, the map
+   * seed and the pseudonym material) — for OFFLINE runs only (batch sims,
+   * tests, the RL env), so they replay exactly; NEVER acceptable for a
+   * production room.
    */
-  fleetWaves?: boolean;
+  dispersionKey?: Uint8Array;
+  /**
+   * THE RADIO BEACON SWITCH (Story 10.8, a DEV SMOKE ARM). `false` makes
+   * `placeBeacons` and `tickBeacons` no-ops, so no beacon is ever charted and
+   * the public chart stays empty — a scripted socket scenario keeps its XP
+   * clock to itself. Absent / `true` = the shipped beacons. ArenaRoom passes
+   * it ONLY from the dev-gated `matchOverride.beacons` (stripped without
+   * HC_DEV_OPTIONS=1).
+   */
+  beacons?: boolean;
+  /**
+   * THE AIRDROP SWITCH (Story 10.9, epic-10 amendment 18 — a DEV SMOKE ARM).
+   * `false` makes `spawnDrops` a no-op: no SCHEDULED crate is ever scattered.
+   * WRECK PICKUPS are still placed (a sink is not the schedule — spec I/O row
+   * "Dev door"), and collection and the storm sweep run as ever. Absent /
+   * `true` = the shipped schedule. ArenaRoom passes it ONLY from the
+   * dev-gated `matchOverride.drops` (stripped without HC_DEV_OPTIONS=1).
+   */
+  drops?: boolean;
 }
 
 /** The item id fitted in `loadout[slotIndex]`, or null when the slot is
  *  empty or the index is out of range. Shared by the two dispatch channels so
  *  each routes only its OWN kind: fireControl (clicks) dispatches weapons,
- *  activationControl (actSeq) dispatches abilities — a split both read off the
- *  shared `isWeaponItem`, which answers for a CONSUMABLE line as readily as for
- *  a piece of equipment (Story 8.7). Hence `SlotItemId`, not `EquipmentId`. */
-function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): SlotItemId | null {
+ *  activationControl (actSeq) dispatches the Shift — a split both read off the
+ *  shared `EQUIPMENT_IS_WEAPON`. */
+function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): EquipmentId | null {
   const slot = loadout[slotIndex];
   return slot ? slot.equipmentId : null;
 }
@@ -396,7 +416,7 @@ export interface BurnZone {
  * precedent), `r` and `until` STAMPED from the shell's `foul` tag. Every
  * AFLOAT hull whose OUTLINE touches the circle — the owner included (Eric:
  * *"Yes it does slow you"*; a slow is not damage, so there is no friendly-fire
- * exemption), PvE drones included, sinking hulls excluded — is stamped
+ * exemption), sinking hulls excluded — is stamped
  * `fouledUntil = now + CONFIG.foulingShell.lingerMs` every tick it is inside
  * (applyFoulZones, the outline test of amendment 62), and runs at
  * `CONFIG.foulingShell.slowFactor` × both caps while that stamp is in the
@@ -427,7 +447,7 @@ export interface FoulZone {
  * ONE attacker's running claim on ONE victim's kill value — the entry type of
  * `ShipRecord.damageFrom`. See that field for the rolling-counter model.
  */
-interface AssistTally {
+export interface AssistTally {
   /** Clamped damage accumulated since this tally last started. */
   amount: number;
   /** Server-clock ms of this attacker's most recent damage on the victim. */
@@ -445,15 +465,16 @@ export interface ShipRecord {
    * shipped `isDrone` boolean, which conflated three different questions
    * ("is it a person", "does it contest the outcome", "is it world content").
    * Read it ONLY through game/participants.ts's predicates — isHuman /
-   * isParticipant / isFleetHull — never by comparing the string ad hoc. Story
-   * 6.4 adds `'bot'` to the union and every consumer follows for free.
+   * isParticipant — never by comparing the string ad hoc. Story 6.4 added
+   * `'bot'` to the union and every consumer followed for free; Story 10.8
+   * retired `'fleet'` with the PvE drones.
    */
   role: ShipRole;
   /**
    * Hull identity (fixed for the ship's whole life): a player's picked
-   * ShipClassId, or a drone's drone hull id. THE key into hullSilhouette()/
-   * hullEnvelope(), and the `cls` value contacts carry on the wire. A player
-   * ship's hullId is ALWAYS a ShipClassId (OwnShip.cls narrows on that).
+   * ShipClassId. THE key into hullSilhouette()/hullEnvelope(), and the `cls`
+   * value contacts carry on the wire. A player ship's hullId is ALWAYS a
+   * ShipClassId (OwnShip.cls narrows on that).
    */
   hullId: HullId;
   /** Cached resolved envelope (hull + hp + kinematics) for this hullId. */
@@ -577,7 +598,7 @@ export interface ShipRecord {
    * THE DEV SPAWN FIT (Story 8.10, epic-8 amendment 65) — the line ids a
    * DEV-ONLY `fitOverride` room option asked this hull to come up holding,
    * already dev-gated and shape-sanitized at the door. EMPTY on every
-   * production path and on every bot / fleet hull: `fitOverride` is stripped
+   * production path and on every bot: `fitOverride` is stripped
    * without HC_DEV_OPTIONS=1, the queue never forwards it, and addShip keeps
    * it only for a `captain`. Applied ONCE, at spawn (`enrolShip` →
    * `applyDevFit`), and never again: since the 8.10 review the activation
@@ -590,8 +611,8 @@ export interface ShipRecord {
   /**
    * THE DEV SPAWN POSE (Story 9.15) — the placement a DEV-ONLY `spawnOverride`
    * join option asked this hull to take, already dev-gated and value-sanitized
-   * at the door. UNDEFINED on every production path and on every bot / fleet
-   * hull: the option is stripped without HC_DEV_OPTIONS=1 and addShip keeps it
+   * at the door. UNDEFINED on every production path and on every bot: the
+   * option is stripped without HC_DEV_OPTIONS=1 and addShip keeps it
    * only for a `captain` (the `devFit` rule). Honoured at EVERY placement edge
    * — addShip, redeployShip (unless the start line is held) and respawn — in
    * place of `pickSpawn`, heading included. A PLACEMENT ONLY: it never touches
@@ -600,21 +621,67 @@ export interface ShipRecord {
    */
   devPose?: DevPose;
   /**
-   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
-   * captain PICKED — deck gun, machine gun or flak gun — sanitized at the door
-   * and frozen for the match. It is a SEAT value, not a fact about the hull:
-   * slot 0 mounts the MODULE `MOUNTED_GUN[gun]` names (all three resolve to the
-   * shipped `'gun'` module until Story 8.15), and a GUN LADDER is offered only
-   * while its own gun is the mounted one (sim/draw.ts).
+   * THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — it replaced the seat's
+   * GUN, Story 8.14): which Shift ability this captain PICKED, sanitized at
+   * the door (`sanitizeShiftId`, fail-open to `DEFAULT_SHIFT`) and frozen for
+   * the match. Slot 1 mounts it (`loadoutFor(stats, shift)`); slot 0 is
+   * the hull's MAIN BATTERY on every hull. A bot's is dealt off the room's
+   * bot-fleet stream.
    *
-   * SELF-PRIVATE: it rides the own-ship frame (`OwnShip.gun`) and NOTHING else
-   * — which gun an enemy picked is build information. A fleet hull carries the
-   * default and never draws.
+   * SELF-PRIVATE: it rides the own-ship frame (`OwnShip.shift`) and NOTHING
+   * else — which Shift an enemy picked is build information.
    */
-  gun: GunId;
+  shift: ShiftId;
+  /**
+   * THE MAIN BATTERY'S TURRETS (Story 10.4, R2/R4): one `{a, reloadMsLeft}`
+   * per turret, bow to stern — the TRUTH slot 0's `{n, reloadMsLeft}` pair is
+   * derived from (`batterySummary`); `a` is the DERIVED angle (no traverse,
+   * Story 11.1). Stepped in place by the shared
+   * `stepTurrets` in the `stepTurrets` STEP_ORDER row; a turret's reload is
+   * started by the mainBattery row's `fireTurret`. `initialTurrets(hullId)` at
+   * every spawn / redeploy / respawn.
+   * The ANGLES ride a sighted contact's row (`Contact.tu`, through the contact
+   * gate); the reloads ride the own-ship frame only (`OwnShip.turrets`).
+   */
+  turrets: TurretState[];
+  /**
+   * THE TORPEDO LAUNCHERS (Story 10.6, Eric 2026-11-05, R6 / R13 / R16): one
+   * `{a, tubes}` per launcher, fore first — the TRUTH the torpedo slot's
+   * `{n, reloadMsLeft}` pair is derived from (`launcherSummary`). EMPTY until
+   * the torpedo family slot fills; then `initialLaunchers` (everything
+   * loaded, I3), resized by cards (`refitMounts`), reset at every fresh life
+   * beside the turrets (`resetMounts`). Stepped in place by the
+   * `stepLaunchers` STEP_ORDER row. The ANGLES ride a sighted contact's
+   * `Contact.lu` (the `tu` gate); the tubes ride the own-ship frame only
+   * (`OwnShip.launchers`). Lifecycle: equipment/mounts.ts.
+   */
+  launchers: LauncherState[];
+  /**
+   * THE MINE RACKS (Story 10.6, R7 / R17 / R18): one `{n, reloadMsLeft}` per
+   * rack plus the drop-turn cursor — the TRUTH the mine slot's pair is
+   * derived from (`rackSummary`). No rack until the mine family slot fills.
+   * Ticked by the mine row (`tickRacks`); the racks ride the own-ship frame
+   * only (`OwnShip.racks`); the cursor never leaves the server.
+   */
+  racks: RackBank;
+  /**
+   * hp/ms — the RATE the running HULL REPAIR pool pays out at, stamped at the
+   * press from the ship's OWN `stats.repair` (`regenHp / regenMs` — Story
+   * 10.6, R8 / R15: the pool always drains over its fixed window, so a card
+   * taken mid-drain never changes a pool already running). Server-private.
+   */
+  repairRate: number;
+  /**
+   * THE SECONDARIES' HEAT (Story 10.4, R3): the shared stepper's state,
+   * stepped in place by the `secondariesControl` STEP_ORDER row off the
+   * latest input's `sec` level. `{heat}` rides the own-ship frame only
+   * (`OwnShip.sec`); the round phase (`untilRoundMs`) never leaves the server.
+   * Reset at every spawn / redeploy / respawn.
+   */
+  sec: SecondariesState;
   /**
    * This ship's PRIVATE DRAW stream (Story 2.8, renamed in 8.14 when the deck
-   * became the common pool): mulberry32 decorrelated from mapgen/spawn/drone
+   * became the common pool): mulberry32 decorrelated from the mapgen/spawn
    * streams by its own golden constant XOR a stable per-ship JOIN ORDINAL
    * (World.joinSeq — assigned once in addShip and never reused), so join/leave
    * churn elsewhere can never shift this player's draws. The stream PERSISTS
@@ -628,13 +695,28 @@ export interface ShipRecord {
    * SINGLE SOURCE OF TRUTH for the level bank (OwnShip.pts mirrors it). Levels
    * behind the front one carry NO cards — a level is drawn for only when it
    * reaches the front (`offer` below), so banking costs nothing.
+   * A HULL WITH NOTHING DEALABLE BANKS NOTHING (Story 10.7, R5, Eric
+   * 2026-11-06): an EMPTY draw converts every banked level into a bonus point
+   * (`indexBonus`) and sets this to 0 (`materializeOffer`), so `pts` never
+   * advertises a level that can never be spent. `level` keeps counting.
    * PRESERVED by redeployShip since Story 8.10 — the level the countdown
    * granted is the one the captain spends on live water.
    */
   bankedLevels: number;
   /**
+   * THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5, Eric 2026-11-06,
+   * epic-10 amendment 13): per index, how many levels met an EMPTY draw and
+   * became `CONFIG.offer.exhausted.indexPoints` on that index (picked by the
+   * shared `drawBonusIndex` off `drawRng`). All six keys, zero at addShip.
+   * Folded ONLY through `effectiveStats()` (`refoldCards`, `redeployEconomy`)
+   * and mirrored self-private onto `OwnShip.ib`. PER MATCH, like `cards`:
+   * PRESERVED by redeployShip and respawn (the build persists).
+   */
+  indexBonus: Record<IndexId, number>;
+  /**
    * THE FRONT OFFER — the one hand the player is about to pick from, or null
-   * (no banked level; a draw can no longer come back empty — amendment 94).
+   * (no banked level — an empty draw banks nothing, Story 10.7 R5: its levels
+   * become bonus points instead).
    * Materialized ONCE, from THE COMMON POOL at the moment the level reaches the
    * front (materializeOffer → sim/draw.drawOffer over this ship's state, its
    * weights and its stream), then FROZEN until it is spent: reopening the refit
@@ -698,7 +780,7 @@ export interface ShipRecord {
    * always in [0, CONFIG.xp.levelMs). Integer ms — never a float fraction — so
    * 1200 passive ticks × 50ms is EXACTLY one level with no drift. Two inputs
    * only: the passive tick (+dtMs while the match is active, this hull is
-   * alive, and it is not a drone) and kill credit (round(levelMs × value),
+   * alive) and kill credit (round(levelMs × value),
    * NOT alive-gated — a shell landing after the killer's own death still
    * credits). Damage adds nothing. Every threshold crossing is banked by
    * grantXp through the existing grantPoint. Wiped by redeployShip (fresh
@@ -821,7 +903,7 @@ export interface ShipRecord {
    * Highest InputMsg.hornSeq the foghorn control has consumed (Story 4.5 —
    * the hornSeq sibling of lastFireSeq/lastActSeq, same monotonic grammar). A
    * stored value newer than this is one pending honk; consumption happens
-   * EVERY tick (even dead, droned, or on cooldown — the press is consumed and
+   * EVERY tick (even dead or on cooldown — the press is consumed and
    * silently dropped, exactly as malformed input is), so a press is never
    * queued. Like its siblings it is deliberately NOT reset on respawn/redeploy
    * — the live input still carries the old counter, and a reset would make it
@@ -863,7 +945,7 @@ export interface ShipRecord {
    * 0 = no cut opened this life. Written ONLY through the `setHunker`
    * activation capability (the hunker row's activate); read by applyDamage
    * (while `now < hunkerUntil` the row's `armorBonus` is added to the
-   * hull's Armor inside the gate's multiplier, BEFORE the shield; storm bites
+   * hull's Armor inside the gate's multiplier; storm bites
    * are exempt — epic-9 amendments 86–88) and mirrored
    * onto OwnShip.hunkerUntil (SELF-PRIVATE, omitted while 0) by frames.ts.
    * RESET to 0 wherever `boostUntil` resets (redeploy / founder / respawn).
@@ -887,40 +969,43 @@ export interface ShipRecord {
    */
   streamLive: boolean;
   /**
-   * hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04; the
-   * spend became a CARD in Story 8.8); 0 = nothing draining. Written ONLY by
-   * World.applyRepair — the `ctx.applyRepair` capability HULL REPAIR's row
-   * calls (`repairHp = CONFIG.hullRepair.regenHp` — a re-press REPLACES the
-   * pool, Eric ruling 2026-09-29, amendment 141; the rate never changes) —
-   * and drained by tickRepairs at the fixed regenHp/regenMs
-   * WALL-CLOCK rate (50 hp over 5 s as shipped, amendment 51); mirrored onto
-   * OwnShip.repairHp (owner-only) by frames.ts. RESET to 0 on
-   * spawn/sink/respawn/redeploy exactly where boostUntil resets — a pool must
-   * never survive the death gap.
-   *
-   * THE ONLY REPAIR POOL. The free per-level channel (`levelRepairHp` /
-   * `levelRepairRate`) is GONE: epic-8 amendment 46 replaced the per-level
-   * auto-heal with out-of-combat regen, which pays straight into `hp` and
-   * needs no pool at all (see tickRepairs).
+   * hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04; a
+   * cooldown ABILITY on `C` since Story 10.5, epic-10 amendment 11); 0 =
+   * nothing draining. Written ONLY by World.applyRepair (the repair press —
+   * `repairHp = stats.repair.regenHp` — the ship's own, Story 10.6 — a re-press REPLACES the pool,
+   * amendment 141; the rate never changes) and drained by tickRepairs at the
+   * rate stamped at the press (`repairRate`, regenHp/regenMs) on the WALL CLOCK; mirrored onto OwnShip.repairHp
+   * (owner-only) by frames.ts. RESET to 0 on spawn/sink/respawn/redeploy
+   * exactly where boostUntil resets — a pool must never survive the death gap.
+   * The R8 passive regen (Story 10.5) runs BESIDE it, never through it.
    */
   repairHp: number;
   /**
+   * ms — server time HULL REPAIR (`C`) is ready again (Story 10.5, Eric
+   * 2026-11-05, epic-10 amendment 11, R1/R3); 0 = ready. Stamped ONLY on a
+   * successful press (`abilityReadyAt(now, stats, 'repair')` — the ship's own cooldown, never scaled by
+   * RELOAD, never touched by INSTANT RELOAD). Mirrored onto the SELF-PRIVATE
+   * `OwnShip.repairReadyAt` by frames.ts while in the future. Reset to 0 at
+   * every life boundary (spawn, respawn, redeploy) — ready at spawn.
+   */
+  repairReadyAt: number;
+  /** ms — server time SMOKE (`V`) is ready again (Story 10.5, R2/R3); the
+   *  `repairReadyAt` rules verbatim (`OwnShip.smokeReadyAt`). */
+  smokeReadyAt: number;
+  /**
    * ms — server-clock time this hull last took LANDED damage (epic-8 amendment
    * 47). Stamped by applyDamage's step (d) on every source that actually
-   * removed hp (`dealt > 0` — shells, torpedoes, mines, burn ticks, storm
-   * bites); a blow fully eaten by a SHIELD BLOCK does not count. Storm and burn
-   * both route through the one gate, so "the storm resets the clock" is
-   * structural rather than a second rule.
+   * removed hp (`dealt > 0` — shells, torpedoes, mines, ram and land contact,
+   * burn ticks, storm bites). Storm and burn both route through the one gate,
+   * so "the storm resets the clock" is structural rather than a second rule.
    *
-   * READ BY ONE THING: the out-of-combat regen in tickRepairs, against the
-   * hull's OWN wait `stats.regen.outOfCombatMs` (base `CONFIG.regen` 15 s; the
-   * PASSIVE HEALING ladder shortens it — Story 9.6, epic-9 amendments 90–92).
-   * SERVER-PRIVATE — never on the wire.
+   * ITS READER IS BACK (Story 10.5, Eric 2026-11-05, epic-10 amendment 11,
+   * R8): the passive regen in tickRepairs (`regenDue(now, lastDamagedAt)` —
+   * 2 % of missing hp per second after 15 s without a blow). SERVER-PRIVATE —
+   * never on the wire.
    *
-   * SET TO `now` AT SPAWN, RESPAWN AND REDEPLOY, not to 0: a fresh life waits
-   * the full window like everyone else. It costs nothing (the hull is full, so
-   * the regen has nothing to do) and it means a hull that respawns mid-fight
-   * cannot start trickling the instant it appears.
+   * SET TO `now` AT SPAWN, RESPAWN AND REDEPLOY, not to 0: a fresh life starts
+   * with a fresh combat clock, never a stale one from its previous life.
    */
   lastDamagedAt: number;
   /**
@@ -955,27 +1040,6 @@ export interface ShipRecord {
    */
   slowFactor: number;
   /**
-   * THE SHIELD BLOCK's absorbing pool (Story 8.4 / AR47) — `null` until the
-   * SHIELD BLOCK consumable (Story 8.16, amendments 100/116–118) arms it
-   * through `ActivationContext.setShield`, its ONE writer
-   * (equipment/consumables/shieldBlock.ts). The damage gate is its one reader.
-   *
-   * `hpLeft` is how much damage the block can still swallow; `until` is the
-   * server time it lapses. The gate expires it at `until` OR at `hpLeft === 0`,
-   * subtracts what it absorbs from the incoming amount, and CONTINUES with the
-   * remainder — a fully absorbed hit still runs the rest of the gate with
-   * `dealt = 0` (AR47). It absorbs from EVERY DamageSource, storm and burn
-   * included (Eric). A second shield REPLACES rather than stacks (Eric
-   * 2026-09-11) — that rule belongs to whatever grants one, not here.
-   *
-   * IT DIES AT EVERY LIFE BOUNDARY (Story 8.4 review, P5): sinkShip,
-   * redeployShip and respawn all reset it to `null`, so a fresh life can never
-   * inherit an open block — the DAMAGE CONTROL pool's rule, verbatim: the
-   * economy is what a sinking captain loses. Mirrored onto the SELF-PRIVATE
-   * `OwnShip.shield` by frames.ts while it is up.
-   */
-  shield: { hpLeft: number; until: number } | null;
-  /**
    * ms — server time the FOULING SHELL zone's slow on this ship ends (Story
    * 9.4, epic-9 amendments 61–68; it took FLASH SHELLS' `dazzledUntil` seat);
    * 0 = not fouled by a zone. THE ZONE'S LINGER STAMP: applyFoulZones writes
@@ -993,6 +1057,20 @@ export interface ShipRecord {
    */
   fouledUntil: number;
   /**
+   * ms — server time this ship's FLASH SHELLS dazzle ends (Story 8.17,
+   * amendment 132; RESTORED by Story 10.9, epic-10 amendments 2 and 4); 0 =
+   * never dazzled. Written ONLY by applyFlash: every non-owner afloat hull
+   * whose CENTRE is inside a flash burst gets `max(current, now +
+   * FLASH_WINDOW_MS)` — a second flash keeps the LATER expiry (a re-flash
+   * restarts the whiteout), never stacks, never shortens. Read by perception
+   * (signals.sightOf → the shared `effectiveSight(stats, dazzledUntil, now)`,
+   * the whiteout's clear circle, epic-10 amendment 5) and mirrored onto OwnShip.dazzledUntil
+   * (VICTIM-PRIVATE, frames.toOwnShip only, omitted when not in the future).
+   * Reset wherever `fouledUntil` resets (addShip, founder, respawn, redeploy /
+   * match start); sink-entry keeps it like every debuff window.
+   */
+  dazzledUntil: number;
+  /**
    * The WAKE-DRAFT lift folded into this hull's forward cap on the CURRENT
    * tick (Story 8.19, Eric rulings 2026-09-30, epic-8 amendments 151–155): the
    * shared `draftLift` over every OTHER hull's ribbon as it stood after last
@@ -1009,7 +1087,7 @@ export interface ShipRecord {
   /**
    * ms — windowed-min measured RTT for this client (pushed by the room's ping
    * loop via World.setRtt), or null when never measured. Null => the D1 fire-
-   * time clamp grants ZERO compensation (drones never get an RTT, so a drone
+   * time clamp grants ZERO compensation (a bot never gets an RTT, so a bot
    * claim — impossible anyway — would compensate nothing).
    */
   rttMs: number | null;
@@ -1033,8 +1111,8 @@ export interface ShipRecord {
   nextSmokeAt: number;
   /**
    * ms — server time this hull's MOST RECENT own MULTI-SPECTRAL COUNTERMEASURE
-   * cloud expires (Story 9.3): stamped `now + CONFIG.countermeasure.lifeMs`
-   * by `ActivationContext.setCountermeasure` at every press; 0 = none this
+   * cloud expires (Story 9.3): stamped `now + stats.smoke.lifeMs` (the owner's, Story 10.6)
+   * by World.makeCloud at every successful SMOKE press; 0 = none this
    * life. SERVER-PRIVATE, never on the wire; mirrored to the bot's own
    * BotTickEntry.cloudUntil (a self-read — the bot's "one of mine is still
    * up" test) and nothing else. Reset to 0 at addShip / sinkShip /
@@ -1046,18 +1124,9 @@ export interface ShipRecord {
   cloudUntil: number;
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
-  /**
-   * THE SWEEP REVOLUTION INDEX (Story 9.8, rulings 121–123): a whole-number
-   * count of how many times this hull's beam has WRAPPED past 2π this life —
-   * `advanceSweeps` adds one per wrap, and every placement edge that
-   * re-anchors `sweepAngle` (addShip / redeployShip / respawn) resets it to 0.
-   * It is the `rev` term of the radar DROPOUT roll (`dropoutPaints(d, seed,
-   * observer, target, rev)` in signals.ts): every bearing is swept exactly
-   * once per revolution (the half-open window), so keying the roll on the
-   * revolution makes "this sweep saw it or didn't" ONE decision per pass.
-   * SERVER-PRIVATE, never on the wire.
-   */
-  sweepRev: number;
+  // (`sweepRev`, the per-ship sweep REVOLUTION COUNTER — the `rev` term of
+  // the radar dropout roll, Story 9.8 — was REMOVED 2026-11-12 with the
+  // dropout: Story 11.2, R8.)
   /**
    * Ballistic ids (shells + torpedoes) this observer has already been sent a
    * reveal for ON THIS VISIT. Perception emits each ballistic exactly once per
@@ -1078,6 +1147,14 @@ export interface ShipRecord {
    */
   seenBallistics: Set<string>;
   /**
+   * This hull's own LINE-OF-SIGHT HINTS (Story 11.2 follow-up — shared
+   * `LosHints`): the islands that most recently blocked ITS eye rays, asked
+   * first by the next ray (`signals.fieldClear`). An order of asking only —
+   * it can change the cost of a sight test and never its answer — so it is
+   * never reset and rides no wire.
+   */
+  losHints: LosHints;
+  /**
    * Per-observer HOMING-torpedo track memory (Story 2.8): torpedo id → the
    * velocity DIRECTION (rad) this observer last received for that track (set
    * at the ballistic reveal, updated on every 'torpU' emission). The torpU row
@@ -1095,20 +1172,37 @@ export interface ShipRecord {
    */
   torpDirs: Map<string, number>;
   /**
-   * The ship's equipment loadout — ELEVEN FIXED-ROLE SLOTS (Story 8.5's nine,
-   * widened in Story 9.2; shared/src/sim/loadout.ts): `[gun, boost, weapon,
-   * weapon, weapon, consumable ×6]`, the SAME shape for every captain hull, each slot either
+   * THE CLOUDS THIS OBSERVER HOLDS (Story 11.6 review): the ids of the live
+   * SMOKE SCREEN clouds the `cloud` row has delivered to this observer — at
+   * an earlier tick or THIS one — and that its client therefore draws and
+   * charges on its own eye lines (a client keeps a cloud from the frame that
+   * carries it until the cloud's life ends). A cloud adds optical depth to
+   * this observer's eye lines ONLY while its id is here (`World.smokeRefresh`)
+   * — the server never hides a hull behind smoke the client was never told
+   * about. ORDER: perception's cloud scan writes it BEFORE the same pass's
+   * eye rows run (perception.ts `view`), so a cloud first delivered in a
+   * frame is charged in that frame — the client holds it by the time it
+   * draws that frame — and never a tick earlier. FORGOTTEN at the cloud's
+   * own death (`stepClouds`), at this hull's foundering, respawn and
+   * redeploy, and at a socket drop / resume (`forgetHeldClouds`).
+   * Forgetting only ever charges LESS (the server
+   * then sends a hull the client's own smoke may still cover): it can hide
+   * less, never leak. SERVER-PRIVATE; never on the wire.
+   */
+  heldClouds: Set<string>;
+  /**
+   * The ship's equipment loadout — FIVE FIXED-ROLE SLOTS (Story 10.5;
+   * shared/src/sim/loadout.ts): `[gun, boost, torpedo, mine, special shell]`,
+   * the SAME shape for every captain hull, each slot either
    * empty or holding one equipment id + its runtime state (pool + reload
    * timer, equipment/ammo.ts).
    *
    * There is no per-hull fit any more: slot 0 is the gun and slot 1 the boost
    * on every captain (amendment 23); the three WEAPON slots are filled by
-   * CARDS, first-empty-first (sim/boons.ts applySlotEffect), and they start
-   * EMPTY — Story 8.10 deleted the interim spawn seed (amendment 62), so the
-   * first weapon aboard is the one the captain takes from the level-zero
-   * offer. The six CONSUMABLE slots are each bound to ONE kind
-   * (`consumableSlotFor`, Story 9.2 — epic-9 amendment 21). A FLEET
-   * hull fits the gun and nothing else (amendment 24).
+   * CARDS, each into its FAMILY's slot and one kind per slot for the match
+   * (sim/boons.ts applySlotEffect, Story 10.5), and they start EMPTY — Story
+   * 8.10 deleted the interim spawn seed (amendment 62), so the first weapon
+   * aboard is the one the captain takes from the level-zero offer.
    *
    * THE one equipment structure (replaces the old WeaponAmmo[] — no parallel
    * ammo store); `input.slot` names the slot a click activates. Rebuilt from
@@ -1116,42 +1210,28 @@ export interface ShipRecord {
    */
   loadout: LoadoutSlot[];
   /**
-   * CAPTAIN hulls this ship has sunk — the roster/results KILLS column AND
-   * the bounty throne's one ruler, now the same number.
-   *
-   * Story 4.6 split this into `kills` (everything, drones included) and
-   * `captainKills` (the throne). Story 5.6 amendment 38 ruled PvE kills count
-   * NOWHERE — *"i dont want PvE kills to show up as 'kills' in a player's
-   * killcount or as events in their records"* — which made the two identical
-   * by construction, so the split is RETIRED in favour of this one field. A
-   * drone sinking still pays XP, still fires the `sunk` event and still gets
-   * its kill flash and feed line; it just never lands in a tally.
+   * Hulls this ship has sunk — the roster/results KILLS column AND the bounty
+   * throne's one ruler, the same number. (Story 5.6 amendment 38 ruled PvE
+   * kills count nowhere; Story 10.8 retired the PvE fleet, so every sinking a
+   * captain or bot causes lands here.)
    */
   kills: number;
-  /**
-   * PvE SINKINGS BY VICTIM HULL ID — OPERATOR TELEMETRY, NEVER ON THE WIRE
-   * (Story 5.6, epic-5 amendment 44, Eric ruling 2026-08-14: *"PvE fleet kills
-   * DO NOT show up in the match log. I don't care what time I killed each
-   * drone. But we can keep this data anyway, maybe for server stats?"*).
-   *
-   * Amendment 37's presentation ruling does not move an inch — a PvE kill
-   * still lands in NO tally, NO match log and NO end-game record. What changes
-   * is that it stops being thrown away: `kills` deliberately does not advance
-   * on a drone victim, so before this the sinking left no trace anywhere and
-   * `MatchEndSummary.killsByClass` silently lost the whole PvE faucet. This is
-   * amendment 9's principle — telemetry counts what presentation does not.
-   *
-   * Keyed by the VICTIM's drone hull id rather than totalled, because SIZE IS
-   * THE PAYOUT (¼ / ½ / ¾ level, CONFIG.xp.droneTierLevels): the per-size
-   * counts alone reconstruct exactly how much XP the PvE economy paid out in a
-   * real match.
-   *
-   * Same lifecycle as `kills`: zeroed at redeployShip (the match boundary),
-   * preserved across a waiting-phase respawn.
-   */
-  pveKills: Record<string, number>;
   deaths: number; // times this ship has been sunk
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
+  /**
+   * XP ms this hull has been paid by RADIO BEACONS this match (Story 10.8) —
+   * the integer shares `tickBeacons` handed it, the beacon kill value NOT
+   * included. HARNESS / MatchRecord substrate only: never on the wire (the
+   * hull's own `xp` / `lvl` already carry the result, self-privately).
+   */
+  beaconXpMs: number;
+  /**
+   * AIRDROPS this hull has collected this match (Story 10.9, epic-10
+   * amendment 18) — scheduled crates and wreck pickups alike. HARNESS /
+   * MatchRecord substrate only: never on the wire (the own row's `ib` and the
+   * self-private `dp` already carry the result).
+   */
+  dropsTaken: number;
 }
 
 /**
@@ -1182,18 +1262,21 @@ export interface StepContext {
 export type HitTargets = (mask: readonly TargetKind[]) => readonly Target[];
 
 /**
- * The MINE BLAST's target set. A blast damages hulls and decoys; it never
+ * The MINE BLAST's target set. A blast damages hulls — and a surfaced RADIO
+ * BEACON (Story 10.8, R12: a mine never TRIPS on a beacon — the trip masks
+ * are the CONFIG rows' `HITS_TRIP` — but its blast damages one). It never
  * "finds" other mines through the collector — a chain is the mine system
  * propagating within its own store (chainMines), not an ordnance step looking
  * for targets, and routing it through the collector would hand a cascade a
  * snapshot that its own deletions immediately invalidate.
  */
-const MINE_BLAST_HITS: readonly TargetKind[] = ['hull', 'decoy'];
+const MINE_BLAST_HITS: readonly TargetKind[] = ['hull', 'beacon'];
 
 /** The FOUL ZONE stamp's subjects (Story 9.4): afloat hull OUTLINES only —
  *  the same per-tick snapshot the ballistic and mine rows test against, read
  *  through the collector so the memo is shared. A foul zone slows ships;
- *  decoys, mines and ordnance have no prop to foul. */
+ *  mines, ordnance and RADIO BEACONS (Story 10.8 — an anchored body with no
+ *  engines) have no prop to foul, so `beacon` is deliberately absent. */
 const FOUL_ZONE_HITS: readonly TargetKind[] = ['hull'];
 
 /**
@@ -1296,11 +1379,12 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
  * another hull (`byId` = the other hull — damage credit and the kill like a
  * shell) or by the coast or a sinking wreck (`byId` undefined — no credit, a
  * `dmg`, the feed's `LOST WITH ALL HANDS` line). It was declared as the
- * decoy-contact seat (Story 8.16) and never used until 9.5. 'grind' is the
+ * decoy-contact seat (Story 8.16; the decoys left with Story 10.5) and never
+ * used until 9.5. 'grind' is the
  * contact BLEED (Story 9.5 review gate, amendment 83): the per-tick
  * FRACTIONAL hp of two hulls pressed or sliding together, or of a hull
  * scraping a coast, delivered exactly as 'burn' is — unfloored under the
- * HUNKER, absorbed by the shield, reported through a 500 ms window
+ * HUNKER, reported through a 500 ms window
  * bucket (grindKey) rather than an immediate `dmg`. AR47's list therefore
  * grows by one: a whole-hp immediate report cannot carry a fraction (under
  * the cut every 1-hp pool drain floored to 0, so a cut hull was immune to
@@ -1308,6 +1392,14 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
  * the client hit cue up to five times a second) — the burn already had the
  * windowed fractional path, and the bleed takes the same one.
  */
+/** WEAPON POWER (experiment, Eric 2026-11-15): the line whose tiers add POWER
+ *  to a mine blast — the captive's torpedo detonates as kind `captive`. */
+const MINE_WEAPON: Readonly<Record<MineKind, EquipmentId>> = {
+  naval: 'navalMines',
+  captive: 'captiveMines',
+  fouling: 'foulingMines',
+};
+
 export type DamageSource =
   | 'shell'
   | 'burst'
@@ -1347,52 +1439,71 @@ function onMine(mine: Vec2, p: Vec2, r: number): boolean {
   return Math.hypot(mine.x - p.x, mine.y - p.y) <= r;
 }
 
-/** THE RANGE-ATTENUATION FACTOR of a shell's blow landing at `at` (Story
- *  9.12, Eric 2026-10-16, epic-9 amendment 184(b)): the distance FLOWN —
- *  launch point → `at` — against the firer's row `rangeU` at fire time, both
- *  stamped on the shell by `makeBallistic` for the three deck guns alone. A
- *  shell with no reference or no launch point (every other projectile, an
- *  injected test shell) is unattenuated: 1. */
-function shellAttenuation(shell: ShellState, at: Vec2): number {
-  const ref = shell.attenRangeU;
-  if (ref === undefined || !(ref > 0) || shell.originX === undefined || shell.originY === undefined) return 1;
-  return rangeAttenuation(Math.hypot(at.x - shell.originX, at.y - shell.originY), ref, CONFIG.gunAttenuation);
-}
+// THE RANGE-ATTENUATION FACTOR (`shellAttenuation`, Story 9.12, epic-9
+// amendments 184(b) / 187) — RETIRED 2026-11-12, Story 11.1 (Eric's lock 3 /
+// #39): every deck-gun blow is flat with range.
 
-/** The hp one burst deals to one caught target (hull or decoy — a decoy is
- *  measured exactly as the hull it imitates, reading r6). The ONE settle of a
+/** The hp one burst deals to one caught hull. The ONE settle of a
  *  deck-gun blow (Story 9.12, ruling 184(c)): `damage` × the FLAK rim falloff
  *  (half at the rim, by the NEAREST point of the caught outline —
- *  `CONFIG.flak.rimFactor`; 1 for every other burster) × the range
- *  attenuation, floored ONCE to a whole number with a floor of one
- *  (`settleBlow`) before the damage gate. */
+ *  `CONFIG.flak.rimFactor`; 1 for every other burster), floored ONCE to a
+ *  whole number with a floor of one (`settleBlow`) before the damage gate.
+ *  Flat with range (Story 11.1). */
 function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
   const rim =
     shell.family === 'flak' ? flakRimFactor(pointPolygonDistance(at, t.poly), shell.burstRadius, CONFIG.flak.rimFactor) : 1;
-  return settleBlow(shell.damage * rim * shellAttenuation(shell, at));
+  return settleBlow(shell.damage * rim);
+}
+
+/** The damage SOURCE a landing blow is recorded under (the harness's
+ *  kill-by-source readout): a secondary round (family `'mg'`) keeps its
+ *  `'shell'` label though it lands by the main battery's rule (epic-11
+ *  amendment 11, review gate); every other landing is a `'burst'`. */
+function landingSource(shell: ShellState): DamageSource {
+  return shell.family === 'mg' ? 'shell' : 'burst';
 }
 
 /** The hp an EARLY INTERCEPTION deals (Story 9.12, ruling 184(c)): a DIRECT
  *  shell's contact hit — the machine gun's, whose `contactDamage` IS its
- *  damage — is range-attenuated by where it struck and settled once; every
- *  other interception (the cannon / flak 6 / 4 bodyblock, torpedoes, the
- *  broadside, star / phosphor / fouling shells) deals its `contactDamage`
- *  untouched. */
-function interceptionAmount(shell: ShellState, stop: Vec2): number {
+ *  damage (the secondaries' round left this path for the landing rule,
+ *  epic-11 amendment 11) — is settled once (flat with range since
+ *  Story 11.1); every other interception (the cannon / flak bodyblock,
+ *  torpedoes, the broadside, star / phosphor / fouling shells) deals its
+ *  `contactDamage` untouched. */
+function interceptionAmount(shell: ShellState): number {
   if (shell.direct !== true) return shell.contactDamage;
-  return settleBlow(shell.contactDamage * shellAttenuation(shell, stop));
+  return settleBlow(shell.contactDamage);
 }
+
+// ---------------------------------------------------------------------------
+// THE AIRDROPS (Story 10.9, epic-10 amendment 18) — see World.dropSeed.
+// ---------------------------------------------------------------------------
+
+/** The airdrop stream's mint constant (XORed into the room-private pseudonym
+ *  material) — unused by any other stream (see the spawnPhase roster). */
+const DROP_STREAM_K = 0x5bd1e995;
+
+/** The PICKUP sub-stream key base (Eric 2026-11-08 — the amount is rolled at
+ *  pickup): the k-th pickup of this World draws on
+ *  `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)`, far from the minute
+ *  batches' `m + 1` keys. (0x51ed270b, the retired wreck sub-stream key, is
+ *  not reused: a wreck crate now draws nothing at placement.) */
+const PICKUP_DROP_K = 0x3c6ef35f;
+/** The target kinds a crate is collected by: afloat hull outlines only. */
+const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
 
 // ---------------------------------------------------------------------------
 // THE FOG DENSITY MEMO (Story 9.10) — see World.fogMemo.
 // ---------------------------------------------------------------------------
 
 /** Water the memo lattice extends past the ocean's radius on every side (u):
- *  the LONGEST sight-tier ray (the mz/sm halo, radar × muzzleFlashFactor —
- *  750 u at base), so a ray from a hull anywhere on the ocean is tolled
- *  exactly to its end; fog farther out than that is irrelevant (a ray is
- *  clipped to the lattice, see fogTollAlong). */
-const FOG_MEMO_MARGIN_U = Math.ceil(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor);
+ *  ONE CELL (Story 11.2 review gate, F2). Rain exists only on the ocean — the
+ *  shared `fogDensityAt` reads 0 at every point beyond the rim — so the part
+ *  of ANY ray outside the ocean's bounding square adds no optical depth
+ *  wherever its ends lie, and the walk clips the ray to the lattice first: no
+ *  margin is needed for exactness, and the one cell only keeps a
+ *  rim-straddling cell whole. */
+const FOG_MEMO_MARGIN_U = CONFIG.fog.marchStepU;
 
 /** The memo lattice: `side × side` cells of `cell` u from (ox, oy); `dens`
  *  holds a cell's density and `epoch` the fog epoch it was evaluated in
@@ -1406,15 +1517,6 @@ interface FogMemo {
   readonly epoch: Uint32Array;
 }
 
-/** Move `from` toward `to` by at most `maxStep` (a non-positive step holds). */
-function clampStep(from: number, to: number, maxStep: number): number {
-  if (!(maxStep > 0)) return from;
-  const d = to - from;
-  if (d > maxStep) return from + maxStep;
-  if (d < -maxStep) return from - maxStep;
-  return to;
-}
-
 /** One axis of the DDA: the cell step (−1 / 0 / +1), the ray parameter per
  *  cell crossed and the parameter of the first boundary crossing. */
 interface DdaAxis {
@@ -1423,11 +1525,139 @@ interface DdaAxis {
   tMax: number;
 }
 
-function ddaAxis(origin: number, cell: number, idx: number, a: number, d: number): DdaAxis {
-  if (d === 0) return { step: 0, tDelta: Infinity, tMax: Infinity };
-  const step = d > 0 ? 1 : -1;
-  const edge = origin + (idx + (step > 0 ? 1 : 0)) * cell;
-  return { step, tDelta: cell / Math.abs(d), tMax: (edge - a) / d };
+/** The bounding boxes of `list`'s polygons, taken once per list per pass
+ *  (`cache` lives for one `stepShells` call — see there). */
+function targetBoxesOf(cache: Map<readonly Target[], readonly PolyBox[]>, list: readonly Target[]): readonly PolyBox[] {
+  let boxes = cache.get(list);
+  if (boxes === undefined) {
+    boxes = list.map((t) => polyBox(t.poly));
+    cache.set(list, boxes);
+  }
+  return boxes;
+}
+
+function ddaAxis(origin: number, cell: number, idx: number, a: number, d: number, out: DdaAxis): DdaAxis {
+  if (d === 0) {
+    out.step = 0;
+    out.tDelta = Infinity;
+    out.tMax = Infinity;
+    return out;
+  }
+  out.step = d > 0 ? 1 : -1;
+  const edge = origin + (idx + (out.step > 0 ? 1 : 0)) * cell;
+  out.tDelta = cell / Math.abs(d);
+  out.tMax = (edge - a) / d;
+  return out;
+}
+
+// The fog walk's scratch (one walk at a time, never re-entrant): reused so a
+// tick's walks allocate nothing.
+const FOG_DDA_X: DdaAxis = { step: 0, tDelta: 0, tMax: 0 };
+const FOG_DDA_Y: DdaAxis = { step: 0, tDelta: 0, tMax: 0 };
+const FOG_CLIP = { t0: 0, t1: 1 };
+const FOG_SPAN = { sx: 0, sy: 0, dx: 0, dy: 0 };
+
+/**
+ * The sight gate's early exits for one rain walk (`World.fogSightAdmits`).
+ * The walk sums `density × fraction of the span` (so τ = sum × len).
+ * `acceptBelow`: the gate holds whenever the walk's FINAL sum is at most this
+ * — (T − FOG_DECIDE_SLACK) / len. `maxDepth`: T, the final comparison's own
+ * operand, for the reject. `verdict` is the walk's answer when it stopped
+ * early: +1 seen, −1 not, 0 undecided (the walk ran to its end).
+ */
+interface FogBounds {
+  acceptBelow: number;
+  maxDepth: number;
+  verdict: number;
+}
+
+/** The reference depth's bounds: nothing ever decides early. */
+const FOG_NO_BOUNDS: FogBounds = { acceptBelow: -Infinity, maxDepth: Infinity, verdict: 0 };
+/** The gate's bounds scratch (one walk at a time). */
+const FOG_BOUNDS: FogBounds = { acceptBelow: 0, maxDepth: 0, verdict: 0 };
+
+/**
+ * Slack (u of optical depth) the sight gate's "seen whatever the rest of the
+ * rain" bound keeps under T: the walk's float dust is ~1e-9 u at board scale
+ * (a few hundred additions of terms ≤ 1e4 u), so 1e-6 u makes the early
+ * "seen" strictly safe — a ray that close to the edge simply walks to the end
+ * and takes the reference comparison.
+ */
+const FOG_DECIDE_SLACK = 1e-6;
+
+/**
+ * Has the gate's answer been decided after the cells up to span fraction
+ * `tDone`, with `sum` so far? Seen: even at density 1 over the whole
+ * remainder the final sum stays under `acceptBelow`. Not seen: the running
+ * depth alone (`sum × len`, the final comparison's own expression — and the
+ * sum only grows) is already past T. Sets `bounds.verdict`.
+ */
+function fogDecided(bounds: FogBounds, sum: number, tDone: number, len: number): boolean {
+  if (sum + (1 - tDone) <= bounds.acceptBelow) {
+    bounds.verdict = 1;
+    return true;
+  }
+  if (sum * len > bounds.maxDepth) {
+    bounds.verdict = -1;
+    return true;
+  }
+  return false;
+}
+
+/** One live cloud as the sight gate reads it this instant (a shared
+ *  `SmokeDisc`, kept mutable so the per-question refresh allocates nothing). */
+interface SmokeScratchDisc {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** Write cloud `c`'s disc at radius `r` into `discs[n]`; true when that slot changed. */
+function smokeDiscSet(discs: SmokeScratchDisc[], n: number, c: StoredCloud, r: number): boolean {
+  const d = discs[n];
+  if (d === undefined) {
+    discs[n] = { x: c.x, y: c.y, r };
+    return true;
+  }
+  if (d.x === c.x && d.y === c.y && d.r === r) return false;
+  d.x = c.x;
+  d.y = c.y;
+  d.r = r;
+  return true;
+}
+
+/** One hull-gate question (`World.fogHullAdmits`): the eye, the hull's pose
+ *  and TRUE size, and the observer's two reaches the distance haze runs
+ *  between (its class-and-name sight and its hull sight, whiteout-scaled). */
+export interface FogHullQuestion {
+  ax: number;
+  ay: number;
+  cx: number;
+  cy: number;
+  heading: number;
+  lengthU: number;
+  beamU: number;
+  sightU: number;
+  hullSightU: number;
+}
+
+/**
+ * The order the hull grid's points are asked in: the columns nearest the
+ * hull's middle first (an order of asking only — the gate is an OR over every
+ * point, so the order changes the cost and never the answer). Point (c, r) is
+ * index `r × cols + c`, the shared `fogHullGrid` layout.
+ */
+function hullGridOrder(cols: number, rows: number): number[] {
+  const mid = (cols - 1) / 2;
+  const colOrder = Array.from({ length: cols }, (_, c) => c).sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid) || a - b);
+  const out: number[] = [];
+  for (const c of colOrder) for (let r = 0; r < rows; r++) out.push(r * cols + c);
+  return out;
+}
+
+/** `ring` with every field rounded to float32 — the copy a client holds off the schema. */
+function froundRing(ring: ZoneRing): ZoneRing {
+  return { cx: Math.fround(ring.cx), cy: Math.fround(ring.cy), r: Math.fround(ring.r) };
 }
 
 /** Liang–Barsky on one axis: narrow [t0, t1] to where `a + d·t` lies in [lo, hi]. */
@@ -1440,16 +1670,34 @@ function clipAxis(a: number, d: number, lo: number, hi: number, t: { t0: number;
   return t.t0 <= t.t1;
 }
 
-/** The coverage lattice's radius for `ring`: never below one bank's size
- *  (`wavelengthU`), so the final close cannot shrink the quantile to a point. */
-function fogLatticeRadius(ring: ZoneRing): number {
-  return Math.max(ring.r, CONFIG.fog.wavelengthU);
-}
-
 /** The cell index of coordinate `v` on an axis from `origin`, clamped into [0, side). */
 function memoIndex(origin: number, cell: number, side: number, v: number): number {
   const i = Math.floor((v - origin) / cell);
   return i < 0 ? 0 : i >= side ? side - 1 : i;
+}
+
+/**
+ * WAS THIS HULL IN COMBAT? (Story 10.9 review gate — the quitter wreck.) Eric,
+ * 2026-11-09, verbatim: "If a player is about to sink another ship, and that
+ * other ship's player disconnects right before I get the kill, and I get
+ * denied XP and/or a wreck, that'd be pretty shitty. So yeah if they
+ * disconnect out of the blue, nothing, but if the ship was in combat when
+ * they disconnect, wreck."
+ *
+ * In combat = the hull's ASSIST LEDGER (`damageFrom`) holds at least one
+ * entry stamped within `CONFIG.xp.assistWindowMs` of `now` — the same window
+ * that pays assists. The ledger's keys are attacking HULL ids by construction
+ * (creditDamage excludes self-hits and the storm never routes through it).
+ * At window 0 (the split switched off) any entry counts — though the ledger
+ * is then never written, so a scuttle there leaves no crate. Pure: reads only
+ * its arguments.
+ */
+export function inCombat(ship: Pick<ShipRecord, 'damageFrom'>, now: number): boolean {
+  const windowMs = CONFIG.xp.assistWindowMs;
+  for (const tally of ship.damageFrom.values()) {
+    if (windowMs <= 0 || now - tally.at <= windowMs) return true;
+  }
+  return false;
 }
 
 export class World {
@@ -1460,57 +1708,49 @@ export class World {
   readonly shells = new Map<string, ShellState>();
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
-  /**
-   * All live DECOY BUOYS (Story 8.16, catalog-v3 R36, amendments 119–124), in
-   * drop order — the mines/litZones store shape, and the `decoy` target kind's
-   * occupant (it replaced the deleted RADAR BUOY store). A decoy is world
-   * state, not a ship: it never enters `ships`, the roster, spawn clearance,
-   * or the AI target sets. It has NO tick and NO lifetime, and it does NOT
-   * sink with its owner (amendment 122): it leaves only when enemy ordnance
-   * takes its hp to 0 (damageDecoy), paying NO XP and emitting NO event — a
-   * destroyed decoy simply drops out of the next frame's `decoys` list.
-   */
-  readonly decoys = new Map<string, DecoyState>();
+  /** AIRDROPS (Story 10.9, epic-10 amendment 18): every live crate on the
+   *  water, keyed by id, in placement order. Intangible — never a Target, a
+   *  body, a contact or a storm victim in the ship sense; spawned, collected
+   *  and storm-destroyed by this world's own step rows; read by perception's
+   *  drop scan (sight + the radar disc paint). */
+  readonly drops = new Map<string, DropState>();
   /**
    * THE MULTI-SPECTRAL COUNTERMEASURE clouds (Story 9.3; Eric rulings
    * 2026-10-11, epic-9 amendments 40–47 — 8.18's smoke store's seat), keyed
    * by id (`cl${n}`), in PRESS order. Each is a stationary cloud made at its
-   * owner's centre by `setCountermeasure` (ONE per press — amendment 46: five
-   * copies can stack five clouds; nothing restarts or refuses while one
-   * lives), born at `bornAt`, deleted by stepClouds once `now >= until`
-   * (bornAt + lifeMs). A CLIENT VISUAL OVERLAY (Story 9.3 session 2, Eric
-   * 2026-10-12): it occludes NO sensor on the server; the `cloud` registry
-   * row ships each cloud a client may sense as `{id,x,y,t0}` and the client
-   * paints it. WORLD-
+   * owner's centre by a SMOKE press (makeCloud — ONE per press; the press is a
+   * cooldown ability since Story 10.5), born at `bornAt`, deleted by stepClouds once `now >= until`
+   * (bornAt + lifeMs). IT OCCLUDES SIGHT LIKE RAIN (Story 11.6, Eric
+   * 2026-11-14 — superseding Story 9.3 session 2's "client visual overlay"):
+   * a live cloud adds optical depth to every eye line through its spray disc
+   * of every observer that HOLDS it — one the `cloud` row has delivered it
+   * to (`ShipRecord.heldClouds`; `smokeDiscs` / `fogSightAdmits` below) —
+   * the owner's lines too; it never blocks radar. The `cloud` registry row ships each cloud a client
+   * may sense as `{id,x,y,t0,lifeMs,r0,r1}` and the client paints it. WORLD-
    * OWNED, not on the hull: a cloud runs its full life through its owner's
    * sink, redeploy, respawn or leave (amendment 127 — everything on the water
-   * outlives its owner); only resetForMatchStart clears the map (the mines /
-   * decoys precedent). Exposed read-only to perception and the fleet AI
-   * through `cloudRecords`; the count alone feeds `/metrics` (cloudCount).
+   * outlives its owner); only resetForMatchStart clears the map (the mines
+   * precedent). Exposed read-only to perception through `cloudRecords`; the count alone feeds `/metrics` (cloudCount).
    */
   readonly clouds = new Map<string, StoredCloud>();
   /**
-   * THE FOG FIELD (Story 9.10; Eric 2026-10-14/15 — "no discs, it won't look
-   * like realistic rolling fog", "make it performant"; epic-9 amendments
-   * 149–150, 163–164, 167–170, 172–173). Fog is a continuous DENSITY FIELD
-   * over the whole ocean (shared sim/fog.ts — the ONE derivation both sides
-   * run): two wind-advected fbm layers cross-faded on a slow triangle wave,
-   * mapped to density by a soft step over `edgeBand` above a COVERAGE CUT.
-   * PUBLIC WEATHER: `fogSeed` rides the welcome and the cut rides the schema
-   * (`ArenaState.fogCut`), so a client evaluates the same field — where fog
-   * is, never where hulls are. Nothing per-observer about fog is ever on the
-   * wire (the declared perception exceptions are SIX — amendment 162 is
-   * MOOT); fog reaches a client only as the TOLL inside every sight predicate
-   * (`fogTollAlong` below, through signals.ts `withinSight`): a ray pays
-   * `sightCostPerU × density` extra sight distance per unit crossed, so a
-   * hull inside the geometric bubble that fog hides is no contact — but radar
-   * has no inner edge (amendment 210, superseding 163's "dark to both"), so
-   * the beam still paints it. Radar,
-   * zone circles, the foghorn and the storm never read the field. THE OWN
-   * BANK IS FREE (Eric 2026-10-16, amendment 179 — "like grass patches in
-   * League"): an observer standing in solid fog pays nothing along the ray
-   * until it first leaves solid fog, full price after; and the field is 0
-   * beyond the ocean's rim (fog only where islands could be).
+   * THE RAIN FIELD (Story 11.6; Eric 2026-11-14 — "the eye of a closing
+   * hurricane"; the Story 9.10 fog banks, their coverage cut and the free own
+   * bank are GONE). Rain is a continuous DENSITY FIELD over the whole ocean
+   * (shared sim/fog.ts — the ONE derivation both sides run), anchored to the
+   * LIVE zone ring. PUBLIC WEATHER: `fogSeed` rides the welcome and every
+   * other input (the zone clock, the revealed rings, CONFIG) is already
+   * public, so a client evaluates the same field — where rain is, never where
+   * hulls are. Nothing per-observer about rain is ever on the wire (the
+   * declared perception exceptions are SIX); rain reaches a client only as
+   * the OPTICAL-DEPTH GATE inside every sight predicate (`fogSightAdmits` /
+   * `fogHullAdmits` below, through signals.ts `eyeHolds`): a ray is seen
+   * while τ = ∫ density along it stays ≤ T (`fogMaxDepth(CONFIG.fog)`), inside
+   * its unchanged range cap. NO OWN-BANK EXEMPTION: rain the observer stands
+   * in counts. Radar has no inner edge (amendment 210), so the beam still
+   * paints a hull the rain hides. Radar, zone circles, the foghorn and the
+   * storm never read the field; it is 0 beyond the ocean's rim and before the
+   * zone starts.
    *
    * The seed is the map seed under its own constant — the client-known map
    * seed is fine here: the field is weather, not a hull position.
@@ -1549,24 +1789,22 @@ export class World {
    */
   private readonly orphanWakes: WakeRibbon[] = [];
   readonly inputs = new InputStore();
-  /** Drives PvE fleet hulls through the normal input path (game/drones.ts). */
-  readonly drones: FleetController;
   /** Drives combat-bot AI captains through the normal input path (Story 6.4,
-   *  game/ai/botDriver.ts) — perception-gated, unlike the omniscient fleet
-   *  mind. The controller never sees this World: it gets the narrow port at
+   *  game/ai/botDriver.ts) — perception-gated. The controller never sees this
+   *  World: it gets the narrow port at
    *  construction and a per-tick BotTickEntry array (each bot's own record +
    *  a bound observe() thunk — see botEntries()), so ai/ is structurally
    *  incapable of reaching world internals. Nothing in production constructs
    *  a bot this cycle (harness + tests only; Story 6-5 wires the mode). */
   readonly bots: BotController;
   /** Monotonic bot ordinal — the ship id namespace `bot-N` (never collides
-   *  with Colyseus session ids, `fleet-N`, or `trk-` pseudonyms). */
+   *  with Colyseus session ids or `trk-` pseudonyms). */
   private botSeq = 0;
   /**
    * THE COLLECTOR'S PER-TICK MEMO (Story 8.4, AR44), keyed by sorted mask.
    * Cleared in the tick PROLOGUE (step(), beside the clock advance); entries
-   * carry the generation they were built at so a sink, a mine deletion or a
-   * decoy change retires them without a second pass.
+   * carry the generation they were built at so a sink or a mine deletion
+   * retires them without a second pass.
    */
   private readonly tickTargets = new Map<string, { gen: number; list: Target[] }>();
   /**
@@ -1577,9 +1815,9 @@ export class World {
    *   consumeMine  — the one mine-deletion path (detonation, captive launch).
    *   spawnMine    — a new mine is not a target YET (still arming), but the
    *                  store changed and a memo must not outlive it.
-   *   spawnDecoy   — a new decoy IS a target at once (Story 8.16).
-   *   damageDecoy  — the one decoy-deletion path (destroyed by enemy fire).
    *   removeBurstOrdnance — a burst took a fish off the water (Story 8.15).
+   *   sinkBeacon   — a RADIO BEACON destroyed afloat stops being hittable at
+   *                  once (Story 10.8, R6): later shells this tick pass through.
    * Nothing else writes it; adding a writer means adding it here.
    */
   private targetsGen = 0;
@@ -1594,16 +1832,6 @@ export class World {
    * would carry such a wreck into the following tick.
    */
   private sunkThisTick: Target[] = [];
-  /** How many rows of CONFIG.fleet.waves have already been enqueued. */
-  private wavesFired = 0;
-  /** Fleets owed but not yet placed — one entry per fleet, each carrying its
-   *  own retry count against CONFIG.fleet.spawnRetryTicks (amendment 37: the
-   *  wave ALWAYS arrives; it degrades visibly rather than never spawning). */
-  private pendingFleets: { retries: number }[] = [];
-  /** Monotonic fleet ordinal (the FleetController's shared-waypoint group). */
-  private fleetSeq = 0;
-  /** Monotonic fleet-hull ordinal — the ship id namespace `fleet-N`. */
-  private fleetHullSeq = 0;
   /** ms since world creation — the one server clock. */
   now = 0;
   /** Fixed-step counter. */
@@ -1619,8 +1847,9 @@ export class World {
    * per-tick stores the two contact rows share, reused every tick:
    *   - `contactBodies`: one `ContactBody` per hull, cached by id so the 20 Hz
    *     loop allocates nothing per tick; `mass` is re-read from
-   *     `ship.stats.maxHp` (effectiveStats — the ONLY mass source) every tick
-   *     and `poly` aliases the record's `hullPoly` scratch.
+   *     `ship.stats.armor` (the ARMOR index off effectiveStats — the ONLY mass
+   *     source since Story 10.3, ruling 2; HUNKER's bonus adds no mass) every
+   *     tick and `poly` aliases the record's `hullPoly` scratch.
    *   - `hullContacts`: this tick's overlapping pairs, written by
    *     resolveHullContacts and read by applyContactDamage.
    *   - `contactLatch`: the ONCE-PER-CONTACT latch — the sorted pair key of
@@ -1636,7 +1865,7 @@ export class World {
    */
   private readonly contactBodies = new Map<string, ContactBody>();
   /**
-   * THE SETTLED-POSE CACHE (fix 2026-10-14, the post-fleet-wave tick cost).
+   * THE SETTLED-POSE CACHE (fix 2026-10-14, the many-hulls tick cost).
    * Per hull, the last pose the island resolver was handed AND returned
    * untouched with no land contact — a pose that overlaps no island and needs
    * no map-edge clamp. Resolving such a pose is a pure function of the pose,
@@ -1688,7 +1917,7 @@ export class World {
   weaponsEnabled = true;
   /**
    * false = the RADAR SENSOR is off: advanceSweeps does not turn the beam and
-   * perception emits no blip of any kind (ship, decoy counter-intel, or wake).
+   * perception emits no blip of any kind (ship or wake).
    * TRUESIGHT IS NOT AFFECTED — contacts, mines, lit zones and every other
    * channel behave normally, because "radar off" is one sensor, not blindness.
    */
@@ -1729,21 +1958,17 @@ export class World {
   private rng: Rng;
   /** The map seed — kept so per-ship draw streams (drawRngFor) derive from it. */
   private readonly seed: number;
+  // (`dropoutSeed`, `wakeKeys` and `wakeKeyOf` — the radar dropout roll's
+  // seed and its wake target keys, Story 9.8 — were REMOVED 2026-11-12,
+  // Story 11.2, R8, with the dropout itself.)
   /**
-   * THE RADAR DROPOUT SEED (Story 9.8, rulings 121–123): the world term of the
-   * stateless per-revolution dropout roll (signals.ts `radarPaints`), read by
-   * perception's context and the test oracle. SERVER-PRIVATE — derived from
-   * the per-room pseudonym entropy (`WorldOptions.pseudonymSeed`, the
-   * zone-nonce posture), NEVER from the client-known map seed: a client able
-   * to replay the roll could test which known hull an anonymous paint (or a
-   * miss) could have been. Standalone Worlds fall back to a map-seed
-   * derivation, like the pseudonym stream.
+   * THE PAINT-SALT KEY (Story 11.2 review gate, F1): every wire-bound radar
+   * mask (`blip`, `wk`) is fuzzed on a seed salted with
+   * `paintSalt(paintKey, kind, the paint's own words)` so the fuzz cannot be
+   * replayed from a pose a contact row discloses (game/paintSalt.ts has the
+   * full argument). Derived from `dispersionKey` under its own label.
    */
-  readonly dropoutSeed: number;
-  /** The dropout roll's target key per wake ribbon (Story 9.8): the water's
-   *  SOURCE id — the ship id for a hull's ribbon (carried across reprovision
-   *  and detachment), the shell id for a torpedo's. See wakeKeyOf. */
-  private readonly wakeKeys = new WeakMap<WakeRibbon, string>();
+  private readonly paintKey: Buffer;
   /**
    * Stable per-ship JOIN ORDINAL counter (Story 2.8): assigned once per
    * addShip, never reused or decremented, so a ship's draw stream is a pure
@@ -1765,81 +1990,111 @@ export class World {
    * OPEN DoT EVENT BUCKETS (Story 2.8 review, P4), keyed by dotKey(zone
    * owner, victim) for the burn and grindKey(attacker | `land`, victim) for
    * the contact bleed (Story 9.5): the applied-but-not-yet-reported DoT for
-   * that pair, the part of it a SHIELD BLOCK ate (`absorbed` — Story 8.16: a
-   * window the shield swallowed whole still reports, as `dmg` amount 0,
-   * amendment 117), and the server time its window opened. hp is ALREADY
+   * that pair and the server time its window opened. hp is ALREADY
    * deducted — this only defers the victim-private `dmg` event (see
    * applyZoneEffects and applyContactDamage; each flushes only its own keys).
    */
-  private readonly dotBuckets = new Map<string, { victimId: string; amount: number; absorbed: number; since: number }>();
+  private readonly dotBuckets = new Map<string, { victimId: string; amount: number; since: number }>();
   private mineSeq = 0;
   private litZoneSeq = 0;
   private burnZoneSeq = 0;
   private foulZoneSeq = 0;
-  private decoySeq = 0;
   private cloudSeq = 0;
   /**
-   * THE COVERAGE CUT — the noise threshold the live field is cut at:
-   * `FOG_NO_CUT` (9, a value no fbm reaches → density 0 everywhere) before
-   * the zone timeline starts, and the shared `fogCutForTarget` — the
-   * (1 − target) quantile of the noise over a lattice inside the live ring
-   * minus half the edge band, so the SOLID share (density ≥ ½) of the
-   * ring's area IS the target at every ring size (amendment 178; the thin
-   * edge below ½ is extra, about ten points of the ring at a 22 % dial) —
-   * slewed at most `cutRatePerS` between refreshes (the FIRST live refresh
-   * snaps straight to its goal — a slew-in is a staging call for Eric).
-   * Match-wide weather like the zone rings: mirrored onto `ArenaState.fogCut`
-   * by the room, never per-ship, never spatial. Read through `fogCut`.
+   * THE RAIN FRAME — the shared field precomputed at the current EPOCH's
+   * clock and eye center (`fogFrameAt`). RAIN FROM THE START LINE (Eric
+   * 2026-11-15): before the zone starts it is the ring-0 state, already
+   * raining; `on` is false only for a degenerate field. Refreshed by stepFog every
+   * `CONFIG.fog.refreshMs`; every density the server reads — the memo's
+   * cells, the bots' cover read — comes from this one frame.
    */
-  private fogCutValue = FOG_NO_CUT;
-  /** TEST-ONLY: `setFogCutForTest` pinned the cut — stepFog leaves it alone. */
-  private fogCutPinned = false;
-  /** The controller's coverage target (share of the live ring's area),
-   *  redrawn on `fogRng` every `CONFIG.fog.targetPeriodMs`; 0 until the first live refresh. */
-  private fogTarget = 0;
-  /** Server ms the coverage target is next redrawn (0 = on the first live refresh). */
-  private fogNextTargetAt = 0;
-  /** Server ms of the next cut + epoch refresh (0 = on the first live tick). */
+  private fogFrame: FogFrame;
+  /** The World's own frame object (the tables `fogFrameAt` refills in place); `fogFrame` is this unless a test pinned another. */
+  private readonly fogOwnFrame: FogFrame;
+  /** TEST-ONLY: `setFogFrameForTest` pinned a frame — stepFog leaves it alone. */
+  private fogFramePinned = false;
+  /** Server ms of the next frame + epoch refresh (0 = on the next tick). */
   private fogNextRefreshAt = 0;
-  /** The quantile lattice (fogLattice's reusable `out` — allocated once, refilled per refresh). */
-  private readonly fogLatticePts: { x: number; y: number }[] = [];
-  /** The lattice's points ON THE OCEAN (references into `fogLatticePts`, amendment 179 — see `fogControllerLattice`). */
-  private readonly fogOceanPts: { x: number; y: number }[] = [];
-  /** The realized fogged share over the last lattice (points at density ≥ FOG_SOLID_DENSITY / points), for metrics + tests. */
-  private fogCoverageShare = 0;
+  /** T — the optical depth at which a thing vanishes (`fogMaxDepth(CONFIG.fog)`, read once per World). */
+  private readonly fogMaxDepthU: number;
+  /** The hull grid's asking order (see `hullGridOrder`) and its point scratch. */
+  private readonly fogHullOrder: readonly number[];
+  private readonly fogHullPts: Float64Array;
+  /** The hull grid's dims AS BUILT (CONFIG.fog.hullGridCols / Rows, floored,
+   *  at least 1): the scratch and the order above are sized for them, so the
+   *  gate lays the grid with THESE — never a live re-read of the dials, which
+   *  could index past the scratch if one moved under a live World. */
+  private readonly fogHullCols: number;
+  private readonly fogHullRows: number;
   /**
-   * THE DENSITY MEMO (Eric: "make it performant"; the review gate's EXACT
-   * re-cut of the heuristic quick-reject raster). The server's toll IS a
-   * cell walk: a fixed world lattice of `marchStepU` (10 u) cells over the
-   * ocean's bounding square (+ FOG_MEMO_MARGIN_U each side — 1,150² ≈ 1.3 M
-   * cells at a 5,000 u radius, ~10.6 MB of Float32 + Uint32, allocated ONCE
-   * in the constructor), and `fogTollAlong` sums `density(cell centre) × length of
-   * the ray inside the cell × sightCostPerU` over the cells an
-   * Amanatides–Woo DDA visits. A cell's density is MEMOIZED per EPOCH: first
-   * touch in the current epoch evaluates the shared `fogDensityAt` at the
-   * epoch's clock and cut and stores it; later rays reuse it. There is no
-   * "reject vs march" to disagree — every ray reads the same lattice, and a
-   * narrow peak between samples cannot hide (every 10 u cell the ray
-   * crosses is read). THE OWN BANK (amendment 179): the walk is directional
-   * — when the shared density at the observer's exact position is solid,
-   * the observer's own cell and the leading run of solid cells are read but
-   * not charged (`fogPayCell`); the first thinner cell ends the run. The
-   * EPOCH advances at every fog refresh (`refreshMs`,
-   * when the cut may slew): `fogEpochT` is that refresh's clock, so the
-   * field the server tolls is at most `refreshMs` old. Since the spin
-   * (amendments 177–178) the pattern moves `spinRimU` (1 u/s) at the rim
-   * plus the wind (1 u/s), so at `refreshMs` 500 the server's field trails
-   * the client's by at most a unit or so (the cycle-192 sizing was for a
-   * 26 u/s rim; the epoch is kept at 500 ms). The shared midpoint march
-   * (`fogTollAlong` in sim/fog.ts) stays the REFERENCE the client and the
-   * tests integrate; the server walk agrees with it to one cell's
-   * quantization at each end (fogField.test.ts).
+   * THE DENSITY MEMO (Eric: "make it performant"). The server's optical depth
+   * IS a cell walk: a fixed world lattice of `marchStepU` (10 u) cells over
+   * the ocean's bounding square (+ FOG_MEMO_MARGIN_U, one cell, each side —
+   * 1,002² ≈ 1.0 M cells at a 5,000 u radius, ~8 MB of Float32 + Uint32;
+   * zero pages until a ray first touches them, allocated ONCE in the
+   * constructor), and a ray's τ is the sum of `density(cell centre) × length
+   * of the ray inside the cell` over the cells an Amanatides–Woo DDA visits.
+   * A cell's density is MEMOIZED per EPOCH: first touch in the current epoch
+   * evaluates the shared `fogDensityAt` on the epoch's frame and stores it;
+   * later rays reuse it. Every ray reads the same lattice, and a narrow peak
+   * between samples cannot hide (every 10 u cell the ray crosses is read).
+   * The EPOCH advances at every refresh (`refreshMs`): `fogEpochT` is that
+   * refresh's clock, so the field the server gates on is at most `refreshMs`
+   * old (the clouds move `edgeSpeedU` 10 u/s at the ring edge — at most 5 u
+   * behind a client's live field). The shared midpoint march (`fogDepthAlong`
+   * in sim/fog.ts) stays the REFERENCE the client and the tests integrate;
+   * the server walk agrees with it to the cell quantization (fogField.test.ts).
    */
   private readonly fogMemo: FogMemo;
   /** The current fog epoch (starts at 1; `fogMemo.epoch` 0 = never evaluated). */
   private fogEpoch = 1;
-  /** The one-entry own-bank memo (see `fogObserverInSolidFog`): the last observer position asked about, in which epoch, and the answer. */
-  private readonly fogObserverMemo = { x: NaN, y: NaN, epoch: 0, solid: false };
+  /**
+   * The one-entry GATE memo: `fogSightAdmits`' last ray, in which epoch, and
+   * its answer — the gate is a pure function of (ray, epoch), so a row that
+   * re-asks the previous row's ray pays a compare instead of a walk.
+   */
+  private readonly fogGateMemo = { ax: NaN, ay: NaN, bx: NaN, by: NaN, epoch: 0, smoke: -1, seen: false };
+  /**
+   * THE SMOKE THE EYE READS (Story 11.6 scope add, Eric 2026-11-14: "smoke
+   * occludes sight like rain", the owner blinded too, never radar): every
+   * cloud THE ASKING OBSERVER HOLDS (`ShipRecord.heldClouds` — the clouds
+   * its client was sent; a question with no observer reads every live
+   * cloud) as a disc at its radius NOW — the shared
+   * `cloudOutlineRadius(now − bornAt, the cloud's own stamp)` — in press
+   * order. Rebuilt IN PLACE at the top of every gate question
+   * (`smokeRefresh`: a few compares per live cloud, nothing with none), so
+   * the gate can never read a stale set whoever wrote the store; the shared
+   * `smokeDepthAlong` integrates it with `CONFIG.countermeasure`'s
+   * `sightThickness` / `sightSoftFrac`. `smokeEpoch` advances whenever the
+   * set differs from the last question's (a cloud made, grown — every tick
+   * while one lives — or gone, a dial moved, OR THE NEXT OBSERVER HOLDS A
+   * DIFFERENT SET — the comparison is on the discs themselves, so it is
+   * exactly "the smoke this question reads is not the smoke the last one
+   * read"): the one-entry gate memos key on it beside the rain epoch, which
+   * is what makes them observer-specific.
+   */
+  private readonly smokeDiscs: SmokeScratchDisc[] = [];
+  private smokeEpoch = 0;
+  /**
+   * The smoke dials the sight gate hands the shared `smokeDepthAlong` — THIS
+   * World's mirror of `CONFIG.countermeasure.sightThickness` /
+   * `sightSoftFrac`, re-read at every refresh (`smokeRefresh`). Per World,
+   * never module state: each World must notice a moved dial ITSELF and bump
+   * its own `smokeEpoch` (a shared mirror let the first World to ask swallow
+   * the move, leaving every other World's gate memos stale).
+   */
+  private readonly smokeSight = { thickness: 0, softFrac: 0 };
+  /** Lattice walks since construction — the gate's work accounting (tests, the tick-cost probe). */
+  private fogWalkCount = 0;
+  /**
+   * THE ISLAND BROADPHASE INDEX (Story 11.2 follow-up — shared
+   * sim/islandIndex.ts): derived from `map.islands`, built on first use and
+   * rebuilt if the list is ever rewritten (tests do; a production map never
+   * changes). Read through `islandIndex`, once per pass.
+   */
+  private islandIdx: IslandIndex | undefined;
+  /** Island narrow-phase tests of indexes this World has since replaced (see `losTests`). */
+  private losTestsRetired = 0;
   /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
   private fogEpochTValue = 0;
   /** Cells evaluated since construction (perf accounting — fogField.test.ts's memo-determinism test reads it). */
@@ -1864,24 +2119,6 @@ export class World {
   private readonly trackIds = new Map<string, string>();
   /** The private pseudonym stream (see trackIds / WorldOptions.pseudonymSeed). */
   private readonly pseudonymRng: Rng;
-  /**
-   * THE DROP STREAM (Eric ruling 2026-10-01): the coin and the pick behind a
-   * drone kill's consumable drops (rollDroneDrops). Its OWN decorrelated
-   * stream (0x6c078965 is unused by any other stream here; see the spawnPhase
-   * doc for the roster) so a drop never shifts the spawn stream, a ship's
-   * private draw stream (its offers) or any other sequence. NEVER Math.random().
-   */
-  private readonly dropRng: Rng;
-  /**
-   * THE FOG STREAM (Story 9.10): the coverage TARGET's wander — the one fog
-   * draw left (the field itself is seeded, never drawn). ROOM-PRIVATE
-   * entropy like the dropout seed: it rides `opts.pseudonymSeed` (the
-   * TEST-ONLY map-seed fallback otherwise) under its own constant 0x3c6ef372
-   * (unused by any other stream mint in the codebase — 0x7f4a7c15 is the bot
-   * SPEND_STREAM_K), so a client holding the wire map seed cannot predict
-   * where the coverage band is heading. NEVER Math.random().
-   */
-  private readonly fogRng: Rng;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -1937,10 +2174,6 @@ export class World {
   /** The card catalog applyCard resolves ids against (injectable — tests;
    *  production defaults to the shared CATALOG). */
   private readonly catalog: Catalog;
-  /** The CONSUMABLE rows a belt slot's content resolves against (injectable —
-   *  tests; production defaults to the EMPTY shared CONSUMABLES, amendment
-   *  41). Every lookup goes through `slotRow`, never this field directly. */
-  private readonly consumables: ConsumableRegistry;
 
   /**
    * THE MATCH-WIDE TAKE LEDGER (Story 8.14, epic-8 amendments 90/91): for each
@@ -1952,8 +2185,8 @@ export class World {
    * WHAT GOES IN, exactly once per (ship, line): `recordTake`, called from
    * `applyCard` the moment an equipment line goes from 0 to 1 copies for that
    * ship. Copies 2+ (tier cards) never record — a take is the BARE WEAPON
-   * arriving, not a bump (amendment 90). Ladders, add-ons and consumables never
-   * record. Fleet drones never pick a card at all, so they never appear.
+   * arriving, not a bump (amendment 90). Ladders and add-ons never
+   * record.
    *
    * WHAT NEVER COMES OUT: nothing. A take is PERMANENT FOR THE MATCH — the
    * taker sinking, leaving or being removed restores nothing (amendment 90),
@@ -1984,11 +2217,21 @@ export class World {
    *
    * ITS OWN DECORRELATED STREAM, not a draw off `this.rng`, for two reasons:
    * the phase must not shift with HOW MANY hulls get placed (a draw off the
-   * shared spawn stream would reorder every later fleet-anchor sample), and one
-   * value read once wants a stream it cannot desynchronize from. 0xb5297a4d is
-   * unused by any other stream here (spawn 0x9e3779b9, pseudonym 0x1b873593,
-   * fleet 0x85ebca6b, draw 0x165667b1, bots 0xc2b2ae35, drone drops
-   * 0x6c078965; 0x94d049bb was the retired CHAFF fake stream's).
+   * shared spawn stream would reorder every later sample), and one value read
+   * once wants a stream it cannot desynchronize from. 0xb5297a4d is unused by
+   * any other stream here (spawn 0x9e3779b9, pseudonym 0x1b873593, draw
+   * 0x165667b1, bots 0xc2b2ae35; 0x85ebca6b was the retired PvE fleet's
+   * steering stream (Story 10.8), 0x6c078965 the retired drone-drop stream's
+   * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
+   * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
+   * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key;
+   * the beacon stream 0x68e31da4, the retired dropout seed 0x2545f491 (Story 11.2), fog 0x3c6ef372).
+   * 0x2c1b3c6d was Story 11.1's first DISPERSION stream constant (XORed into
+   * the pseudonym material) — RETIRED at its review: a shooter sees its own
+   * exact landings, so a 32-bit seed off `priv` could be brute-forced back to
+   * `priv` and with it every room-private stream here. Dispersion now has its
+   * own per-room key (`WorldOptions.dispersionKey`, an HMAC per shell) and
+   * draws on NO constant in this roster.
    *
    * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
    * the client-known map seed — but so does `this.rng` itself, so spawn
@@ -2000,9 +2243,64 @@ export class World {
    */
   private readonly spawnPhase: number;
 
-  /** THE PVE WAVE SCHEDULER SWITCH (Story 9.15) — see WorldOptions.fleetWaves.
-   *  False only when a dev smoke asked for no fleet. */
-  private readonly fleetWavesEnabled: boolean;
+
+  /** THE RADIO BEACON SWITCH (Story 10.8) — see WorldOptions.beacons. False
+   *  only when a dev smoke asked for no beacons. */
+  private readonly beaconsEnabled: boolean;
+  /**
+   * THE RADIO BEACONS (Story 10.8, Eric 2026-11-06, epic-10 amendment 14):
+   * the cycle's beacon store (game/beacons.ts). Public so the harness can
+   * read its counters (`beacons.inRangeTicks`, `beacons.records`); the ROOM
+   * and the bots read ONLY `beaconChart` — the public facts. A beacon is
+   * never a ShipRecord: it is absent from `ships`, so perception, the storm,
+   * the bounty and the win check cannot see one.
+   *
+   * Its placement stream is ROOM-PRIVATE (the pseudonym material under its
+   * own constant, 0x68e31da4 — unused by any other stream here): beacons are
+   * placed max-min against the captains' positions, so a stream a client
+   * could replay off the public map seed would turn the public chart into a
+   * position oracle. The map-seed fallback is for standalone Worlds only.
+   */
+  readonly beacons: BeaconField;
+
+  /** THE AIRDROP SWITCH (Story 10.9) — see WorldOptions.drops. False only
+   *  when a dev smoke asked for no scheduled drops. */
+  private readonly dropsEnabled: boolean;
+  /**
+   * THE AIRDROP STREAM SEED (Story 10.9, epic-10 amendment 18). ROOM-PRIVATE
+   * like the beacons' (the pseudonym material under its own constant,
+   * DROP_STREAM_K = 0x5bd1e995 — unused by any other stream here; see the
+   * spawnPhase doc for the roster): a drop's position and stat must not be
+   * predictable from the public map seed. Every MINUTE BATCH (positions +
+   * kinds) draws on its own sub-stream `dropSeed ^ imul(m + 1, 0x9e3779b9)`
+   * and every PICKUP (the amount — and a wreck's stats — rolled when a hull
+   * takes the crate, Eric 2026-11-08) on
+   * `dropSeed ^ imul(PICKUP_DROP_K + k, 0x9e3779b9)` (k = the pickup count),
+   * so a skipped spot, an extra wreck or a pickup never shifts another
+   * batch's draws. The per-ship `drawRng` is never touched (it would shift
+   * later offers).
+   */
+  private readonly dropSeed: number;
+  /**
+   * THE DISPERSION KEY (Story 11.1, Eric 2026-11-12, R5; review fix). Where a
+   * gun shell lands must not be predictable — from the public map seed, from
+   * another shell's landing, or from any other stream. Every dispersed shell
+   * (main battery, secondaries) draws on `shellSeedFor(ordinal)` = the first
+   * 4 bytes of HMAC-SHA256(this key, ordinal as 8-byte big-endian), the
+   * ordinal being the shell's own projectile sequence number (`shellSeq`): one
+   * shell's seed never depends on another, a brute-forced seed reveals nothing
+   * about the key, and a replay with the same key and inputs lands every
+   * shell on the same point. See WorldOptions.dispersionKey for where the key
+   * comes from (a random per-room key; a seed-derived one OFFLINE only).
+   */
+  private readonly dispersionKey: Buffer;
+  /** The next match minute whose batch has not been scattered yet. */
+  private nextDropMinute = 0;
+  /** Wreck pickups placed this World's life — the id suffix (`drp-w-<k>`:
+   *  the victim's id never rides the drop id). */
+  private wreckDrops = 0;
+  /** Crates collected this World's life — the pickup sub-stream key. */
+  private dropPickups = 0;
 
   constructor(
     seed: number,
@@ -2012,8 +2310,17 @@ export class World {
   ) {
     this.hookRegistry = opts.hookRegistry ?? HOOK_REGISTRY;
     this.catalog = opts.catalog ?? CATALOG;
-    this.consumables = opts.consumables ?? CONSUMABLES;
-    this.fleetWavesEnabled = opts.fleetWaves !== false;
+    // The ROOM-PRIVATE entropy every private stream below mints from: the
+    // caller's pseudonym material, or the TEST-ONLY map-seed fallback.
+    const priv = opts.pseudonymSeed ?? (seed ^ 0x1b873593);
+    this.beaconsEnabled = opts.beacons !== false;
+    this.beacons = new BeaconField((priv ^ 0x68e31da4) >>> 0);
+    this.dropsEnabled = opts.drops !== false;
+    this.dropSeed = (priv ^ DROP_STREAM_K) >>> 0;
+    // A copy, so the caller's buffer cannot be mutated under the World; the
+    // seed-derived key is the OFFLINE fallback only (see WorldOptions).
+    this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
+    this.paintKey = paintSaltKey(this.dispersionKey);
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -2025,12 +2332,7 @@ export class World {
     this.zoneSeeds = opts.zoneSeeds;
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
-    this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
-    // The dropout roll's seed rides the SAME server-private entropy, under its
-    // own constant so it is decorrelated from the pseudonym stream (Story 9.8).
-    this.dropoutSeed = ((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x2545f491) >>> 0;
-    // Fleet steering stream, decorrelated again from mapgen + spawn.
-    this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
+    this.pseudonymRng = mulberry32(priv >>> 0);
     // Bot decision stream (Story 6.4), decorrelated from every other stream
     // here (0xc2b2ae35 is unused by any of them — see the spawnPhase doc for
     // the roster of constants in use).
@@ -2038,16 +2340,21 @@ export class World {
     // game/botPort.ts derives the bot's zone readouts from the same public
     // inputs a client holds (it no longer passes `this`).
     this.bots = new BotController(makeBotPort(this, this.zoneCfg), (seed ^ 0xc2b2ae35) >>> 0);
-    // Drone-drop stream (Eric ruling 2026-10-01), decorrelated from every
-    // stream above (0x6c078965 is unused by any of them).
-    this.dropRng = mulberry32((seed ^ 0x6c078965) >>> 0);
-    // Fog stream (Story 9.10): room-private entropy, its own constant — see the field.
-    this.fogRng = mulberry32(((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x3c6ef372) >>> 0);
-    // The fog FIELD (Story 9.10): public weather off the map seed under the
-    // same constant (a different mint — the field is derived on both sides
-    // from the welcome's `fogSeed`, so it is not a stream).
+    // The RAIN FIELD's seed (Story 9.10; the storm-eye rain since 11.6):
+    // public weather minted off the map seed under its own constant. Not a
+    // stream — the field is derived on both sides from the welcome's
+    // `fogSeed`, so nothing is ever drawn from it server-side.
     this.fogSeed = (seed ^ 0x3c6ef372) >>> 0;
     this.fogField = makeFogField(this.fogSeed, CONFIG.fog, this.map.radius);
+    this.fogOwnFrame = fogFrameAt(this.fogField, 0, null, 0, 0, this.zoneCfg); // the ring-0 state at clock 0: raining from the start line
+    this.fogFrame = this.fogOwnFrame;
+    this.fogMaxDepthU = fogMaxDepth(CONFIG.fog);
+    const gridCols = Math.max(1, Math.floor(CONFIG.fog.hullGridCols));
+    const gridRows = Math.max(1, Math.floor(CONFIG.fog.hullGridRows));
+    this.fogHullCols = gridCols;
+    this.fogHullRows = gridRows;
+    this.fogHullOrder = hullGridOrder(gridCols, gridRows);
+    this.fogHullPts = new Float64Array(2 * gridCols * gridRows);
     // The density memo lattice — one allocation for the World's life (see fogMemo).
     const memoCell = CONFIG.fog.marchStepU;
     const memoHalf = this.map.radius + FOG_MEMO_MARGIN_U;
@@ -2084,7 +2391,7 @@ export class World {
   }
 
   /** One fresh track id off the private stream: 'trk-' + 8 hex chars —
-   *  structurally distinct from Colyseus session ids and 'drone-N' ids, and
+   *  structurally distinct from Colyseus session ids and 'bot-N' ids, and
    *  re-rolled on the (astronomically unlikely) collision with an existing
    *  track id or ship id. */
   private rollTrackId(): string {
@@ -2097,6 +2404,29 @@ export class World {
       }
       if (!taken) return id;
     }
+  }
+
+  /**
+   * THE SALT of one radar paint (Story 11.2 review gate, F1): a keyed hash
+   * of the paint's own inputs (`words` = paint time + exact pose) under this
+   * room's private paint key — see game/paintSalt.ts. Bound into the signal
+   * context by perception.ts; read by the `blip` and `wk` shapers only.
+   * ONE STABLE FUNCTION per World (an arrow property, never a per-context
+   * closure): signals.ts keys its one-slot mask memos on its identity, so
+   * consecutive observers of one room share a mask and two rooms never do.
+   */
+  readonly paintSaltFor = (kind: PaintKind, words: readonly number[]): number => paintSalt(this.paintKey, kind, words);
+
+  /**
+   * FORGET EVERY CLOUD one observer holds (Story 11.6 review —
+   * `ShipRecord.heldClouds`): a client that comes back on a fresh page holds
+   * none, so none may be charged on its eye lines until the cloud row
+   * delivers it again. A captain in reconnect grace gets no perception pass
+   * (frames are built for connected clients), so the room calls this at the
+   * drop and again at the resume. An unknown id is a no-op.
+   */
+  forgetHeldClouds(observerId: string): void {
+    this.ships.get(observerId)?.heldClouds.clear();
   }
 
   /**
@@ -2149,7 +2479,7 @@ export class World {
    * The LIVE ring — ring g exactly through clear/supply/reveal, the linear
    * ring-g → ring-g+1 interpolation during a close, terminal once closed, the
    * full map while idle. THE ring applyStorm bites outside of, and the one
-   * drones/pilots steer against.
+   * the bots steer against.
    */
   get zoneLiveRing(): ZoneRing {
     return this.zoneTimelineState()?.current ?? this.idleRing();
@@ -2180,10 +2510,9 @@ export class World {
   /**
    * THE MAP'S NAV CACHE (Story 9.13, epic-9 amendment 192): the generator's
    * 32 u navigability grid plus the ring flow fields, one per map
-   * (game/navCache.ts). Built on FIRST USE — the first bot tick or the first
-   * fleet route — rather than in the constructor, so a World that never
-   * sails a bot or a drone pays nothing; the bot port and the fleet
-   * controller read this one instance. Flow fields are built lazily per ring
+   * (game/navCache.ts). Built on FIRST USE — the first bot tick — rather
+   * than in the constructor, so a World that never sails a bot pays nothing;
+   * the bot port reads this one instance. Flow fields are built lazily per ring
    * (the next ring at its reveal, the collapse ring at its close start), never
    * per tick.
    */
@@ -2199,7 +2528,7 @@ export class World {
    * THE REVEAL HOOK (fix wave P8): build the revealed next ring's flow field
    * the first tick it exists. The same ring is the close's target through the
    * whole close, so the close start reads the field already built. Skipped
-   * while no AI hull (bot / fleet) is aboard — a World nobody steers by the
+   * while no bot is aboard — a World nobody steers by the
    * field pays nothing — and retried each tick until one is.
    */
   private prewarmZoneNav(): void {
@@ -2251,14 +2580,6 @@ export class World {
    * out. Read per-observer by perception's SignalContext; fresh array per
    * call (a handful of refs at 20Hz — the aliveHulls() allocation posture).
    */
-  /** The radar dropout roll's TARGET KEY for one wake ribbon (Story 9.8,
-   *  ruling 123): the water's source id (see `wakeKeys`). A ribbon the World
-   *  never registered (a test's hand-built ring) reads '' — deterministic,
-   *  so the roll stays a pure function of its inputs. */
-  wakeKeyOf(r: WakeRibbon): string {
-    return this.wakeKeys.get(r) ?? '';
-  }
-
   get wakeRibbons(): readonly WakeRibbon[] {
     const out: WakeRibbon[] = [];
     for (const ship of this.ships.values()) out.push(ship.wake);
@@ -2273,9 +2594,20 @@ export class World {
     return this.tickDenials.get(id);
   }
 
-  /** Wire entry point: validate/store a raw input message for `id`. */
-  submitInput(id: string, raw: unknown): boolean {
-    return this.inputs.submit(id, raw, this.now);
+  /**
+   * Wire entry point: validate/store a raw input message for `id`.
+   *
+   * `arrivedAt` is the ARRIVAL time the rate cap counts on (ms, monotonic —
+   * Story 11.2 follow-up; game/inputs.ts header): the ROOM passes its own
+   * wall clock for every socket message, so a sim that steps slower than real
+   * time cannot stretch one rate window over many wall seconds and shed an
+   * honest 20 Hz client's inputs. Omitted — a bot (one submission per step)
+   * and every directed test — the sim clock IS the arrival clock. The World
+   * itself still reads no wall clock: the sim keeps its single clock, and
+   * this number only feeds the transport's rate limiter.
+   */
+  submitInput(id: string, raw: unknown, arrivedAt: number = this.now): boolean {
+    return this.inputs.submit(id, raw, arrivedAt);
   }
 
   /** The seat's transport dropped: stop its held-fire level for the whole
@@ -2296,27 +2628,22 @@ export class World {
   }
 
   /** Spawn a new ship on the ring, max-distance from existing ships. Players
-   *  pass their picked ShipClassId; fleet hulls pass a drone hull id — the
-   *  envelope source (hullEnvelope) is the ONLY thing that differs between
-   *  them. `horn` is the sanitized foghorn variant from the join option
-   *  (Story 4.5); fleet hulls keep the default (they never honk — consumeHonk
-   *  gates them).
+   *  pass their picked ShipClassId (the envelope source is hullEnvelope).
+   *  `horn` is the sanitized foghorn variant from the join option (Story 4.5).
    *
    *  `at` (Story 5.6) places the hull EXACTLY there instead of on the spawn
-   *  ring — the mid-match fleet-wave path (amendment 37), the first placement
-   *  in the codebase that is neither the ring nor a redeploy. Everything else
-   *  about the record is identical, including the `spawn` event (whose
-   *  `pointSighted` gate means a fleet arriving outside every captain's intel
-   *  emits an event nobody receives — the desired behaviour, confirmed at the
-   *  row rather than inherited). A brand-new record's wake ring is FRESH, so
-   *  the mandatory detachWake at a teleport has nothing to detach here — the
-   *  bogus cross-map segment it exists to prevent is structurally impossible
-   *  on this path.
+   *  ring — the first placement in the codebase that is neither the ring nor a
+   *  redeploy (its production consumer, the PvE fleet wave, retired at Story
+   *  10.8; tests still use it). Everything else about the record is
+   *  identical, including the `spawn` event. A brand-new record's wake ring is
+   *  FRESH, so the mandatory detachWake at a teleport has nothing to detach
+   *  here — the bogus cross-map segment it exists to prevent is structurally
+   *  impossible on this path.
    *
-   *  `gun` (Story 8.14, amendments 89d/95) is THE SEAT'S GUN — the captain's
-   *  pick, sanitized at the door and frozen for the match. It defaults to
-   *  DEFAULT_GUN (`deckGun`), which is every bot, every fleet hull and every
-   *  caller that does not care. THERE IS NO DECK PARAMETER ANY MORE: decks are
+   *  `shift` (Story 10.4, epic-10 amendment 9 — in the seat GUN's place) is
+   *  THE SEAT'S SHIFT — the captain's pick, sanitized at the door and frozen
+   *  for the match. It defaults to DEFAULT_SHIFT for every caller that does
+   *  not care. THERE IS NO DECK PARAMETER ANY MORE: decks are
    *  retired (amendment 89a) and every captain draws from the one common pool.
    *
    *  `fit` (Story 8.10, amendment 65) is the DEV-ONLY spawn fit — the ids a
@@ -2329,7 +2656,7 @@ export class World {
    *  caller; honoured for a CAPTAIN only, it wins over `at` and is kept on the
    *  record (`devPose`) so the redeploy and respawn edges place the hull there
    *  again. */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = DEFAULT_CLASS_ID, horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, shift: ShiftId = DEFAULT_SHIFT, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
     const devPose = role === 'captain' ? pose : undefined;
     const { heading, ...p } = this.placement(id, devPose, () => at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase));
     const cls = hullEnvelope(hullId);
@@ -2339,10 +2666,10 @@ export class World {
     // holding as cards — is DELETED. Every hull spawns holding NOTHING and the
     // first weapon arrives as a CARD from the level-zero offer the countdown
     // grants (grantOpening), drawn from the common pool like every card after.
-    // The fit is the universal nine-slot loadout and nothing else: THE SEAT'S
-    // GUN + the Shift boost for a captain or a bot, the GUN ALONE for a fleet
-    // hull (amendment 24) — the weapon row and the belt start empty.
-    const loadout = loadoutFor(stats, roleIsFleetHull({ role }), gun, World.shiftFor(role, hullId));
+    // The fit is the universal five-slot loadout and nothing else: the MAIN
+    // BATTERY + THE SEAT'S SHIFT (Story 10.4) — the three family slots start
+    // empty.
+    const loadout = loadoutFor(stats, shift);
     const rec: ShipRecord = {
       id,
       name,
@@ -2354,8 +2681,8 @@ export class World {
       landHeadOn: 0, landWasContact: false, preDampSpeed: 0, lastDamageSrc: null, lastContactWasLand: false, contactDamageTaken: 0, landDamageTaken: 0, // Story 9.5 (clearContactState / clearContactTally)
       // THE SWEEP STARTS AT THE HULL'S HEADING (Eric ruling 2026-08-16), at
       // EVERY placement edge — here, redeployShip and respawn — so there is one
-      // rule and not three. Constructing every hull at 0 phase-LOCKED the whole
-      // fleet: a boarding room freezes the sweep (advanceSweeps early-returns
+      // rule and not three. Constructing every hull at 0 phase-LOCKED every
+      // hull: a boarding room freezes the sweep (advanceSweeps early-returns
       // while `radarEnabled` is false), so every captain's beam unfroze at
       // exactly 0 on the same tick and stayed in lockstep for the match, handing
       // a systematic, position-determined first-detection advantage. Anchoring
@@ -2364,12 +2691,13 @@ export class World {
       // half-open arc [prev, sweep), so an equal pair is zero-width and paints
       // nothing on the hull's first tick.
       // (Wake ring provisioned from the TRUE attainable top speed — Story 4.12.)
-      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading), sweepRev: 0,
-      // THE SEAT'S GUN and the ship's private DRAW stream (8.14): there is no
-      // deck to deal any more — the pool is the catalog and a draw is a pure
-      // read of this record's own state (materializeOffer).
-      gun, devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
-      bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
+      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading),
+      // THE SEAT'S SHIFT (10.4) and the ship's private DRAW stream (8.14):
+      // there is no deck to deal any more — the pool is the catalog and a draw
+      // is a pure read of this record's own state (materializeOffer). The
+      // turrets come up at rest and loaded, the secondaries cold (Story 10.4).
+      shift, turrets: initialTurrets(hullId), launchers: [], racks: emptyRackBank(), sec: initialSecondaries(), devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
+      bankedLevels: 0, indexBonus: World.noBonus(), offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
       cardBehaviors: NO_BEHAVIORS,
@@ -2393,13 +2721,12 @@ export class World {
       // (2026-08-04), the mine's prop-fouling slow, the foul zone's slow
       // (Story 9.4) — the same four zeroed together at every other life
       // boundary (founderSinking / respawn / redeployShip / match start).
-      // ...and it waits the full out-of-combat window before it regens
-      // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
-      // here anyway, so the wait costs nothing.
-      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0, shield: null,
+      // ...and a fresh combat clock (amendment 47): `lastDamagedAt` is `now`,
+      // never 0. Both cooldown abilities READY (Story 10.5).
+      boostUntil: 0, repairHp: 0, repairRate: 0, repairReadyAt: 0, smokeReadyAt: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0,
       // Story 8.15: no HUNKER window, and the machine gun's stream clock
-      // at the epoch (fire on the first held tick), no stream live.
-      hunkerUntil: 0, streamNextAt: 0, streamLive: false,
+      // at the epoch (fire on the first held tick), no stream live. No dazzle.
+      hunkerUntil: 0, streamNextAt: 0, streamLive: false, dazzledUntil: 0,
 
       rttMs: null,
       lastFireT: 0,
@@ -2407,19 +2734,16 @@ export class World {
       nextSmokeAt: 0,
       cloudUntil: 0, // Story 9.3: a fresh hull has no cloud of its own up
       draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
-      seenBallistics: new Set(),
+      seenBallistics: new Set(), losHints: newLosHints(),
       torpDirs: new Map(),
+      heldClouds: new Set(),
       loadout,
-      // ONE tally (Story 5.6, amendment 38): `kills` counts PARTICIPANT
-      // victims only — human captains AND, since Story 6.4 (Eric ruling B3:
-      // bots are ordinary combatants), AI-captain bots; never PvE fleet
-      // hulls. The Story 4.6 `captainKills` split stays retired — the two
-      // became identical by construction the moment PvE kills stopped
-      // counting anywhere.
+      // ONE tally (Story 5.6, amendment 38): `kills` counts human captains
+      // AND, since Story 6.4 (Eric ruling B3: bots are ordinary combatants),
+      // AI-captain bots. The Story 4.6 `captainKills` split stays retired.
       kills: 0,
-      pveKills: {}, // operator telemetry only (amendment 44) — never on the wire
       deaths: 0,
-      damageDealt: 0,
+      damageDealt: 0, beaconXpMs: 0, dropsTaken: 0,
     };
     this.enrolShip(rec, p);
     return rec;
@@ -2427,14 +2751,9 @@ export class World {
 
   /** The new record's LAST three steps, split out of addShip (line budget):
    *  into the ship table, the dev spawn fit, the eager track id, the public
-   *  `spawn` event.
-   *
-   *  NOT registered with the FleetController here (Story 5.6): a fleet hull's
-   *  registration carries its fleet id and its constant formation station,
-   *  which only the wave spawner knows. spawnFleet() is the ONE registrar. */
+   *  `spawn` event. */
   private enrolShip(rec: ShipRecord, p: Vec2): void {
     this.ships.set(rec.id, rec);
-    this.wakeKeys.set(rec.wake, rec.id); // the dropout roll's target key (Story 9.8)
     // THE DEV SPAWN FIT (Story 8.10, amendment 65), applied over the just-built
     // deck and loadout exactly as a pick would — and a no-op for every hull
     // that was not handed one, which is all of production.
@@ -2443,9 +2762,16 @@ export class World {
     this.pending.push({ k: 'spawn', id: rec.id, x: p.x, y: p.y });
     // A HULL THAT ARRIVES MID-COUNTDOWN STILL GETS THE OPENING (Story 8.10;
     // the 8.10 review, P2). `grantOpening()` fired at startCountdown, before
-    // this record existed, so without this line a captain who reconnects — or
-    // a bot the room tops up with — would stand on the start line at LV 0 with
-    // an empty bank and no hand while everyone else refits. AFTER the spawn
+    // this record existed, so without this line a late boarder — a captain
+    // consuming the seat reserved for them, aboard after the countdown armed —
+    // would stand on the start line at LV 0 with an empty bank and no hand
+    // while everyone else refits. This is NOT a re-entry path: a production
+    // room is locked
+    // from birth and never unlocked, and a countdown drop is torn down at once
+    // (dropPolicy holds a seat only while the match is active), so no captain
+    // ever re-enters a countdown to collect a second opening; a resumed
+    // reconnect reuses its existing record and never reaches addShip
+    // (match.test / reconnect.test pin all three walls). AFTER the spawn
     // event, so the `pt` never precedes the hull it belongs to; guarded by the
     // same per-ship latch, so it can never double with the sweep.
     if (this.countdownOpen) this.grantOpeningTo(rec);
@@ -2457,9 +2783,9 @@ export class World {
    * BotController (which rolls class/profile/callsign off its own seeded
    * stream) and then placed through the EXACT addShip path a human uses:
    * the shared spawn lattice (no `at` argument — bots never teleport in),
-   * the same common-pool economy a human gets (a bot is a participant, not a
-   * fleet hull), a roster-ready record. Ids are namespaced `bot-N`, structurally distinct from Colyseus
-   * session ids, `fleet-N` hulls and `trk-` pseudonyms.
+   * the same common-pool economy a human gets (a bot is a participant), a
+   * roster-ready record. Ids are namespaced `bot-N`, structurally distinct from
+   * Colyseus session ids and `trk-` pseudonyms.
    *
    * `hull` (Story 6.5) OVERRIDES the controller's own class roll so a caller
    * that builds a whole field at once can deal it a balanced spread instead of
@@ -2477,14 +2803,17 @@ export class World {
    * not a profile was forced. A forced profile governs the hull (each row is
    * hull-bound), so callers pass the profile alone.
    */
-  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, gun: GunId = DEFAULT_GUN): ShipRecord {
+  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, shift?: ShiftId): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
-    const { name, hullId } = this.bots.enroll(id, hull, profile);
-    // A bot sails the DEFAULT GUN unless a caller says otherwise (Story 8.14):
-    // there is no deck resolver any more — every participant draws from the one
-    // common pool, so a bot's economy is a captain's economy exactly.
-    return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, gun);
+    const enrolled = this.bots.enroll(id, hull, profile);
+    // THE SHIFT (Story 10.12, Eric 2026-11-11, R5): the controller deals it
+    // at enrollment, weighted by the bot's personality (ai/profiles.ts
+    // rollShift); a caller's explicit `shift` FORCES one instead (the
+    // harness's `--shift`). There is no deck resolver any more — every
+    // participant draws from the one common pool, so a bot's economy is a
+    // captain's economy exactly.
+    return this.addShip(id, enrolled.name, 'bot', enrolled.hullId, DEFAULT_HORN_ID, undefined, shift ?? enrolled.shift);
   }
 
   /**
@@ -2530,9 +2859,10 @@ export class World {
         // The bot's OWN most recent cloud's expiry (Story 9.3 — a self-read).
         cloudUntil: ship.cloudUntil,
         observe: () => observe(this, ship.id),
-        // Story 9.10 (amendment 169): the public fog density — so a plot whose
-        // predicted spot sits in fog is never read as a sweep miss. Weather
-        // only (where fog is), bound here so ai/ never holds the field.
+        // The public rain density at the current epoch's frame (Story 9.10,
+        // amendment 169; the storm-eye field since Story 11.6) — the cover
+        // search's read. Weather only (where rain is), bound here so ai/
+        // never holds the field.
         fogAt: (x: number, y: number) => this.fogDensityAt(x, y),
       });
     }
@@ -2541,8 +2871,8 @@ export class World {
 
   /**
    * This ship's private DRAW stream (Story 2.8, renamed in 8.14): mulberry32
-   * over the map seed XOR a fresh golden constant (the mapgen/spawn/drone
-   * stream idiom — 0x165667b1 is unused by any other stream) XOR the join
+   * over the map seed XOR a fresh golden constant (the mapgen/spawn stream
+   * idiom — 0x165667b1 is unused by any other stream) XOR the join
    * ordinal scrambled by Math.imul with the 32-bit golden ratio, so consecutive
    * ordinals land on well-separated seeds. Deterministic per (mapSeed,
    * ordinal); never reseeded on any path.
@@ -2553,7 +2883,7 @@ export class World {
 
   /**
    * THE DEV SPAWN FIT, kept on the record (Story 8.10, epic-8 amendment 65).
-   * CAPTAINS ONLY — never a bot, never a fleet hull: Eric's ruling names the
+   * CAPTAINS ONLY — never a bot: Eric's ruling names the
    * captain, and a bot that came up pre-fitted would quietly change bot-vs-bot
    * balance in the one environment (a dev room) where a smoke is watching. The
    * list is frozen so nothing downstream can mutate what the door admitted.
@@ -2601,15 +2931,24 @@ export class World {
    * There is no deck left to pay a copy out of, so every drop is `refusesCard`'s
    * — an id the catalog does not know, a STUB line (amendment 11: authored but
    * unbuilt is never fittable), a line already held at its `cap`, and copy 1
-   * of an equipment line once Q/E/R are full (a consumable always has its own
-   * fixed slot since Story 9.2 — epic-9 amendment 21). That
-   * last one is what stops a four-line `fitOverride` putting a fourth bare
-   * weapon in `cards` with no slot to live in (and recording a take for it);
+   * of an equipment line whose FAMILY slot already holds another kind (Story
+   * 10.5 — one kind per slot). That last one is what stops a `fitOverride`
+   * putting a second torpedo in `cards` with no slot to live in (and
+   * recording a take for it);
    * the cap one is what stops a dev fit stacking a build no pick, draw or offer
    * could ever produce. Nothing is restated here: one predicate, one path.
+   *
+   * A REFUSED LINE IS LOGGED (Story 10.1 review gate): one `devFit.refused`
+   * warning per dropped id, with `pickRefusal`'s reason — so a smoke whose
+   * `fitOverride` names a second kind of a filled family sees why it came up
+   * missing instead of a silent drop.
    */
   private applyDevFit(ship: ShipRecord): void {
-    for (const id of ship.devFit) this.applyCard(ship, id);
+    for (const line of ship.devFit) {
+      const reason = this.cardRefusal(ship, line);
+      if (reason !== null) logWarn('devFit.refused', { id: ship.id, line, reason });
+      else this.applyCard(ship, line);
+    }
   }
 
   /** Remove a ship entirely (client left). Its wake is water, not a ship
@@ -2624,7 +2963,6 @@ export class World {
     this.ships.delete(id);
     this.contactBodies.delete(id); // Story 9.5: the latch re-arms by itself next tick
     this.inputs.remove(id);
-    this.drones.remove(id);
     this.bots.remove(id);
     // The throne never names an absent player (Story 4.6): re-evaluate now —
     // a departed holder vacates, and re-claiming needs a fresh strict unique
@@ -2651,12 +2989,12 @@ export class World {
   resetForMatchStart(holdStartLine = false): void {
     this.shells.clear();
     this.mines.clear();
-    this.decoys.clear(); // practice-field decoys never float into the real match (mines precedent)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
     this.foulZones.clear(); // ...nor foul it (Story 9.4, the same precedent)
+    this.drops.clear(); // ...nor a practice-field airdrop / wreck pickup (Story 10.9, the same precedent)
     this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
-    this.fogClear(); // ...nor any fog (Story 9.10 — the practice water has none; the cut, clocks and memo epoch reset)
+    this.fogClear(); // the rain's test pin and memo epoch reset; the World's own frame is rebuilt at this clock
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
@@ -2671,7 +3009,7 @@ export class World {
     const placed: Vec2[] = [];
     for (const ship of this.ships.values()) this.redeployShip(ship, placed, holdStartLine);
     // Practice-field WATER never leaks into the real match either (Story 4.12
-    // — the mines/zones/decoys rule): redeployShip just detached every hull's
+    // — the mines/zones rule): redeployShip just detached every hull's
     // practice ribbon into the orphan store, and the shells.clear() above
     // stranded every torpedo ribbon. Wipe both — a fresh match starts on
     // clean water. (Amendment 200 governs in-match death, not this boundary.)
@@ -2704,9 +3042,9 @@ export class World {
    *      phase edge and documents itself as idempotent with the server's event.
    *
    *  ACCEPTED CONSEQUENCE: skipping N pickSpawn draws advances the shared world
-   *  `rng` differently, so a given seed lands its later PvE fleet-wave anchors
-   *  elsewhere. Nothing pins seed-stable fleet placement, and the batch-sim
-   *  harness passes no expectedCaptains so it keeps the old path entirely. */
+   *  `rng` differently, so a given seed lands its later draws elsewhere.
+   *  Nothing pins them seed-stable, and the batch-sim harness passes no
+   *  expectedCaptains so it keeps the old path entirely. */
   private redeployShip(ship: ShipRecord, placed: Vec2[], holdStartLine = false): void {
     if (holdStartLine) {
       // The held hull still counts as OCCUPIED. It was placed by addShip off
@@ -2729,7 +3067,6 @@ export class World {
       // ruling 2026-08-16) — see addShip for the rule and why prev must equal it.
       ship.sweepAngle = wrapPositive(ship.state.heading);
       ship.prevSweepAngle = ship.sweepAngle;
-      ship.sweepRev = 0; // the dropout roll's revolution index re-anchors with the beam (Story 9.8)
     }
     // THE ECONOMY: PRESERVED on every path (Story 8.10, amendment 63b, made
     // unconditional by the 8.10 review) — see redeployEconomy.
@@ -2751,19 +3088,18 @@ export class World {
     // A fresh life never inherits an open boost window — nor either slow.
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a HUNKER window or a stream clock (Story 8.15)
+    World.resetBattery(ship); // ...nor a previous life's turret angles, reloads or secondaries heat (Story 10.4)
     // ...nor a HULL REPAIR pool: hp is already full here, so a surviving
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
     World.clearRepair(ship);
-    // ...nor a stale combat clock: a fresh life waits the full out-of-combat
-    // window (amendment 47), so a hull redeployed straight out of a fight
-    // cannot start regenerating on the start line.
+    World.readyAbilities(ship); // ...and both cooldown abilities ready (Story 10.5)
+    // ...nor a stale combat clock (amendment 47).
     ship.lastDamagedAt = this.now;
-    // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
-    ship.shield = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.fouledUntil = 0; // ...nor a practice-water foul-zone stamp (Story 9.4; the zones left with foulZones.clear())
+    ship.dazzledUntil = 0; // ...nor a practice-water dazzle (Story 10.9 — the fouledUntil rule)
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
     // stale foghorn cooldown (Story 4.5) — nor a stale own-cloud stamp
     // (Story 9.3; the clouds themselves left with clouds.clear()).
@@ -2777,10 +3113,12 @@ export class World {
     // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
+    ship.heldClouds.clear(); // Story 11.6 review: ...and holds no cloud (the clouds themselves left with clouds.clear())
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
-    ship.pveKills = {}; // ...and its telemetry sibling (amendment 44), same boundary
     ship.deaths = 0;
     ship.damageDealt = 0;
+    ship.beaconXpMs = 0;
+    ship.dropsTaken = 0;
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
     // a kept one would chain a bogus segment across the map — and start
     // fresh, provisioned from the just-reset base stats. (resetForMatchStart
@@ -2837,11 +3175,10 @@ export class World {
     // XP progress dies with the build (Story 2.6), on every path.
     ship.xpMs = 0;
     ship.level = 0;
-    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog, ship.indexBonus);
     // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
-    // replayed over it through the SHARED fill rule. The fleet flag is
-    // load-bearing (without it a drone would grow a boost in slot 1).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    // replayed over it through the SHARED fill rule.
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, ship.shift);
     ship.hp = ship.stats.maxHp;
   }
 
@@ -2860,8 +3197,13 @@ export class World {
    * different ship still in the room — a DEAD killer (mutual destruction)
    * still gets both; storm (`by` undefined) and self-kills grant nothing by
    * construction. Combat routes damage through here; tests drive it directly.
+   *
+   * `opts.scuttle` marks THE SCUTTLE — the killer-less sink Match.onPlayerLeave
+   * performs for a departing captain (Story 6.7) — and nothing else passes it.
+   * It changes exactly one thing: the wreck crate is left only when the hull
+   * was IN COMBAT (`inCombat`, Eric 2026-11-09 — see placeWreckDrop).
    */
-  sinkShip(id: string, by?: string): void {
+  sinkShip(id: string, by?: string, opts?: { scuttle?: boolean }): void {
     const ship = this.ships.get(id);
     // THE SOLE IDEMPOTENCY LOCK (amendment 1): exactly one `sunk` event per
     // hull per life hangs off this early return. A hull already `sinking`
@@ -2879,6 +3221,11 @@ export class World {
     // `alive -> sinking` (Story 5.2): the `sink` edge opens the window. All
     // bookkeeping below fires NOW; only the physical foundering is deferred.
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'sink', this.now);
+    // THE WRECK PICKUP (Story 10.9, R2): one `'wreck'` crate at the wreck
+    // centre — only once the zone has started (placeWreckDrop's guards). It
+    // runs BEFORE creditKill clears the assist ledger: a scuttle's in-combat
+    // test reads that ledger.
+    this.placeWreckDrop(ship, opts?.scuttle === true);
     // THE COLLECTOR INVALIDATION (Story 8.4): the wreck leaves every target
     // list built from here on — later shells of the same click pass through it
     // (`deferred-work.md:594`) and homing drops the lock — while its silhouette
@@ -2915,11 +3262,8 @@ export class World {
     // the economy is what a sinking captain loses (amendment 10 — "once
     // sinking, you're done"), tickRepairs would never tick it anyway (afloat
     // gate), and nothing may trickle hp back onto a hull already at 0. The
-    // out-of-combat regen is refused on exactly the same afloat gate.
+    // passive regen is refused on exactly the same afloat gate.
     World.clearRepair(ship);
-    // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
-    // an absorbing pool is economy, and a sinking captain loses their economy.
-    ship.shield = null;
     // ...and the own-cloud stamp dies with the life (Story 9.3): a sinking
     // press is refused by the row anyway, and the bot's self-read must not
     // hold its next life. The clouds already made stay in World.clouds to
@@ -2972,7 +3316,9 @@ export class World {
       ship.slowedUntil = 0;
       ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
       ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
+      ship.dazzledUntil = 0; // ...and the flash's dazzle (Story 10.9)
       ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
+      ship.heldClouds.clear(); // Story 11.6 review: the life's held clouds die with it (the next frame is a spectator's)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
       // The land edge dies with the life (Story 9.5); the damage-source
       // stamp, the land bit and the contact tally DO NOT — the harness reads
@@ -3024,14 +3370,10 @@ export class World {
    * or the bounty bonus by construction — but the kill VALUE itself now flows
    * through payKillValue regardless, which pays assists on those sinks too.
    * `kills` — the roster tally AND the bounty ruler, one field since Story
-   * 5.6 — advances ONLY on a PARTICIPANT victim: a human captain or, since
+   * 5.6 — advances on every attributed victim: a human captain or, since
    * Story 6.4 (Eric ruling B3: bots are ordinary combatants — a bot victim
    * counts into `kills`, pays the full captain killLevels, and can move the
-   * bounty throne), an AI-captain bot. A PvE fleet kill counts nowhere here
-   * (amendment 38 — while its XP, its `sunk` event and its onscreen kill
-   * flash all still fire); it instead advances `pveKills` under its own hull
-   * id — the OPERATOR-ONLY sibling (amendment 44), which counts precisely
-   * what `kills` deliberately refuses to. Sinking the throne's holder pays
+   * bounty throne), an AI-captain bot. Sinking the throne's holder pays
    * `CONFIG.bounty.killLevels` ON TOP of the standard kill value, through the
    * unchanged grantXp pipeline (fractional carry untouched).
    *
@@ -3044,56 +3386,11 @@ export class World {
   private creditKill(victim: ShipRecord, by: string | undefined, victimHeldBounty: boolean): void {
     const killer = by && by !== victim.id ? this.ships.get(by) : undefined;
     if (killer !== undefined) {
-      // The PvE TALLY keys on the fleet reading (economy): `pveKills` counts
-      // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
-      if (roleIsFleetHull(victim)) {
-        killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
-        this.rollDroneDrops(killer, victim);
-      } else killer.kills += 1;
+      killer.kills += 1;
       if (victimHeldBounty) this.grantXp(killer, CONFIG.bounty.killLevels);
     }
     this.payKillValue(victim, killer);
     victim.damageFrom.clear(); // the ledger dies with the life it described
-  }
-
-  /**
-   * DRONE DROPS (Eric ruling 2026-10-01, CONFIG.droneDrops): the credited
-   * killer of a PvE drone rolls `rolls[victim.hullId]` times; each roll passes
-   * with `chance` and stocks one consumable copy (pickDrop). Only an AFLOAT
-   * PARTICIPANT rolls — a fleet hull never does, and a killer already sinking
-   * (mutual destruction) keeps its XP but gets no drop. Server-only; each
-   * landed copy queues the self-private `dp` event for the killer's toast.
-   */
-  private rollDroneDrops(killer: ShipRecord, victim: ShipRecord): void {
-    if (!roleIsParticipant(killer) || !isAfloat(killer.lifecycle)) return;
-    const rolls: Partial<Record<HullId, number>> = CONFIG.droneDrops.rolls;
-    const n = rolls[victim.hullId] ?? 0;
-    for (let i = 0; i < n; i++) {
-      // The coin is drawn for EVERY roll; the pick only when it passed.
-      if (this.dropRng.next() < CONFIG.droneDrops.chance) this.pickDrop(killer);
-    }
-  }
-
-  /**
-   * One passing drop roll: a uniform pick over the consumable lines this ship
-   * could legally take RIGHT NOW by the refit card's own predicate
-   * (`refusesCard` → `pickRefusal`: a stub or a line at its cap is skipped) —
-   * since Story 9.2 (epic-9 amendment 21, amendment 226 without its belt
-   * branch) that is every keyed kind under its cap, each in its own fixed
-   * slot — recomputed per roll because a first drop can bring a line to its
-   * cap. An empty set wastes the roll without drawing. The copy lands through
-   * applyCard (cards + slot fold stay the single truth); the event is queued
-   * only if the stock actually landed.
-   */
-  private pickDrop(ship: ShipRecord): void {
-    const eligible = Object.keys(this.catalog).filter(
-      (id) => this.catalog[id].kind === 'consumable' && !this.refusesCard(ship, id),
-    );
-    if (eligible.length === 0) return;
-    const lineId = eligible[this.dropRng.int(0, eligible.length - 1)];
-    const before = boonStackCount(ship.cards, lineId);
-    this.applyCard(ship, lineId);
-    if (boonStackCount(ship.cards, lineId) > before) this.pending.push({ k: 'dp', id: ship.id, boon: lineId });
   }
 
   /**
@@ -3109,25 +3406,32 @@ export class World {
    * so a solo kill still pays the full value and the split only ever moves
    * value to people who actually contributed.
    *
-   * A DRONE VICTIM'S POT SPLITS TOO (Eric answer A5, 2026-08-23): `killXpLevels`
-   * covers a fleet hull's ¼/½/¾ level, and that is what every measured arm did.
-   *
    * A STORM KILL STILL PAYS THE ASSISTS. There is no killer, so the guaranteed
    * share goes UNPAID — it is payment for the risk of closing, and nobody took
    * that risk — but the hull was worn down by somebody and the split is about
    * that work. This is NEW value: today an unattributed sink credits nothing at
    * all.
-   *
-   * A FLEET-HULL KILLER BURNS THE GUARANTEED SHARE. The 0.1 (or configured
-   * `killerShare`) is granted to the drone here exactly as it would be to a
-   * human, but `addXpMs` fail-closes on every fleet hull — so the tenth simply
-   * evaporates while the eligible human contributors still only split the 0.9
-   * remainder through splitAssists. This is reachable in production (drones
-   * carry guns and can land the killing blow) and matches the measured
-   * reference behavior; it is a named consequence, not a defect.
    */
   private payKillValue(victim: ShipRecord, killer: ShipRecord | undefined): void {
-    const pot = World.killXpLevels(victim);
+    this.payKillPot(World.killXpLevels(), victim.damageFrom, victim.id, killer);
+  }
+
+  /**
+   * THE SPLIT LAW ITSELF, over any damage ledger (Story 10.8 extraction —
+   * the body payKillValue has always had, unchanged): `pot` levels, the
+   * killer's guaranteed share, the rest by damage among the ledger's eligible
+   * contributors. A hull's kill value reaches it through payKillValue; a
+   * destroyed RADIO BEACON's `CONFIG.beacons.killLevels` reaches it through
+   * sinkBeacon with the beacon's own ledger (R13: "divided among participants
+   * like ship kills would be"). `victimId` is the ledger owner's id — the
+   * self-damage guard's subject.
+   */
+  private payKillPot(
+    pot: number,
+    ledger: ReadonlyMap<string, AssistTally>,
+    victimId: string,
+    killer: ShipRecord | undefined,
+  ): void {
     if (!(pot > 0)) return;
     const windowMs = CONFIG.xp.assistWindowMs;
     if (windowMs <= 0) {
@@ -3136,24 +3440,18 @@ export class World {
     }
     const share = Math.min(1, Math.max(0, CONFIG.xp.killerShare));
     if (killer !== undefined && share > 0) this.grantXp(killer, pot * share);
-    this.splitAssists(victim, pot * (1 - share), this.now - windowMs, killer);
+    this.splitAssists(ledger, victimId, pot * (1 - share), this.now - windowMs, killer);
   }
 
   /**
    * The victim's contributors who may actually be paid: a tally whose last
    * damage landed at or after `cutoff` — i.e. whose rolling counter is still
-   * active — from a hull that still exists and is not a fleet hull.
+   * active — from a hull that still exists.
    *
    * Split out of splitAssists for the complexity budget, but it earns its own
-   * name: every clause here is a RULE (the eligibility window, the fleet
-   * exclusion, the self-damage guard) rather than bookkeeping, and reading them
-   * in one place is how the payout stays auditable.
-   *
-   * FLEET HULLS ARE EXCLUDED rather than counted-and-unpaid: they cannot accrue
-   * XP, so counting their damage would silently EVAPORATE part of every pot
-   * they contributed to instead of redistributing it. (recordAssist already
-   * refuses to ledger a fleet attacker; this is the same rule at the second
-   * seam, and it also catches a hull whose role changed mid-life.)
+   * name: every clause here is a RULE (the eligibility window, the self-damage
+   * guard) rather than bookkeeping, and reading them in one place is how the
+   * payout stays auditable.
    *
    * A DEAD ATTACKER'S CLAIM STILL PAYS: nothing here checks the contributor's
    * OWN lifecycle, only the victim's damage ledger — deliberately, mirroring
@@ -3168,12 +3466,16 @@ export class World {
    * suppressed and match death is terminal — there is no redeploy), so this is
    * a directed-API limitation rather than a rule anyone has had to enforce.
    */
-  private eligibleContributors(victim: ShipRecord, cutoff: number): { ship: ShipRecord; amount: number }[] {
+  private eligibleContributors(
+    ledger: ReadonlyMap<string, AssistTally>,
+    victimId: string,
+    cutoff: number,
+  ): { ship: ShipRecord; amount: number }[] {
     const out: { ship: ShipRecord; amount: number }[] = [];
-    for (const [id, rec] of victim.damageFrom) {
-      if (id === victim.id || rec.at < cutoff || !(rec.amount > 0)) continue;
+    for (const [id, rec] of ledger) {
+      if (id === victimId || rec.at < cutoff || !(rec.amount > 0)) continue;
       const ship = this.ships.get(id);
-      if (ship === undefined || roleIsFleetHull(ship)) continue;
+      if (ship === undefined) continue;
       out.push({ ship, amount: rec.amount });
     }
     return out;
@@ -3215,14 +3517,18 @@ export class World {
    * damage against `cutoff`, so it always refreshes the counter before this
    * branch could ever be asked to cover for it.
    */
-  private splitAssists(victim: ShipRecord, budget: number, cutoff: number, killer: ShipRecord | undefined): void {
+  private splitAssists(
+    ledger: ReadonlyMap<string, AssistTally>,
+    victimId: string,
+    budget: number,
+    cutoff: number,
+    killer: ShipRecord | undefined,
+  ): void {
     if (!(budget > 0)) return;
-    const eligible = this.eligibleContributors(victim, cutoff);
+    const eligible = this.eligibleContributors(ledger, victimId, cutoff);
     let total = 0;
     for (const e of eligible) total += e.amount;
     if (!(total > 0)) {
-      // A FLEET killer collects nothing here either: addXpMs fail-closes on it,
-      // so the pot still evaporates exactly as it did before the fallback.
       if (killer !== undefined) this.grantXp(killer, budget);
       return;
     }
@@ -3243,16 +3549,12 @@ export class World {
   }
 
   /**
-   * Levels' worth of XP a kill on `victim` pays (Story 2.6, amendment 31): a
-   * human captain is the full `CONFIG.xp.killLevels`; a drone pays its SIZE
-   * TIER (¼ / ½ / ¾), read off the victim's existing hull id — the PvE tier
-   * fractions' first real consumer, with no new drone state. An unknown hull
-   * id pays nothing (fail-closed).
+   * Levels' worth of XP a kill on a hull pays (Story 2.6, amendment 31): the
+   * full `CONFIG.xp.killLevels` for every captain and bot (the PvE size tiers
+   * retired with the fleet at Story 10.8).
    */
-  private static killXpLevels(victim: ShipRecord): number {
-    if (!roleIsFleetHull(victim)) return CONFIG.xp.killLevels;
-    const tiers: Partial<Record<HullId, number>> = CONFIG.xp.droneTierLevels;
-    return tiers[victim.hullId] ?? 0;
+  private static killXpLevels(): number {
+    return CONFIG.xp.killLevels;
   }
 
   /**
@@ -3260,10 +3562,6 @@ export class World {
    * bank every threshold it crosses. Integer ms throughout — a kill's value is
    * rounded ONCE here. Every tier is a dyadic fraction of the 60000ms level, so
    * each rounds exactly: ¼ = 15000ms, ½ = 30000ms, ¾ = 45000ms.
-   *
-   * DRONES NEVER ACCRUE (the ratified bugfix): the guard sits in the credit
-   * path itself, so no caller — passive tick, kill credit, or a future one —
-   * can hand a drone XP, an offer array, or a `pt` event.
    *
    * The bank loop is a WHILE: one grant may cross several levels (a kill on
    * top of near-full progress, or a kill worth > 1 level), and each crossing
@@ -3275,12 +3573,12 @@ export class World {
     this.addXpMs(ship, Math.round(CONFIG.xp.levelMs * levels));
   }
 
-  /** The raw ms form behind grantXp (and the passive tick's `+dtMs`): the drone
-   *  guard and the bank loop, in one place. Both guards are FAIL-CLOSED on
+  /** The raw ms form behind grantXp (and the passive tick's `+dtMs`): the
+   *  guard and the bank loop, in one place. The guard is FAIL-CLOSED on
    *  non-finite input — a plain `<= 0` is false for NaN (which would poison
    *  `xpMs` forever) and for Infinity (which would spin the bank loop). */
   private addXpMs(ship: ShipRecord, ms: number): void {
-    if (roleIsFleetHull(ship) || !Number.isFinite(ms) || ms <= 0) return;
+    if (!Number.isFinite(ms) || ms <= 0) return;
     ship.xpMs += ms;
     while (ship.xpMs >= CONFIG.xp.levelMs) {
       ship.xpMs -= CONFIG.xp.levelMs;
@@ -3296,35 +3594,37 @@ export class World {
    * at all: its hand is drawn when it reaches the front.
    *
    * The self-private `pt` event fires whenever there IS a front offer after
-   * materializing, which since Story 8.14 is EVERY level: the offer can no
-   * longer come back empty (amendment 94 — a consumable line is always
-   * eligible), so there is no silent offer-less level left to handle. The
-   * `offer !== null` test is kept as a fail-closed guard, not a path.
+   * materializing. An EXHAUSTED hull (nothing eligible: every ladder and all
+   * three slot weapons at cap, or an all-stub catalog) draws an EMPTY offer,
+   * and since Story 10.7 (R5, Eric 2026-11-06) the level becomes a BONUS
+   * POINT: `materializeOffer` converts it to +1 on a random index and zeroes
+   * `bankedLevels`, no offer opens, no `pt` fires and nothing throws. `level`
+   * still rose (the XP loop owns that).
    * Reopening the refit window can never reroll — the front offer is drawn once
    * and frozen (FR19).
    */
-  private grantPoint(killer: ShipRecord, guarantee = false): void {
+  private grantPoint(killer: ShipRecord): void {
     killer.bankedLevels += 1;
-    this.materializeOffer(killer, guarantee);
+    this.materializeOffer(killer);
     if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
   }
 
   /**
    * THE LEVEL-ZERO GRANT — THE OPENING (Story 8.10, FR48, epic-8 amendments
    * 59-63). Called by `Match.startCountdown()` and by nothing else: every
-   * PARTICIPANT (a human captain or an AI captain — `role !== 'fleet'`) banks
-   * ONE level and draws its hand with the USABLE-CARD GUARANTEE, so the first
-   * offer of a match can never be four ladders on a hull with no weapon.
+   * PARTICIPANT (a human captain or an AI captain) banks ONE level and draws its hand through the ordinary draw. The offer's
+   * EQUIPMENT slot (Story 10.7, card 1) is what keeps the first offer from
+   * being four ladders on a hull with no weapon: on a bare hull every eligible
+   * equipment line is a bare weapon. The level-zero guarantee (amendment 93)
+   * is retired.
    *
    * `level` does NOT move. The captain is at LV 0 with one banked level and a
    * full hand — which is exactly what the HUD bar already renders (`LV 0`,
    * chip 1, empty strip) with no change to the bar at all. `xpMs` is 0 here
    * by construction (xpEnabled is false before `active`).
    *
-   * FLEET HULLS ARE EXCLUDED BY THE GUARD, NOT BY LUCK (amendment 63e): a
-   * drone has no refit surface and no business holding a hand, so granting it a
-   * level would put an offer on a hull that can never spend one.
-   * `isParticipant` is the one reading that means "plays the game".
+   * `isParticipant` is the one reading that means "plays the game"
+   * (amendment 63e — the retired PvE fleet was excluded by this guard).
    *
    * IDEMPOTENT PER HULL (the 8.10 review, P2): each record carries its own
    * `openingGranted` latch, so calling this on every `startCountdown()` —
@@ -3342,25 +3642,24 @@ export class World {
 
   /**
    * One hull's level-zero grant, behind the two guards every caller needs:
-   * PARTICIPANTS ONLY (amendment 63e — a drone has no refit surface and must
-   * never hold a hand) and ONCE PER RECORD.
+   * PARTICIPANTS ONLY (amendment 63e) and ONCE PER RECORD.
    */
   private grantOpeningTo(ship: ShipRecord): void {
     if (!roleIsParticipant(ship) || ship.openingGranted) return;
     ship.openingGranted = true;
-    this.grantPoint(ship, true);
+    this.grantPoint(ship);
   }
 
   /**
    * THE ONE FREE COUNTDOWN REDRAW (Story 8.10, FR48, epic-8 amendment 60):
-   * throw the level-zero hand back and draw another, with the same guarantee,
-   * off the SAME common pool — a draw consumes nothing, so there is nothing to
-   * give back and the thrown hand's lines are drawable again immediately.
+   * throw the level-zero hand back and draw another — simply the draw run
+   * again (Story 10.7, R2: the wildcards flip afresh) — off the SAME common
+   * pool. A draw consumes nothing, so there is nothing to give back and the
+   * thrown hand's lines are drawable again immediately.
    *
    * HONOURED IFF all five hold: the countdown is open (`Match` owns the
    * flag), the hull is a HUMAN CAPTAIN (a bot never sends the sentinel — its
-   * policy cannot return a negative, pinned — and a fleet hull has no offer
-   * anyway), it is NOT SINKING, this ship has not already redrawn, and it
+   * policy cannot return a negative, pinned), it is NOT SINKING, this ship has not already redrawn, and it
    * HOLDS a hand. Anything else returns false BEFORE any mutation, so the
    * next frame's offer is the same array, byte for byte (the pick-refusal
    * pattern).
@@ -3382,7 +3681,7 @@ export class World {
     ship.mulliganed = true;
     ship.offer = null; // dropped, NOT spent: bankedLevels does not move
     World.markRedrawn(ship); // the thrown hand stays in the log (Story 8.21)
-    this.materializeOffer(ship, true);
+    this.materializeOffer(ship);
     if (ship.offer !== null) this.pending.push({ k: 'pt', id: ship.id });
     return true;
   }
@@ -3398,30 +3697,76 @@ export class World {
    * and this ship's own stream — and answers with up to CONFIG.offer.size
    * DIFFERENT line ids. It takes nothing out of anything: a draw is a read.
    *
-   * THE ELIGIBILITY LAW LIVES THERE, not here (caps, the weapon row, gun
-   * ladders, add-on hosts, stubs, and consumables-are-always-eligible). This
-   * function's whole job is to assemble the three arguments.
+   * THE ELIGIBILITY LAW LIVES THERE, not here (caps, the family slots, gun
+   * ladders, add-on hosts, stubs). This function's whole job is to assemble
+   * the three arguments.
    *
-   * NO EXHAUSTION (amendment 94). A consumable line is always eligible, so an
-   * empty result needs fewer than one dealable line in the whole catalog — not
-   * reachable in production, and reachable in a test only with a deliberately
-   * tiny injected catalog. It simply leaves `offer` null and the level banked;
-   * there is no latch, no log, no counter and no silent-bank branch.
+   * A SHORT OR EMPTY OFFER IS LEGAL (Story 10.5): with the consumables gone a
+   * hull can run out of eligible lines. A short hand is stored as drawn; an
+   * EMPTY one is never materialized — `offer` stays null, no refit window
+   * opens, nothing throws, nothing is logged.
    *
-   * `guarantee` (Story 8.10, narrowed by amendment 93) is passed by the
-   * LEVEL-ZERO paths ONLY — grantOpening and mulligan — and rides straight
-   * through to `drawOffer`, where it makes card 0 a line this hull can actually
-   * USE. Every ordinary level leaves it false: the guarantee is the opening's
-   * promise, not the economy's.
+   * AN EMPTY DRAW CONVERTS EVERY BANKED LEVEL INTO A BONUS POINT (Story 10.7,
+   * R5, Eric 2026-11-06 — replacing R3's "banks nothing"): `convertBank`.
+   * Exhaustion is permanent — only taking a card can make a new line
+   * eligible, and an exhausted hull has no card to take — so every level
+   * queued behind the empty one converts too. This one branch covers all
+   * three callers: a level earned by an exhausted hull (`grantPoint`), the
+   * next-level draw after a hull spends its LAST eligible card with levels
+   * queued (`spendCard`), and the redraw (`mulligan`). `level` is untouched.
+   *
+   * There is no level-zero guarantee any more (amendment 93, retired by Story
+   * 10.7): the opening, its redraw and every ordinary level all run the same
+   * four-slot draw, whose Equipment slot deals a bare weapon on a bare hull.
    */
-  private materializeOffer(ship: ShipRecord, guarantee = false): void {
+  private materializeOffer(ship: ShipRecord): void {
     if (ship.bankedLevels <= 0 || ship.offer !== null) return;
-    const offer = drawOffer(this.drawShipOf(ship), this.weightsFor(ship), ship.drawRng, this.catalog, { guarantee });
-    if (offer.length === 0) return;
+    const offer = drawOffer(this.drawShipOf(ship), this.weightsFor(ship), ship.drawRng, this.catalog);
+    if (offer.length === 0) {
+      this.convertBank(ship);
+      return;
+    }
     ship.offer = offer;
     // THE HAND LOG (Story 8.21, R1): a dealt hand is logged the moment it is
     // drawn — this is the single place a hand is ever drawn.
     ship.hands.push({ dealtAtMs: this.now, offered: [...offer], taken: null, takenAtMs: null, redrawn: false });
+  }
+
+  /**
+   * THE EXHAUSTED HULL'S CONVERSION (Story 10.7, R5, Eric 2026-11-06, epic-10
+   * amendment 13): every level still banked becomes ONE bonus point on an
+   * index picked by `drawBonusIndex` (one `drawRng.next()` per level), the
+   * bank drops to 0, and the stats re-fold through `effectiveStats()` with
+   * the same settle a card gets (pools, reload clocks, mounts, wake). No
+   * offer, no hand log, no `pt` — the own row's `ib` is the whole signal.
+   * A pick that is not one of the six indices (`drawBonusIndex` answers
+   * undefined — a misconfigured list or a bad rng, review gate P4) is that
+   * level's point skipped: no junk key is ever written.
+   *
+   * NO BONUS WHILE SINKING (Story 10.7, R7, Eric 2026-11-06, epic-10
+   * amendment 13 — "once sinking, you're done", the rule `spendPoint` refuses
+   * a card pick by): on a SINKING or SUNK hull every banked level is simply
+   * dropped — no point, bank 0, no `drawRng` value spent, no re-fold. Levels
+   * earned while sinking / sunk are gone even if the hull is later redeployed.
+   *
+   * RE-ENTRANCY (review gate P5): since R5 this re-fold can run INSIDE damage
+   * resolution — kill credit → grantXp → grantPoint → materializeOffer → here
+   * — replacing `ship.stats`, rescaling its reload clocks and possibly
+   * swapping `ship.wake` mid-step. No step may hold a ship's `stats` / `wake`
+   * reference across a call that can award a kill.
+   */
+  private convertBank(ship: ShipRecord): void {
+    if (isSinking(ship.lifecycle) || isSunk(ship.lifecycle)) {
+      ship.bankedLevels = 0;
+      return;
+    }
+    for (let n = ship.bankedLevels; n > 0; n -= 1) {
+      const id = drawBonusIndex(ship.drawRng);
+      if (id !== undefined) ship.indexBonus[id] += 1;
+    }
+    ship.bankedLevels = 0;
+    const prevStats = this.refoldCards(ship);
+    this.settleRefold(ship, prevStats);
   }
 
   /** The hand currently open in the log — the last entry, while it is neither
@@ -3446,24 +3791,22 @@ export class World {
    *     `LineId` union does not), and the callee is fail-closed on an id its
    *     catalog does not know — so the narrow rides the callee's contract, not
    *     this assertion.
-   *   - `slotIds`: the eleven slot contents, the same array `pickRefusal`
-   *     takes. `sim/draw.ts` derives "is ANY of Q/E/R still empty"
-   *     from it — what makes copy 1 of a weapon eligible at all (a bare weapon
-   *     needs somewhere to go) and what closes the weapon kind once the row is
-   *     full — and the level-zero guarantee runs the full `pickRefusal` over it
-   *     so it can never hand out a card this hull could not take (review F2).
-   *   - `mountedGun`: the MODULE slot 0 carries, which is exactly
-   *     `MOUNTED_GUN[gun]` by `loadoutFor`'s construction — read from the seat
-   *     rather than from the slot so it stays a fact about the PICK (no card
-   *     addresses slot 0, and reading the seat keeps the value typed as an
-   *     EquipmentId without a cast). A gun ladder is offered only while its own
-   *     gun is mounted (amendment 89d).
+   *   - `slotIds`: the five slot contents, the same array `pickRefusal`
+   *     takes. `sim/draw.ts` derives which FAMILY slots are still empty from
+   *     it — what makes copy 1 of a weapon eligible at all (a bare weapon
+   *     needs its family's slot empty, Story 10.5) — and which add-on hosts
+   *     are aboard (Story 10.6).
+   *   - `mountedGun`: the MODULE slot 0 carries by `loadoutFor`'s
+   *     construction — `'mainBattery'` on every hull since Story 10.4 (no
+   *     ladder is hosted on it, so the three deck-gun ladders are never
+   *     eligible). A constant rather than a slot read so it stays typed as an
+   *     EquipmentId without a cast.
    */
   private drawShipOf(ship: ShipRecord): DrawShip {
     return {
       held: ship.cards as readonly LineId[],
       slotIds: ship.loadout.map((s) => s.equipmentId),
-      mountedGun: MOUNTED_GUN[ship.gun],
+      mountedGun: 'mainBattery',
     };
   }
 
@@ -3506,8 +3849,7 @@ export class World {
   }
 
   /** Is THIS copy the take — copy 1 of an EQUIPMENT line (amendment 90: the
-   *  bare weapon arriving, never a tier bump, never a ladder, add-on or
-   *  consumable)? Split out of `applyCard` so the ledger write is one guarded
+   *  bare weapon arriving, never a tier bump, never a ladder or add-on)? Split out of `applyCard` so the ledger write is one guarded
    *  statement there and the branch count stays where it was. */
   private static isTake(line: CatalogLine | undefined, copiesBefore: number): boolean {
     return line?.kind === 'equipment' && copiesBefore === 0;
@@ -3532,12 +3874,11 @@ export class World {
    * THE TAKE LEDGER (Story 8.14, amendment 90): copy 1 of an EQUIPMENT line —
    * the bare weapon arriving — is a TAKE, and is recorded here, on the ONE path
    * every acquisition runs through (a spend, a dev spawn fit, a directed test
-   * grant). Copies 2+, ladders, add-ons and consumables record nothing.
+   * grant). Copies 2+, ladders and add-ons record nothing.
    *
-   * HEAL-ON-GRANT (ARMOR — the ONLY heal path): a `healOnGrant` line heals
-   * exactly the maxHp DELTA this fit produced (clamped to the new cap, never
-   * negative; only a LIVING hull heals — a corpse gets full effective hp on
-   * respawn anyway).
+   * HEAL-ON-GRANT is GONE: its only line, HULL POINTS, and the `healOnGrant`
+   * flag were DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8),
+   * so no grant heals. The hp clamp below stays for a maxHp-lowering fit.
    *
    * NEVER FIT AN ID WITH NO MODULE (Story 8.1): a `slotFill` whose target has
    * no row in the server EQUIPMENT registry is a SILENT NO-OP. Stub lines are
@@ -3555,6 +3896,9 @@ export class World {
    * ratio, preserving the progress fraction — never a free round
    * (rescaleReloadTimers). The per-tier −5 % reload step is DERIVED from the
    * tier in clampStats, so an equipment-ladder copy moves those timers too.
+   * Since Story 10.5 (R10 / R11) a RELOAD card moves the turrets' and the
+   * Q / E / R weapons' clocks; the fold no longer scales a Shift, so its
+   * ratio is 1.
    *
    * Fail-closed: an id the world's catalog cannot resolve is REFUSED outright
    * (8.14 review F1 — `pickRefusal` reads an id the catalog does not OWN as a
@@ -3574,16 +3918,31 @@ export class World {
     // THE TAKE (amendment 90), before anything else can throw: copy 1 of an
     // equipment line steps every OTHER captain's weight for it down.
     if (World.isTake(line, copiesBefore)) this.recordTake(ship.id, lineId as LineId);
+    // The heal-on-grant branch (HULL POINTS' `healOnGrant`) sat here until
+    // Story 10.3 deleted it (Eric 2026-11-04, epic-10 amendment 8); the hp
+    // clamp to the new maxHp lives in refoldCards.
     const prevStats = this.refoldCards(ship);
-    if (line?.healOnGrant === true && isAfloat(ship.lifecycle)) {
-      const delta = Math.max(0, ship.stats.maxHp - prevStats.maxHp);
-      ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);
-    }
-    // hp invariant: a maxHp-LOWERING fit may not leave hp above the cap.
-    ship.hp = Math.min(ship.hp, ship.stats.maxHp);
     if (line !== undefined) this.applyGrantSlots(ship, line, lineId);
+    this.settleRefold(ship, prevStats);
+  }
+
+  /**
+   * Everything that follows a stats re-fold once the slots are settled —
+   * shared by `applyCard` and the exhausted hull's `convertBank` (Story 10.7,
+   * R5), so a bonus point moves pools, clocks, mounts and the wake exactly as
+   * a card of the same index would. Via `convertBank` this can run INSIDE
+   * damage resolution (a kill's level) — see the re-entrancy note there
+   * (review gate P5): never hold a ship's `stats` / `wake` across a kill.
+   */
+  private settleRefold(ship: ShipRecord, prevStats: EffectiveStats): void {
     this.reconcilePools(ship, prevStats);
     this.rescaleReloadTimers(ship, prevStats);
+    // THE LAUNCHERS AND RACKS (Story 10.6, I3): resize to the folded counts —
+    // a new launcher, tube, rack or expanded seat arrives loaded — and rescale
+    // every running tube / rack clock by the held weapon's new ÷ old reload
+    // (a RELOAD card and the weapon's own tier card alike). Re-derives the
+    // torpedo / mine slot summaries, so it runs after the two pool passes.
+    refitMounts(ship, prevStats);
     // A speed card raises the true attainable top speed the wake ring was
     // provisioned for (Story 4.12) — upsize in place, live samples preserved.
     this.reprovisionWake(ship);
@@ -3602,37 +3961,38 @@ export class World {
    *     does not exist, so fitting it buys nothing — and the id would then ride
    *     in `cards`, where the client's replay and this world's own respawn
    *     replay would both try to derive a loadout from it.
-   *   • A LINE ALREADY AT ITS `cap`. The draw never offers a capped equipment,
-   *     ladder or add-on — but it DOES offer a capped consumable on purpose
-   *     (amendment 94), so without this a ship holding five HULL REPAIR could
-   *     spend a level on a sixth copy that no slot shows: the stack stays
-   *     at five and silently refills itself after the first use. (Story 8.7's
-   *     full-belt refusal is GONE since Story 9.2: every consumable kind owns
-   *     its own fixed slot — epic-9 amendment 21 — so a consumable always has
-   *     somewhere to go.)
-   *   • COPY 1 OF AN EQUIPMENT LINE WITH THE WEAPON ROW FULL. The draw closes
-   *     the `weapon` kind once Q/E/R are taken, but a dev `fitOverride` naming
-   *     four equipment lines, and the level-zero guarantee firing after one,
-   *     both reach `applyCard` directly — and a bare weapon in `cards` with no
-   *     slot is a take recorded for a weapon nobody carries whose tier cards
-   *     then become eligible.
+   *   • A LINE ALREADY AT ITS `cap`. The draw never offers one; a dev fit can
+   *     still name it.
+   *   • COPY 1 OF AN EQUIPMENT LINE WHOSE FAMILY SLOT HOLDS ANOTHER KIND (Story
+   *     10.5 — one kind per slot). The draw never offers it, but a dev
+   *     `fitOverride` reaches `applyCard` directly — and a bare weapon in
+   *     `cards` with no slot is a take recorded for a weapon nobody carries
+   *     whose tier cards then become eligible.
    */
   private refusesCard(ship: ShipRecord, lineId: string): boolean {
-    return pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog) !== null;
+    return this.cardRefusal(ship, lineId) !== null;
+  }
+
+  /** `refusesCard`'s reason (`pickRefusal`), or `null` when the pick is legal. */
+  private cardRefusal(ship: ShipRecord, lineId: string): PickRefusal | null {
+    return pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog);
   }
 
   /**
    * RE-DERIVE EVERYTHING THAT HANGS OFF `ship.cards`, and answer with the stats
-   * that were live before. The ONE place the held-card fold is re-run, shared
-   * by the two edits that move the card multiset: `applyCard` (a copy is
-   * pushed) and `spendStock` (a consumable copy is spent and leaves, Story 8.7
-   * ruling 4). Both need the same pair re-computed in the same order, and
-   * `prevStats` is what the pool/timer reconciliation compares against.
+   * that were live before. The ONE place the held-card fold is re-run (the
+   * only edit that moves the card multiset is `applyCard`'s push since the
+   * consumable spend left with Story 10.5) — and, since Story 10.7 (R5), the
+   * exhausted hull's bonus points beside them (`convertBank`); `prevStats` is
+   * what the pool/timer reconciliation compares against. Clamps hp to the
+   * new maxHp.
    */
   private refoldCards(ship: ShipRecord): EffectiveStats {
     ship.cardBehaviors = cardBehaviors(ship.cards, this.catalog);
     const prevStats = ship.stats;
-    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog, ship.indexBonus);
+    // hp invariant: a maxHp-LOWERING fold may not leave hp above the cap.
+    ship.hp = Math.min(ship.hp, ship.stats.maxHp);
     return prevStats;
   }
 
@@ -3641,14 +4001,7 @@ export class World {
    *  the ship holds AFTER the push, so `tiers[copy - 1]` is its step. The
    *  EQUIPMENT-registry gate is belt-and-braces beside the shared catalog's
    *  stub guard: an id with no built module can never be dispatched.
-   *
-   *  THE GATE IS `slotFill`-ONLY, DELIBERATELY (Story 8.7 ruling 3). A `stock`
-   *  effect reaches `applySlotEffect` WITHOUT a registry check: a consumable
-   *  stack is inert cargo — it holds copies and does nothing per tick — so it
-   *  is legal to carry a line whose ROW is not built yet, and the shared fold's
-   *  own `stub` gate is what decides whether a line may be stocked at all.
-   *  Firing one still fails closed: the sinking-activation gate resolves a belt
-   *  slot through `slotRow` and answers 'empty-slot' when no row exists. */
+ */
   private applyGrantSlots(ship: ShipRecord, line: CatalogLine, lineId: string): void {
     for (const effect of line.tiers[boonStackCount(ship.cards, lineId) - 1] ?? []) {
       if (effect.kind === 'slotFill' && !Object.hasOwn(EQUIPMENT, effect.equipmentId)) continue;
@@ -3667,12 +4020,9 @@ export class World {
   private reconcilePools(ship: ShipRecord, prevStats: EffectiveStats): void {
     for (const slot of ship.loadout) {
       const id = slot.equipmentId;
-      if (id === null || slot.state === null) continue;
-      // A BELT SLOT IS NOT A POOL (Story 8.7): a consumable stack's `n` is
-      // COPIES HELD, which only a card or a use may move — no stats row exists
-      // to read a cap off, and the narrowing guard is what keeps the read below
-      // honest instead of a cast.
-      if (isConsumableId(id)) continue;
+      // A torpedo / mine pool is a SUMMARY of the launchers / racks (Story
+      // 10.6) — refitMounts owns it, so it is never filled here.
+      if (id === null || slot.state === null || isMountBacked(id)) continue;
       const cap = equipmentMaxAmmo(ship.stats, id);
       if (cap > equipmentMaxAmmo(prevStats, id)) slot.state.n = cap;
       slot.state.n = Math.min(slot.state.n, cap);
@@ -3690,8 +4040,11 @@ export class World {
    * reconcilePools' business) and the scaled timer stays strictly positive, so
    * nothing becomes instantly available. The rule is GENERIC — it compares
    * prev-vs-new `equipmentReloadMs` per fitted slot, so a ratio of 1 (any boon
-   * that does not touch reloads) leaves every timer byte-identical, and a future
-   * per-weapon reload card gets the same treatment for free.
+   * that does not touch reloads) leaves every timer byte-identical, and a
+   * weapon's own tier card gets the same treatment for free. SINCE STORY 10.5
+   * (R10 / R11, epic-10 amendment 11) a RELOAD card rescales the turrets' and
+   * the Q / E / R weapons' running clocks; a Shift reads an unchanged reload
+   * (ratio 1, sim/stats.ts `RELOAD_UNSCALED_ROWS`) and keeps its countdown.
    *
    * ORDER — this runs AFTER reconcilePools deliberately. The two touch disjoint
    * fields (counts vs timer) and both read the same untouched `prevStats`, so
@@ -3708,18 +4061,33 @@ export class World {
   private rescaleReloadTimers(ship: ShipRecord, prevStats: EffectiveStats): void {
     for (const slot of ship.loadout) {
       const id = slot.equipmentId;
-      if (id === null || slot.state === null) continue;
-      // A STACK NEVER RELOADS (Story 8.7): `reloadMsLeft` is 0 for its whole
-      // life, so the `left <= 0` guard below would skip it anyway — the
-      // narrowing guard is what makes the equipmentReloadMs reads type-honest.
-      if (isConsumableId(id)) continue;
-      const left = slot.state.reloadMsLeft;
-      if (left <= 0) continue; // idle slot: nothing in flight
+      // Tube and rack clocks are rescaled per unit by refitMounts (Story 10.6).
+      if (id === null || slot.state === null || isMountBacked(id)) continue;
       const oldMs = equipmentReloadMs(prevStats, id);
       const newMs = equipmentReloadMs(ship.stats, id);
-      if (oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
+      if (!Number.isFinite(oldMs) || oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
+      if (id === 'mainBattery') {
+        World.rescaleTurretReloads(ship, slot, newMs / oldMs);
+        continue;
+      }
+      const left = slot.state.reloadMsLeft;
+      if (left <= 0) continue; // idle slot: nothing in flight
       slot.state.reloadMsLeft = left * (newMs / oldMs);
     }
+  }
+
+  /**
+   * THE MAIN BATTERY'S share of `rescaleReloadTimers` (Story 10.4 gate S1):
+   * slot 0's `{n, reloadMsLeft}` is DERIVED (`syncBatterySlot` overwrites it
+   * every tick), so the progress-fraction rule lands on EACH turret's own
+   * running clock; a loaded turret (0) has nothing in flight. The slot pair is
+   * then re-derived from the turrets.
+   */
+  private static rescaleTurretReloads(ship: ShipRecord, slot: LoadoutSlot, ratio: number): void {
+    for (const t of ship.turrets) {
+      if (t.reloadMsLeft > 0) t.reloadMsLeft *= ratio;
+    }
+    syncBatterySlot(ship, slot);
   }
 
   /**
@@ -3740,8 +4108,8 @@ export class World {
    *
    * THE ACCEPT SET IS THE OFFER PLUS ONE SENTINEL (Story 8.8, re-opened by
    * Story 8.10). The reserved `HEAL_CHOICE` (-1) that used to buy an instant
-   * heal is GONE end to end — healing is a CARD now (HULL REPAIR, stocked in a
-   * belt slot and fired from it). `MULLIGAN_CHOICE` (-2) is the ONE negative
+   * heal is GONE end to end — healing is the HULL REPAIR ability (`C`, Story
+   * 10.5). `MULLIGAN_CHOICE` (-2) is the ONE negative
    * the channel accepts again (amendment 60): the countdown redraw, which
    * spends no level. Every other negative, -1 included, is malformed and
    * refused by spendCard's own bound.
@@ -3776,7 +4144,9 @@ export class World {
    * first (drop the offer, decrement the bank), then settle the fit, and
    * materialize the NEXT offer LAST — so the next hand is drawn against the
    * build this pick just produced (its new copy counts, its now-fuller weapon
-   * row, and its own take already in the ledger).
+   * row, and its own take already in the ledger). If that pick was the hull's
+   * LAST eligible card, the next draw comes back empty and `materializeOffer`
+   * converts every level still queued into a bonus point (Story 10.7, R5).
    */
   private spendCard(ship: ShipRecord, choice: number): boolean {
     const front = ship.offer;
@@ -3790,11 +4160,6 @@ export class World {
     // disagree about whether a pick is legal — and because this returns here,
     // the level stays banked, nothing is fitted, no `bn` is queued and the next
     // frame's offer is the SAME array, byte for byte.
-    //
-    // THE CAP HALF matters because amendment 94 has the draw deal a
-    // consumable AT its cap on purpose — without it a sixth HULL REPAIR would
-    // cost a level, never reach its slot, and refill the stack from `cards`
-    // on the next use.
     const lineId = front[choice];
     if (pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog) !== null) return false;
     ship.offer = null;
@@ -3852,19 +4217,13 @@ export class World {
    */
   static readonly STEP_ORDER: readonly StepRow[] = Object.freeze(
     ([
-    // PvE fleet hulls write their inputs through the same store humans use, so
-    // they are picked up by applyInputs exactly like any client this tick. The
-    // ROW NAME is unchanged across the Story 5.6 rewrite (the order-identity
-    // pin is on names, and the name still describes what the row does).
-    { name: 'dronesTick', run: (w) => w.drones.tick() },
-    // Combat bots (Story 6.4) write their inputs through the very same store,
-    // for the very same reason: an AI input row must sit ahead of applyInputs
-    // in the SAME tick, or every bot steers on a 50ms-stale command. Beside
-    // dronesTick, immediately before applyInputs — the sanctioned position
-    // the spawnFleetWaves rationale below names; the two AI rows are order-
-    // independent of each other (disjoint hull sets, both write-only into the
-    // input store), but nothing may sit between this pair and applyInputs.
-    // World hands the controller its per-tick entries (own record + bound
+    // Combat bots (Story 6.4) write their inputs through the same store humans
+    // use, so they are picked up by applyInputs exactly like any client this
+    // tick: an AI input row must sit ahead of applyInputs in the SAME tick, or
+    // every bot steers on a 50ms-stale command. IMMEDIATELY before
+    // applyInputs — nothing may sit between this row and applyInputs (the
+    // retired PvE `dronesTick` row sat beside it under the same rule, Story
+    // 10.8). World hands the controller its per-tick entries (own record + bound
     // observe thunk per bot — see botEntries()); the controller holds no
     // World reference of its own.
     { name: 'botsTick', run: (w) => w.bots.tick(w.botEntries()) },
@@ -3911,31 +4270,43 @@ export class World {
     // COUNTERMEASURE cloud expiry (Story 9.3 — 8.18's `stepSmoke` seat,
     // kept DELIBERATELY: after founderSinking, after the motion block, BEFORE
     // applyStorm and everything after it). The row is an expiry sweep only —
-    // a cloud is MADE at the press (setCountermeasure, in activationControl)
+    // a cloud is MADE at the SMOKE press (makeCloud, in activationControl)
     // and never moves — so the seat matters for one thing: a cloud whose
     // `until` arrives this tick is gone before any later consumer this tick
     // (the AI rows next tick read the store through observe(); frames.ts's
     // buildFrame, outside STEP_ORDER, ships the survivors the same tick).
     { name: 'stepClouds', run: (w) => w.stepClouds() },
-    // THE FOG FIELD (Story 9.10) — weather beside weather, DIRECTLY after
-    // stepClouds: once per refreshMs the coverage controller re-cuts the
-    // field (live match only; no fog before the zone starts) and a new
-    // density-memo epoch begins. Before applyStorm and every later row;
-    // perception tolls its sight rays against this tick's cut through
-    // observe() (frames.ts's buildFrame, outside STEP_ORDER, the same tick).
+    // THE RAIN FIELD (Story 9.10; the storm eye since Story 11.6) — weather
+    // beside weather, DIRECTLY after stepClouds: once per refreshMs the rain
+    // frame is rebuilt at this clock — FROM THE FIRST TICK (Eric 2026-11-15:
+    // rain from the start line): the ring-0 state before the zone starts,
+    // the live ring center after — and a new density-memo epoch begins. Before applyStorm and every later row; perception gates its
+    // sight rays against this epoch's frame through observe() (frames.ts's
+    // buildFrame, outside STEP_ORDER, the same tick).
     { name: 'stepFog', run: (w) => w.stepFog() },
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
     { name: 'applyStorm', run: (w, ctx) => w.applyStorm(ctx.dt) },
+    // THE STORM TAKES THE AIRDROPS (Story 10.9, epic-10 amendment 18) —
+    // DIRECTLY after applyStorm and against THE SAME live ring: every crate
+    // the ring has closed over (`isOutside`, the hull test's own predicate)
+    // is deleted, so nothing later this tick can collect it and no frame
+    // ships it. Unlike the bite it runs before the first close and with
+    // damage off — a drop outside the ring is simply gone.
+    { name: 'stormDrops', run: (w) => w.stormDrops() },
     // Ballistics + mines both test against post-move hulls (built once):
     // ctx.hulls() materializes the tick's ONE snapshot here, on first access
     // (see stepContext()), and the two mine rows below reuse it as-is.
     { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hitTargets) },
     { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hitTargets) },
-    // (The RADAR BUOY's `tickBuoys` row was REMOVED in Story 8.16 with the
-    // buoy — the DECOY BUOY that took the `decoy` kind has no tick: no
-    // lifetime, no sweep, no gun, no wake. Amendment 124(e).)
+    // AIRDROP COLLECTION (Story 10.9, epic-10 amendment 18, R4) — DIRECTLY
+    // after stepMines: against the tick's post-move, post-storm AFLOAT hull
+    // outlines (the `hull` list of the hitTargets memo — rebuilt after any
+    // sink this tick, so a hull the shells or a mine just sank collects
+    // nothing). The first afloat participant (ship insertion order) whose
+    // silhouette touches a crate takes it: index points, re-fold, `dp`.
+    { name: 'collectDrops', run: (w, ctx) => w.collectDrops(ctx.hitTargets) },
     // PHOSPHOR burning-zone DoT (Story 2.8's seat, Story 8.17's source):
     // against post-move centers, BEFORE the expiry sweep so a zone burns
     // through its final tick. (The dazzle mark left this row with the verb in
@@ -3950,15 +4321,16 @@ export class World {
     // downstream in this tick reads `fouledUntil` except frames, which ship
     // the fresh stamp to the victim the same tick.
     { name: 'applyFoulZones', run: (w) => w.applyFoulZones() },
-    // DAMAGE CONTROL regen (Eric rulings 2026-08-04) — DELIBERATE step-order
+    // DAMAGE CONTROL (Eric rulings 2026-08-04; the HULL REPAIR pool and,
+    // since Story 10.5 / R8, the passive regen) — DELIBERATE step-order
     // position: dead LAST among the hp movers, after EVERY damage source this
     // tick (storm, ballistics, mine blasts, the incendiary DoT) has already
     // bitten and any lethal bite has already routed through sinkShip. Two
     // things follow, both intended. (1) The afloat gate reads POST-DAMAGE truth
     // — a hull the storm sank this very tick is already `sunk` with its
-    // pool zeroed, so a regen pool can never un-sink a hull at 0 hp; damage
+    // pool zeroed, so a repair pool can never un-sink a hull at 0 hp; damage
     // wins the tie by construction, with no explicit tie-break code. (2) The
-    // storm overlap nets exactly (regen rate − stormDps) per tick, because both
+    // storm overlap nets exactly (heal rate − stormDps) per tick, because both
     // integrate the same dt against the same float hp in a fixed order. It sits
     // BEFORE processRespawns for the same reason tickXp sits after: a respawn
     // restores full hp and zeroes the pool, so anything paid to a wreck here
@@ -3967,7 +4339,7 @@ export class World {
     { name: 'tickRepairs', run: (w, ctx) => w.tickRepairs(ctx.dtMs) },
     // WOUNDED SMOKE (Story 4.4) — DELIBERATE step-order position: directly
     // after the LAST hp mover (tickRepairs), so every damage source AND the
-    // regen drain have already resolved. A hull that crossed a band this tick
+    // repair / regen heal have already resolved. A hull that crossed a band this tick
     // smokes at its post-resolution hp, and one healed above the band goes
     // silent the same tick it recovered.
     { name: 'tickSmoke', run: (w) => w.tickSmoke() },
@@ -3983,6 +4355,28 @@ export class World {
     // Foul zones (Story 9.4): the same natural-expiry sweep, beside the burn
     // zones' and AFTER applyFoulZones (the stamp lands through the final tick).
     { name: 'expireFoulZones', run: (w) => w.expireFoulZones() },
+    // THE TURRET STEP (Story 10.4, contract §4; no traverse since Story 11.1,
+    // R16) — DELIBERATE seat, directly BEFORE fireControl: every captain
+    // hull's turret reloads count down and its turret angles are set to the
+    // DERIVED angle for the latest input's aim point (the shared
+    // `stepTurrets`, the very call the client predicts with). AFTER the
+    // motion block (stepShips / resolveCollisions) so the angles read the
+    // tick's RESOLVED pose, and after founderSinking so a hull that left the
+    // water this tick already keeps its angles. BEFORE fireControl so a
+    // turret that finishes its reload THIS tick may fire this tick (a turret
+    // fired at tick T is ready again at exactly T + reloadMs / dt), and so the
+    // mainBattery row's per-tick hotbar sync reads the stepped reloads.
+    { name: 'stepTurrets', run: (w, ctx) => w.stepTurrets(ctx.dtMs) },
+    // THE LAUNCHER STEP (Story 10.6, Eric 2026-11-05, R6 / R13; no traverse
+    // since Story 11.1, R16) — the turret step's twin, seated directly beside
+    // it and for the same reasons: every torpedo launcher's tube clocks count
+    // down and its angle is set to the DERIVED angle for the SAME
+    // latest-input aim (the shared `stepLaunchers` over `launcherAimPoint`,
+    // the very calls the client predicts with); a sinking / dead hull keeps
+    // its angles. BEFORE fireControl so a tube that finishes reloading this
+    // tick may fire this tick, and the torpedo row's hotbar sync reads the
+    // stepped tubes.
+    { name: 'stepLaunchers', run: (w, ctx) => w.stepLaunchers(ctx.dtMs) },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // THE HELD-FIRE STREAM (Story 8.15): the machine gun's level channel,
     // resolved right after the click channel — the reloads have ticked (a
@@ -3990,9 +4384,17 @@ export class World {
     // stream row was already skipped by consumeClick, so the two channels
     // can never double-fire the first shell.
     { name: 'streamControl', run: (w) => w.streamControl() },
+    // THE SECONDARIES (Story 10.4, R3, contract §4 step 5) — the second LEVEL
+    // channel, DIRECTLY after streamControl: same tick-position rationale (the
+    // post-move pose, after the click channel, before the ability channel),
+    // and it reads the same LATEST input through the same refusal gate. The
+    // shared heat stepper runs every tick for every captain hull — draining
+    // while not firing — and the rounds it returns spawn here.
+    { name: 'secondariesControl', run: (w, ctx) => w.secondariesControl(ctx.dtMs) },
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
-    // into activations through the single sinking gate.
+    // into activations through the single sinking gate. Since Story 10.5 the
+    // press names its ability (`InputMsg.act`): the Shift, HULL REPAIR or SMOKE.
     { name: 'activationControl', run: (w) => w.activationControl() },
     // Foghorn (Story 4.5): the hornSeq sibling, resolved in the same
     // step-order position — post-move, so a honk sounds at the ship's TRUE
@@ -4011,25 +4413,36 @@ export class World {
     // than trailing into the next one. Nothing downstream in the step reads XP,
     // so no other system's behavior can depend on where it sits.
     { name: 'tickXp', run: (w, ctx) => w.tickXp(ctx.dtMs) },
-    // PvE FLEET WAVES (Story 5.6, amendment 37) — DELIBERATE step-order
-    // position: dead LAST, after every row that touches a hull.
-    //
-    // The obvious slot is before `dronesTick`, so a hull spawning this tick
-    // gets its first input the same tick. It is the WRONG slot, twice over.
-    // First, the AI input rows' position is pinned and load-bearing — the
-    // dronesTick/botsTick pair must sit IMMEDIATELY before applyInputs, and
-    // inserting ahead of them is the one change the ordering rationale
-    // forbids. Second, every row between spawn
-    // and the tick's end would then see a hull that has not moved, has no
-    // wake sample and has never been collision-resolved; the storm row in
-    // particular would bite a hull placed one row earlier. Spawning last
-    // costs the fleet exactly one tick (50ms) of idling and buys a hull that
-    // enters the world at a clean tick boundary.
-    //
-    // It still publishes on THIS tick's frame: the event swap is the EPILOGUE
-    // (outside STEP_ORDER), so the `spawn` events queued here ride out
-    // immediately.
-    { name: 'spawnFleetWaves', run: (w) => w.spawnFleetWaves() },
+    // RADIO BEACON PAYOUT (Story 10.8, R3 / R4) — DELIBERATE seat, directly
+    // after tickXp and for tickXp's own reasons: after respawns (the afloat
+    // gate reads post-respawn truth), after every damage row (a hull sunk
+    // this tick is not paid; a beacon destroyed this tick already carries its
+    // early sink time) and before the event swap, so a level a beacon banks
+    // publishes its `pt` on THIS tick's frame. It pays through the same XP
+    // door (`addXpMs`); nothing downstream in the step reads XP.
+    { name: 'tickBeacons', run: (w, ctx) => w.tickBeacons(ctx.dtMs) },
+    // RADIO BEACON PLACEMENT (Story 10.8, R2 / R10) — DELIBERATE step-order
+    // position: LAST but for the airdrop scatter (which must read this set —
+    // Story 10.9), after every row that touches a hull, and
+    // zone-clock driven: when the clock enters a new ring cycle the set is
+    // REPLACED. Last, so the placement reads every hull's settled end-of-tick
+    // position (the captain keep-out discs) and a beacon
+    // enters the world at a clean tick boundary — nothing this tick could
+    // have paid, hit or rammed it. (The retired PvE wave spawner held this
+    // seat for the same reason: a body placed mid-tick would be seen by the
+    // later rows unmoved, unwaked and never collision-resolved.) The room
+    // mirrors the new chart onto the schema right after the step.
+    { name: 'placeBeacons', run: (w) => w.placeBeacons() },
+    // AIRDROP SCATTER (Story 10.9, epic-10 amendment 18, R1) — DEAD LAST,
+    // DIRECTLY AFTER placeBeacons (not before it): ring cycles begin on
+    // minute marks, so on a cycle's first tick the new set must already be
+    // charted for the HARD KEEP-OUT to read it — scattered first, a batch
+    // would test against the outgoing set and could land inside a new
+    // beacon's circle. Zone-clock driven: every match minute not yet
+    // scattered (a long step catches up in order) places its batch inside
+    // the live ring, clear of land and of every non-gone beacon. A crate
+    // placed last enters the world at a clean tick boundary.
+    { name: 'spawnDrops', run: (w) => w.spawnDrops() },
     // Each ROW is frozen too, not just the container (review finding F2b):
     // Object.freeze on the array alone leaves `STEP_ORDER[i].run` writable, so
     // a shallow freeze would let a row be swapped out from under the identity
@@ -4058,7 +4471,7 @@ export class World {
     const ctx = this.stepContext(dtMs);
     // THE REVEAL HOOK (Story 9.13 fix wave P8): the zone state is a function
     // of the clock just advanced, so the tick a next ring is revealed is this
-    // one — its flow field is built HERE, before dronesTick / botsTick, not
+    // one — its flow field is built HERE, before botsTick, not
     // inside whichever bot's situation asks first. A cache warm-up with no sim
     // effect (the lazy NavCache.fieldFor path stays the fallback), so it is
     // not a STEP_ORDER row.
@@ -4140,10 +4553,6 @@ export class World {
    *              against, so NO mine can stop, slow or report a shell passing
    *              overhead (amendment 20) — and never as a burst victim (shared
    *              burstVictims skips the kind).
-   *   decoy    — every live DECOY BUOY's frozen square (Story 8.16), carrying
-   *              its `ownerId` so the shared sweep/acquire/burst math skips
-   *              the OWNER's own decoy (amendment 119). A decoy is not a ship
-   *              and never enters the damage gate (damageDecoy).
    *   ordnance — every LIVE TORPEDO as a POINT (Story 8.15, amendment 105 —
    *              a SIDE EFFECT of the flak gun's mask, which is the only mask
    *              naming it). BURST-ONLY like `mine`: the World strips it off
@@ -4151,19 +4560,25 @@ export class World {
    *              a burst covering one REMOVES it (resolveBurst — no boom, no
    *              damage, no `hc`), and the owner's OWN fish are never victims
    *              (excluded at the burst, where the shooter is known).
+   *   beacon   — every RADIO BEACON that is HITTABLE right now (Story 10.8,
+   *              R6 / R8: afloat only — never charted, never once its sink has
+   *              started), as the shared octagon body. NOT burst-only: a
+   *              sweep stops on it like a hull, a burst covering it damages
+   *              it, a homing fish may lock it (R12). Named by every weapon
+   *              row's mask except the mine TRIP rows.
    */
   hitTargets(mask: readonly TargetKind[]): readonly Target[] {
     const key = [...mask].sort().join('|');
     const memo = this.tickTargets.get(key);
     if (memo !== undefined && memo.gen === this.targetsGen) return memo.list;
     const list: Target[] = [];
-    // ORDER IS PARITY: hulls first, then mines, then decoys. Hull-before-decoy
-    // is exactly the old `aliveHulls()` + appended decoys order, which burst
+    // ORDER IS PARITY: hulls first, then mines, then ordnance — which burst
     // victim resolution and homing tie-breaks both read.
     if (mask.includes('hull')) this.collectHulls(list);
     if (mask.includes('mine')) this.collectMines(list);
-    if (mask.includes('decoy')) this.collectDecoys(list);
     if (mask.includes('ordnance')) this.collectOrdnance(list);
+    // ...and beacons LAST, so the three older kinds keep their relative order.
+    if (mask.includes('beacon')) this.beacons.collectTargets(this.now, list);
     this.tickTargets.set(key, { gen: this.targetsGen, list });
     return list;
   }
@@ -4175,7 +4590,9 @@ export class World {
       if (!isAfloat(ship.lifecycle)) continue;
       const st = ship.state;
       transformPolygon(hullSilhouette(ship.hullId), st.x, st.y, st.heading, ship.hullPoly);
-      out.push({ id: ship.id, kind: 'hull', poly: ship.hullPoly });
+      // ACOUSTIC LOUDNESS (experiment, Eric 2026-11-16): engine noise —
+      // ENGINES / 100 × the throttle opening (reverse is as loud as ahead).
+      out.push({ id: ship.id, kind: 'hull', poly: ship.hullPoly, loud: (ship.stats.engines / 100) * Math.abs(ship.input.throttle) });
     }
   }
 
@@ -4190,12 +4607,6 @@ export class World {
     for (const mine of this.mines.values()) {
       out.push({ id: mine.id, kind: 'mine', poly: [{ x: mine.x, y: mine.y }] });
     }
-  }
-
-  /** The DECOY kind: every live DECOY BUOY's frozen square, in drop order,
-   *  WITH its owner id (Story 8.16 — the own-decoy skip, amendment 119). */
-  private collectDecoys(out: Target[]): void {
-    for (const decoy of this.decoys.values()) out.push(decoyTarget(decoy));
   }
 
   /** Every live TORPEDO as a POINT target (Story 8.15, amendment 105) — the
@@ -4228,121 +4639,344 @@ export class World {
   /**
    * Every live COUNTERMEASURE cloud as a read-only array (Story 9.3). THE
    * reader: perception (once per observer context — `SignalContextBase.clouds`,
-   * the `cloud` channel's subjects; a cloud occludes nothing since Story 9.3
-   * session 2). A fresh snapshot per call, so a caller can never mutate the
+   * the `cloud` channel's subjects; what a cloud hides is the sight gate's
+   * business — `fogSightAdmits`). A fresh snapshot per call, so a caller can never mutate the
    * store through it.
    */
   get cloudRecords(): readonly StoredCloud[] {
     return [...this.clouds.values()];
   }
 
-  /** The live COVERAGE CUT (Story 9.10) — `FOG_NO_CUT` = no fog. Mirrored
-   *  onto `ArenaState.fogCut` by the room; a number, never a position. */
-  get fogCut(): number {
-    return this.fogCutValue;
+  /** Is the rain frame live? True from construction on (rain from the start
+   *  line, Eric 2026-11-15); false only for a degenerate field or a test's
+   *  pinned clear frame. A boolean, never a position — the tick-cost probe's
+   *  end-state line. */
+  get fogLive(): boolean {
+    return this.fogFrame.on;
   }
 
-  /** The realized fogged share of the live ring over the last quantile
-   *  lattice (Story 9.10) — the `/metrics` and harness readout. A share,
-   *  never a position. 0 with no fog. */
-  get fogCoverageEstimate(): number {
-    return this.fogCoverageShare;
+  /** T — the optical depth at which a thing vanishes behind rain
+   *  (`fogMaxDepth(CONFIG.fog)`): every eye gate is `τ ≤ T`. */
+  get fogMaxDepth(): number {
+    return this.fogMaxDepthU;
   }
 
-  /** The clock the server's fog view is evaluated at (Story 9.10): the last
-   *  refresh's `now` — the field the toll reads is at most `refreshMs` old.
-   *  The perception oracle integrates the shared density at this clock. */
+  /** The clock the server's rain view is evaluated at: the last refresh's
+   *  `now` — the field the gate reads is at most `refreshMs` old. */
   get fogEpochT(): number {
     return this.fogEpochTValue;
   }
 
-  /** Memo cells evaluated since construction (Story 9.10 perf accounting). */
+  /** Memo cells evaluated since construction (perf accounting). */
   get fogCellEvals(): number {
     return this.fogCellEvalCount;
   }
 
   /**
-   * Fog density at (x, y) under the live cut at the epoch's clock, in [0, 1]
-   * (Story 9.10): the shared `fogDensityAt` over this world's field — the
-   * same view the toll walks. Public weather — read by the bots' sweep-miss
-   * rule (amendment 169), the own-bank decision of the toll (179), metrics
-   * and tests. 0 everywhere before the zone starts and beyond the ocean's rim.
+   * Rain density at (x, y) on the current epoch's frame, in [0, 1]: the
+   * shared `fogDensityAt` — the exact field the gate's memo samples. Public
+   * weather — read by the bots' cover search, the harness readouts and
+   * tests. 0 beyond the ocean's rim.
    */
   fogDensityAt(x: number, y: number): number {
-    return fieldDensityAt(this.fogField, x, y, this.fogEpochTValue, this.fogCutValue);
+    return fieldDensityAt(this.fogFrame, x, y);
   }
 
   /**
-   * THE FOG TOLL on the ray A → B, A THE OBSERVER (Story 9.10, amendments
-   * 164 and 179): the extra sight distance the ray pays crossing fog — Σ over
-   * the memo cells the segment crosses of `density(cell) × length inside the
-   * cell`, times `sightCostPerU` (see `fogMemo`) — LESS THE OBSERVER'S OWN
-   * BANK: when the shared density at A itself is solid (≥ FOG_SOLID_DENSITY,
-   * one exact evaluation, memoized per observer position and epoch because
-   * observe() tolls every ray of one observer in a row), the leading run of
-   * solid cells pays nothing; the run ends at the first thinner cell and
-   * never restarts (Eric 2026-10-16: "if you are in it, you should be able
-   * to see out of it normally … like grass patches in League" — clear water
-   * between you and a second bank makes that bank pay). Directional: the
-   * reverse ray may cost more or less. THE one entry of the fog cost into
-   * perception: signals.ts `withinSight` adds it to the ray's length through
-   * the `SightField.fogToll` thunk the contexts and the drones bind to this
-   * method. 0 with no fog (no walk). The segment is CLIPPED to the lattice
-   * square first (fog beyond the ocean's rim + margin is irrelevant — and
-   * since amendment 179 the shared density is 0 past the rim anyway); a ray
-   * wholly outside pays 0.
+   * THE OPTICAL DEPTH τ of the rain on the ray A → B on the current epoch's
+   * frame: Σ over the memo cells the segment crosses of `density(cell) ×
+   * length inside the cell` (see `fogMemo`), the WHOLE walk — the reference
+   * the bounded gate below is held equal to (`fogGate.test.ts`). No own-bank
+   * exemption: the rain A stands in counts. 0 with no rain (no walk). The
+   * segment is CLIPPED to the lattice square first (the shared density is 0
+   * past the rim); a ray wholly outside reads 0. Production's gates call
+   * `fogSightAdmits`, never this.
    */
-  fogTollAlong(ax: number, ay: number, bx: number, by: number): number {
-    if (this.fogCutValue >= FOG_NO_CUT) return 0;
+  fogDepthAlong(ax: number, ay: number, bx: number, by: number): number {
+    if (!this.fogFrame.on || !this.fogSpan(ax, ay, bx, by)) return 0;
+    this.fogWalkCount += 1;
+    const span = FOG_SPAN;
+    return this.fogWalk(span.sx, span.sy, span.dx, span.dy, FOG_NO_BOUNDS);
+  }
+
+  /**
+   * THE OPTICAL DEPTH τ of the SMOKE on the ray A → B right now: the shared
+   * `smokeDepthAlong` over the disc at its current radius of every live
+   * cloud in `held` (an observer's `ShipRecord.heldClouds`; omitted, every
+   * live cloud — `smokeDiscs`) with `CONFIG.countermeasure`'s sight dials — in the rain's
+   * own units, so the two add. No observer exemption (a cloud A stands in
+   * counts from A to its rim, the owner's included). 0 with no cloud. The
+   * sight gate's smoke term, exposed as the reference the gate is held to
+   * (`fogGate.test.ts`); never a radar input.
+   */
+  smokeDepthAlong(ax: number, ay: number, bx: number, by: number, held?: ReadonlySet<string>): number {
+    if (this.smokeRefresh(held) === 0) return 0;
+    return smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, this.smokeSight);
+  }
+
+  /** Bring `smokeSight` up to CONFIG; true when a dial moved. */
+  private smokeDialsMoved(): boolean {
+    const { sightThickness, sightSoftFrac } = CONFIG.countermeasure;
+    const dials = this.smokeSight;
+    if (dials.thickness === sightThickness && dials.softFrac === sightSoftFrac) return false;
+    dials.thickness = sightThickness;
+    dials.softFrac = sightSoftFrac;
+    return true;
+  }
+
+  /**
+   * Bring `smokeDiscs` up to this instant FOR THIS QUESTION'S OBSERVER (see
+   * there); returns how many clouds it reads. `held` is the asking observer's
+   * `ShipRecord.heldClouds` — only those clouds are charged (Story 11.6
+   * review: a cloud the client was never sent hides nothing from it);
+   * omitted, every live cloud is (the observer-less reference the gate tests
+   * and probes ask). With no cloud to read — and none last time — it is a
+   * size read or two.
+   */
+  private smokeRefresh(held?: ReadonlySet<string>): number {
+    const discs = this.smokeDiscs;
+    if ((this.clouds.size === 0 || held?.size === 0) && discs.length === 0) return 0;
+    const moved = this.smokeDialsMoved();
+    const rewritten = this.smokeDiscsWrite(held);
+    if (moved || rewritten) this.smokeEpoch += 1;
+    return discs.length;
+  }
+
+  /** Rewrite `smokeDiscs` in place as the live clouds in `held` (every live
+   *  cloud when omitted) at their radii now; true when the set changed. */
+  private smokeDiscsWrite(held: ReadonlySet<string> | undefined): boolean {
+    const discs = this.smokeDiscs;
+    let changed = false;
+    let n = 0;
+    for (const c of this.clouds.values()) {
+      if (held !== undefined && !held.has(c.id)) continue;
+      if (smokeDiscSet(discs, n, c, cloudOutlineRadius(this.now - c.bornAt, c))) changed = true;
+      n += 1;
+    }
+    if (discs.length !== n) changed = true;
+    discs.length = n;
+    return changed;
+  }
+
+  /**
+   * THE EYE'S QUESTION, ANSWERED WITHOUT THE WHOLE WALK WHEN THE ANSWER IS
+   * ALREADY DECIDED: does the eye at A see the point B through the rain AND
+   * THE SMOKE — exactly `fogDepthAlong(ray) <= T − smokeDepthAlong(ray)`
+   * (total optical depth τ_rain + τ_smoke against the one threshold T; Story
+   * 11.6 scope add, Eric 2026-11-14). THE one entry of the weather into
+   * perception for a POINT (signals.ts `eyeHolds`, through the context's
+   * `fogAdmits` thunk); a hull asks `fogHullAdmits`; the cloud row's own
+   * sight arm asks `fogRainAdmits` (smoke never hides smoke). The caller has
+   * already established its range cap and island line of sight. `held` is
+   * the asking observer's `ShipRecord.heldClouds` — THE SMOKE IS ONLY THE
+   * CLOUDS THAT OBSERVER HOLDS (Story 11.6 review; see `smokeRefresh`);
+   * omitted, every live cloud (the observer-less reference).
+   *
+   * THE SMOKE TERM COMES FIRST — it is analytic (a chord per live cloud, the
+   * shared `smokeDepthAlong`) — and the rain walk then runs against the
+   * budget it leaves, `T − τ_smoke`. A ray that touches no cloud has
+   * τ_smoke = 0 exactly, so its budget is T and its walk is the rain-only
+   * walk, step for step; with no cloud alive the smoke term is not computed
+   * at all.
+   *
+   * The rain's τ is a sum of non-negative terms over one cell walk, so two
+   * bounds decide early and EXACTLY:
+   *   - a density is at most 1, so τ is at most the ray's length on the
+   *     lattice: a ray no longer than the budget (less FOG_DECIDE_SLACK,
+   *     which swallows the walk's float dust many times over) is seen with no
+   *     walk at all, and the same bound over the cells still ahead ends a
+   *     walk the moment the rest cannot matter;
+   *   - the running sum never decreases, so the moment it is past the budget
+   *     the answer is "no" (checked with the final comparison's own
+   *     expression, so it cannot disagree with it).
+   * A walk that neither bound ends runs to the end and takes the reference
+   * comparison. Never an approximation.
+   */
+  fogSightAdmits(ax: number, ay: number, bx: number, by: number, held?: ReadonlySet<string>): boolean {
+    const smoky = this.smokeRefresh(held) > 0;
+    if (!smoky && !this.fogFrame.on) return true;
+    const memo = this.fogGateMemo;
+    if (this.memoCurrent(memo) && memo.ax === ax && memo.ay === ay && memo.bx === bx && memo.by === by) return memo.seen;
+    const seen = this.fogSightWalked(ax, ay, bx, by, smoky);
+    memo.ax = ax;
+    memo.ay = ay;
+    memo.bx = bx;
+    memo.by = by;
+    memo.epoch = this.fogEpoch;
+    memo.smoke = this.smokeEpoch;
+    memo.seen = seen;
+    return seen;
+  }
+
+  /** Was a one-entry gate memo written under the current rain epoch AND the
+   *  current smoke set? (A live cloud grows every tick, so the smoke epoch
+   *  moves with it.) */
+  private memoCurrent(memo: { epoch: number; smoke: number }): boolean {
+    return memo.epoch === this.fogEpoch && memo.smoke === this.smokeEpoch;
+  }
+
+  /**
+   * THE RAIN ALONE: does the eye at A see the point B through the rain,
+   * whatever smoke lies on the line — exactly `fogDepthAlong(ray) <= T`.
+   * Read by ONE row: the `cloud` channel's sight arm (signals.ts
+   * `discSighted` — Story 11.6: a cloud's own visibility is never occluded
+   * by smoke; you can always see a smoke cloud you would otherwise see). No
+   * memo (a handful of rays per observer).
+   */
+  fogRainAdmits(ax: number, ay: number, bx: number, by: number): boolean {
+    if (!this.fogFrame.on) return true;
+    return this.fogSightWalked(ax, ay, bx, by, false);
+  }
+
+  /**
+   * THE EYE'S QUESTION FOR A HULL (Story 11.6 — "you see the parts of a
+   * ship the rain lets through"; the DISTANCE HAZE since Eric 2026-11-15):
+   * does the eye at A see ANY point of the hull's sight grid — the shared
+   * `fogHullGrid`, `CONFIG.fog.hullGridCols × hullGridRows` cell centers of
+   * the hull's TRUE `lengthU × beamU` rectangle at its true pose — through
+   * the HAZE, the smoke and the rain: for at least one point P,
+   *
+   *     fogDepthAlong(A → P) <= (T − haze(P)) − smokeDepthAlong(A → P)
+   *
+   * with haze(P) = the shared `fogHazeDepth(|A → P|, sightU, hullSightU, T)`
+   * — 0 out to the observer's class-and-name sight, rising linearly to T at
+   * its hull sight (both reaches the observer's own, whiteout-scaled). The
+   * haze is spent off the budget FIRST (it is one subtraction), then the
+   * smoke, then the rain walks against what is left — the point gate's own
+   * machinery (`fogSightWalked`). Asked middle columns first
+   * (`hullGridOrder`), the first passing point wins. The caller has already
+   * established the range cap (the hull sight) and island line of sight on
+   * the hull's center. The haze alone never hides a point (it is at most T),
+   * so with no rain and no cloud: true, no work.
+   */
+  fogHullAdmits(q: FogHullQuestion, held?: ReadonlySet<string>): boolean {
+    const smoky = this.smokeRefresh(held) > 0;
+    if (!smoky && !this.fogFrame.on) return true;
+    const pts = this.fogHullPts;
+    const T = this.fogMaxDepthU;
+    const n = fogHullGrid(q.cx, q.cy, q.heading, q.lengthU, q.beamU, this.fogHullCols, this.fogHullRows, pts);
+    for (const k of this.fogHullOrder) {
+      if (k >= n) continue;
+      const px = pts[2 * k];
+      const py = pts[2 * k + 1];
+      const dx = px - q.ax;
+      const dy = py - q.ay;
+      const haze = fogHazeDepth(Math.sqrt(dx * dx + dy * dy), q.sightU, q.hullSightU, T);
+      if (this.fogSightWalked(q.ax, q.ay, px, py, smoky, haze)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The CURRENT island index (see `islandIdx`): validated against
+   * `map.islands` on every read — one identity pass over the list — so a
+   * caller takes it ONCE per pass (one observe(), one shell step) and hands
+   * it to that pass's queries.
+   */
+  get islandIndex(): IslandIndex {
+    const cur = islandIndexFor(this.islandIdx, this.map.islands);
+    if (cur !== this.islandIdx && this.islandIdx !== undefined) this.losTestsRetired += this.islandIdx.narrowTests;
+    this.islandIdx = cur;
+    return cur;
+  }
+
+  /** Island narrow-phase tests since construction — how many islands a
+   *  segment query took past the bounding circle to the core / coastline
+   *  test (work accounting for the perception guard test and the tick-cost
+   *  probe; never a gameplay input). */
+  get losTests(): number {
+    return this.losTestsRetired + (this.islandIdx?.narrowTests ?? 0);
+  }
+
+  /** The side of the density memo lattice in u (cells × cell size) — its
+   *  extent accounting (Story 11.2 review gate, F2: the lattice is the
+   *  ocean's bounding square plus one cell a side, never a sight reach). */
+  get fogMemoSpanU(): number {
+    return this.fogMemo.side * this.fogMemo.cell;
+  }
+
+  /** Lattice walks since construction — the gate's accounting: a ray
+   *  re-asked in the same epoch walks nothing, and neither does a ray the
+   *  length bound decides. */
+  get fogWalks(): number {
+    return this.fogWalkCount;
+  }
+
+  /** The clipped lattice span of the ray A → B as `FOG_SPAN` (start point and
+   *  delta), or false when the ray is degenerate or misses the lattice — then
+   *  it crosses no rain. Shared by the reference depth and the gate, so both
+   *  walk the very same segment. */
+  private fogSpan(ax: number, ay: number, bx: number, by: number): boolean {
     const dx = bx - ax;
     const dy = by - ay;
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (!(len > 0) || !Number.isFinite(len) || !Number.isFinite(ax) || !Number.isFinite(ay)) return 0;
+    if (!(len > 0) || !Number.isFinite(len) || !Number.isFinite(ax) || !Number.isFinite(ay)) return false;
     const m = this.fogMemo;
     const extent = m.cell * m.side;
-    const t = { t0: 0, t1: 1 };
-    if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return 0;
-    const ownBank = this.fogObserverInSolidFog(ax, ay);
-    return this.fogWalk(ax + dx * t.t0, ay + dy * t.t0, dx * (t.t1 - t.t0), dy * (t.t1 - t.t0), ownBank) * CONFIG.fog.sightCostPerU;
+    const t = FOG_CLIP;
+    t.t0 = 0;
+    t.t1 = 1;
+    if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return false;
+    const span = FOG_SPAN;
+    span.sx = ax + dx * t.t0;
+    span.sy = ay + dy * t.t0;
+    span.dx = dx * (t.t1 - t.t0);
+    span.dy = dy * (t.t1 - t.t0);
+    return true;
   }
 
-  /** Does the observer at (x, y) stand in solid fog (the exact shared density
-   *  at that point, not a memo cell — so the own-bank decision is the same on
-   *  the reference march and the invariant oracle)? One-entry memo keyed on
-   *  the position and the epoch: observe() asks for every ray of one observer
-   *  in a row, so there the second and later rays cost nothing here; the
-   *  drones' witness pass alternates observers and mostly misses — one
-   *  shared density evaluation (≈ 0.3 µs) per miss, within the perf pin. */
-  private fogObserverInSolidFog(x: number, y: number): boolean {
-    const o = this.fogObserverMemo;
-    if (o.x !== x || o.y !== y || o.epoch !== this.fogEpoch) {
-      o.x = x;
-      o.y = y;
-      o.epoch = this.fogEpoch;
-      o.solid = this.fogDensityAt(x, y) >= FOG_SOLID_DENSITY;
+  /** `fogSightAdmits`, computed (no memo — the point gate holds its own).
+   *  `smoky`: add the live clouds' depth (the caller refreshed `smokeDiscs`);
+   *  false reads the rain alone. `haze`: optical depth already spent on this
+   *  ray (the hull gate's distance haze; 0 for a point). */
+  private fogSightWalked(ax: number, ay: number, bx: number, by: number, smoky: boolean, haze = 0): boolean {
+    // THE BUDGET the rain may spend: T less the haze, less the smoke on the
+    // ray. Exactly T for a point whose ray touches no cloud (haze is 0 and
+    // τ_smoke is exactly 0 then).
+    let T = this.fogMaxDepthU - haze;
+    if (smoky) {
+      const smoke = smokeDepthAlong(this.smokeDiscs, ax, ay, bx, by, this.smokeSight);
+      if (smoke > T) return false; // the smoke alone hides it
+      T -= smoke;
     }
-    return o.solid;
+    if (!this.fogFrame.on || !this.fogSpan(ax, ay, bx, by)) return true; // no rain on the ray
+    const span = FOG_SPAN;
+    const len = Math.sqrt(span.dx * span.dx + span.dy * span.dy);
+    // In the walk's own units (Σ density × fraction of the span, at most 1)
+    // the gate reads `sum × len <= T`: `room` is the sum the gate can absorb,
+    // less the slack.
+    const room = (T - FOG_DECIDE_SLACK) / len;
+    if (room >= 1) return true; // seen whatever the rain: no walk
+    this.fogWalkCount += 1;
+    const bounds = FOG_BOUNDS;
+    bounds.acceptBelow = room;
+    bounds.maxDepth = T;
+    bounds.verdict = 0;
+    const tau = this.fogWalk(span.sx, span.sy, span.dx, span.dy, bounds);
+    if (bounds.verdict !== 0) return bounds.verdict > 0;
+    return tau <= T;
   }
 
   /** The DDA over the memo from (sx, sy) along (dx, dy) (already clipped to
-   *  the lattice): Σ density × length inside each visited cell — skipping the
-   *  observer's own bank when `ownBank`: the leading run of solid cells
-   *  (density ≥ FOG_SOLID_DENSITY) is free, and the first thinner cell ends
-   *  the run for good (amendment 179). */
-  private fogWalk(sx: number, sy: number, dx: number, dy: number, ownBank: boolean): number {
+   *  the lattice): Σ density × length inside each visited cell = τ. `bounds`
+   *  is the sight gate's early exit (`fogSightWalked`): when it sets
+   *  `bounds.verdict` the walk stopped early and the returned sum is partial;
+   *  the reference depth passes FOG_NO_BOUNDS, which never fires, so depth
+   *  and gate read the very same sum. */
+  private fogWalk(sx: number, sy: number, dx: number, dy: number, bounds: FogBounds): number {
     const m = this.fogMemo;
     const len = Math.sqrt(dx * dx + dy * dy);
     let i = memoIndex(m.ox, m.cell, m.side, sx);
     let j = memoIndex(m.oy, m.cell, m.side, sy);
-    const X = ddaAxis(m.ox, m.cell, i, sx, dx);
-    const Y = ddaAxis(m.oy, m.cell, j, sy, dy);
+    const X = ddaAxis(m.ox, m.cell, i, sx, dx, FOG_DDA_X);
+    const Y = ddaAxis(m.oy, m.cell, j, sy, dy, FOG_DDA_Y);
     let sum = 0;
     let tCur = 0;
-    const run = { free: ownBank, first: true };
     for (let n = 2 * m.side + 2; n > 0; n--) {
       const tNext = Math.min(X.tMax, Y.tMax, 1);
-      if (tNext > tCur) sum += this.fogPayCell(i, j, run) * (tNext - tCur);
+      if (tNext > tCur) sum += this.fogCellDensity(i, j) * (tNext - tCur);
       if (tNext >= 1) break;
+      if (fogDecided(bounds, sum, tNext, len)) break;
       tCur = tNext;
       if (X.tMax < Y.tMax) {
         X.tMax += X.tDelta;
@@ -4356,97 +4990,88 @@ export class World {
     return sum * len;
   }
 
-  /** The density cell (i, j) CHARGES the walk: 0 while the observer's own
-   *  bank runs (`run.free` and the cell is solid — or it is the observer's
-   *  OWN cell, `run.first`: they stand in solid fog by the exact evaluation,
-   *  and a cell centre up to 7 u away, possibly behind them, must not end the
-   *  run before it starts); the first thinner cell after that ends the run
-   *  for good and every cell from there pays its density. */
-  private fogPayCell(i: number, j: number, run: { free: boolean; first: boolean }): number {
-    const d = this.fogCellDensity(i, j);
-    const own = run.first;
-    run.first = false;
-    if (run.free && (own || d >= FOG_SOLID_DENSITY)) return 0;
-    run.free = false;
-    return d;
-  }
-
   /** The memoized density of cell (i, j) in the current epoch — evaluated on
-   *  first touch with the shared `fogDensityAt` at the epoch's clock and cut. */
+   *  first touch with the shared `fogDensityAt` on the epoch's frame. */
   private fogCellDensity(i: number, j: number): number {
     const m = this.fogMemo;
     const idx = j * m.side + i;
     if (m.epoch[idx] !== this.fogEpoch) {
       const cx = m.ox + (i + 0.5) * m.cell;
       const cy = m.oy + (j + 0.5) * m.cell;
-      m.dens[idx] = fieldDensityAt(this.fogField, cx, cy, this.fogEpochTValue, this.fogCutValue);
+      m.dens[idx] = fieldDensityAt(this.fogFrame, cx, cy);
       m.epoch[idx] = this.fogEpoch;
       this.fogCellEvalCount += 1;
     }
     return m.dens[idx];
   }
 
-  /** Start a new fog epoch at `now`: every memo cell is stale until touched. */
+  /** Start a new rain epoch at `now`: every memo cell is stale until touched. */
   private fogBumpEpoch(): void {
     this.fogEpoch += 1;
     this.fogEpochTValue = this.now;
   }
 
   /**
-   * TEST-ONLY seam (Story 9.10): PIN the cut (stepFog then never moves it —
-   * the zone gate, the target and the slew are all skipped until
-   * resetForMatchStart; the epoch keeps bumping on its cadence) and start a
-   * fresh epoch at `now`. −2 is density 1 on the whole ocean (0 past the
-   * rim, amendment 179 — an observer on the ocean then stands in one
-   * ocean-wide bank and pays nothing; one just past the rim pays for the
-   * ocean part of its ray); `FOG_NO_CUT` is no fog. Production NEVER calls
-   * it — the controller in stepFog is the only production writer of the cut.
+   * TEST-ONLY seam (replaces Story 9.10's `setFogCutForTest`): PIN the rain
+   * to `frame` — a `FogFrame` the test built with the shared `fogFrameAt`
+   * (over `fogFieldForTest()`, or over a field of its own with other dials) —
+   * and start a fresh epoch at `now`. While pinned, stepFog never rebuilds
+   * the frame (the zone gate and the refresh cadence are skipped) until
+   * resetForMatchStart or `setFogFrameForTest(null)`, which returns the
+   * World to its own frame, rebuilt at the current clock. The
+   * frame is held BY REFERENCE and read lazily through the memo: do not
+   * mutate it after the call (pin again instead). Production NEVER calls it —
+   * stepFog is the only production writer of the frame.
    */
-  setFogCutForTest(cut: number): void {
-    this.fogCutPinned = true;
-    this.fogCutValue = cut;
-    this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
+  setFogFrameForTest(frame: FogFrame | null): void {
+    if (frame === null) {
+      this.fogClear();
+      return;
+    }
+    this.fogFramePinned = true;
+    this.fogFrame = frame;
     this.fogBumpEpoch();
-    this.fogCoverageShare = this.fogMeasureCoverage(this.zoneLiveRing);
   }
 
-  /** TEST-ONLY seam (Story 9.10): the built field, so an oracle can integrate the shared density itself. */
+  /** TEST-ONLY seam: the built field, so a test can build frames over it. */
   fogFieldForTest(): FogField {
     return this.fogField;
   }
 
+  /** TEST-ONLY seam: the current epoch's frame, so an oracle can integrate the shared density itself. */
+  fogFrameForTest(): FogFrame {
+    return this.fogFrame;
+  }
+
   /**
    * Queue a SELF-PRIVATE wire denial for one refused press (Story 1.10 —
-   * FR12's "denied fire is never silent"). Maps the row's internal denial
-   * onto the wire vocabulary per channel: 'out-of-arc' and 'blocked' pass
-   * through; an empty pool reads 'cooling' on the WEAPON click channel (the
-   * round is reloading — with the shared ammo machine an empty weapon pool
-   * always has its reload running) and 'no-ammo' on the ABILITY channel (no
-   * charge). The gate's 'dead'/'empty-slot' refusals never reach the wire
-   * (client-predictable / honest-client-unreachable). A denial is a
-   * SELF-PRIVATE wire message, so it is queued for a REAL CONNECTED CAPTAIN
-   * only — the one site keyed on isHuman rather than on the fleet/participant
-   * split, because what it needs is a socket at the other end, not a stake in
-   * the outcome (a 6.4 AI captain drives itself and has nobody to tell).
-   * `seq` is the press identity the client dedups on (fireSeq for clicks,
-   * actSeq for ability presses).
+   * FR12's "denied fire is never silent"). The caller has already mapped the
+   * refusal onto the wire vocabulary (wireDenialReason for a row's internal
+   * denial; the shared cooldown law answers in wire reasons directly). A
+   * denial is a SELF-PRIVATE wire message, so it is queued for a REAL
+   * CONNECTED CAPTAIN only — the one site keyed on isHuman rather than on the
+   * participant reading, because what it needs is a socket at the other
+   * end, not a stake in the outcome (a 6.4 AI captain drives itself and has
+   * nobody to tell). `seq` is the press identity the client dedups on
+   * (fireSeq for clicks, actSeq for ability presses); `act` rides an ability
+   * press only (Story 10.5).
    */
-  private queueDenial(
-    ship: ShipRecord,
-    slot: number,
-    seq: number,
-    denial: ActivationDenial,
-    channel: 'weapon' | 'ability',
-  ): void {
+  private queueDenial(ship: ShipRecord, denial: DeniedView): void {
     if (!roleIsHuman(ship)) return;
-    const reason = World.wireDenialReason(denial, channel);
-    if (reason === null) return;
     const queue = this.pendingDenials.get(ship.id) ?? [];
-    queue.push({ slot, reason, seq });
+    queue.push(denial);
     this.pendingDenials.set(ship.id, queue);
   }
 
-  /** The wire reason for an internal denial, or null when it never travels. */
+  /**
+   * The wire reason for an internal row denial, or null when it never
+   * travels: 'out-of-arc' and 'blocked' pass through; an empty pool reads
+   * 'cooling' on the WEAPON click channel (the round is reloading — with the
+   * shared ammo machine an empty weapon pool always has its reload running)
+   * and 'no-ammo' on the ABILITY channel (no charge). The gate's
+   * 'dead'/'empty-slot'/'frozen' refusals never reach the wire
+   * (client-predictable / honest-client-unreachable).
+   */
   private static wireDenialReason(
     denial: ActivationDenial,
     channel: 'weapon' | 'ability',
@@ -4537,7 +5162,7 @@ export class World {
    *
    * PINNED COMPOSITION ORDER (server AND predictor, byte-identical — sim/
    * boost.ts, sim/slow.ts, sim/draft.ts, sim/hooks.ts headers) — five stages:
-   *   boostedKinematics
+   *   boostedKinematics (the Shift's boost)
    *   → slowedKinematics (mine:  ship.slowFactor,                now < slowedUntil)
    *   → slowedKinematics (shell: CONFIG.foulingShell.slowFactor, now < fouledUntil)
    *   → draftedKinematics
@@ -4555,11 +5180,10 @@ export class World {
       ribbons, ship.wake, ship.state.x, ship.state.y, ship.state.heading,
       ship.cls.hull.length / 2, this.now, CONFIG.wake.draft,
     );
-    const boosted = boostedKinematics(
-      ship.stats.kinematics,
-      CONFIG.boost.factor,
-      this.now < ship.boostUntil,
-    );
+    // STAGE ONE: the Shift's boost on the RATED kinematics (the SPEED BUOY's
+    // term left with the buoys, Story 10.5; the predictor folds the same call
+    // from you.boostUntil).
+    const boosted = boostedKinematics(ship.stats.kinematics, CONFIG.boost.factor, this.now < ship.boostUntil);
     const slowed = slowedKinematics(boosted, ship.slowFactor, this.now < ship.slowedUntil);
     const fouled = slowedKinematics(slowed, CONFIG.foulingShell.slowFactor, this.now < ship.fouledUntil);
     const drafted = draftedKinematics(fouled, ship.draft, ship.draft > 0);
@@ -4653,8 +5277,9 @@ export class World {
    * (per-tick scratch: resolveCollisions re-transforms it right after this
    * row and collectHulls again later, so the translation the push applies
    * here is consumed by this tick's resolver and never read stale). `mass` is
-   * `stats.maxHp` from effectiveStats — the one mass source, a drone's
-   * envelope hp included. The pass moves `state.x/y` directly; the land pass
+   * `stats.armor` from effectiveStats — the ARMOR index IS the mass (Story
+   * 10.3, Eric 2026-11-04, ruling 2: "ramming mass = ARMOR"); HUNKER's
+   * temporary bonus is NOT mass. The pass moves `state.x/y` directly; the land pass
    * then validates the pushed pose exactly as it validates a kinematics
    * candidate (rollback to `prevPose` if it cannot be cleared).
    *
@@ -4671,18 +5296,24 @@ export class World {
       transformPolygon(hullSilhouette(ship.hullId), st.x, st.y, st.heading, ship.hullPoly);
       bodies.push(this.contactBodyOf(ship));
     }
+    // RADIO BEACONS (Story 10.8, R7 / R12): every SOLID beacon — afloat or
+    // sinking, the wreck law — is an IMMOVABLE body of mass = its ARMOR, so
+    // the shared resolver pushes the hull the whole way out and reports the
+    // pair for the damage row.
+    this.beacons.collectBodies(this.now, bodies);
     resolveHullContacts(bodies, this.hullContacts);
   }
 
-  /** The cached body for a hull, its mass refreshed from effectiveStats. A
-   *  test that swaps a record's `state` object gets a fresh body. */
+  /** The cached body for a hull, its mass (the ARMOR index, Story 10.3)
+   *  refreshed from effectiveStats. A test that swaps a record's `state`
+   *  object gets a fresh body. */
   private contactBodyOf(ship: ShipRecord): ContactBody {
     let body = this.contactBodies.get(ship.id);
     if (body === undefined || body.state !== ship.state || body.poly !== ship.hullPoly) {
-      body = { id: ship.id, state: ship.state, poly: ship.hullPoly, mass: ship.stats.maxHp, movable: true };
+      body = { id: ship.id, state: ship.state, poly: ship.hullPoly, mass: ship.stats.armor, movable: true };
       this.contactBodies.set(ship.id, body);
     }
-    body.mass = ship.stats.maxHp;
+    body.mass = ship.stats.armor;
     return body;
   }
 
@@ -4696,9 +5327,9 @@ export class World {
    *       sliding + pressing speed) applied per tick as a FRACTION through
    *       the gate as 'grind', exactly as the burn is. The hit goes through
    *       hitShip with the OTHER hull as `byId`, so damage credit, the kill,
-   *       the bounty and the drone aggro seam all behave as for a shell; the
-   *       bleed goes through applyDamage with the same `byId` (credit and
-   *       the kill, no per-tick aggro — the burn's seat). ATTACKER
+   *       the bounty all behave as for a shell; the bleed goes through
+   *       applyDamage with the same `byId` (credit and the kill — the burn's
+   *       seat). ATTACKER
    *       ELIGIBILITY IS READ AT EACH BLOW — except that the two halves of
    *       one hit are one impact and read both ids at that instant (a mutual
    *       ram credits both, the spec's mutual-kill row): the hit on A can
@@ -4709,10 +5340,7 @@ export class World {
    *       sinking one pays with no `byId` (no damage credit, no
    *       assist-ledger seat, no kill for "a sink it did not cause" — the
    *       spec's wreck row; the feed then reads LOST WITH ALL HANDS) but it
-   *       is still HULL contact, not land (`lastContactWasLand` false). Two
-   *       PvE FLEET hulls are pushed apart but deal each other nothing
-   *       (implementer reading at the review gate: no ruling has the fleet
-   *       grind itself down; Eric may veto).
+   *       is still HULL contact, not land (`lastContactWasLand` false).
    *   (b) LAND — the strike on the `landContact` false → true edge priced on
    *       `preDampSpeed × headOn`, and the scrape on the SLIDING component
    *       only while contact holds (a hull pinned head-on against a rock
@@ -4741,14 +5369,18 @@ export class World {
   }
 
   /** (a) one overlapping pair: the HIT when unlatched and charged, then the
-   *  BLEED. Nothing between two fleet hulls. */
+   *  BLEED. */
   private damagePair(c: HullContact, dt: number): void {
     const a = this.ships.get(c.a);
     const b = this.ships.get(c.b);
-    if (a === undefined || b === undefined) return;
-    if (roleIsFleetHull(a) && roleIsFleetHull(b)) return;
-    const mA = a.stats.maxHp;
-    const mB = b.stats.maxHp;
+    if (a === undefined || b === undefined) {
+      this.damageBeaconPair(c, dt, a ?? b);
+      return;
+    }
+    // MASS = ARMOR (Story 10.3, ruling 2): the folded ARMOR index, never the
+    // HUNKER bonus and never maxHp.
+    const mA = a.stats.armor;
+    const mB = b.stats.armor;
     const key = `${c.a}|${c.b}`;
     if (!this.contactLatch.has(key) && c.vn > CONFIG.ram.allowanceU) {
       // THE CHARGED HIT (amendment 83): over the allowance, priced and
@@ -4771,6 +5403,51 @@ export class World {
     this.bleedContact(b, bleed.b * dt, World.attackerId(a), 'hull');
   }
 
+  /**
+   * A HULL AGAINST A RADIO BEACON (Story 10.8, R7 / R12): the ramming law
+   * with the beacon as an anchored hull of mass = its ARMOR. `ship` is the
+   * pair's hull (undefined when neither id names one); the other id must name
+   * a beacon. The same two halves as a hull pair — the latched HIT over the
+   * allowance, then the BLEED — priced by the same shared functions:
+   *   - the SHIP's share goes through the gate with NO attacker (the wreck
+   *     row: a hull sunk on a beacon has no killer, no credit, no assist);
+   *   - the BEACON's share goes through `damageBeacon` credited to the
+   *     rammer while that hull is afloat (a wreck is never the attacker) —
+   *     and the door itself refuses it once the beacon's sink has started,
+   *     so a sinking beacon is solid yet takes nothing.
+   */
+  private damageBeaconPair(c: HullContact, dt: number, ship: ShipRecord | undefined): void {
+    if (ship === undefined) return;
+    const shipIsA = ship.id === c.a;
+    const beacon = this.beacons.get(shipIsA ? c.b : c.a);
+    if (beacon === undefined) return;
+    const mShip = ship.stats.armor;
+    const mBeacon = CONFIG.beacons.armor;
+    // The pair is priced in the contact's own (a, b) order; these read each
+    // side's share back out of it.
+    const shipShare = (split: { a: number; b: number }): number => (shipIsA ? split.a : split.b);
+    const beaconShare = (split: { a: number; b: number }): number => (shipIsA ? split.b : split.a);
+    const mA = shipIsA ? mShip : mBeacon;
+    const mB = shipIsA ? mBeacon : mShip;
+    const key = `${c.a}|${c.b}`;
+    if (!this.contactLatch.has(key) && c.vn > CONFIG.ram.allowanceU) {
+      this.contactLatch.add(key);
+      const hit = contactHitDamage(mA, mB, c.vn, CONFIG.ram);
+      const by = World.attackerId(ship); // read at the instant of impact
+      this.dealContact(ship, shipShare(hit), undefined, 'hull');
+      this.ramBeacon(beacon, beaconShare(hit), 'contact', by);
+    }
+    const bleed = contactGrindRate(mA, mB, c.vt, c.vn, CONFIG.ram);
+    this.bleedContact(ship, shipShare(bleed) * dt, undefined, 'hull');
+    this.ramBeacon(beacon, beaconShare(bleed) * dt, 'grind', World.attackerId(ship));
+  }
+
+  /** One half of a ram landing on a beacon: nothing unless it is a real blow
+   *  (the `isBlow` floor the hull halves share). */
+  private ramBeacon(beacon: BeaconRecord, amount: number, src: 'contact' | 'grind', byId: string | undefined): void {
+    if (World.isBlow(amount)) this.damageBeacon(beacon.id, amount, src, byId);
+  }
+
   /** The id a blow is credited to, read AT THE BLOW: the other hull while it
    *  is afloat, nobody once it is sinking (a wreck is never the attacker). */
   private static attackerId(other: ShipRecord): string | undefined {
@@ -4784,18 +5461,18 @@ export class World {
     return Number.isFinite(amount) && amount > 0;
   }
 
-  /** One whole-hp contact STRIKE: through hitShip (credit + aggro) when a
-   *  live hull dealt it, through the bare gate when the coast or a wreck did.
+  /** One whole-hp contact STRIKE: through hitShip (credit) when a live hull
+   *  dealt it, through the bare gate when the coast or a wreck did.
    *  `kind` stamps `lastContactWasLand` for the tally and the harness. */
   private dealContact(victim: ShipRecord, amount: number, byId: string | undefined, kind: 'hull' | 'land'): void {
     if (!World.isBlow(amount)) return;
     victim.lastContactWasLand = kind === 'land';
     if (byId === undefined) this.applyDamage(victim, amount, 'contact', undefined);
-    else this.hitShip(victim, amount, byId, false, 'contact');
+    else this.hitShip(victim, amount, byId, 'contact');
   }
 
   /** One tick of contact BLEED: a fractional 'grind' through the gate (the
-   *  burn's seat — cut unfloored, shield, fractional hp write, windowed
+   *  burn's seat — cut unfloored, fractional hp write, windowed
    *  `dmg`), credited to `byId` when a live hull dealt it. Marks the bleed
    *  window fed this tick so applyContactDamage does not flush it. */
   private bleedContact(victim: ShipRecord, amount: number, byId: string | undefined, kind: 'hull' | 'land'): void {
@@ -4811,7 +5488,7 @@ export class World {
     if (ship.landContact) {
       const headOn = ship.landHeadOn;
       if (!ship.landWasContact) {
-        this.dealContact(ship, landHitDamage(ship.stats.maxHp, ship.preDampSpeed * headOn, CONFIG.ram), undefined, 'land');
+        this.dealContact(ship, landHitDamage(ship.stats.armor, ship.preDampSpeed * headOn, CONFIG.ram), undefined, 'land');
       }
       const vt = ship.preDampSpeed * Math.sqrt(Math.max(0, 1 - headOn * headOn));
       this.bleedContact(ship, landGrindRate(vt, CONFIG.ram) * dt, undefined, 'land');
@@ -4827,6 +5504,8 @@ export class World {
    *  on the identical double. The kinematics come off effectiveStats(), the
    *  sole derivation path. Never raw CONFIG for the cap. */
   private static wakeTopSpeed(stats: EffectiveStats): number {
+    // The Shift's boost on the base (the SPEED BUOY's term left with the
+    // buoys, Story 10.5) — the same call stage one folds.
     const boosted = boostedKinematics(stats.kinematics, CONFIG.boost.factor, true);
     return draftedKinematics(boosted, CONFIG.wake.draft.lift, true).maxSpeed;
   }
@@ -4874,7 +5553,6 @@ export class World {
       this.orphanWakes.push(ship.wake);
     }
     ship.wake = createShipWake(ship.hullId, World.wakeTopSpeed(ship.stats));
-    this.wakeKeys.set(ship.wake, ship.id); // the detached ribbon keeps its key too (Story 9.8)
   }
 
   /**
@@ -4896,7 +5574,6 @@ export class World {
       appendWakeSample(fresh, old.xs[i], old.ys[i], old.ts[i]);
     }
     ship.wake = fresh;
-    this.wakeKeys.set(fresh, ship.id); // Story 9.8: the replayed ribbon keeps its source key
   }
 
   /** Record a running torpedo's wake sample (Story 4.12, amendment 196) —
@@ -4906,7 +5583,6 @@ export class World {
     let r = this.torpWakes.get(shell.id);
     if (r === undefined) {
       r = createTorpWake();
-      this.wakeKeys.set(r, shell.id); // Story 9.8: fish water rolls under the fish's own id
       this.torpWakes.set(shell.id, r);
     }
     appendWakeSample(r, shell.x, shell.y, this.now);
@@ -4961,74 +5637,48 @@ export class World {
 
   /**
    * THE TWO WAYS HP COMES BACK (Eric rulings 2026-08-04; re-cut by epic-8
-   * amendments 46-48) — applyStorm's structural INVERSE: per-tick fractional hp
-   * against the same float, clamped, with NO per-tick event (that would spam
-   * ~20/s; the owner already receives live `hp` AND `repairHp` on every frame
-   * via OwnShip, so the HUD stays exact).
+   * amendments 46-48; Story 10.5, Eric 2026-11-05, epic-10 amendment 11) —
+   * applyStorm's structural INVERSE: per-tick fractional hp against the same
+   * float, clamped, with NO per-tick event (that would spam ~20/s; the owner
+   * already receives live `hp` AND `repairHp` on every frame via OwnShip, so
+   * the HUD stays exact).
    *
-   *   1. THE PAID POOL (`repairHp`) — what a fired HULL REPAIR copy bought.
-   *      It drains on the WALL CLOCK at the fixed rate regenHp/regenMs:
+   *   1. THE PAID POOL (`repairHp`) — what a HULL REPAIR press bought. It
+   *      drains on the WALL CLOCK at the fixed rate regenHp/regenMs:
    *      `repairHp` decrements by the elapsed budget WHETHER OR NOT the hp
    *      lands. Overflow past maxHp is therefore LOST, not banked — the ruled
-   *      behavior (a full-bar hull burns its pool for nothing), and the reason
-   *      the row itself refuses to fire at full hp. Pools ADD but the rate
-   *      NEVER changes, so two copies run 10 s at 10 hp/s rather than 5 s at
-   *      20 hp/s: that property lives entirely in `repairHp += regenHp` at
-   *      apply time, not here.
+   *      behavior, and the reason the press is refused at full hp.
    *
-   *   2. THE OUT-OF-COMBAT REGEN (amendment 46) — REPLACES the free per-level
-   *      auto-heal that used to be this method's second channel, and it is
-   *      deliberately NOT a pool: the hull's own `stats.regen.missingPctPerS`
-   *      of its MISSING hp per second, paid straight into `hp`, once its own
-   *      `stats.regen.outOfCombatMs` have WHOLLY passed since `lastDamagedAt`
-   *      (base `CONFIG.regen`: 2 %/s after 15 s; the PASSIVE HEALING ladder
-   *      raises the rate and shortens the wait, folded in effectiveStats() —
-   *      Story 9.6, epic-9 amendments 90–92). The tick that merely ENDS on the
-   *      wait's mark is still a tick of the wait and credits nothing (see
-   *      `regenDue`). No
-   *      pool, no rate field, no `heal` cue (a continuous trickle would loop
-   *      the tone), no pending band. Healing is paced by DISENGAGING now, not
-   *      by the economy.
+   *   2. THE PASSIVE REGEN (R8 — back since Story 10.5): once the shared
+   *      `regenDue(now, lastDamagedAt)` holds (15 s since the last blow that
+   *      removed hull hp, any source), `regenGain` adds 2 % of the MISSING hp
+   *      per second. Fixed for every hull (captains and combat bots) — not a
+   *      stat, no card. It runs BESIDE the pool (neither resets the
+   *      other); no event, no cue.
    *
-   * IT SITS IN THIS METHOD'S EXISTING STEP_ORDER SLOT rather than taking a new
-   * one: it replaces the level pool's drain at the same pinned position — dead
-   * LAST among the hp movers, after every damage source — so `stepOrder.test`
-   * keeps its name list unchanged.
+   * IT SITS IN THIS METHOD'S EXISTING STEP_ORDER SLOT — dead LAST among the hp
+   * movers, after every damage source — so a blow this tick has already reset
+   * the regen clock before the regen reads it.
    *
-   * Only AFLOAT hulls tick either way — a wreck's pool is already zeroed by
-   * sinkShip, so the afloat gate is belt-and-braces for the paid pool and the
-   * actual rule for the regen ("no hp comes back to a hull in the sinking
-   * window", amendment 10).
-   *
-   * A PvE FLEET HULL NEVER REGENS (amendment 48): a drone is environment and
-   * keeps the damage it takes, so a disengaged one never comes back to full.
-   * The paid pool is not role-gated because a drone can never own one (it holds
-   * no cards).
+   * Only AFLOAT hulls tick — "no hp comes back to a hull in the sinking
+   * window" (amendment 10).
    */
   private tickRepairs(dtMs: number): void {
-    const hr = CONFIG.hullRepair;
-    const budget = (hr.regenHp / hr.regenMs) * dtMs;
-    const tickStart = this.now - dtMs;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
-      if (ship.repairHp > 0) World.payRepair(ship, budget);
-      if (World.regenDue(ship, tickStart)) World.tickRegen(ship, dtMs);
+      // The pool's OWN stamped rate (Story 10.6, R8 / R15), never CONFIG's.
+      if (ship.repairHp > 0) World.payRepair(ship, ship.repairRate * dtMs);
+      if (World.regenerates(ship, this.now)) ship.hp += regenGain(ship.hp, ship.stats.maxHp, dtMs / 1000);
     }
   }
 
-  /** Is this hull's out-of-combat regen due this tick? Never for a PvE fleet
-   *  hull (amendment 48). The wait is PER HULL — its own
-   *  `stats.regen.outOfCombatMs` (Story 9.6).
-   *
-   *  THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT. A tick is a SPAN and
-   *  `now` is its END, so the tick ending at exactly
-   *  `lastDamagedAt + outOfCombatMs` covers (now − dtMs, now] — time still
-   *  inside the wait. Crediting it would pay a full tick of regen for waiting.
-   *  The WHOLE tick must lie past the window, so the stamp is compared against
-   *  the tick's START (`now − dtMs`), not its end. */
-  private static regenDue(ship: ShipRecord, tickStart: number): boolean {
-    if (roleIsFleetHull(ship)) return false;
-    return ship.lastDamagedAt <= tickStart - ship.stats.regen.outOfCombatMs;
+  /** Does this afloat hull take the R8 passive regen this tick? Every hull is
+   *  a captain or a combat bot since Story 10.8 (the PvE fleet's exclusion,
+   *  epic-9 amendment 48, retired with it). regenGain caps at the missing hp
+   *  itself (0 on a full hull), so no clamp at the call site: a directed
+   *  over-full hull is never pulled down. */
+  private static regenerates(ship: ShipRecord, now: number): boolean {
+    return regenDue(now, ship.lastDamagedAt);
   }
 
   /** Drain the PAID pool by its wall-clock budget. The pool decrements WHETHER
@@ -5040,35 +5690,18 @@ export class World {
     ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
   }
 
-  /**
-   * ONE TICK OF THE OUT-OF-COMBAT REGEN for a hull the caller has already found
-   * eligible (afloat, not a drone, past the window). Split out of tickRepairs
-   * for the complexity budget.
-   *
-   * THE RATE is the hull's own `stats.regen.missingPctPerS` (Story 9.6) —
-   * never `CONFIG.regen` read at tick time.
-   *
-   * THE SNAP TO FULL is not a rounding convenience: a % of MISSING is
-   * asymptotic and never reaches zero missing on its own, so without it HULL
-   * REPAIR's "full hull" refusal would be unreachable after any regen and the
-   * globe would read 349.9 forever. It snaps on the SHARED `hullIsFull`
-   * (epic-8 amendment 53) — the same predicate the HULL REPAIR row refuses on
-   * and the client's consumable-key pre-denial mirrors, so "full" has exactly one
-   * definition and this snap can never drift away from that refusal.
-   */
-  private static tickRegen(ship: ShipRecord, dtMs: number): void {
-    const maxHp = ship.stats.maxHp;
-    const missing = maxHp - ship.hp;
-    if (missing <= 0) return;
-    if (hullIsFull(ship.hp, maxHp)) ship.hp = maxHp;
-    else ship.hp += missing * ship.stats.regen.missingPctPerS * (dtMs / 1000);
-  }
-
   /** Zero the repair pool. ONE helper for the three sites that end a hull's
    *  repair state (sink, redeploy, respawn), so a future channel cannot be
    *  added to one of them and forgotten in the others. */
   private static clearRepair(ship: ShipRecord): void {
     ship.repairHp = 0;
+  }
+
+  /** Both cooldown abilities READY (Story 10.5): every placement edge that
+   *  starts a fresh life — redeploy and respawn (addShip builds them ready). */
+  private static readyAbilities(ship: ShipRecord): void {
+    ship.repairReadyAt = 0;
+    ship.smokeReadyAt = 0;
   }
 
   // `aliveHulls()` is GONE (Story 8.4): the one place hull silhouettes are
@@ -5078,211 +5711,24 @@ export class World {
   // passes through rather than resolving a no-op hit (the perceivability seam
   // makes it a visible TARGET; nothing makes it a HITTABLE one).
 
-  /** True iff `id` names a PvE fleet hull (Story 5.6). The ONE predicate the
-   *  fleet-only rules key on — friendly-fire exclusion, the intel-disc
-   *  denial set, the roster/kill accounting — so "is this a fleet ship" has a
-   *  single answer and an absent record fails closed. */
-  isFleetHull(id: string): boolean {
-    const s = this.ships.get(id);
-    return s !== undefined && roleIsFleetHull(s);
-  }
-
-  // -------------------------------------------------------------------------
-  // PvE FLEET WAVES (Story 5.6, amendments 33/37)
-  // -------------------------------------------------------------------------
-
-  /**
-   * THE WAVE SCHEDULER. Fires CONFIG.fleet.waves off the ZONE START clock —
-   * the same anchor the chrome bar's T+ uses — while the match is live.
-   *
-   * The live gate is `zoneStartT !== null && damageEnabled`, byte-identical to
-   * applyStorm's: in a room `damageEnabled` is true exactly in the active
-   * phase, and a standalone World (unit tests, sandbox smokes) has to call
-   * startZone() before anything arrives. Nothing in the codebase spawned a
-   * ship mid-match before this (amendment 37).
-   */
-  private spawnFleetWaves(): void {
-    // Story 9.15: a dev smoke switched the scheduler off (WorldOptions.fleetWaves).
-    if (!this.fleetWavesEnabled) return;
-    if (this.zoneStartT === null || !this.damageEnabled) return;
-    this.enqueueDueWaves(this.now - this.zoneStartT);
-    this.placePendingFleets();
-  }
-
-  /** Enqueue every wave whose beat has passed. A WHILE, not an equality test:
-   *  a slow/uneven tick must never step over a beat and delete its fleets. */
-  private enqueueDueWaves(elapsed: number): void {
-    const waves = CONFIG.fleet.waves;
-    while (this.wavesFired < waves.length && elapsed >= waves[this.wavesFired].atMs) {
-      for (let i = 0; i < waves[this.wavesFired].fleets; i += 1) this.pendingFleets.push({ retries: 0 });
-      this.wavesFired += 1;
-    }
-  }
-
-  /** Try to place every owed fleet this tick; those that cannot find an
-   *  anchor OUTSIDE every captain's intel disc wait for the next tick until
-   *  their retry budget runs out, then take the max-min point and LOG it. */
-  private placePendingFleets(): void {
-    if (this.pendingFleets.length === 0) return;
-    const waiting: { retries: number }[] = [];
-    for (const req of this.pendingFleets) {
-      const anchor = this.fleetAnchor();
-      if (anchor.fallback && req.retries < CONFIG.fleet.spawnRetryTicks) {
-        req.retries += 1;
-        waiting.push(req);
-        continue;
-      }
-      if (anchor.fallback) {
-        logWarn('fleet.spawnFallback', { tick: this.tick, retries: req.retries, x: Math.round(anchor.x), y: Math.round(anchor.y) });
-      }
-      this.spawnFleet(anchor);
-    }
-    this.pendingFleets = waiting;
-  }
-
-  /**
-   * One anchor request against the CURRENT field: inside the live ring, clear
-   * of land, outside EVERY captain's intel disc, farthest from everything
-   * already afloat (fleet hulls included, so successive fleets spread out).
-   *
-   * The disc radius is the captain's EFFECTIVE `stats.radarRange`, not the
-   * CONFIG base: a stacked intel build denies the area it actually sees.
-   * Sampling stops `spreadU` short of the ring edge so the six hulls scatter
-   * into water rather than into the storm — but that is now a BEST EFFORT that
-   * `FLEET_ANCHOR_MIN_FRACTION` can override on a small ring. The hard
-   * guarantee lives in `fleetOffset`, which tests live-ring containment per
-   * hull; see its docblock for why the old two-constant arithmetic was retired.
-   */
-  private fleetAnchor(): FleetAnchor {
-    const ring = this.zoneLiveRing;
-    const occupied: Vec2[] = [];
-    for (const s of this.ships.values()) {
-      if (isAfloat(s.lifecycle)) occupied.push({ x: s.state.x, y: s.state.y });
-    }
-    const max = Math.max(ring.r - CONFIG.fleet.spreadU, ring.r * FLEET_ANCHOR_MIN_FRACTION);
-    return pickFleetAnchor({ x: ring.cx, y: ring.cy }, max, this.map.islands, occupied, this.captainDiscs(), this.rng);
-  }
-
-  /** Every afloat PARTICIPANT's denial disc, of radius
-   *  `CONFIG.vision.dropout.startU` — Eric 2026-10-13 (Story 9.8): deny inside
-   *  the dropout start, not radar; 16 discs of 1,000 u cover ~64 % of the
-   *  5,000 u ocean so the lattice seats waves without the fallback. A fleet
-   *  may appear in the flickering rim band of someone's radar, never where a
-   *  sweep paints reliably. (Before the ruling the disc rode each hull's
-   *  effective `stats.radarRange`.) THE one derivation of the denied region:
-   *  the anchor and the per-hull scatter both read it, so they can never
-   *  disagree about where a fleet may appear.
+  /** Every afloat PARTICIPANT's position — the centres of the captain
+   *  keep-out discs (radius `CONFIG.beacons.keepOutU`, its OWN fact since
+   *  Story 11.2, R20) that the RADIO BEACON placement treats as its soft
+   *  rule (Eric 2026-11-15, Story 11.7). THE one derivation of the keep-out
+   *  region.
    *
    *  KEYED ON THE PARTICIPANT READING (Story 6.3): every hull that contests
-   *  the match denies the water around itself — a 6.4 AI captain denies like
-   *  any other combatant; only fleet hulls deny nothing. */
-  private captainDiscs(): IntelDisc[] {
-    const denied: IntelDisc[] = [];
+   *  the match keeps beacons off the water around itself — a 6.4 AI captain
+   *  like any other combatant. */
+  private captainPositions(): Vec2[] {
+    const out: Vec2[] = [];
     for (const s of this.ships.values()) {
       if (!isAfloat(s.lifecycle) || !roleIsParticipant(s)) continue;
-      denied.push({ x: s.state.x, y: s.state.y, r: CONFIG.vision.dropout.startU });
+      out.push({ x: s.state.x, y: s.state.y });
     }
-    return denied;
+    return out;
   }
 
-  /**
-   * Spawn ONE group: the exact composition (`fleetHullIds()` — 1 large, 2
-   * medium, 3 small in SIX hulls, largest first) scattered around `anchor`. Its
-   * XP value is DERIVED by `fleetLevels()` and is deliberately not restated
-   * here (epic-6 amendment 24 — no hardcoded level totals). Each hull's scatter
-   * offset is ALSO its permanent formation station (FleetController.add), which
-   * is what keeps the group travelling together at the spread the witness rule
-   * was tuned against.
-   */
-  private spawnFleet(anchor: FleetAnchor): void {
-    this.fleetSeq += 1;
-    const fleetId = this.fleetSeq;
-    const denied = this.captainDiscs(); // read ONCE: fleet hulls deny nothing
-    const ring = this.zoneLiveRing; // read ONCE: the storm-containment bound
-    for (const hullId of fleetHullIds()) {
-      const offset = this.fleetOffset(anchor, denied, ring);
-      this.fleetHullSeq += 1;
-      const id = `fleet-${this.fleetHullSeq}`;
-      // The name is the HULL's name, not a numbered roster identity (amendment
-      // 39): fleet hulls hold no PlayerMeta row, and every client-side surface
-      // reads `DRONE` off Contact.cls. Never `DRONE-07`.
-      this.addShip(id, FLEET_SHIP_NAME, 'fleet', hullId, DEFAULT_HORN_ID, {
-        x: anchor.x + offset.x,
-        y: anchor.y + offset.y,
-      });
-      this.drones.add(id, fleetSizeOf(hullId), fleetId, offset);
-    }
-  }
-
-  /**
-   * One hull's scatter/station offset: uniform over a disc of
-   * `CONFIG.fleet.spreadU`, rejecting land through the SAME clearance the spawn
-   * ring demands (spawn.ts owns that math) AND rejecting any point inside a
-   * captain's intel disc.
-   *
-   * THE INTEL TEST IS PER HULL, NOT ON THE ANCHOR (review gate, Story 5.6).
-   * Amendment 36 constrains the ANCHOR to sit outside every captain's intel
-   * disc, but the nine hulls then scatter up to `spreadU` (400u) from it — so
-   * worst case a hull materialized 260u from a captain, INSIDE the 330u sight
-   * bubble: exactly the visible pop-in the amendment exists to prevent.
-   * Inflating the anchor's denied radius by `spreadU` instead was costed and
-   * REJECTED: it takes the denied area per captain from ~1.37M u² to ~3.53M u²,
-   * which at a full roster exceeds the map, so every wave would take the
-   * max-min fallback and the rule would stop meaning anything. The FORMATION
-   * deforms slightly instead — the wave never fails.
-   *
-   * The fallback ladder, in order: a land-clear-but-intel-dirty offset is only
-   * REMEMBERED (`landOnly`), never preferred. When the anchor itself cleared
-   * every disc (`fallback === false`) the anchor is intel-clear BY
-   * CONSTRUCTION and wins over it, so on the nominal path no hull can ever
-   * land in intel range. Only on the already-degraded fallback anchor (logged,
-   * ratified by amendment 37) does `landOnly` ship — there neither option is
-   * clear, and a spread fleet beats nine hulls stacked on one point.
-   *
-   * THE RING CLAMP IS NOW AN EXPLICIT TEST, NOT AN ARITHMETIC COINCIDENCE
-   * (cycle 94, epic-6 amendment 24). This docblock used to claim offsets stayed
-   * inside the storm ring because `fleetAnchor` subtracts `spreadU` from the
-   * ring radius. That only held while `spreadU` was small relative to the
-   * FLEET_ANCHOR_MIN_FRACTION floor: the floor bites whenever
-   * `ring.r < spreadU / (1 - FLEET_ANCHOR_MIN_FRACTION)` — below 615u at the
-   * old spreadU 400, below 769u at the current 500 — and at the 660u terminal
-   * ring it permits an anchor at 231u scattering 500u, i.e. 731u from centre:
-   * OUTSIDE the ring, in the storm. Two unrelated constants were holding a
-   * safety property between them, so the property is now asserted directly.
-   *
-   * The ring test runs BEFORE `landOnly` is recorded, so the degraded fallback
-   * offset is island-clear AND ring-clear too. The final `{0,0}` fallback is
-   * the anchor itself, which `fleetAnchor` samples inside the ring by
-   * construction.
-   */
-  private fleetOffset(anchor: FleetAnchor, denied: readonly IntelDisc[], ring: ZoneRing): Vec2 {
-    let landOnly: Vec2 | null = null;
-    for (let i = 0; i < FLEET_OFFSET_TRIES; i += 1) {
-      const a = this.rng.float(0, TAU);
-      const r = Math.sqrt(this.rng.next()) * CONFIG.fleet.spreadU; // sqrt => uniform
-      const off = { x: Math.cos(a) * r, y: Math.sin(a) * r };
-      const p = { x: anchor.x + off.x, y: anchor.y + off.y };
-      if (islandClearance(p, this.map.islands) <= SPAWN_ISLAND_CLEARANCE) continue;
-      if (isOutside(p, ring.cx, ring.cy, ring.r)) continue; // never spawn into the storm
-      if (!insideIntelDisc(p, denied)) return off;
-      landOnly ??= off;
-    }
-    if (!anchor.fallback) return { x: 0, y: 0 }; // the anchor cleared every disc
-    return landOnly ?? { x: 0, y: 0 };
-  }
-
-  /** FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 36). The
-   *  amendment names burstVictims, but the exclusion is applied one level UP —
-   *  a fleet-owned shell simply does not see a friendly hull as a collision
-   *  subject at all. Excluding only at the burst leaves a friendly hull
-   *  INTERCEPTING the shell (contactDamage, and the shell stops dead), which is
-   *  the same rule broken by a different path: nine hulls inside a 400u spread
-   *  block each other's line constantly. Built only when a fleet shell is in
-   *  flight; a captain's shell gets the shared memoized list by reference. */
-  private fleetFiltered(targets: readonly Target[], ownerId: string): readonly Target[] {
-    if (!this.isFleetHull(ownerId)) return targets;
-    return targets.filter((t) => t.kind !== 'hull' || !this.isFleetHull(t.id));
-  }
 
   /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit).
    *  THE one spent-shell path: remove it from flight, drop every observer's
@@ -5291,10 +5737,19 @@ export class World {
    *  every projectile funnels through here, one tick after spawn at the
    *  earliest, so all shell damage resolves in exactly one place. */
   private stepShells(dt: number, hitTargets: HitTargets): void {
+    const islandIndex = this.islandIndex; // validated once for the whole step
+    // THE SWEEP'S TARGET BOXES (Story 11.2 follow-up): one bounding box per
+    // target of each list this step flies against, taken HERE — inside the
+    // pass, from the polygons as they stand — and dropped with the pass, so a
+    // box can never outlive the pose it was taken at (no hull moves inside
+    // this row; a sink mid-loop hands out a NEW list, which gets new boxes).
+    // A shell step is a short segment: with the boxes it asks only the hulls
+    // it can reach instead of edge-testing every hull on the water.
+    const boxes = new Map<readonly Target[], readonly PolyBox[]>();
     for (const [id, shell] of this.shells) {
       // EVERY PROJECTILE ASKS THE COLLECTOR FOR ITS OWN MASK (Story 8.4,
-      // AR44): a deck-gun shell sees hulls, mines and decoys; a torpedo sees
-      // hulls and decoys; a star shell detonates nothing. The mask rides the
+      // AR44): a deck-gun shell sees hulls and mines; a torpedo sees hulls;
+      // a star shell detonates nothing. The mask rides the
       // projectile (`ShellState.hits`, copied off its CONFIG row at launch), so
       // this loop never branches on which weapon fired.
       //
@@ -5307,11 +5762,13 @@ export class World {
       // mine it merely flies over. For a mask with no `mine` bit the two are
       // the same memoized array by identity (sweepMask returns the row
       // unchanged), so nothing is built or filtered twice for a torpedo.
-      const burstSet = this.fleetFiltered(hitTargets(shell.hits), shell.ownerId);
-      const sweepSet = this.fleetFiltered(hitTargets(sweepMask(shell.hits)), shell.ownerId);
+      const burstSet = hitTargets(shell.hits);
+      const sweepSet = hitTargets(sweepMask(shell.hits));
       const outcome = stepShell(shell, {
         islands: this.map.islands,
+        islandIndex,
         targets: sweepSet,
+        targetBoxes: targetBoxesOf(boxes, sweepSet),
         now: this.now,
         dt,
         mapRadius: this.map.radius,
@@ -5340,12 +5797,9 @@ export class World {
    */
   private stepMines(hitTargets: HitTargets): void {
     // TRIPPING scans EACH KIND'S OWN `hits` row (`MINE_TRIP_HITS`) — HULLS
-    // ONLY on all three today. A decoy never trips a mine: it is not a hull,
-    // and remote minefield clearing is a mechanic nobody ruled on — a deck
-    // gun shell landing on the mine is the sanctioned way (amendment 200).
-    // DETONATION resolves
-    // against the blast set (hulls + decoys), so a blast still damages an
-    // ENEMY decoy inside it (damageDecoy refuses the layer's own).
+    // ONLY on all three today — remote minefield clearing is a mechanic
+    // nobody ruled on; a deck gun shell landing on the mine is the sanctioned
+    // way (amendment 200). DETONATION resolves against the blast set (hulls).
     //
     // THE ITERATION INSIDE checkMineTriggers IS NOT AN ORDNANCE STEP FINDING
     // TARGETS — it is the mine SYSTEM stepping its own store, asking each of
@@ -5377,23 +5831,15 @@ export class World {
   /**
    * "HOSTILE" FOR A CAPTIVE MINE (Story 7-5 wave 2, R2.13 — Eric's ruling). An
    * enemy CAPTAIN OR BOT always is: they contest the match, and the mine's
-   * owner is already excluded upstream. A FLEET DRONE is hostile ONLY while its
-   * CURRENT acquired target is the mine's owner — read LIVE off the
-   * FleetController's mind, never cached, so a drone that breaks off (target
-   * lost, target sunk, aggro expired) becomes safe to sail past again in the
-   * very next tick.
+   * owner is already excluded upstream. (The PvE drone's live-aggro clause
+   * retired with the fleet at Story 10.8.)
    *
    * THE GATE IS CAPTIVE-ONLY and must not be widened: ordinary and prop-fouling
-   * mines still trip on ANY non-owner hull, drones included, and a mine hit
-   * still causes no aggro (amendment 36, unchanged — see hitShip's `fromMine`).
-   * A vanished victim is not hostile, so a mid-tick teardown cannot launch a
-   * fish at nothing.
+   * mines still trip on ANY non-owner hull. A vanished victim is not hostile,
+   * so a mid-tick teardown cannot launch a torpedo at nothing.
    */
-  private isCaptiveMineHostile(ownerId: string, victimId: string): boolean {
-    const victim = this.ships.get(victimId);
-    if (victim === undefined) return false;
-    if (!roleIsFleetHull(victim)) return true; // an enemy captain or bot
-    return this.drones.isTargeting(victim.id, ownerId); // live aggro, nothing else
+  private isCaptiveMineHostile(_ownerId: string, victimId: string): boolean {
+    return this.ships.get(victimId) !== undefined;
   }
 
   /**
@@ -5406,7 +5852,7 @@ export class World {
    *
    * THE FISH IS DODGEABLE, AND THAT IS THE DESIGN: it is a base-speed torpedo
    * fired at where the target WILL be if it holds course, computed by the same
-   * lead solver the fleet gun uses (game/lead.ts). Turn and it misses.
+   * lead solver of game/lead.ts. Turn and it misses.
    *
    * It carries the OWNER's effective CAPTIVE MINES damage and burst radius —
    * read again at detonation through the ordinary mine-blast path — and, since
@@ -5437,8 +5883,8 @@ export class World {
         homingTurnRate,
         // THE FISH IS LOCKED TO THE TRIPPING HULL (cycle-148 review gate, P6):
         // the hostile gate (R2.13) cleared THIS victim, and nothing in flight
-        // may widen that. A steering fish that re-acquired would happily chase
-        // a neutral drone that drifted nearer.
+        // may widen that. A steering torpedo that re-acquired would happily
+        // chase a bystander that drifted nearer.
         targetId: victim.id,
       }),
     );
@@ -5562,20 +6008,20 @@ export class World {
     let resolved = 0;
     for (const t of mineBlastVictims({ x: at.x, y: at.y, ownerId }, hulls, blastRadius)) {
       const victimId = t.id;
+      // A RADIO BEACON in the blast takes the mine's damage through its own
+      // door (Story 10.8, R12) and counts as RESOLVED for the layer's `hc`;
+      // it has no engines, so the fouling slow below never applies to it.
+      if (t.kind === 'beacon') {
+        if (this.damageBeacon(victimId, damage, 'mine', ownerId, MINE_WEAPON[kind])) resolved += 1;
+        continue;
+      }
       const victim = t.kind === 'hull' ? this.ships.get(victimId) : undefined;
       // Per-victim re-check against the DELIBERATELY STALE `hulls` snapshot: a
       // hull sunk earlier this tick is still in it, and damage semantics live
       // in this re-check rather than in the snapshot (amendment 5).
-      if (!victim || !isAfloat(victim.lifecycle)) {
-        // A DECOY inside the blast is an ordinary victim (Story 8.16): damaged,
-        // counted as resolved (the owner's `hc` is honest — something
-        // connected), never fouled (no propeller) and never worth XP. The
-        // layer's OWN decoy is refused inside damageDecoy (amendment 119).
-        if (!victim && this.damageDecoy(victimId, damage, ownerId)) resolved += 1;
-        continue;
-      }
+      if (!victim || !isAfloat(victim.lifecycle)) continue;
       resolved += 1;
-      this.hitShip(victim, damage, ownerId, true, 'mine'); // MINE: no aggro (amendment 36)
+      this.hitShip(victim, damage, ownerId, 'mine', MINE_WEAPON[kind]);
       // FOULING (amendments 81, 88): a fouling blast's victim is slowed. The
       // clock is REFRESHED on every hit; the factor is KEEP-THE-STRONGEST —
       // while a slow is still running, a later fouling can only deepen it
@@ -5635,17 +6081,11 @@ export class World {
    * Apply damage to a hull, emitting dmg (+ sink on death). THE phase guard:
    * while damage is suppressed (waiting/countdown target practice, finished
    * freeze) impacts still boom but no hp is lost — this early return is the
-   * single choke for shell, torpedo, and mine damage alike.
-   *
-   * `fromMine` is REQUIRED at every call site and threaded EXPLICITLY (Story
-   * 5.6, amendment 36): a mine hit gives a PvE fleet ship no bearing worth
-   * closing on — its layer may be dead or 2000u away — so it must cause no
-   * aggro, and the ordnance that caused a hit is knowable only here at the
-   * caller. Inferring it downstream (from `byId`'s distance, from the absence
-   * of a shell, from anything) would be a guess; a required parameter makes
-   * every future damage path state its own answer.
+   * single choke for shell, torpedo, and mine damage alike. (The `fromMine`
+   * seat the PvE fleet's aggro read — amendment 36 — retired with the fleet at
+   * Story 10.8.)
    */
-  private hitShip(victim: ShipRecord, amount: number, byId: string, fromMine: boolean, src: DamageSource): void {
+  private hitShip(victim: ShipRecord, amount: number, byId: string, src: DamageSource, weapon?: EquipmentId): void {
     if (!this.damageEnabled) return;
     // A SINKING HULL CANNOT BE FINISHED OFF (Story 5.2, amendment 12): damage
     // landing inside the window is a NO-OP — no hp, no dmg event, no re-sink,
@@ -5656,16 +6096,9 @@ export class World {
     // isAfloat per victim and aliveHulls() never offers a sinking silhouette
     // as a target; a directed caller is what this line actually stops).
     if (isSinking(victim.lifecycle)) return;
-    // THE AGGRO SEAM (Story 5.6): a fleet hull that takes damage acquires its
-    // attacker and runs the ONE-SHOT witness sweep. Fires BEFORE the hp is
-    // applied, so a hull sunk by this very hit still propagates the fight to
-    // the friends that saw it happen. onDamaged itself no-ops for a
-    // non-fleet victim, a mine hit, and a fleet-on-fleet hit.
-    this.drones.onDamaged(victim.id, byId, fromMine);
-    // …and then THE GATE does the rest (Story 8.4 / AR47). Everything below the
-    // aggro seam — shield, hp, assist ledger, sink check, `dmg` — moved into
-    // applyDamage, which is now the ONLY place a hull's hp is decremented.
-    this.applyDamage(victim, amount, src, byId);
+    // THE GATE does the rest (Story 8.4 / AR47): hp, assist ledger, sink
+    // check, `dmg` — applyDamage is the ONLY place a hull's hp is decremented.
+    this.applyDamage(victim, amount, src, byId, weapon);
   }
 
   /**
@@ -5688,11 +6121,10 @@ export class World {
    *       keeps its own `zoneStartT` gate at its caller.
    *   (b′) THE ARMOR MULTIPLY (Story 9.7; Story 9.9): every source but the
    *       storm is scaled by the victim's Armor, plus the HUNKER's bonus while
-   *       its window is open, minus the attacker's ARMOR PIERCING read live
-   *       (armorDamage below).
-   *   (c) THE SHIELD absorbs next, from EVERY source — storm bites and burn
-   *       ticks included (AR47, amendment 118) — after the armor multiply
-   *       (epic-8 amendment 100). Armed by the SHIELD BLOCK consumable (Story 8.16).
+   *       its window is open, minus the attacker's POWER read live
+   *       (armorDamage below; Story 10.3 renamed ARMOR PIERCING to POWER).
+   *   (c) (THE SHIELDS — the SHIELD BLOCK and the SHIELD BUOY — were DELETED
+   *       by Story 10.5, epic-10 amendment 11; nothing absorbs a blow now.)
    *   (d) The overkill clamp, the ONE hp write, and the COMBAT CLOCK stamp
    *       (amendment 47 — one hook for every damage source, storm included). `dealt` is read BEFORE the
    *       write (Eric 2026-08-22: *"if i do 50 damage to someone with 1 HP
@@ -5705,31 +6137,30 @@ export class World {
    *       than a restated rule.
    *   (f)/(g) The per-source report and the sink check (reportDamage below):
    *       today's emitted order per source, byte-identical.
-   *
-   * AGGRO IS DELIBERATELY NOT IN HERE. `drones.onDamaged` keeps its seat at
-   * hitShip, where the caller knows whether the blow came from a mine
-   * (amendment 36's `fromMine`); moving it in would need a ninth DamageSource
-   * value AR47 does not list.
    */
-  private applyDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): void {
+  private applyDamage(
+    victim: ShipRecord,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): void {
     if (byId !== undefined && byId === victim.id) return; // (a) NO FRIENDLY FIRE, every source
     if (!this.damageEnabled) return; // (b) weapons-safe phases
     if (isSinking(victim.lifecycle)) return; // (b) a sinking hull cannot be finished off
-    const armored = this.armorDamage(victim, amount, src, byId); // (b′) ARMOR (+ the HUNKER's bonus − the attacker's ARMOR PIERCING), before the shield (Stories 9.7 / 9.9)
-    const net = this.absorbShield(victim, armored); // (c)
+    const net = this.armorDamage(victim, amount, src, byId, weapon); // (b′) ARMOR (+ the HUNKER's bonus − the attacker's POWER) (Stories 9.7 / 9.9 / 10.3)
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
-    // hp — shell, torpedo, mine, burn tick, STORM bite — resets the
-    // out-of-combat regen's wait (the hull's own `stats.regen.outOfCombatMs`,
-    // Story 9.6), because every one of them passes through
-    // here. A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
-    // count as taking damage (Eric restated this as THE rule 2026-10-13, epic-9
-    // amendment 92); dealing damage never counts at all.
+    // hp — shell, torpedo, mine, ram / land contact, burn tick, STORM bite —
+    // restamps the hull's combat clock, because every one of them passes
+    // through here; the passive regen (Story 10.5, R8) reads it in
+    // tickRepairs. A blow that removed nothing (`dealt` 0) does NOT count
+    // (epic-9 amendment 92); dealing damage never counts at all.
     if (dealt > 0) victim.lastDamagedAt = this.now;
     World.noteDamageTaken(victim, src, dealt); // (d′) Story 9.5's server-only readouts
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)
-    this.reportDamage(victim, net, src, byId, armored - net); // (f)+(g)
+    this.reportDamage(victim, net, src, byId); // (f)+(g)
   }
 
   /** (d′) THE HARNESS STAMPS (Story 9.5): what last took hp, and the hp taken
@@ -5752,67 +6183,175 @@ export class World {
    * over from epic-8 amendments 100–102). EVERY source but the STORM is
    * multiplied by `damageMultiplierFor(E)` — the ONE curve, owned by
    * shared/src/sim/stats.ts, the EXACT fraction, never a rounded one (epic-9
-   * amendment 120(a): a rounded 0.833 floored an MG shell 6 one point low) —
-   * BEFORE the shield absorbs it (a shield lasts longer on an armored hull).
+   * amendment 120(a): a rounded 0.833 floored an MG shell 6 one point low).
    *
-   * EFFECTIVE ARMOR (amendment 146): E = victim Armor + the HUNKER's bonus
-   * while open − the ATTACKER's ARMOR PIERCING. The curve has two branches:
+   * EFFECTIVE ARMOR (amendment 146; Story 10.3 ruling 11): E = victim ARMOR +
+   * the HUNKER's bonus while open − the ATTACKER's POWER. Both are INDICES
+   * since Story 10.3 (100 on every scaffold hull, +20 a card), so an average
+   * pair nets E = 0 → ×1 exactly as 9.9's 0 − 0 did. The curve has two branches:
    * E ≥ 0 → K / (K + E), E < 0 → 2 − K / (K − E) = (K − 2E) / (K − E), equal
    * to 1 with matching slope at 0 and bounded strictly under ×2 (a floor at
    * E = 0 and a raw K / (K + E) below zero were both rejected). The scale
    * (amendment 144, was K = 5 / +1 per card / cut +5): K = CONFIG.armor.k =
-   * 100; the ARMOR ladder's `stats.armor` is +20 per card (Tier V = 100 →
-   * ×0.5, 9.7's multipliers reproduced exactly); the HUNKER (the Battleship's
+   * 100; the ARMOR ladder's `stats.armor` is +20 per card (Tier V = +100 over
+   * the attacker's POWER → ×0.5, 9.7's multipliers reproduced exactly); the HUNKER (the Battleship's
    * Shift, Story 8.15; was DAMAGE CUT) adds `stats.equipment.hunker.armorBonus`
    * = +100 while `now < hunkerUntil`, ADDITIVELY on the Armor value, never as
-   * a second multiply (amendment 88) — so at Tier 0 under HUNKER, E 100 → ×0.5.
+   * a second multiply (amendment 88) — so at Tier 0 under HUNKER against POWER
+   * 100, E 100 → ×0.5.
    *
-   * THE ATTACKER IS READ LIVE AT IMPACT (amendment 156): the piercing is the
-   * CURRENT `stats.armorPiercing` of the `byId` record, never stamped on the
+   * THE ATTACKER IS READ LIVE AT IMPACT (amendment 156): POWER is the
+   * CURRENT `stats.power` (Story 9.9's `armorPiercing`, renamed by Story 10.3,
+   * Eric 2026-11-04, epic-10 amendment 8) of the `byId` record, never stamped on the
    * ordnance at launch — a card bought while a torpedo swims counts; a SUNK
    * owner's record persists in `this.ships` until the client leaves, so their
-   * mine / torpedo / burn still pierces; an owner who LEFT (removeShip) reads
-   * 0, as do the coast and a wreck (`byId` undefined). Every source but the
-   * storm carries it (amendment 147): shells, bursts, torpedoes, mines, the
-   * ram 'contact' strike, its 'grind' bleed and the 'burn' tick. PvE drones
-   * hold no cards — AP 0 as attackers, Armor 0 as victims, so a pierced drone
-   * takes up to ×1.5 (Eric: "apply it to all damage"). A SINKING hull's ram and
-   * grind read piercing 0 (its `attackerId` is undefined per amendment 82) while
-   * its torpedo, mine and burn still carry its full piercing (its record
+   * mine / torpedo / burn still carries it. A MISSING ATTACKER — an owner who
+   * LEFT (removeShip), the coast and a wreck (`byId` undefined) — reads the
+   * AVERAGE POWER, `CONFIG.index.base` (Story 10.3 reading, Task 1: today's
+   * "reads piercing 0" becomes "reads the average POWER", so those blows still
+   * net E = victim ARMOR − base and a coast strike on a base hull is ×1; Eric
+   * may veto for POWER 0). Every source but the storm carries it (amendment
+   * 147): shells, bursts, torpedoes, mines, the ram 'contact' strike, its
+   * 'grind' bleed and the 'burn' tick (Eric: "apply it to all damage"). A
+   * SINKING hull's ram and grind read the missing
+   * attacker's base POWER (its `attackerId` is undefined per amendment 82)
+   * while its torpedo, mine and burn still carry its own POWER (its record
    * persists) — both follow the rulings; do not 'fix' one side.
    *
    * A WHOLE blow rounds DOWN to a whole number (amendment 102 — damage stays
    * whole per amendment 39) BUT NEVER BELOW 1 (epic-9 amendment 119, Eric
    * 2026-10-13 at the 9.7 review gate): a blow that was at least 1 hp lands
-   * at least 1. The three PvE drone classes fire 1 hp shells (`CONFIG.fleet*`
-   * gun damage 1) and a slow ram bump is 1–2 hp; at any Armor those floored
-   * to 0 and still played the hit cue — Eric chose the floor-of-one over a
+   * at least 1. A slow ram bump is 1–2 hp; at any Armor that floored to 0
+   * and still played the hit cue — Eric chose the floor-of-one over a
    * silent zero. A blow already 0 stays 0 (floorBlow's `amount > 0` guard).
    * A PHOSPHOR burn tick and a contact BLEED tick ('grind', Story 9.5),
    * fractional by construction, keep their exact product — never floored,
    * never raised to 1. The STORM is exempt (amendment 101): its bites land in
    * full, so the sudden-death ceiling and NFR6's arithmetic are untouched.
-   * `creditDamage` and the `dmg` report both read the POST-multiply,
-   * post-shield amount (amendment 113): the attacker's tally is what actually
+   * `creditDamage` and the `dmg` report both read the POST-multiply
+   * amount (amendment 113): the attacker's tally is what actually
    * landed. `stats.damageMultiplier` is the victim-only published number
    * (amendment 120(e)) and is never composed in here — the gate always calls
    * the curve with the full E.
    */
-  private armorDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): number {
+  private armorDamage(
+    victim: ShipRecord,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): number {
     if (src === 'storm') return amount;
     const bonus = this.now < victim.hunkerUntil ? victim.stats.equipment.hunker.armorBonus : 0;
-    const piercing = this.piercingOf(byId);
-    const scaled = amount * damageMultiplierFor(victim.stats.armor + bonus - piercing);
+    return this.armorGate(victim.stats.armor + bonus, amount, src, byId, weapon);
+  }
+
+  /** THE MULTIPLY ITSELF, on a plain ARMOR number (Story 10.8 extraction —
+   *  armorDamage's own arithmetic, unchanged): `amount` × the one curve at
+   *  E = `armor` − the attacker's live POWER, a whole blow floored with the
+   *  floor of one, a 'burn' / 'grind' fraction kept exact. A hull reaches it
+   *  with its ARMOR (+ HUNKER); a RADIO BEACON with `CONFIG.beacons.armor`
+   *  (R8: "exactly as a ship with ARMOR 100"). */
+  private armorGate(
+    armor: number,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): number {
+    const power = this.powerOf(byId) + this.weaponPowerOf(byId, weapon);
+    const scaled = amount * damageMultiplierFor(armor - power);
     return src === 'burn' || src === 'grind' ? scaled : World.floorBlow(amount, scaled);
   }
 
-  /** The attacker's ARMOR PIERCING, read LIVE at impact (Story 9.9, epic-9
-   *  amendment 156): the current stats of the `byId` record. No attacker (the
-   *  coast, a wreck) and an attacker who left the room both read 0; a sunk
-   *  attacker's record persists, so it still reads its piercing. */
-  private piercingOf(byId: string | undefined): number {
-    if (byId === undefined) return 0;
-    return this.ships.get(byId)?.stats.armorPiercing ?? 0;
+  /**
+   * THE BEACON DOOR (Story 10.8, Eric 2026-11-06, R5 / R6 / R8 / R12 / R13) —
+   * the ONE way a RADIO BEACON loses hp, as applyDamage is a hull's: every
+   * weapon path that finds a `beacon` target (interception, burst, mine
+   * blast, the phosphor burn) and the ram reach it and nothing else does.
+   * Returns true iff `id` names a beacon that is AFLOAT right now — i.e. the
+   * blow RESOLVED on it (the hit call's arithmetic) — whether or not hp moved.
+   *
+   *   - NOT AFLOAT, NOTHING (R6): charted, sinking or gone, the call is a
+   *     no-op and answers false.
+   *   - THE SAME ARMOR GATE a ship takes (R8), at ARMOR
+   *     `CONFIG.beacons.armor` against the attacker's LIVE POWER (a missing
+   *     attacker reads the average), same flooring.
+   *   - THE SHOOTER'S DAMAGE TOTAL COUNTS IT (R12) — the nominal post-armor
+   *     blow, exactly the figure a hull hit adds — and the beacon's OWN
+   *     ledger notes the clamped part for the kill split. No `dmg` row (no
+   *     victim client), no entry on any hull's assist ledger, no aggro.
+   *   - AT 0 HP IT SINKS EARLY (sinkBeacon).
+   * Weapons-safe phases lose no hp, as on a hull.
+   */
+  damageBeacon(
+    id: string,
+    amount: number,
+    src: DamageSource,
+    byId: string | undefined,
+    weapon?: EquipmentId,
+  ): boolean {
+    const beacon = this.beacons.get(id);
+    if (beacon === undefined || !this.beacons.hittable(beacon, this.now)) return false;
+    if (!this.damageEnabled || !World.isBlow(amount)) return true;
+    const net = this.armorGate(CONFIG.beacons.armor, amount, src, byId, weapon);
+    const dealt = Math.max(0, Math.min(net, beacon.hp)); // the overkill clamp, read before the write
+    beacon.hp -= dealt; // THE ONE BEACON-HP DECREMENT IN THE GAME
+    if (byId !== undefined) this.creditBeaconDamage(beacon, byId, net, dealt);
+    if (beacon.hp <= 0) this.sinkBeacon(beacon, byId);
+    return true;
+  }
+
+  /** The credit half of the beacon door: the attacker's results-screen total
+   *  takes the nominal blow (creditDamage's figure), the beacon's ledger the
+   *  clamped one (recordAssist's rule, on the beacon's own map). */
+  private creditBeaconDamage(beacon: BeaconRecord, byId: string, net: number, dealt: number): void {
+    const attacker = this.ships.get(byId);
+    if (attacker) attacker.damageDealt += net;
+    if (CONFIG.xp.assistWindowMs > 0 && dealt > 0) this.noteAssist(beacon.damageFrom, byId, dealt);
+  }
+
+  /**
+   * A RADIO BEACON DESTROYED AFLOAT (R6, R9, R13): its one-minute sink starts
+   * NOW — the early sink time is stamped (public: the room mirrors it onto
+   * the schema), the collector's generation bumps so later shells this tick
+   * pass through it, and `CONFIG.beacons.killLevels` is paid by THE KILL
+   * SPLIT LAW (payKillPot) over the beacon's own ledger: the guaranteed share
+   * to the hull that landed the last blow, the rest by damage among everyone
+   * with a live counter on it. Nothing else a ship kill does happens: no
+   * `sunk` row, no kill-feed line, no kill count, no bounty, no `pveKills`.
+   */
+  private sinkBeacon(beacon: BeaconRecord, byId: string | undefined): void {
+    this.beacons.sink(beacon, this.now);
+    this.targetsGen += 1;
+    const killer = byId !== undefined ? this.ships.get(byId) : undefined;
+    this.payKillPot(CONFIG.beacons.killLevels, beacon.damageFrom, beacon.id, killer);
+    beacon.damageFrom.clear(); // the ledger is spent with the payout
+  }
+
+  /** The attacker's POWER (Story 9.9's ARMOR PIERCING; `piercingOf` reading
+   *  `stats.armorPiercing` until Story 10.3, Eric 2026-11-04, epic-10
+   *  amendment 7), read LIVE at impact (Story 9.9, epic-9 amendment 156): the
+   *  current stats of the `byId` record. No attacker (the coast, a wreck) and
+   *  an attacker who left the room both read the AVERAGE POWER,
+   *  `CONFIG.index.base` (Story 10.3 reading — E = victim ARMOR − base, so a
+   *  base hull takes them at ×1); a sunk attacker's record persists, so it
+   *  still reads its own power. */
+  private powerOf(byId: string | undefined): number {
+    if (byId === undefined) return CONFIG.index.base;
+    return this.ships.get(byId)?.stats.power ?? CONFIG.index.base;
+  }
+
+  /** WEAPON POWER (EXPERIMENT, Eric 2026-11-15): the firing weapon's OWN POWER,
+   *  `CONFIG.armor.weaponPowerPerTier` × (its tier − 1), read LIVE at impact
+   *  from the attacker's current stats — the amendment-156 rule POWER follows.
+   *  0 for no weapon (main battery, ram, storm, coast), no attacker, or an
+   *  attacker who left (their record is gone). */
+  private weaponPowerOf(byId: string | undefined, weapon: EquipmentId | undefined): number {
+    if (byId === undefined || weapon === undefined) return 0;
+    const row = this.ships.get(byId)?.stats.equipment[weapon];
+    if (row === undefined) return 0;
+    return weaponPowerFor(row.tier);
   }
 
   /** A whole blow after the Armor multiply: floored to a whole number, but a
@@ -5820,23 +6359,6 @@ export class World {
    *  2026-10-13 at the 9.7 review gate). A 0 blow stays 0. Pure. */
   private static floorBlow(amount: number, scaled: number): number {
     return amount > 0 ? Math.max(1, Math.floor(scaled)) : 0;
-  }
-
-  /** (c) THE SHIELD STEP. Expires a lapsed or spent block, absorbs what is
-   *  left of it from `amount`, and returns the REMAINDER the hull actually
-   *  faces. A fully absorbed hit returns 0 and the gate still runs to the end
-   *  (AR47). Every DamageSource reaches it (amendment 118). */
-  private absorbShield(victim: ShipRecord, amount: number): number {
-    const shield = victim.shield;
-    if (shield === null) return amount;
-    if (this.now >= shield.until || shield.hpLeft <= 0) {
-      victim.shield = null;
-      return amount;
-    }
-    const absorbed = Math.min(shield.hpLeft, amount);
-    shield.hpLeft -= absorbed;
-    if (shield.hpLeft <= 0) victim.shield = null;
-    return amount - absorbed;
   }
 
   /** (f)+(g) THE PER-SOURCE REPORT, byte-identical to what the three old
@@ -5850,17 +6372,15 @@ export class World {
    *    - 'storm' emits NOTHING (a 20Hz drowning event stream is wire noise).
    *    - every other source pushes the immediate victim-private `dmg` FIRST
    *      and then takes the sink edge — the order hitShip has always emitted.
-   *      `amount` on the event is the NOMINAL blow (post-shield), not `dealt`:
-   *      that is the shipped wire number and the results-screen tally's unit.
-   *  `absorbed` is what the shield ate of this blow; only the burn bucket
-   *  reads it (a non-burn blow already emits `dmg` 0 when fully absorbed). */
-  private reportDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined, absorbed: number): void {
+   *      `amount` on the event is the NOMINAL blow (post-armor), not `dealt`:
+   *      that is the shipped wire number and the results-screen tally's unit. */
+  private reportDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): void {
     if (src === 'burn') {
-      this.bankDot(victim, dotKey(byId!, victim.id), byId, amount, absorbed);
+      this.bankDot(victim, dotKey(byId!, victim.id), byId, amount);
       return;
     }
     if (src === 'grind') {
-      this.bankDot(victim, grindKey(byId, victim.id), byId, amount, absorbed);
+      this.bankDot(victim, grindKey(byId, victim.id), byId, amount);
       return;
     }
     if (src !== 'storm') this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
@@ -5872,13 +6392,10 @@ export class World {
    *  lethal bite's sink credited to `killer` (undefined for the coast), and
    *  otherwise emit once the window has run (see applyZoneEffects for why the
    *  DoT `dmg` event is windowed while its hp application stays per-tick). */
-  private bankDot(victim: ShipRecord, key: string, killer: string | undefined, amount: number, absorbed: number): void {
+  private bankDot(victim: ShipRecord, key: string, killer: string | undefined, amount: number): void {
     const bucket = this.dotBuckets.get(key);
-    if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, absorbed, since: this.now });
-    else {
-      bucket.amount += amount;
-      bucket.absorbed += absorbed;
-    }
+    if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, since: this.now });
+    else bucket.amount += amount;
     if (victim.hp <= 0) {
       this.flushDot(key);
       this.sinkShip(victim.id, killer);
@@ -5929,9 +6446,7 @@ export class World {
    * Records the CLAMPED `dealt`, never the nominal blow, so a killing shot that
    * overkills by 300 does not buy its owner a 300-damage share.
    *
-   * A FLEET attacker is never ledgered at all — it cannot accrue XP, so a share
-   * for it would evaporate rather than redistribute. An attacker we cannot find
-   * IS ledgered (a departed player's claim survives, exactly as a dead killer's
+   * An attacker we cannot find IS ledgered (a departed player's claim survives, exactly as a dead killer's
    * kill credit does); eligibleContributors drops it at payout if the hull is
    * really gone.
    *
@@ -5943,11 +6458,17 @@ export class World {
     if (CONFIG.xp.assistWindowMs <= 0 || !(dealt > 0)) return;
     const victim = this.ships.get(victimId);
     if (victim === undefined) return;
-    const attacker = this.ships.get(byId);
-    if (attacker !== undefined && roleIsFleetHull(attacker)) return;
-    const prev = victim.damageFrom.get(byId);
+    this.noteAssist(victim.damageFrom, byId, dealt);
+  }
+
+  /** The rolling counter itself, on any ledger (Story 10.8 extraction —
+   *  recordAssist's body, unchanged): a hull's `damageFrom`, or a radio
+   *  beacon's. The caller has already checked the window is on and
+   *  `dealt > 0`. */
+  private noteAssist(ledger: Map<string, AssistTally>, byId: string, dealt: number): void {
+    const prev = ledger.get(byId);
     if (prev === undefined || this.now - prev.at > CONFIG.xp.assistWindowMs) {
-      victim.damageFrom.set(byId, { amount: dealt, at: this.now, buckets: [{ at: this.now, amount: dealt }] });
+      ledger.set(byId, { amount: dealt, at: this.now, buckets: [{ at: this.now, amount: dealt }] });
       return;
     }
     prev.amount += dealt;
@@ -5983,10 +6504,7 @@ export class World {
    * never off `dmg` emission, so target practice in the weapons-safe ready
    * room (damage suppressed) still gets its feedback. Carries NO severity
    * channel of any kind: no victim id, no amount, no kill flag, no hull
-   * count. A DECOY that a shell, burst or fish connects with fires it exactly
-   * as a hull does (Story 8.16, amendment 121) — the call alone never tells a
-   * decoy from a ship; the OWNER's own decoy is never a victim at all
-   * (amendment 119), so it never fires one.
+   * count.
    */
   private emitHitCall(ownerId: string, x: number, y: number): void {
     this.pending.push({ k: 'hc', id: ownerId, x, y });
@@ -6007,6 +6525,37 @@ export class World {
     this.pending.push({ k: 'sp', id: shell.ownerId, x, y });
   }
 
+  /**
+   * THE TERMINAL BOOM OF ONE BALLISTIC — the ONE constructor of a shell's or
+   * torpedo's own boom subject, so no ending can forget the owner arm. A GUN
+   * SHELL's (`kind === 'shell'`) carries the server-internal owner tag `own`
+   * (signals.ts BoomSubject — Eric 2026-11-13, epic-11 amendment 11:
+   * the firer is always shown how his own shell ended, so his screen ends the
+   * track there instead of flying it on to full reach). A TORPEDO's never
+   * does. `hit` names the struck SHIP when there is one to name; the boom
+   * row still strips it per observer (the owner included) by class reach.
+   */
+  private ballisticBoom(shell: ShellState, at: { x: number; y: number }, hit?: string): BoomSubject {
+    const boom: BoomSubject =
+      hit === undefined ? { k: 'boom', id: shell.id, x: at.x, y: at.y } : { k: 'boom', id: shell.id, hit, x: at.x, y: at.y };
+    if (shell.kind === 'shell') boom.own = shell.ownerId;
+    return boom;
+  }
+
+  /**
+   * The boom of a ballistic that stopped without striking a hull. A TORPEDO
+   * that merely ran out of run (`expired`) is tagged with its owner (`run`,
+   * server-internal — signals.ts BoomSubject) so the boom row gates it at the
+   * torpedo eye reach instead of the splash reach (Story 11.2 review gate,
+   * F4): nothing exploded. Everything else — an island stop, a shell's fall —
+   * is the plain boom (a gun shell's with its owner arm, `ballisticBoom`).
+   */
+  private missBoom(shell: ShellState, outcome: { kind: string; x: number; y: number }): BoomSubject {
+    const boom = this.ballisticBoom(shell, outcome);
+    if (shell.kind === 'torp' && outcome.kind === 'expired') boom.run = shell.ownerId;
+    return boom;
+  }
+
   /** Turn a spent ballistic's outcome into its events, per the projectile's
    *  OWN hit rule (Story 1.4 seam): `burst` detonates at the target point;
    *  `hitShip` is an early interception OUTSIDE the blast — the interceptor
@@ -6021,7 +6570,7 @@ export class World {
       return;
     }
     if (outcome.kind !== 'hitShip') {
-      this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
+      this.pending.push(this.missBoom(shell, outcome));
       // A DIRECT shell (the machine gun's) that ARRIVED without striking a
       // hull LANDS here: the landing test runs at its final point (amendment
       // 200 — a no-op for any mask without `mine`). An island stop is not a
@@ -6040,7 +6589,10 @@ export class World {
     // every branch below — and every branch of resolveInterception — dispatches
     // on the KIND rather than on which store happens to hold the id.
     const kind = World.targetKindOf(hulls, outcome.victimId);
-    this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
+    // A RADIO BEACON'S ID NEVER LEAVES THE SERVER (Story 10.8): the boom of a
+    // shell that stopped on one is the plain hit-less boom — `hit` names a
+    // SHIP, and the boom row forwards it raw to a spectator.
+    this.pending.push(this.ballisticBoom(shell, outcome, kind === 'beacon' ? undefined : outcome.victimId));
     // A MINE CAN NEVER BE THE VICTIM HERE (amendment 20, Eric 2026-09-16):
     // the sweep list stepShell resolved against had no `mine` in it at all, so
     // there is no mine case to special-case and no mine-consumed shell to emit
@@ -6091,6 +6643,9 @@ export class World {
     // (amendments 131 / 135(d)). The interceptor then takes the shell's
     // contactDamage below like any other early hit (0 for the flash).
     this.applyStopTags(shell, outcome);
+    // ...and a FLASH round flashes VISIBLY there too (gate fix F1): its burst
+    // (tagged `f`) rides beside the boom at the stop point.
+    this.emitInterceptionBurst(shell, outcome);
     // THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12/R2.14) — the game's
     // one CONTACT-BLAST projectile: it detonates AT ITS IMPACT POINT for the
     // layer's CAPTIVE MINES damage over that row's FIXED 32 u burst, instead of
@@ -6107,32 +6662,28 @@ export class World {
       return;
     }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
-    const amount = interceptionAmount(shell, outcome);
+    const amount = interceptionAmount(shell);
     // A SETTLED 0 is NO blow, exactly as at the burst site (burstDamage): a
-    // direct (machine-gun) blow attenuated to nothing — reachable under
-    // `--tune gunAttenuation.minFactor=0` at max range — must not fire the
-    // aggro seam or emit a 0 `dmg` (Story 9.12 review gate).
+    // direct blow settled to nothing (a non-positive raw damage) must not fire
+    // the aggro seam or emit a 0 `dmg` (Story 9.12 review gate).
     if (amount <= 0) return;
-    if (kind === 'decoy') {
-      // A DECOY intercepted the shot (Story 8.16): it takes the interceptor's
-      // contactDamage exactly as a hull would — an enemy TORPEDO detonating on
-      // it deals its full damage (amendment 120: a 50-damage fish kills a fresh
-      // one) and the fish is consumed as on a hull. The `hc` above already told
-      // the shooter something connected (amendment 121). No XP, no feed line.
-      // Selected by KIND, not by "the ships map had no such id" (P2). A
-      // machine-gun hit is attenuated exactly as on the hull it imitates (r6).
-      this.damageDecoy(outcome.victimId, amount, shell.ownerId);
+    // Selected by KIND, not by "the ships map had no such id" (P2): a hull
+    // takes contact damage through the gate, a RADIO BEACON through its own
+    // door (Story 10.8, R8 — the same amount, the same source); nothing else
+    // does (the decoy branch left with Story 10.5).
+    const src: DamageSource = shell.kind === 'torp' ? 'torpedo' : 'shell';
+    if (kind === 'beacon') {
+      this.damageBeacon(outcome.victimId, amount, src, shell.ownerId, shell.weapon);
       return;
     }
+    if (kind !== 'hull') return;
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !isAfloat(victim.lifecycle)) return;
     // EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05): a later
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
-    // not a single click (the same-click salvo ledger is deleted). `noAggro`
-    // (the deleted GUN BUOY's R2.21a tag — nothing sets it since Story 8.16)
-    // rides the fromMine seat: its rationale is the mine exception's, verbatim.
-    this.hitShip(victim, amount, shell.ownerId, shell.noAggro === true, shell.kind === 'torp' ? 'torpedo' : 'shell');
+    // not a single click (the same-click salvo ledger is deleted).
+    this.hitShip(victim, amount, shell.ownerId, src, shell.weapon);
   }
 
   /**
@@ -6155,8 +6706,10 @@ export class World {
    * cycle-44 rebalance.
    */
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly Target[]): void {
-    const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
-    this.pending.push(burst);
+    // Victims first (pure — burstVictims reads only its arguments), so a
+    // POINT landing's boom can name the hull it struck before any `dmg`.
+    const victims = burstVictims(at, shell.burstRadius, hulls, shell.ownerId);
+    this.announceLanding(shell, at, victims);
     // A star shell's burst also lights its zone (Story 1.7), a PHOSPHOR
     // shell's spawns its burning zone (Story 8.17) and a FOULING shell's
     // spawns its foul zone (Story 9.4): the three server-internal tags ride
@@ -6169,19 +6722,16 @@ export class World {
     // 0-hp dmg-event noise, structurally — and so emits `sp` (135(d)).
     //
     // ONE CALL TO THE COLLECTOR'S OWN MEMBERSHIP RULE covers every kind the
-    // shell's mask admitted (Story 8.4): hulls and decoys take damage, fish
+    // shell's mask admitted (Story 8.4): hulls take damage, fish
     // are removed. A MINE IS NEVER A BURST VICTIM (amendment 200 — shared
     // burstVictims skips the kind); the LANDING TEST at the burst point runs
     // after the hit call, where the old burst detonation sat.
-    const victims = burstVictims(at, shell.burstRadius, hulls, shell.ownerId);
     let resolved = 0; // hulls the burst RESOLVED (Story 4.3 — counted ahead of
     // the damage-suppression phase guard inside hitShip, so the Hit Call keys
     // off resolution, not dmg: the weapons-safe ready room still calls hits).
     if (shell.damage > 0) {
       for (const t of victims) {
-        // Fish are removed below, after the hit call — never a damage victim
-        // (a fish is not a decoy, so it must never reach burstDamage's
-        // damageDecoy branch).
+        // Fish are removed below, after the hit call — never a damage victim.
         if (t.kind === 'ordnance') continue;
         resolved += this.burstDamage(shell, t, at);
       }
@@ -6195,9 +6745,7 @@ export class World {
     }
     // Story 4.3: exactly one of hc/sp per shell resolution — a burst that
     // resolved ≥1 hull is a Hit Call at the burst point; one that resolved
-    // none is fall of shot. An ENEMY decoy inside the burst RESOLVES (Story
-    // 8.16, amendment 121 — `hc`, exactly as a hull); the shooter's OWN decoy
-    // is never a victim (amendment 119), so a burst on it alone splashes.
+    // none is fall of shot.
     //
     // THE STAR SHELL NOW EMITS `hc` LIKE ANY DAMAGING BURST (Story 8.17, epic-8
     // amendment 135(a) — SUPERSEDING the amendment-39 era rule that a
@@ -6222,7 +6770,7 @@ export class World {
     else this.emitSplash(shell, at.x, at.y);
     // THE LANDING TEST (amendment 200; Story 9.12, epic-9 amendment 184(i)):
     // a deck-gun shell's burst point IS where it landed, so every mine whose
-    // 10 u marker the blast touches takes the shell's attenuated damage. Run
+    // 10 u marker the blast touches takes the shell's damage. Run
     // AFTER the hc/sp decision on purpose: a mine is never counted in
     // `resolved` (the hit call is about the hulls the shell connected with —
     // a pop with no hull victim keeps `sp`), and a sprung trap announces
@@ -6272,47 +6820,39 @@ export class World {
     this.targetsGen += 1;
   }
 
-  /** One burst victim that is not a mine. Returns 1 when it RESOLVED (Story
-   *  4.3's hit-call arithmetic), 0 otherwise. A DECOY (Story 8.16) takes
-   *  the shell's full damage like any hull (amendment 121) but is NOT a ship, so
-   *  it never enters the damage gate: no XP, no feed line, no `dmg` event. The
-   *  per-victim liveness re-check on a hull is defence against a directed
+  /** One burst victim that is a hull. Returns 1 when it RESOLVED (Story
+   *  4.3's hit-call arithmetic), 0 otherwise. The per-victim liveness re-check on a hull is defence against a directed
    *  caller — since Story 8.4 the collector's sink invalidation means a wreck
    *  is not in `hulls` at all. */
   private burstDamage(shell: ShellState, t: Target, at: Vec2): number {
     const amount = burstHitAmount(shell, t, at);
     // A 0-hp blow is NO blow (Story 9.8 review; Story 9.12 reading r3):
     // `settleBlow` answers 0 only for a non-positive raw blow — reachable
-    // under `--tune flak.rimFactor=1` at the exact rim or `--tune
-    // gunAttenuation.minFactor=0` at max range (resolveInterception holds the
-    // same guard for a direct blow).
+    // under `--tune flak.rimFactor=1` at the exact rim (resolveInterception
+    // holds the same guard for a direct blow).
     // That must not fire the aggro seam, credit damage or emit a `dmg`, so
     // nothing below runs.
     if (amount <= 0) return 0;
-    if (t.kind !== 'hull') return this.damageDecoy(t.id, amount, shell.ownerId) ? 1 : 0;
+    // A RADIO BEACON caught by the burst (Story 10.8, R8): the same settled
+    // amount through its own door; it RESOLVED iff it was still afloat.
+    if (t.kind === 'beacon') {
+      return this.damageBeacon(t.id, amount, landingSource(shell), shell.ownerId, shell.weapon) ? 1 : 0;
+    }
+    if (t.kind !== 'hull') return 0;
     const victim = this.ships.get(t.id);
     if (!victim || !isAfloat(victim.lifecycle)) return 0;
-    // `noAggro` (the deleted GUN BUOY's tag — nothing sets it since Story
-    // 8.16) rides the fromMine seat here exactly as on the contact path above.
-    this.hitShip(victim, amount, shell.ownerId, shell.noAggro === true, 'burst');
+    this.hitShip(victim, amount, shell.ownerId, landingSource(shell), shell.weapon);
     return 1;
   }
 
   /** AMENDMENT 19's geometric victims: hulls that sank THIS tick whose
    *  silhouette the burst covers. Counted for the `hc`/`sp` decision only —
    *  no damage, no assist, no event of their own. The owner's own wreck is
-   *  excluded on the same owner-immunity rule every other path uses, and so is
-   *  a FRIENDLY FLEET wreck (Story 8.4 review, P8): a fleet-owned shell never
-   *  sees a friendly fleet hull as a collision subject at all (stepShells'
-   *  filter, amendment 36), so counting one as a geometric victim here would
-   *  let the wreck list re-admit through the back door exactly the hull the
-   *  damage path structurally refuses. */
+   *  excluded on the same owner-immunity rule every other path uses. */
   private wrecksInBurst(at: Vec2, radius: number, ownerId: string): number {
-    const friendlyFleet = this.isFleetHull(ownerId);
     let n = 0;
     for (const wreck of this.sunkThisTick) {
       if (wreck.id === ownerId) continue;
-      if (friendlyFleet && this.isFleetHull(wreck.id)) continue;
       if (pointPolygonDistance(at, wreck.poly) <= radius) n += 1;
     }
     return n;
@@ -6326,7 +6866,8 @@ export class World {
    * the three deck guns — that LANDS at `at` uses its WHOLE BLAST against
    * mines: EVERY mine whose 10 u marker the blast touches (centre within
    * `shell.burstRadius + CONFIG.mine.hitRadiusU` of `at`) takes the shell's
-   * range-attenuated `damage` (never contactDamage, and no flak rim term —
+   * `damage` (never contactDamage, and no flak rim term; flat with range since
+   * Story 11.1 —
    * a mine is not a burst victim), any kind, armed or arming, any owner (the
    * shooter's own included — the standing friendly-fire exception). So a flak
    * burst clears a cluster, and a Tier I cannon click's two shells on one
@@ -6343,7 +6884,7 @@ export class World {
   private landOnMines(shell: ShellState, at: Vec2, targets: readonly Target[]): void {
     if (!shell.hits.includes('mine')) return;
     const reach = shell.burstRadius + CONFIG.mine.hitRadiusU;
-    const amount = settleBlow(shell.damage * shellAttenuation(shell, at));
+    const amount = settleBlow(shell.damage);
     for (const t of targets) {
       if (t.kind !== 'mine') continue;
       const mine = this.mines.get(t.id);
@@ -6355,40 +6896,118 @@ export class World {
 
   /** Spend `amount` of a mine's hp (amendment 200); true iff it is now at or
    *  below 0 and the caller pops it. A mine is not a ship: no gate, no XP, no
-   *  `dmg` event — the second non-hull decrement after `damageDecoy`, and like
-   *  it allowed only here by the damage-gate fence (damageGate.test pins both). */
+   *  `dmg` event — the one non-hull decrement, allowed only here by the
+   *  damage-gate fence (damageGate.test pins it). */
   private damageMine(mine: MineState, amount: number): boolean {
     mine.hp -= amount;
     return mine.hp <= 0;
   }
 
   /**
-   * A MINE SHOT TO 0 HP (amendment 200). A NAVAL or FOULING mine detonates
-   * exactly as a tripped one does — boom (no `hit`), its own blast on its
-   * OWNER's numbers at its own point, and (naval only) the chain. A CAPTIVE
-   * mine is DESTROYED: taken off the water with the same sight-gated `boom`
-   * so observers see it go (201(c)), but no `hit`, no blast and no fish — only
-   * a TRIP launches a captive's torpedo.
+   * A MINE SHOT TO 0 HP is DESTROYED, every kind (Eric 2026-11-15: "shooting
+   * mines destroys them but doesn't make them detonate early or anything";
+   * until then a naval / fouling mine detonated as if tripped, amendment 200,
+   * and a naval one set off its chain). It is taken off the water with the
+   * sight-gated `boom` so observers see it go (201(c)) — no `hit`, no blast,
+   * no slow, no chain and no fish. Only a TRIP detonates a mine.
    */
   private popMine(mine: MineState): void {
-    if (mine.kind !== 'captive') {
-      this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
-      return;
-    }
     if (!this.consumeMine(mine.id)) return;
     this.pending.push({ k: 'boom', id: mine.id, x: mine.x, y: mine.y });
+  }
+
+  /** THE one burst subject a shell emits (the burst point, or a FLASH
+   *  round's interception stop point): the wire BurstEvent plus the internal
+   *  `own` the burst row's owner arm reads. FLASH SHELLS tag (epic-10
+   *  amendment 5): everyone who sees the detonation sees the disc — `f` rides,
+   *  and the burst row widens its gate for a tagged subject ONLY to the hulls
+   *  inside the flash radius (gate fix F2: the flashed victim sees it too). */
+  private pushBurst(shell: ShellState, at: Vec2): void {
+    const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
+    // The FLASH disc's radius rides beside `f` (Story 10.5, R7): the launched
+    // shell's stamped radius, so the client draws the tier's disc.
+    if (shell.flash) {
+      burst.f = true;
+      burst.r = shell.flash.radius;
+    }
+    this.pending.push(burst);
+  }
+
+  /**
+   * WHAT A LANDING LOOKS LIKE (the first event resolveBurst emits). A shell
+   * with a blast (`burstRadius > 0`) bursts: the `burst` ring, unchanged. A
+   * ZERO-RADIUS landing — the MAIN BATTERY's direct-hit shell (Eric
+   * 2026-11-13, epic-11 amendment 8: "Only direct hits count") — has no blast
+   * to draw, so it lands as an IMPACT: a `boom` at the landing point, naming
+   * the hull whose silhouette holds the point (the first, in target order)
+   * as `hit`, or none on a miss. The SECONDARIES' round lands the same way
+   * (epic-11 amendment 11). Like every gun shell's terminal boom it
+   * carries the server-internal owner tag (`ballisticBoom`; it was the
+   * main-battery-only `land` tag until then), which keeps the retired burst's
+   * owner arm. A beacon struck this way is never named (its id never leaves
+   * the server, Story 10.8).
+   */
+  private announceLanding(shell: ShellState, at: Vec2, victims: readonly Target[]): void {
+    if (shell.burstRadius > 0) {
+      this.pushBurst(shell, at);
+      return;
+    }
+    this.pending.push(this.ballisticBoom(shell, at, victims.find((t) => t.kind === 'hull')?.id));
+  }
+
+  /** An INTERCEPTED FLASH round's burst at the stop point (gate fix F1): the
+   *  flash fires there (applyStopTags), so its disc must be seen there — the
+   *  same subject resolveBurst pushes, beside the interception's boom. Every
+   *  other intercepted round (no `flash` tag) bursts nowhere: boom only. */
+  private emitInterceptionBurst(shell: ShellState, at: Vec2): void {
+    if (!shell.flash) return;
+    this.pushBurst(shell, { x: at.x, y: at.y });
   }
 
   /** WHAT A SHELL LEAVES WHERE IT STOPS, whichever way it stopped (its burst
    *  point, or an interception's stop point — the ONE shared list, so the two
    *  resolution paths can never disagree about a tag): a `lit` flare lights a
    *  zone (Story 1.7), a `burn` phosphor shell spawns a burning zone (Story
-   *  8.17) and a `foul` fouling shell spawns a foul zone (Story 9.4). Plain
-   *  shells carry no tag and leave nothing. */
+   *  8.17), a `foul` fouling shell spawns a foul zone (Story 9.4) and a
+   *  `flash` shell dazzles every non-owner hull inside it (Story 8.17,
+   *  restored by Story 10.9). Plain shells carry no tag and leave nothing. */
   private applyStopTags(shell: ShellState, at: Vec2): void {
     if (shell.lit) this.spawnLitZone(shell, at);
     if (shell.burn) this.spawnBurnZone(shell, at);
     if (shell.foul) this.spawnFoulZone(shell, at);
+    if (shell.flash) this.applyFlash(at, shell.ownerId, shell.flash.radius, shell.flash.durationMs);
+  }
+
+  /**
+   * A FLASH SHELLS burst (Story 8.17, Eric ruling 2026-09-29, amendment 132;
+   * RESTORED by Story 10.9, epic-10 amendments 2 and 4): every AFLOAT
+   * non-owner ship whose CENTRE is within `radius` of `at` (amendment 136) —
+   * captains and bots alike (a spectator or a wreck has no eyes to dazzle) — is marked `dazzledUntil = max(current,
+   * now + durationMs)` — `durationMs` is the shell's tag, stamped by the row
+   * as FLASH_WINDOW_MS (the whole whiteout, epic-10 amendment 5): a hull
+   * already dazzled keeps whichever expiry is LATER, so a second flash
+   * restarts the whiteout, never stacks and never shortens. One-time: no
+   * zone, no light, no reveal, no damage, nothing refreshes the mark.
+   * Perception (signals.sightOf → the shared `effectiveSight`) reads the
+   * mark as the whiteout's clear circle — 0 through ramp + hold, then growing
+   * to full sight — for the DAZZLED observer's own sight; frames mirror the
+   * mark to the victim alone.
+   *
+   * GATED ON damageEnabled (Story 2.8 review, P9): a flash is a HOSTILE
+   * effect, so a ready-room burst blinds nobody — the shell still flies and
+   * bursts, and nothing else happens.
+   */
+  private applyFlash(at: Vec2, ownerId: string, radius: number, durationMs: number): void {
+    if (!this.damageEnabled) return; // ready-room flashes blind nobody
+    const r2 = radius * radius;
+    const until = this.now + durationMs;
+    for (const ship of this.ships.values()) {
+      if (ship.id === ownerId || !isAfloat(ship.lifecycle)) continue;
+      const dx = ship.state.x - at.x;
+      const dy = ship.state.y - at.y;
+      if (dx * dx + dy * dy > r2) continue;
+      ship.dazzledUntil = Math.max(ship.dazzledUntil, until);
+    }
   }
 
   /** Spawn a lit zone where a star shell stopped (burst point, or the
@@ -6429,8 +7048,8 @@ export class World {
 
   /** Spawn a FOUL ZONE where a fouling shell stopped (burst point, or the
    *  interception stop point — Story 9.4, the lit / burn precedent). Radius
-   *  and lifetime are STAMPED from the shell's `foul` tag (a consumable has
-   *  no tiers, so they are CONFIG's numbers at launch); the zone is spawned
+   *  and lifetime are STAMPED from the shell's `foul` tag (the radius is the
+   *  launching row's tiered `radius`, Story 10.5 R7); the zone is spawned
    *  whatever `damageEnabled` says — it draws in the pre-start phases, it
    *  just stamps nobody there (applyFoulZones). */
   private spawnFoulZone(shell: ShellState, at: Vec2): void {
@@ -6449,7 +7068,7 @@ export class World {
   /**
    * THE FOUL ZONE STAMP (Story 9.4, Eric ruling 2026-10-11, epic-9
    * amendments 61–68), once per tick over post-move hull OUTLINES: every
-   * AFLOAT hull — captains, bots, PvE drones and the zone's OWNER alike (Eric:
+   * AFLOAT hull — captains, bots and the zone's OWNER alike (Eric:
    * *"Yes it does slow you"*) — whose silhouette polygon touches ANY live foul
    * zone (the shared `polyInBlast`, point-to-polygon distance ≤ r: the gun
    * burst / mine blast rule, amendment 62 — a long hull is caught a
@@ -6523,6 +7142,7 @@ export class World {
         this.burnShip(ship, dps * dt, ownerId);
       }
     }
+    this.burnBeacons(dt);
     // Every pair that did NOT burn this tick has stopped burning: flush its
     // remainder now so no applied damage is ever left unreported. The contact
     // bleed's `grind:` windows are applyContactDamage's to flush, not ours.
@@ -6543,23 +7163,37 @@ export class World {
     // sinking guard, the overkill clamp, the hp write, the assist credit and
     // the DoT bucket all live in applyDamage / reportDamage, and the 'burn'
     // source is what selects the windowed report instead of an immediate `dmg`.
-    this.applyDamage(victim, amount, 'burn', ownerId);
+    this.applyDamage(victim, amount, 'burn', ownerId, 'phosphorShells'); // only phosphor burns
   }
 
   /** Emit one aggregated victim-private `dmg` for a DoT bucket and drop it.
    *  `hp` reports the victim's CURRENT hp (already applied per tick), so the
-   *  client's hp mirror is exact at flush time. A window the SHIELD swallowed
-   *  whole (`amount` 0, `absorbed` > 0) still emits — `dmg` amount 0, the
-   *  shells/torpedoes/mines behaviour — so an absorbed burn plays the ordinary
-   *  hit cue (amendment 117 / 124(i)); a window where nothing burned at all
-   *  emits nothing. */
+   *  client's hp mirror is exact at flush time. A window where nothing burned
+   *  at all emits nothing. */
   private flushDot(key: string): void {
     const bucket = this.dotBuckets.get(key);
     if (bucket === undefined) return;
     this.dotBuckets.delete(key);
     const victim = this.ships.get(bucket.victimId);
-    if (victim === undefined || (bucket.amount <= 0 && bucket.absorbed <= 0)) return;
+    if (victim === undefined || bucket.amount <= 0) return;
     this.pending.push({ k: 'dmg', id: bucket.victimId, amount: bucket.amount, hp: Math.max(0, victim.hp) });
+  }
+
+  /** THE PHOSPHOR BURN ON RADIO BEACONS (Story 10.8, R8: "special shells (the
+   *  phosphor burn included)"): every hittable beacon whose CENTRE a burning
+   *  zone covers takes that zone's `dps` per tick through its own door —
+   *  the hull rule exactly (centre test, the strongest zone per owner, the
+   *  fractional 'burn' amount unfloored), credited to the zone's owner. A
+   *  beacon has no owner, so no zone is "its own". No `dmg` window: there is
+   *  no victim client to report to. */
+  private burnBeacons(dt: number): void {
+    if (this.burnZones.size === 0) return;
+    for (const beacon of this.beacons.records) {
+      if (!this.beacons.hittable(beacon, this.now)) continue;
+      for (const [ownerId, dps] of this.markZoneEffects({ id: beacon.id, state: beacon })) {
+        this.damageBeacon(beacon.id, dps * dt, 'burn', ownerId, 'phosphorShells'); // only phosphor burns
+      }
+    }
   }
 
   /** The per-ship BURN-ZONE scan (Story 8.17): the owners of every covering
@@ -6568,8 +7202,9 @@ export class World {
    *  the overlap). Only `burnZones` is read: a lit zone burns nobody
    *  (amendment 134), a foul zone only slows (Story 9.4, its own store and
    *  its own row — applyFoulZones), and the dazzle branch left with the
-   *  verb. */
-  private markZoneEffects(ship: ShipRecord): Map<string, number> {
+   *  verb. `ship` is any body with an id and a centre — a hull, or a radio
+   *  beacon (Story 10.8, burnBeacons). */
+  private markZoneEffects(ship: { id: string; state: Vec2 }): Map<string, number> {
     const burnedBy = new Map<string, number>();
     for (const zone of this.burnZones.values()) {
       if (zone.ownerId === ship.id) continue; // own zones never burn you
@@ -6629,11 +7264,9 @@ export class World {
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
       for (const slot of ship.loadout) {
-        // Fail-closed dispatch (Story 8.1): both registries are PARTIAL over
-        // their id space, so an id with no built row ticks nothing. `slotRow`
-        // (Story 8.7) is what routes a BELT slot's consumable id to the
-        // consumable registry — whose rows tick nothing by construction.
-        slotRow(slot.equipmentId, this.consumables)?.tick(ship, slot, dtMs, this.now);
+        // Fail-closed dispatch (Story 8.1): the registry is PARTIAL over its
+        // id space, so an id with no built row ticks nothing.
+        slotRow(slot.equipmentId)?.tick(ship, slot, dtMs, this.now);
       }
       for (const intent of ship.tickIntents) this.consumeClick(ship, intent);
       this.consumeClick(ship, ship.input);
@@ -6662,7 +7295,7 @@ export class World {
   private streamControl(): void {
     for (const ship of this.ships.values()) {
       const slot = ship.loadout[SLOT_GUN];
-      const row = slotRow(slot.equipmentId, this.consumables);
+      const row = slotRow(slot.equipmentId);
       if (row?.stream === undefined) continue;
       // A REFUSED hull (frozen / dead) is told the stream is NOT live, never
       // skipped: a hold cut by the refusal ends the stream THAT tick — the
@@ -6670,6 +7303,50 @@ export class World {
       // a FRESH stream (review gate P1, 2026-09-30).
       const live = this.activationRefusal(ship) === null && ship.input.held && ship.input.slot === SLOT_GUN;
       row.stream(this.activationContext(ship), slot, live);
+    }
+  }
+
+  /**
+   * THE TURRET STEP (Story 10.4; see the STEP_ORDER row): every hull with a
+   * battery steps its turrets through the shared stepper. An AFLOAT hull's
+   * turrets point at the latest input's aim point where it is inside their
+   * arcs and rest elsewhere (`batteryAimPoint` — the same aim `InputMsg.aim`
+   * / `aimDist` the client predicts with; an input with no positive aimDist
+   * is NO AIM and keeps every angle, gate S2); a SINKING or dead hull's
+   * turrets KEEP their angles (aimPoint null — orchestrator ruling, wave-1
+   * gate) while their reloads still count down, so a dying captain can still
+   * fire whatever is ready (amendment 10).
+   */
+  /** THE LAUNCHER STEP (Story 10.6; see the STEP_ORDER row): every hull
+   *  holding a torpedo steps its launchers (equipment/mounts.ts). */
+  private stepLaunchers(dtMs: number): void {
+    for (const ship of this.ships.values()) stepShipLaunchers(ship, dtMs);
+  }
+
+  private stepTurrets(dtMs: number): void {
+    for (const ship of this.ships.values()) {
+      if (ship.turrets.length === 0) continue;
+      const aim = isAfloat(ship.lifecycle) ? batteryAimPoint(ship.state, ship.input.aim, ship.input.aimDist) : null;
+      stepTurrets(ship.turrets, ship.hullId, ship.state, aim, dtMs);
+    }
+  }
+
+  /**
+   * THE SECONDARIES CHANNEL (Story 10.4, R3; see the STEP_ORDER row). For
+   * every hull: the shared heat stepper
+   * runs on the latest input's `sec` level — refused (frozen room / dead hull,
+   * the one `activationRefusal` rule; a SINKING hull stays live exactly as its
+   * weapons do) reads as released, so the guns drain — and every round it
+   * returns is spawned. No denial is ever queued: a gun waiting out its
+   * interval is not a refused press, and its heat is visible in `OwnShip.sec`.
+   */
+  private secondariesControl(dtMs: number): void {
+    for (const ship of this.ships.values()) {
+      const live = this.activationRefusal(ship) === null && ship.input.sec;
+      const rounds = stepSecondaries(ship.sec, live, dtMs);
+      if (rounds <= 0) continue;
+      const ctx = this.activationContext(ship);
+      for (let i = 0; i < rounds; i += 1) fireSecondaryRound(ctx);
     }
   }
 
@@ -6693,16 +7370,14 @@ export class World {
     // the wrong channel. An out-of-range/empty slot is inert here too (it was
     // an 'empty-slot' gate denial before — same no-op, no lastFireT).
     const id = fittedEquipment(ship.loadout, input.slot);
-    // `isWeaponItem` (Story 8.7), not the equipment-only map: a CONSUMABLE can
-    // be click-aimed too (the DECOY BUOY is), and this wall must answer for
-    // whatever the slot holds — the ONE predicate the client's prime/activate
-    // fork reads as well.
-    if (id === null || !isWeaponItem(id)) return;
+    // The shared weapon/ability split — the ONE predicate the client's
+    // prime/activate fork reads as well.
+    if (id === null || !EQUIPMENT_IS_WEAPON[id]) return;
     // A LEVEL WEAPON NEVER FIRES ON A CLICK (Story 8.15, amendment 103): a row
     // that declares `stream` (the machine gun) is driven by streamControl off
     // `input.held`, so a fireSeq edge on it is consumed and then INERT — no
     // activation, no denial, no lastFireT stamp (the stream never back-dates).
-    if (slotRow(id, this.consumables)?.stream !== undefined) return;
+    if (slotRow(id)?.stream !== undefined) return;
     // D1: validate the click's claimed fire time BEFORE activation. The clamp
     // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
     // never before the previous ACCEPTED fire time).
@@ -6724,7 +7399,13 @@ export class World {
     // press identity is the click's fireSeq, so the client's predicted
     // denial (if any) dedups the echo and a stale-ammo race is surfaced
     // late-but-explicit instead of silently swallowed.
-    else this.queueDenial(ship, input.slot, input.fireSeq, result.reason, 'weapon');
+    else this.queueWeaponDenial(ship, input, result.reason);
+  }
+
+  /** A refused click's wire denial (keyed (slot, fireSeq) — no `act`). */
+  private queueWeaponDenial(ship: ShipRecord, input: InputMsg, denial: ActivationDenial): void {
+    const reason = World.wireDenialReason(denial, 'weapon');
+    if (reason !== null) this.queueDenial(ship, { slot: input.slot, reason, seq: input.fireSeq });
   }
 
   /** Run `fn` with `input` temporarily installed as the ship's live input
@@ -6743,20 +7424,19 @@ export class World {
   /**
    * Ability-activation control (Story 1.6) — the actSeq sibling of fireControl,
    * same monotonic grammar. A stored actSeq newer than lastActSeq is ONE pending
-   * activation; lastActSeq advances EVERY tick (even dead or inert, exactly like
-   * lastFireSeq), so a stale counter never re-reads as a fresh press. It targets
-   * ABILITIES ONLY: the slot named by input.actSlot activates through the single
-   * sinking gate iff it holds non-weapon equipment (EQUIPMENT_IS_WEAPON[id] ===
-   * false). A weapon or empty/out-of-range slot is silently inert — weapons fire
-   * via fireSeq + a click, never actSeq, so the two counters never race within a
-   * tick. Ability activation is NOT latency-compensated: the gate runs at `now`
-   * (the default fireT), so the boost window opens at server apply time.
+   * press; lastActSeq advances EVERY tick (even dead or inert, exactly like
+   * lastFireSeq), so a stale counter never re-reads as a fresh press. Since
+   * Story 10.5 (epic-10 amendment 11) the press NAMES its ability
+   * (`InputMsg.act`, validated by inputs.ts): the SHIFT (slot 1, through the
+   * single sinking gate exactly as before), or one of the two COOLDOWN
+   * ABILITIES — HULL REPAIR (`C`) and SMOKE (`V`) — which hold no slot and are
+   * answered by pressCooldownAbility. Ability activation is NOT
+   * latency-compensated: everything runs at `now`.
    * Story 2.1: every accepted input's press intent is evaluated in seq order
    * (tickIntents), so two presses coalescing into one tick both activate or
-   * get their own wire denial; the queue holds every accepted input
-   * (INTENT_QUEUE_CAP === INPUT_RATE_CAP — no overflow), so the trailing
-   * latest-input pass is the direct-assignment (test) backstop only, a no-op
-   * when the queue already covered the press.
+   * get their own wire denial; the trailing latest-input pass is the
+   * direct-assignment (test) backstop only, a no-op when the queue already
+   * covered the press.
    */
   private activationControl(): void {
     for (const ship of this.ships.values()) {
@@ -6771,23 +7451,73 @@ export class World {
   private consumePress(ship: ShipRecord, input: InputMsg): void {
     const activated = input.actSeq > ship.lastActSeq;
     ship.lastActSeq = Math.max(ship.lastActSeq, input.actSeq);
-    // Afloat OR SINKING (Story 5.2 weapons seam, amendments 10/15): abilities
-    // meet the fitment criterion — "it is in a ship equipment slot" — so
-    // the boost's doomed surge and the decoy drop stay live while sinking.
+    // Afloat OR SINKING (Story 5.2 weapons seam, amendments 10/15): the Shift
+    // stays live while sinking; the two cooldown abilities refuse a sinking
+    // hull themselves (pressCooldownAbility).
     if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || !activated) return;
-    // actSeq targets ABILITIES only: a weapon or empty slot is a no-op (no
-    // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
-    // the mirror of fireControl's weapon-only wall.
-    const id = fittedEquipment(ship.loadout, input.actSlot);
-    // The mirror of consumeClick's wall, over the same shared predicate: a
-    // KEY-FIRES consumable in a consumable slot (5–10) rides this channel exactly as
-    // the boost does, and an `isWeapon` one is inert here.
-    if (id === null || isWeaponItem(id)) return;
-    const result = this.withInput(ship, input, () => this.sinkingActivationGate(ship, input.actSlot));
-    // A refused press becomes a SELF-PRIVATE wire denial (Story 1.10) keyed
-    // on the press's actSeq — this is what makes the within-RTT double
-    // press (stale client predicts READY, server refuses) audible at last.
-    if (!result.ok) this.queueDenial(ship, input.actSlot, input.actSeq, result.reason, 'ability');
+    // inputs.ts drops a message with an unknown code; this is the backstop for
+    // a directly assigned input.
+    const ability = abilityFromCode(input.act);
+    if (ability === null) return;
+    if (ability === 'shift') this.pressShift(ship, input);
+    else this.pressCooldownAbility(ship, input.actSeq, ability);
+  }
+
+  /** THE SHIFT PRESS — today's slot-1 path, unchanged: slot 1 activates
+   *  through the single sinking gate iff it holds an ability (a weapon or an
+   *  empty slot is silently inert). A refusal is a SELF-PRIVATE wire denial
+   *  keyed on the press's actSeq (Story 1.10) — the within-RTT double press
+   *  (stale client predicts READY, server refuses) is audible. */
+  private pressShift(ship: ShipRecord, input: InputMsg): void {
+    const id = fittedEquipment(ship.loadout, SLOT_BOOST);
+    if (id === null || EQUIPMENT_IS_WEAPON[id]) return;
+    const result = this.withInput(ship, input, () => this.sinkingActivationGate(ship, SLOT_BOOST));
+    if (result.ok) return;
+    const reason = World.wireDenialReason(result.reason, 'ability');
+    if (reason !== null) this.queueDenial(ship, { slot: abilitySlot('shift'), reason, seq: input.actSeq, act: abilityCode('shift') });
+  }
+
+  /**
+   * HULL REPAIR (`C`) and SMOKE (`V`) — the two per-ship COOLDOWN ABILITIES
+   * (Story 10.5, Eric 2026-11-05, epic-10 amendment 11, R1–R3). Every ship
+   * has both, ready at spawn; neither sits in a slot. The refusal law is the
+   * SHARED one both sides call (`repairRefusal` — 'cooling' inside the
+   * cooldown, else 'blocked' on a full hull; `smokeRefusal` — 'cooling'), and
+   * the cooldown (`abilityReadyAt` — fixed, never scaled by RELOAD, never
+   * touched by INSTANT RELOAD) is stamped ONLY on success.
+   *
+   * THE CALLER'S GATES (the shared law leaves them to the server): a frozen
+   * room or a dead hull is refused silently (activationRefusal — never on the
+   * wire); a SINKING hull is refused 'blocked' (no hp comes back in the
+   * window, and the 9.3 cloud refused a sinking press the same way), nothing
+   * started. The effects themselves are unchanged: the paid repair
+   * (applyRepair — the ship's own `stats.repair` instant + pooled hp and the `heal`
+   * cue) and ONE countermeasure cloud at the hull's centre (makeCloud).
+   */
+  private pressCooldownAbility(ship: ShipRecord, seq: number, ability: CooldownAbilityId): void {
+    if (this.activationRefusal(ship) !== null) return;
+    const reason = this.cooldownRefusal(ship, ability);
+    if (reason !== null) {
+      this.queueDenial(ship, { slot: abilitySlot(ability), reason, seq, act: abilityCode(ability) });
+      return;
+    }
+    // THE SHIP'S OWN NUMBERS (Story 10.6, R8 / R9): the cooldown and the
+    // effect read the folded `stats.repair` / `stats.smoke` — never CONFIG,
+    // never the ship's RELOAD.
+    if (ability === 'repair') {
+      ship.repairReadyAt = abilityReadyAt(this.now, ship.stats, 'repair');
+      this.applyRepair(ship);
+    } else {
+      ship.smokeReadyAt = abilityReadyAt(this.now, ship.stats, 'smoke');
+      this.makeCloud(ship);
+    }
+  }
+
+  /** The wire refusal of a cooldown-ability press, or null when it fires. */
+  private cooldownRefusal(ship: ShipRecord, ability: CooldownAbilityId): DenialReason | null {
+    if (!isAfloat(ship.lifecycle)) return 'blocked';
+    if (ability === 'smoke') return smokeRefusal(this.now, ship.smokeReadyAt);
+    return repairRefusal(ship.hp, ship.stats.maxHp, this.now, ship.repairReadyAt);
   }
 
   /**
@@ -6807,14 +7537,14 @@ export class World {
   /**
    * Evaluate ONE accepted input's honk intent (hornSeq grammar) — the
    * consumePress sibling: unconditional consumption (lastHornSeq advances
-   * even dead, droned, or on cooldown, so a stale/replayed counter never
+   * even dead or on cooldown, so a stale/replayed counter never
    * re-reads as a fresh press) + at-most-once evaluation. An eligible press
    * emits ONE `fh` SUBJECT into pending — {k,h,x,y,id}, the ship's true
    * current position and id, which the signals.ts foghorn row consumes to
    * compute each observer's bearing/tier and NEVER forwards (materialize
    * builds a fresh per-observer payload; x/y reach spectators only, id
    * reaches no one) — and arms the cooldown. An early or ineligible press
-   * (dead, drone, inside cooldownMs) is consumed and silently dropped,
+   * (dead, inside cooldownMs) is consumed and silently dropped,
    * exactly as malformed input is: no denial, no event, no state beyond the
    * counter.
    */
@@ -6824,10 +7554,7 @@ export class World {
     // Afloat OR SINKING (Story 5.2, amendment 10 — "Weapons and equipment
     // only. And foghorn."): the horn is named alongside the slots, so a
     // sinking captain keeps the last word.
-    // Fleet hulls never honk (they emit hornSeq 0 forever; this is the
-    // backstop). ECONOMY/CONTENT reading, not the participant one — a hull
-    // driven through the input pipeline may legitimately sound its horn.
-    if (!pressed || (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || roleIsFleetHull(ship) || this.now < ship.nextHonkAt) return;
+    if (!pressed || (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || this.now < ship.nextHonkAt) return;
     ship.nextHonkAt = this.now + CONFIG.foghorn.cooldownMs;
     this.pending.push({ k: 'fh', h: ship.horn, x: ship.state.x, y: ship.state.y, id: ship.id });
   }
@@ -6842,16 +7569,13 @@ export class World {
    * THE SINKING POLICY IS CLOSED (Story 5.2, amendment 10 — the TBD this gate
    * carried since Epic 1): NO RESTRICTION AT THE GATE. The ratified criterion
    * is FITMENT, not category — "it is in a ship equipment slot so it meets
-   * criteria for usability" — so every registry row (the weapons, the Shifts,
-   * the belt's consumables) activates while SINKING exactly
-   * as when alive, and a future row is in by default rather than needing a
-   * ruling. What a sinking captain loses is the ECONOMY — the upgrade menu
-   * and its card picks — which never routed through this gate at all (that
-   * block lives in spendPoint: "once sinking, you're done"). A stocked HULL
-   * REPAIR is the deliberate edge of the fitment rule: the press DOES reach its
-   * row here, and the ROW refuses it (no hp ever comes back to a hull in the
-   * window), so the "afloat-only" rule has one home rather than a gate special
-   * case. Only a hull
+   * criteria for usability" — so every registry row (the weapons and the
+   * Shifts) activates while SINKING exactly as when alive, and a future row is
+   * in by default rather than needing a ruling. What a sinking captain loses
+   * is the ECONOMY — the upgrade menu and its card picks — which never routed
+   * through this gate at all (that block lives in spendPoint: "once sinking,
+   * you're done"). (HULL REPAIR and SMOKE hold no slot since Story 10.5 and
+   * never reach this gate — pressCooldownAbility.) Only a hull
    * whose life is OVER is refused ('dead'): defense-in-depth on a public seam
    * (fireControl/activationControl already skip the sunk). An empty or
    * out-of-range slot is answered here (empty-slot denial, no dereference) so
@@ -6879,22 +7603,11 @@ export class World {
     if (!slot) return { ok: false, reason: 'empty-slot' };
     const id = slot.equipmentId;
     if (id === null) return { ok: false, reason: 'empty-slot' };
-    // Story 8.7: `slotRow` resolves EITHER registry — equipment for slots 0–4,
-    // the consumable rows for the belt — so a belt press dispatches here and
-    // nowhere else.
-    const row = slotRow(id, this.consumables);
+    const row = slotRow(id);
     // Fail-closed (Story 8.1): an id with no built module answers exactly as an
     // empty slot does — applyCard never fits one, so this is unreachable in play.
-    // A consumable whose row is not built yet (all five today, amendment 41)
-    // lands here too, which is what keeps an empty registry safe.
     if (row === undefined) return { ok: false, reason: 'empty-slot' };
-    const result = row.activate(this.activationContext(ship, fireT), slot);
-    // THE USE (Story 8.7 ruling 4) — here, at the ONE call path to activate(),
-    // so "the copy leaves `cards` and a spent stack clears" has exactly one
-    // home and no row mutates its own slot. Only a SUCCESSFUL activation spends
-    // a copy: the row already denied a dry stack without touching it.
-    if (result.ok && isConsumableId(id)) this.spendStock(ship, id);
-    return result;
+    return row.activate(this.activationContext(ship, fireT), slot);
   }
 
   /** The SHIP-LEVEL refusals of the activation gate, shared by every channel
@@ -6907,64 +7620,6 @@ export class World {
     return null;
   }
 
-  /**
-   * ONE COPY OF `lineId` LEAVES THE BUILD, and a stack that hit zero clears its
-   * slot — the after-half of a successful consumable activation (ruling 4).
-   *
-   * WHY `cards` AND NOT A NEW WIRE FIELD: the client rebuilds every slot's
-   * contents by REPLAYING `OwnShip.cards`, which is already on the wire. If a
-   * use only decremented `n` here, the replay would restock the copy on every
-   * respawn and disagree with `ammo` after a refresh. Removing the copy makes
-   * `cards` the single truth for both `equipmentId` and `n`, on both sides, with
-   * nothing added to the protocol. The LAST occurrence goes so the fit ORDER of
-   * the remaining copies is the order they were taken in.
-   *
-   * The re-fold is the same one `applyCard` runs after a push. Consumables carry
-   * no stat effects, so in practice nothing moves (pinned) — but the fold is run
-   * rather than assumed, because "a card left `cards`" is exactly the event
-   * `effectiveStats` and `cardBehaviors` are derived from.
-   *
-   * RESPAWN AND REDEPLOY REBUILD FROM `cards`, so a used copy is never restored.
-   */
-  private spendStock(ship: ShipRecord, lineId: ConsumableId): void {
-    const at = ship.cards.lastIndexOf(lineId);
-    if (at >= 0) ship.cards.splice(at, 1);
-    this.refoldCards(ship);
-    this.rebuildConsumableSlots(ship);
-  }
-
-  /**
-   * THE CONSUMABLE SLOTS ARE ALWAYS THE REPLAY (Story 8.7 review patch P1) —
-   * slots 5–10 are re-derived from `slotsWithCards(stats, cards)` after every
-   * spend, and the weapon row (0–4) is not touched.
-   *
-   * WHY THE REPLAY AND NOT AN IN-PLACE CLEAR: the client never sees
-   * `loadout`; it replays `OwnShip.cards` through the same shared fold. Since
-   * Story 9.2 (epic-9 amendment 21) that fold binds each kind to its own FIXED
-   * slot (`consumableSlotFor`) and NEVER packs: a used-out stack leaves
-   * `equipmentId: null` in its own slot and every other stack stays where it
-   * is, so key N names the same kind on both sides all match long. Taking the
-   * slots from the replay keeps the two agreeing by construction rather than
-   * by argument, for the clear AND for every stack count.
-   *
-   * LOSSLESS: a consumable slot carries copies held and a `reloadMsLeft` that is 0
-   * for its whole life (a stack never reloads), and both are a pure function of
-   * `cards` — there is no live state here to lose. A WEAPON slot's timers and
-   * pool are NOT, which is exactly why slots 0–4 are left alone. Slots are
-   * mutated in place rather than replaced so a caller still holding the
-   * LoadoutSlot it activated sees the truth.
-   */
-  private rebuildConsumableSlots(ship: ShipRecord): void {
-    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
-    for (const i of CONSUMABLE_SLOTS) {
-      const live = ship.loadout[i];
-      const want = replay[i];
-      if (live === undefined || want === undefined) continue;
-      live.equipmentId = want.equipmentId;
-      live.state = want.state;
-    }
-  }
-
   /** The capabilities equipment needs to activate for this ship this tick.
    *  `fireT` is the VALIDATED fire time (clampFireTime — never earlier than
    *  the allowance permits, defaulting to `now` for directed callers). */
@@ -6975,19 +7630,17 @@ export class World {
       fireT,
       mapRadius: this.map.radius,
       islands: this.map.islands,
+      heightRaster: this.map.heightRaster,
       mkId: () => this.nextBallisticId(),
+      mintShell: () => {
+        const id = this.nextBallisticId();
+        return { id, seed: dispersionShellSeed(this.dispersionKey, this.shellSeq) };
+      },
       spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y, kind) => this.spawnMine(ship, x, y, kind, fireT),
-      // Story 8.16 — the DECOY BUOY's placement capability, the dropMine
-      // sibling (hp is CONFIG.decoyBuoy's; no lifetime).
-      dropDecoy: (x, y) => this.spawnDecoy(ship, x, y),
       // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell
       // gun reach OWN-FLARES-ONLY: a row cannot ask about anyone else's zones.
       ownLitZones: () => this.ownLiveLitZones(ship.id),
-      // Story 8.8 — HULL REPAIR's whole body, World-owned: the clamped instant
-      // hp, the paid pool, and the self-private `heal` cue. Keyed on the
-      // ACTIVATING ship, so a row can never repair anyone else.
-      applyRepair: (instantHp, regenHp) => this.applyRepair(ship, instantHp, regenHp),
       // Story 8.15 — the two new Shifts' bodies, World-owned and keyed on the
       // ACTIVATING ship: INSTANT RELOAD's walk over its own weapon slots, and
       // HUNKER's window (the ONLY writer of hunkerUntil): inside it the
@@ -6996,15 +7649,6 @@ export class World {
       setHunker: (until) => {
         ship.hunkerUntil = until;
       },
-      // Story 8.16 — SHIELD BLOCK's seat (its ONE writer; a second copy
-      // REPLACES), keyed on the ACTIVATING ship.
-      setShield: (shield) => {
-        ship.shield = { hpLeft: shield.hpLeft, until: shield.until };
-      },
-      // Story 9.3 — MULTI-SPECTRAL COUNTERMEASURE's whole body (its ONE
-      // writer), keyed on the ACTIVATING ship: one new cloud at the hull's
-      // centre, every press (amendment 46).
-      setCountermeasure: () => this.makeCloud(ship),
     };
   }
 
@@ -7020,38 +7664,62 @@ export class World {
    * out a second free round on the next tick). The MACHINE GUN is the one
    * exception by construction: its running timer is a MAGAZINE SWAP, and a
    * swap completing means a full magazine (amendment 103), so it fills. A
-   * weapon that is not reloading is untouched; the consumable slots (5–10) and the Shift
-   * slot (1) are never visited.
+   * weapon that is not reloading is untouched; the Shift slot (1) is never
+   * visited, and neither are the HULL REPAIR / SMOKE cooldowns (Story 10.5,
+   * R3 / R10 — they are not reloads). THE SECONDARIES are vented — heat to
+   * zero (2026-11-05, Story 10.5, R10, epic-10
+   * amendment 11; supersedes amendment 9(h) R7 "heat untouched") — through
+   * the shared `ventSecondaries` law.
    */
   private static finishReloads(ship: ShipRecord): void {
+    ship.sec = ventSecondaries(ship.sec);
     for (const i of [SLOT_GUN, ...WEAPON_SLOTS]) {
       const slot = ship.loadout[i];
-      const id = slot?.equipmentId;
-      if (id === null || id === undefined || slot.state === null || slot.state.reloadMsLeft <= 0) continue;
-      if (isConsumableId(id)) continue; // never a consumable line, whatever slot it sits in
-      const maxAmmo = equipmentMaxAmmo(ship.stats, id);
-      slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
-      slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
+      if (slot === undefined) continue;
+      // THE MAIN BATTERY (Story 10.4 reading of record): INSTANT RELOAD
+      // finishes EVERY turret (angles untouched), and slot 0's derived pair
+      // is re-synced from them.
+      if (slot.equipmentId === 'mainBattery') {
+        reloadAllTurrets(ship.turrets);
+        syncBatterySlot(ship, slot);
+      } else {
+        World.finishOneReload(ship, slot);
+      }
     }
+    // THE LAUNCHERS AND RACKS (Story 10.6, R14): every tube loaded, ONE mine
+    // per rack that is short; the two slot summaries re-derived.
+    instantReloadMounts(ship);
   }
 
-  /** The class Shift slot 1 fits for a hull (Story 8.15, amendment 89(c)) —
-   *  `classShift` over the class id for a captain or a bot; a FLEET drone has
-   *  no Shift (and no class id), so it takes the default, which `loadoutFor`
-   *  ignores for a fleet hull anyway. */
-  private static shiftFor(role: ShipRole, hullId: HullId): ShiftId {
-    return roleIsFleetHull({ role }) ? DEFAULT_SHIFT : classShift(hullId as ShipClassId);
+  /** `finishReloads` for one ordinary per-round (or magazine) slot. */
+  private static finishOneReload(ship: ShipRecord, slot: LoadoutSlot): void {
+    const id = slot.equipmentId;
+    if (id === null || slot.state === null || slot.state.reloadMsLeft <= 0 || isMountBacked(id)) return;
+    const maxAmmo = equipmentMaxAmmo(ship.stats, id);
+    slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
+    slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
   }
 
-  /** `shiftFor` over a live record. */
-  private static shiftOf(ship: ShipRecord): ShiftId {
-    return World.shiftFor(ship.role, ship.hullId);
+  /** A fresh all-zero bonus record (Story 10.7, R5) — one per ship. */
+  private static noBonus(): Record<IndexId, number> {
+    return Object.fromEntries(INDEX_IDS.map((id) => [id, 0])) as Record<IndexId, number>;
   }
 
   /** Zero the Story 8.15 per-life clocks — the HUNKER window and the
    *  machine gun's stream clock — at every life boundary where
    *  `boostUntil` resets (redeploy / founder / respawn), so a fresh life
    *  never inherits an open cut or a mid-stream cadence. */
+  /** A FRESH LIFE'S GUNS (Story 10.4): turrets at rest and loaded, the
+   *  secondaries cold — at the redeploy and respawn edges (a FOUNDERED wreck
+   *  keeps its angles: the record is not re-armed until it comes back). */
+  private static resetBattery(ship: ShipRecord): void {
+    ship.turrets = initialTurrets(ship.hullId);
+    ship.sec = initialSecondaries();
+    // ...and the torpedo launchers at rest with every tube loaded, every mine
+    // rack full, for whatever the family slots hold (Story 10.6, I3).
+    resetMounts(ship);
+  }
+
   private static clearShiftClocks(ship: ShipRecord): void {
     ship.hunkerUntil = 0;
     ship.streamNextAt = 0;
@@ -7059,31 +7727,35 @@ export class World {
   }
 
   /**
-   * THE PAID REPAIR (Eric rulings 2026-08-04; the trigger became a CARD in
-   * Story 8.8) — reached ONLY through `ActivationContext.applyRepair`, i.e.
-   * only from HULL REPAIR's row, which owns the afloat / full-hull guards.
+   * THE PAID REPAIR (Eric rulings 2026-08-04; a cooldown ABILITY since Story
+   * 10.5) — reached ONLY from pressCooldownAbility, which owns the afloat /
+   * full-hull / cooldown guards.
    *
    * `instantHp` lands now, clamped to maxHp; `regenHp` REPLACES the pool.
    * A RE-PRESS REPLACES, IT NEVER STACKS (Eric ruling 2026-09-29, epic-8
    * amendment 141 — the shield / smoke "replaces" posture applied to
    * the heal): whatever was still owed from an earlier copy is DISCARDED, and
-   * a fresh 50 hp pays out over a fresh 5 s at the unchanged 0.01 hp/ms
-   * (tickRepairs' fixed regenHp/regenMs rate — there is still no rate field to
+   * a fresh pool pays out over a fresh `regenMs` at the unchanged rate
+   * (the rate stamped at the press, `repairRate` = regenHp/regenMs — there is still no rate a card can
    * recompute, so the anti-flask half of the old rule holds: a re-press can
    * never make the drain run FASTER, it can only restart it). The instant
    * half lands as before. This supersedes the "pools ADD, the drain runs
    * twice as LONG" law of amendment 51's parenthetical — a captain who
    * re-presses at 2 s into a pool with 30 owed holds 50, not 80.
    *
-   * The `heal` cue is queued HERE rather than in the row, for the same reason
+   * The `heal` cue is queued HERE, for the same reason
    * `bn` is queued in spendPoint rather than inside applyBoon: the pending
    * queue is World state, and a directed repair must not be event-free by
    * accident. It is SELF-PRIVATE (signals.ts) and carries no amount — an
    * observer can never learn that a hull is repairing.
    */
-  private applyRepair(ship: ShipRecord, instantHp: number, regenHp: number): void {
+  private applyRepair(ship: ShipRecord): void {
+    const { instantHp, regenHp, regenMs } = ship.stats.repair; // the ship's own (Story 10.6, R8)
     ship.hp = Math.min(ship.hp + instantHp, ship.stats.maxHp);
     ship.repairHp = regenHp; // REPLACE (amendment 141), never `+=`
+    // The pool's payout rate, STAMPED: it always drains over the fixed window
+    // (R15), whatever card is taken mid-drain.
+    ship.repairRate = regenMs > 0 ? regenHp / regenMs : 0;
     this.pending.push({ k: 'heal', id: ship.id });
   }
 
@@ -7199,12 +7871,14 @@ export class World {
     // live-stepped one does. It still resolves no outcomes: a terminal result
     // defers to next tick's sweep.
     const hulls = this.hitTargets(sweepMask(shell.hits));
+    const islandIndex = this.islandIndex;
     let remainingMs = this.now - shell.bornAt;
     while (remainingMs > 0) {
       const dtMs = Math.min(remainingMs, CONFIG.tick.simDtMs);
       remainingMs -= dtMs;
       const outcome = stepShell(shell, {
         islands: this.map.islands,
+        islandIndex,
         targets: hulls,
         now: this.now,
         dt: dtMs / 1000,
@@ -7233,42 +7907,6 @@ export class World {
     // A newly-laid mine is not a target this tick (it is still arming), but the
     // store changed, so the collector's memo must not outlive it.
     this.targetsGen += 1;
-  }
-
-  /** Store a newly-placed DECOY BUOY at an already-validated point (Story
-   *  8.16) — the spawnMine sibling. Unlike a mine a decoy is a target the
-   *  instant it lands (no arming), so the collector's memo must not outlive
-   *  the store change. */
-  private spawnDecoy(owner: ShipRecord, x: number, y: number): void {
-    this.decoySeq += 1;
-    addDecoy(this.decoys, owner.id, x, y, `d${this.decoySeq}`);
-    this.targetsGen += 1;
-  }
-
-  /**
-   * Apply weapon damage to a DECOY victim (Story 8.16, amendments 119–121) —
-   * the hitShip sibling for the one non-ship damageable. Returns true iff the
-   * decoy RESOLVED as a victim (the caller's hit-call answer: a connected shot
-   * on a decoy IS a Hit Call, amendment 121). Refuses — false, no damage —
-   * an unknown id, and a blow from the decoy's OWN owner: NO FRIENDLY FIRE on
-   * the decoy (amendment 119), defence in depth beside the shared own-decoy
-   * skip in sweep/acquire/burst. Honors the phase guard (target practice
-   * resolves but breaks nothing). A decoy at 0 hp is DELETED and the
-   * collector's generation bumps, so a later shell of the same click cannot
-   * die on a float the first one already sank. NO XP, NO `dmg`, NO feed line:
-   * a decoy is not a ship and never enters the damage gate — `decoy.hp -=`
-   * below is the ONE non-hull hp decrement (the gate pin counts it).
-   */
-  private damageDecoy(id: string, amount: number, byId: string): boolean {
-    const decoy = this.decoys.get(id);
-    if (decoy === undefined || decoy.ownerId === byId) return false;
-    if (!this.damageEnabled) return true; // resolved, but target practice breaks nothing
-    decoy.hp -= amount;
-    if (decoy.hp <= 0) {
-      this.decoys.delete(id);
-      this.targetsGen += 1;
-    }
-    return true;
   }
 
   private nextBallisticId(): string {
@@ -7341,11 +7979,6 @@ export class World {
       const raw = ship.sweepAngle + delta;
       ship.prevSweepAngle = ship.sweepAngle;
       ship.sweepAngle = wrapPositive(raw);
-      // Story 9.8: one more revolution per wrap past 2π — the dropout roll's
-      // `rev` (rulings 121–123). `raw` is ≥ 0 (a wrapped angle plus a positive
-      // step), so floor(raw / TAU) is the number of wraps this tick (0 or 1 at
-      // any sane period).
-      ship.sweepRev += Math.floor(raw / TAU);
     }
   }
 
@@ -7355,8 +7988,7 @@ export class World {
    * level to the millisecond. Three gates, all of them here:
    *   • `xpEnabled` — the match phase is 'active' (the ready room and the
    *     post-match freeze accrue nothing; Match drives the flag);
-   *   • alive — a wreck awaiting respawn / a spectating corpse earns nothing;
-   *   • not a drone — enforced again inside addXpMs, the credit path itself.
+   *   • alive — a wreck awaiting respawn / a spectating corpse earns nothing.
    * The sim never pauses, so XP keeps ticking while the refit modal is open —
    * that is the ratified behavior, not an oversight.
    */
@@ -7364,6 +7996,263 @@ export class World {
     if (!this.xpEnabled) return;
     for (const ship of this.ships.values()) {
       if (isAfloat(ship.lifecycle)) this.addXpMs(ship, dtMs);
+    }
+  }
+
+  /** Are the RADIO BEACONS running? The match is live for XP, the zone clock
+   *  (their cycle clock) has started, and no dev smoke switched them off. */
+  private beaconsLive(): boolean {
+    return this.beaconsEnabled && this.xpEnabled && this.zoneStartT !== null;
+  }
+
+  /** THE PUBLIC BEACON CHART (Story 10.8, R9): the current ring cycle, when
+   *  it began and each beacon's position and early sink time — exactly what
+   *  the room mirrors onto the schema, and the only beacon facts a bot's port
+   *  may read. Empty (cycle -1) when there are none. */
+  get beaconChart(): BeaconChart {
+    return this.beacons.chart;
+  }
+
+  /** Scratch: the hulls a beacon may pay this tick. */
+  private readonly beaconHulls: ShipRecord[] = [];
+
+  /** One hull's integer share of a beacon's pot, through THE XP door — so a
+   *  level, its offer and its `pt` behave exactly as passive XP's do — and
+   *  onto the hull's harness tally. */
+  private readonly payBeaconShare = (hull: ShipRecord, shareMs: number): void => {
+    this.addXpMs(hull, shareMs);
+    hull.beaconXpMs += shareMs;
+  };
+
+  /**
+   * RADIO BEACON PAYOUT (Story 10.8, R3 / R4; see the STEP_ORDER row). Every
+   * AFLOAT PARTICIPANT — captains and bots; a sinking or sunk hull is not
+   * afloat — whose centre is within range of a paying beacon splits that beacon's pot
+   * (BeaconField.payout). The receiver learns nothing but its own XP: no
+   * event, no paint.
+   */
+  private tickBeacons(dtMs: number): void {
+    if (!this.beaconsLive()) return;
+    const hulls = this.beaconHulls;
+    hulls.length = 0;
+    for (const ship of this.ships.values()) {
+      if (isAfloat(ship.lifecycle) && roleIsParticipant(ship)) hulls.push(ship);
+    }
+    this.beacons.payout(this.now, dtMs, hulls, this.payBeaconShare);
+  }
+
+  /**
+   * RADIO BEACON PLACEMENT (Story 10.8, R2 / R10; see the STEP_ORDER row;
+   * RANDOM since Eric 2026-11-15, Story 11.7). When the zone clock is in a
+   * ring cycle the field has not placed for, the set is REPLACED: each of
+   * `beaconCountFor(cycle)` beacons goes on a uniformly random spot
+   * (`pickBeaconSpot`) about the LIVE ring's centre, no farther out than the
+   * ring's radius minus `CONFIG.beacons.edgeMarginU` (the whole paying circle
+   * inside the ring), clear of land, at least `CONFIG.beacons.minSpacingFrac` × that
+   * radius from the beacons already placed this cycle, and — the soft rule —
+   * outside every captain's keep-out disc (`captainPositions`,
+   * `CONFIG.beacons.keepOutU`). There is no retry queue — the ruling is "at
+   * 0:00": a beacon that cannot clear the discs takes the first draw that met
+   * the hard rules and is LOGGED (`beacon.keepOutRelaxed`); one that cannot
+   * meet the hard rules is skipped and LOGGED (`beacon.placeSkipped`). A cycle
+   * with no beacons (sudden death) clears the set.
+   */
+  private placeBeacons(): void {
+    const zoneStartT = this.zoneStartT;
+    if (zoneStartT === null || !this.beaconsLive()) return;
+    const cycle = beaconCycleAt(this.now, zoneStartT, this.zoneCfg);
+    if (cycle === this.beacons.cycle) return;
+    const ring = this.zoneLiveRing;
+    const centre = { x: ring.cx, y: ring.cy };
+    const radius = ring.r - CONFIG.beacons.edgeMarginU;
+    const captains = this.captainPositions();
+    // The spacing scales with the placement radius (`minSpacingFrac`).
+    const spot = { ...CONFIG.beacons, minSpacingU: Math.max(0, radius) * CONFIG.beacons.minSpacingFrac };
+    let request = 0; // the cycle's pick number — distinct per log line even after a skip
+    this.beacons.replace(cycle, beaconCycleStartMs(zoneStartT, cycle, this.zoneCfg), (rng, taken) => {
+      const at = pickBeaconSpot(centre, radius, this.map.islands, taken, captains, spot, rng);
+      const slot = taken.length;
+      request += 1;
+      if (at === null) {
+        logWarn('beacon.placeSkipped', { tick: this.tick, cycle, request, slot, attempts: CONFIG.beacons.placeAttempts });
+        return null;
+      }
+      if (at.keepOutRelaxed) logWarn('beacon.keepOutRelaxed', { tick: this.tick, cycle, request, slot });
+      return at;
+    });
+  }
+
+  /** Are the scheduled AIRDROPS running? Mirrors `beaconsLive`: the match
+   *  is live (`xpEnabled` — so the post-match results window, where the zone
+   *  clock still runs, scatters nothing), the zone clock has started, and no
+   *  dev smoke switched them off. */
+  private dropsLive(): boolean {
+    return this.dropsEnabled && this.xpEnabled && this.zoneStartT !== null;
+  }
+
+  /**
+   * AIRDROP SCATTER (Story 10.9, R1; see the STEP_ORDER row). Every match
+   * minute up to the zone clock's current one that has not been scattered
+   * yet places its batch (`dropCountFor` — none from `untilMinute` on; the
+   * counter still advances), in minute order.
+   */
+  private spawnDrops(): void {
+    const zoneStartT = this.zoneStartT;
+    if (zoneStartT === null || !this.dropsLive()) return;
+    const minute = dropMinuteAt(this.now, zoneStartT, this.zoneCfg.beatMs);
+    for (; this.nextDropMinute <= minute; this.nextDropMinute += 1) {
+      this.scatterBatch(this.nextDropMinute);
+    }
+  }
+
+  /** One minute's batch on its own private sub-stream. A drop that finds no
+   *  spot in `placeAttempts` draws is skipped and LOGGED — never thrown. */
+  private scatterBatch(minute: number): void {
+    const count = dropCountFor(minute, CONFIG.drops);
+    if (count <= 0) return;
+    const rng = mulberry32((this.dropSeed ^ Math.imul(minute + 1, 0x9e3779b9)) >>> 0);
+    const ring = this.zoneLiveRing;
+    for (let n = 0; n < count; n += 1) {
+      const at = this.pickDropSpot(rng, ring);
+      if (at === null) {
+        logWarn('drops.placeSkipped', { tick: this.tick, minute, slot: n, attempts: CONFIG.drops.placeAttempts });
+        continue;
+      }
+      const id = `drp-${minute}-${n}`;
+      this.drops.set(id, { id, x: at.x, y: at.y, kind: rollKind(rng, CONFIG.drops) });
+    }
+  }
+
+  /**
+   * A uniform point in the live ring's disc of radius `r − radiusU` (sqrt-
+   * radius sampling: two draws per attempt), FLOAT32-EXACT like a beacon's,
+   * rejected on land (`islandClearance ≤ SPAWN_ISLAND_CLEARANCE`, the spawn
+   * ring's own test) and inside any live beacon's signal circle (R1). Null
+   * after `placeAttempts` rejections.
+   */
+  private pickDropSpot(rng: Rng, ring: ZoneRing): Vec2 | null {
+    // A ring too small to hold a whole crate places none (review gate, Codex
+    // 2026-11-09): clamping the domain to zero would park a crate on the
+    // centre with its disc in the storm — reachable only under a dev
+    // `zoneOverride` (production rings never shrink below 15 u before 12:00).
+    const radius = ring.r - CONFIG.drops.radiusU;
+    if (!(radius >= 0)) return null;
+    for (let i = 0; i < CONFIG.drops.placeAttempts; i += 1) {
+      const r = radius * Math.sqrt(rng.next());
+      const a = rng.next() * Math.PI * 2;
+      const p = { x: Math.fround(ring.cx + Math.cos(a) * r), y: Math.fround(ring.cy + Math.sin(a) * r) };
+      if (islandClearance(p, this.map.islands) <= SPAWN_ISLAND_CLEARANCE) continue;
+      if (this.inBeaconKeepOut(p)) continue;
+      return p;
+    }
+    return null;
+  }
+
+  /** THE HARD KEEP-OUT (R1): `p` lies strictly inside the signal circle
+   *  (`CONFIG.beacons.rangeU`, centre to centre) of a beacon that is charted,
+   *  afloat or sinking — any phase but `gone`. */
+  private inBeaconKeepOut(p: Vec2): boolean {
+    const r2 = CONFIG.beacons.rangeU * CONFIG.beacons.rangeU;
+    for (const b of this.beacons.records) {
+      if (this.beacons.phaseOf(b, this.now) === 'gone') continue;
+      const dx = p.x - b.x;
+      const dy = p.y - b.y;
+      if (dx * dx + dy * dy < r2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * THE WRECK PICKUP (Story 10.9, R2): a sinking PARTICIPANT leaves one crate
+   * of kind `'wreck'` at its centre — its `wreckRolls` stat + amount rolls are
+   * drawn at PICKUP (`collectDrop`), nothing here. No land / keep-out / ring
+   * check — the hull was there; a wreck in the storm is taken by `stormDrops`
+   * next tick. Placed whether or not the schedule is switched off
+   * (WorldOptions.drops) — but ONLY ONCE THE ZONE HAS STARTED: a sink before
+   * `zoneStartT` is a ready-room / sandbox practice sink (a respawning dev or
+   * practice hull), never a match death, and a crate there would turn
+   * practice sinks into permanent index points.
+   *
+   * NOR WHILE RESPAWN IS ON (review gate 2026-11-10): a hull that will respawn
+   * (`respawnEnabled` — the sandbox, and every phase before `active`) is
+   * practicing even after the zone clock starts, and would otherwise sail
+   * back over its own wreck and carry the points into the match.
+   *
+   * A SCUTTLE (`scuttle`, the departing captain's killer-less sink) leaves a
+   * crate ONLY when the hull was IN COMBAT (`inCombat`, Eric 2026-11-09);
+   * a sink by damage (a hull, a mine, a ram, the storm) always does.
+   */
+  private placeWreckDrop(ship: ShipRecord, scuttle: boolean): void {
+    if (this.zoneStartT === null || this.respawnEnabled || !roleIsParticipant(ship)) return;
+    if (scuttle && !inCombat(ship, this.now)) return;
+    const k = this.wreckDrops;
+    this.wreckDrops += 1;
+    const id = `drp-w-${k}`;
+    const x = Math.fround(ship.state.x);
+    const y = Math.fround(ship.state.y);
+    this.drops.set(id, { id, x, y, kind: 'wreck' });
+  }
+
+  /**
+   * AIRDROP COLLECTION (Story 10.9, R4; see the STEP_ORDER row). Drops in
+   * placement order; for each, the afloat hulls in ship insertion order (the
+   * `hull` target list); the first PARTICIPANT whose silhouette is within
+   * `radiusU` of the crate collects it. A sinking / sunk hull is not in the
+   * list (and is re-checked anyway). The list is asked for per drop: the memo
+   * answers at once unless a sink bumped its generation.
+   */
+  private collectDrops(hitTargets: (mask: readonly TargetKind[]) => readonly Target[]): void {
+    // Only while the match is live (review gate 2026-11-10; `dropsLive`'s
+    // `xpEnabled` arm): the results window grants no points, no re-fold, no
+    // `dp` toast.
+    if (!this.xpEnabled || this.drops.size === 0) return;
+    for (const drop of [...this.drops.values()]) {
+      const taker = this.dropTaker(drop, hitTargets(DROP_TAKER_MASK));
+      if (taker !== undefined) this.collectDrop(taker, drop);
+    }
+  }
+
+  /** The first afloat participant whose hull touches `drop`, or undefined. */
+  private dropTaker(drop: DropState, hulls: readonly Target[]): ShipRecord | undefined {
+    for (const t of hulls) {
+      if (t.kind !== 'hull') continue;
+      const ship = this.ships.get(t.id);
+      if (ship === undefined || !isAfloat(ship.lifecycle) || !roleIsParticipant(ship)) continue;
+      if (dropTouches(drop, t.poly, CONFIG.drops.radiusU)) return ship;
+    }
+    return undefined;
+  }
+
+  /**
+   * ONE COLLECTION: the grant is rolled NOW (Eric 2026-11-08 — "the bonus is
+   * rolled AFTER I pick it up"; `rollPickup` on this World's k-th pickup
+   * sub-stream, see `dropSeed`), every roll lands on the hull's `indexBonus`
+   * (Story 10.7's seat, uncapped), then the stats re-fold and settle EXACTLY
+   * as `convertBank` does (pools, reload clocks, mounts, wake) — read its
+   * RE-ENTRANCY note: nothing here holds the ship's `stats` / `wake` across
+   * the re-fold. The crate is deleted and the collector alone is told (`dp`).
+   */
+  private collectDrop(ship: ShipRecord, drop: DropState): void {
+    const k = this.dropPickups;
+    this.dropPickups += 1;
+    const rng = mulberry32((this.dropSeed ^ Math.imul(PICKUP_DROP_K + k, 0x9e3779b9)) >>> 0);
+    const rolls = rollPickup(rng, drop.kind, CONFIG.drops);
+    for (const [stat, n] of rolls) ship.indexBonus[stat] += n;
+    const prevStats = this.refoldCards(ship);
+    this.settleRefold(ship, prevStats);
+    ship.dropsTaken += 1;
+    this.drops.delete(drop.id);
+    this.pending.push({ k: 'dp', id: ship.id, t: this.now, g: rolls });
+  }
+
+  /** THE STORM TAKES THE AIRDROPS (Story 10.9; see the STEP_ORDER row): every
+   *  crate outside the LIVE ring — the ring applyStorm bites outside of — is
+   *  deleted. Nothing to do before the zone starts (the ring is the map). */
+  private stormDrops(): void {
+    if (this.zoneStartT === null || this.drops.size === 0) return;
+    const ring = this.zoneLiveRing;
+    for (const drop of this.drops.values()) {
+      if (isOutside(drop, ring.cx, ring.cy, ring.r)) this.drops.delete(drop.id);
     }
   }
 
@@ -7385,8 +8274,12 @@ export class World {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     this.cloudSeq += 1;
     const id = `cl${this.cloudSeq}`;
-    const until = this.now + CONFIG.countermeasure.lifeMs;
-    this.clouds.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until });
+    // STAMPED (Story 10.6, R9 / I6): the owner's SMOKE SCREEN cards NOW set
+    // this cloud's life and disc for good — a card taken later never touches
+    // a live cloud.
+    const { lifeMs, r0, r1 } = ship.stats.smoke;
+    const until = this.now + lifeMs;
+    this.clouds.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until, lifeMs, r0, r1 });
     ship.cloudUntil = until;
   }
 
@@ -7401,139 +8294,74 @@ export class World {
    */
   private stepClouds(): void {
     for (const [id, cloud] of this.clouds) {
-      if (this.now >= cloud.until) this.clouds.delete(id);
+      if (this.now < cloud.until) continue;
+      this.clouds.delete(id);
+      // Every observer's hold on it dies with it (Story 11.6 review —
+      // `ShipRecord.heldClouds`): no growth, and no stale id.
+      for (const ship of this.ships.values()) ship.heldClouds.delete(id);
     }
   }
 
   /**
-   * THE FOG FIELD (Story 9.10) — the `stepFog` STEP_ORDER row (directly
-   * after stepClouds: weather beside weather). (1) No zone timeline yet →
-   * no fog (`fogClear`; the practice water never fogs). (2) Otherwise, once
-   * per `refreshMs`: redraw the coverage target when its period is up, cut
-   * the field at `fogCutForTarget` (the solid-share quantile) over the
-   * lattice inside the live ring (slewed at most `cutRatePerS`; the first
-   * live refresh rolls in from the lattice maximum, amendment 175) and
-   * start a new density-memo EPOCH at this clock (see `fogMemo`). Nothing
-   * else — the field itself is pure math over the seed and the clock, and
-   * the memo fills lazily as rays touch it.
+   * THE RAIN FIELD — the `stepFog` STEP_ORDER row (directly after
+   * stepClouds: weather beside weather), THE EPOCH REFRESH: once per
+   * `refreshMs`, FROM THE FIRST TICK (rain from the start line, Eric
+   * 2026-11-15 — there is no "no rain until the zone starts" any more),
+   * rebuild the frame (`fogRefresh`). Nothing else — the field is pure math
+   * over the seed, the clock, the zone clock and the public rings, and the
+   * memo fills lazily as rays touch it. A test-pinned frame is left alone.
    */
   private stepFog(): void {
-    if (!this.fogCutPinned && this.zoneStartT === null) {
-      this.fogClear();
-      return;
-    }
+    if (this.fogFramePinned) return;
     if (this.now < this.fogNextRefreshAt) return;
+    this.fogRefresh();
+  }
+
+  /**
+   * Rebuild the World's own frame with the shared `fogFrameAt` at this clock
+   * and start a new density-memo EPOCH (see `fogMemo`). THE EYE: before the
+   * zone starts, the ring-0 state — `zoneStartT` null and the idle ring's
+   * center (the whole ocean, as the schema's float32 mirror carries it);
+   * after, the LIVE ring a client derives (`fogEyeRing`).
+   */
+  private fogRefresh(): void {
     this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
+    const zoneStartT = this.zoneStartT;
+    const eye = zoneStartT === null ? froundRing(this.zoneCurrentRing) : this.fogEyeRing(zoneStartT);
+    fogFrameAt(this.fogField, this.now, zoneStartT, eye.cx, eye.cy, this.zoneCfg, this.fogOwnFrame);
     this.fogBumpEpoch();
-    if (!this.fogCutPinned) this.fogRefreshCut(this.zoneLiveRing);
   }
 
-  /** Back to "no fog": the cut, the pin, the clocks and the share reset and
-   *  a fresh epoch starts (resetForMatchStart and the pre-start tick). The
-   *  target wander keeps its stream position — it is a stream, not a clock. */
+  /**
+   * The storm eye's ring at this clock AS A CLIENT DERIVES IT: the shared
+   * `zoneLiveState` over the schema's float32 mirror of ring g and of the
+   * REVEALED next ring (`froundRing` — the copy a client holds; a next ring
+   * of radius 0 is the wire's "unrevealed", so it reads null exactly as the
+   * client's `schemaRings` reads it and the shared function synthesizes the
+   * concentric collapse ring) — never the double-precision rings and never
+   * an unrevealed one. So the frame's center is bit-identical to an honest
+   * client's at the same clock.
+   */
+  private fogEyeRing(zoneStartT: number): ZoneRing {
+    const next = this.zoneRevealedNextRing;
+    const next32 = next === null ? null : froundRing(next);
+    const revealed = next32 !== null && next32.r > 0 ? next32 : null;
+    return zoneLiveState(this.now, zoneStartT, froundRing(this.zoneCurrentRing), revealed, this.zoneCfg).current;
+  }
+
+  /** Back to the World's OWN rain: a test pin is dropped and the own frame
+   *  is rebuilt at this clock under a fresh epoch (resetForMatchStart and
+   *  the test seam's unpin). */
   private fogClear(): void {
-    this.fogCutValue = FOG_NO_CUT;
-    this.fogCutPinned = false;
-    this.fogTarget = 0;
-    this.fogNextTargetAt = 0;
-    this.fogNextRefreshAt = 0;
-    this.fogCoverageShare = 0;
-    this.fogBumpEpoch();
-  }
-
-  /**
-   * THE COVERAGE CONTROLLER (amendment 165's band, re-cut on the field):
-   * the target wanders in [coverageMin, coverageMax) every targetPeriodMs
-   * (the first draw on the first live refresh); the goal cut is the shared
-   * `fogCutForTarget` (the solid-share quantile, amendment 178) over the
-   * `quantileLattice`² lattice inside the live ring at THIS instant; the
-   * cut steps toward it by at most `cutRatePerS × refreshMs / 1000`. THE
-   * ONSET (Eric 2026-10-15: "roll in over ~1 min", then 2026-10-16
-   * "faster" — ≈ 15 s since amendment 177): the first live refresh sets the cut to the lattice's
-   * MAXIMUM noise + edgeBand — density 0 at every lattice point — and the
-   * cut then slews DOWN toward the goal, so banks grow in from their hearts
-   * outward (≈ 15 s from a max near 1.0 to a 20–25 % cut at 0.04/s —
-   * Eric 2026-10-16 "the onset roll-in should be faster", amendment 177;
-   * was ≈ 35 s to a 5 % cut at 0.02/s).
-   * The ONE snap: a goal of FOG_NO_CUT (target 0 — fog off) clears at once,
-   * never a crawl toward 9. Then the realized share is re-measured for the
-   * readouts.
-   *
-   * THE FINAL CLOSE (review gate): the live ring's radius falls to 0 at the
-   * last close, where a lattice degenerates to one point and the quantile
-   * to one noise value. The lattice radius is therefore never below
-   * `wavelengthU` (`fogLatticeRadius` — coverage control below one bank's
-   * size is meaningless), and once `ring.r < wavelengthU / 2` the cut is
-   * HELD at its last value: no goal is refreshed (the epoch still bumps in
-   * stepFog, so the field keeps rolling under the held cut).
-   */
-  private fogRefreshCut(ring: ZoneRing): void {
-    const cfg = CONFIG.fog;
-    if (this.now >= this.fogNextTargetAt) {
-      this.fogTarget = this.fogRng.float(cfg.coverageMin, cfg.coverageMax);
-      this.fogNextTargetAt = this.now + cfg.targetPeriodMs;
-    }
-    if (ring.r < cfg.wavelengthU / 2) return; // the final close: hold the cut
-    const lattice = this.fogControllerLattice(ring);
-    const goal = fogCutForTarget(this.fogField, this.now, lattice, this.fogTarget);
-    const maxStep = (cfg.cutRatePerS * cfg.refreshMs) / 1000;
-    if (goal >= FOG_NO_CUT) this.fogCutValue = FOG_NO_CUT; // fog off: at once
-    else if (this.fogCutValue >= FOG_NO_CUT) this.fogCutValue = this.fogOnsetCut(lattice); // the onset: roll in from no fog
-    else this.fogCutValue = clampStep(this.fogCutValue, goal, maxStep);
-    this.fogCoverageShare = this.fogMeasureCoverage(ring);
-  }
-
-  /**
-   * The coverage controller's lattice for `ring`: `fogLattice` over the ring
-   * (floored at one bank's radius, `fogLatticeRadius`) KEPT TO THE OCEAN —
-   * points past the map radius are dropped in place (amendment 179: the
-   * shared density is 0 there, so a point past the rim would count toward the
-   * quantile's raw noise but never toward the realized solid share; a small
-   * last ring centered near the rim could then under-read its target — the
-   * cycle-194 gate, Codex). Allocation-free after the first call: the kept
-   * points are the SAME objects, referenced from a second reusable array, so
-   * `fogLatticePts` is never truncated and `fogLattice` never re-mints a
-   * dropped point on the next refresh (the Edge Case Hunter's reading).
-   */
-  private fogControllerLattice(ring: ZoneRing): { x: number; y: number }[] {
-    const pts = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
-    const kept = this.fogOceanPts;
-    const r2 = this.map.radius * this.map.radius;
-    let k = 0;
-    for (const p of pts) {
-      if (p.x * p.x + p.y * p.y > r2) continue;
-      kept[k] = p;
-      k += 1;
-    }
-    kept.length = k;
-    return kept;
-  }
-
-  /** The onset cut: the lattice's maximum noise + edgeBand, so density is 0
-   *  at every lattice point and the slew down grows the banks in. */
-  private fogOnsetCut(lattice: readonly { x: number; y: number }[]): number {
-    let max = -Infinity;
-    for (const p of lattice) max = Math.max(max, fogNoiseAt(this.fogField, p.x, p.y, this.now));
-    return (Number.isFinite(max) ? max : 0) + CONFIG.fog.edgeBand;
-  }
-
-  /** The realized fogged share over the lattice inside `ring` under the live
-   *  cut: points at SOLID fog (density ≥ FOG_SOLID_DENSITY — what the
-   *  quantile controls since amendment 178) over all points. 0 with no fog
-   *  or an empty lattice. */
-  private fogMeasureCoverage(ring: ZoneRing): number {
-    if (this.fogCutValue >= FOG_NO_CUT) return 0;
-    const lattice = this.fogControllerLattice(ring);
-    if (lattice.length === 0) return 0;
-    let fogged = 0;
-    for (const p of lattice) if (fieldDensityAt(this.fogField, p.x, p.y, this.now, this.fogCutValue) >= FOG_SOLID_DENSITY) fogged += 1;
-    return fogged / lattice.length;
+    this.fogFramePinned = false;
+    this.fogFrame = this.fogOwnFrame;
+    this.fogRefresh();
   }
 
   /**
    * WOUNDED SMOKE emission (Story 4.4, amendments 40-50): every ALIVE hull —
-   * drones included (amendment 47), the smoking ship's own captain included
-   * (amendment 46: the row has no special case) — whose hp FRACTION sits below
+   * the smoking ship's own captain included (amendment 46: the row has no
+   * special case) — whose hp FRACTION sits below
    * a damage band queues one anonymous `sm` pulse per
    * CONFIG.smoke.puffIntervalMs at its TRUE current position. The fraction
    * reads the EFFECTIVE maxHp (stats.maxHp — a hull-boon hull smokes by its
@@ -7555,6 +8383,12 @@ export class World {
       ship.nextSmokeAt = this.now + CONFIG.smoke.puffIntervalMs;
       this.pending.push({ k: 'sm', x: ship.state.x, y: ship.state.y, tier: frac < bands.criticalBelow ? 2 : 1 });
     }
+    // A HURT RADIO BEACON SMOKES LIKE A SHIP (Story 10.8, R11): the SAME
+    // anonymous `sm` row — {k,x,y,tier} and nothing else — on the same bands
+    // and the same throttle, at the beacon's already-public position. The row
+    // carries no source handle, so a beacon's puff and a hull's are one kind
+    // to every observer and to the registry's gate.
+    this.beacons.smoke(this.now, (x, y, tier) => this.pending.push({ k: 'sm', x, y, tier }));
   }
 
   /** Bring sunk ships back on the ring once their respawn delay elapses.
@@ -7587,7 +8421,6 @@ export class World {
     // nothing on the fresh life's first tick.
     ship.sweepAngle = wrapPositive(ship.state.heading);
     ship.prevSweepAngle = ship.sweepAngle;
-    ship.sweepRev = 0; // the dropout roll's revolution index re-anchors with the beam (Story 9.8)
     // Respawn happens only in the waiting phase (active-phase death = spectate),
     // so the build PERSISTS: full EFFECTIVE hp + effective-size ammo pools.
     // XP progress (xpMs/level) and the banked levels + front offer persist with
@@ -7600,6 +8433,7 @@ export class World {
     // standalone-World test, which defaults both flags true.
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
+    ship.heldClouds.clear(); // Story 11.6 review: a fresh life holds no cloud until the cloud row delivers one
     // The throne is a THIRD recompute seam (Story 4.6 gap fix, beside sinkShip
     // and removeShip): `kills` persists across the death (only
     // redeployShip zeroes it), so a returning captain may still clear the
@@ -7611,16 +8445,15 @@ export class World {
     // for directed callers).
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a HUNKER window or a stream clock (Story 8.15)
+    World.resetBattery(ship); // ...nor a previous life's turret angles, reloads or secondaries heat (Story 10.4)
     World.clearRepair(ship);
-    // ...nor the dead life's combat clock: the returning hull waits the full
-    // out-of-combat window before it regens (amendment 47).
+    World.readyAbilities(ship); // ...and both cooldown abilities ready (Story 10.5)
+    // ...nor the dead life's combat clock (amendment 47).
     ship.lastDamagedAt = this.now;
-    // ...nor a SHIELD BLOCK (Story 8.4 review, P5; sinkShip already nulled it,
-    // kept symmetric here for directed callers).
-    ship.shield = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.fouledUntil = 0; // the foul zone's stamp (Story 9.4)
+    ship.dazzledUntil = 0; // ...nor the flash's dazzle (Story 10.9)
     // ...nor a previous life's contributors: creditKill already cleared the
     // ledger at the sink, kept symmetric here for directed callers.
     ship.damageFrom.clear();
@@ -7647,7 +8480,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
     // and over the spawn SEED alone, byte-identical).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, ship.shift);
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

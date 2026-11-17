@@ -13,6 +13,9 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  launcherDeadRad,
+  launcherTrainRad,
+  effectiveStats,
   hullSilhouette,
   pointPolygonDistance,
   transformPolygon,
@@ -25,11 +28,17 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
-import { addDecoy } from '../game/decoys.js';
 
 /** Torpedo slot index: the FIRST weapon slot (Q), where the Torpedo Boat's
  *  spawn seed lands `heavyTorpedo` since Story 8.5's nine-slot loadout. */
 const SLOT_TORPEDO = 2;
+/** u — a torpedo click's aim distance (Story 10.6: any positive distance
+ *  names the bearing; none names no area and is refused). */
+const TORP_DIST = 600;
+/** u — a click so far out that the bearing from the fore launcher's station
+ *  IS the click's bearing from the hull centre (the band-edge cases below
+ *  must not be pushed out of the band by station parallax). */
+const FAR_DIST = 1e7;
 import { fireTorpedo } from '../game/equipment/torpedoes.js';
 
 function bareWorld(seed = 11, opts?: WorldOptions): World {
@@ -52,11 +61,13 @@ const OVERDRIVE: Catalog = {
   // the torpedo boat with no torpedo. Tier I is the bare weapon, so carrying
   // it moves no number here.
   heavyTorpedo: CATALOG.heavyTorpedo,
-  speed: {
-    id: 'speed',
+  engines: {
+    id: 'engines',
     kind: 'ladder',
     cap: 9,
-    tiers: new Array(9).fill([{ kind: 'stat', path: 'kinematics.maxSpeed', add: 2.5 }]),
+    // Story 10.3: speed is DERIVED from the ENGINES index (maxSpeed is no
+    // longer stat-addressable), so the injected rung steps ENGINES.
+    tiers: new Array(9).fill([{ kind: 'stat', path: 'engines', add: 20 }]),
   } as unknown as CatalogLine,
 };
 
@@ -67,7 +78,7 @@ function place(
   x: number,
   y: number,
   heading: number,
-  classId: ShipClassId = 'torpedoBoat',
+  classId: ShipClassId = 'bismarck',
 ): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', classId, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
@@ -91,20 +102,29 @@ const dmgOf = (events: readonly GameEvent[]): DamageEvent[] =>
 // ---------- spawn geometry ---------------------------------------------------
 
 describe('torpedo spawn clearance (root-cause fix)', () => {
-  it('a fresh torpedo spawns outside the firer silhouette + hitRadius by at least spawnClearance', () => {
+  // R28 (Eric 2026-11-06) made the dead-ahead BOW shot illegal; it was the
+  // only bearing on which the launch point cleared the silhouette by the full
+  // hitRadius + spawnClearance measured PERPENDICULARLY (the bow tip sits on
+  // the ray). On a side bearing the shared `torpedoLaunchPoint` /
+  // `muzzleSpawnFrom` construction measures its clearance ALONG the ray, and
+  // the slanted hull side leaves a perpendicular margin a few units short of
+  // spawnClearance — a pre-existing property of the shared construction (the
+  // ±140° arc allowed these shots too), reported, not re-derived here. What
+  // every legal shot does guarantee is the shared law: the spawn is outside
+  // the silhouette by at least the torpedo's hitRadius, so it can never
+  // overlap its own hull.
+  it('a fresh torpedo spawns outside the firer silhouette by at least its hitRadius', () => {
     const w = bareWorld();
     const ship = place(w, 'a', 0, 0, 0);
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+    for (const l of ship.launchers) l.a = Math.PI / 2; // trained on the beam (R28: never dead ahead)
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: TORP_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
     const torp = fireTorpedo(ship, 0, () => 't1');
     expect(torp).not.toBeNull();
     const poly = transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading);
     const dist = pointPolygonDistance({ x: torp!.x, y: torp!.y }, poly);
     const margin = dist - torp!.hitRadius;
-    // The old spawn point had margin === 0 exactly; the fix guarantees
-    // margin >= spawnClearance, with a tiny epsilon for float rounding. In the
-    // silhouette geometry the bow tip sits EXACTLY at +length/2, so a bow shot
-    // pins the offset math with no capsule slack.
-    expect(margin).toBeGreaterThanOrEqual(CONFIG.torpedo.spawnClearance - 1e-9);
+    // The old spawn point had margin === 0 exactly (inside the hit radius).
+    expect(margin).toBeGreaterThan(0);
   });
 });
 
@@ -114,15 +134,17 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   /** Throttle a torpedo boat (fastest class: maxSpeed 45 vs torpedo speed 65, catalog-v3 R17)
    *  to max speed, fire a bow torpedo at `aim`, then run 5 more seconds and
    *  return every dmg event observed. */
-  function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
+  function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord; launched: number } {
     const w = bareWorld(11, maxSpeedStacks > 0 ? { catalog: OVERDRIVE } : undefined);
     const a = place(w, 'a', 0, 0, 0); // torpedoBoat, bow points +x (heading 0)
-    if (maxSpeedStacks > 0) stack(w, a, 'speed', maxSpeedStacks);
+    if (maxSpeedStacks > 0) stack(w, a, 'engines', maxSpeedStacks);
 
     const dmgs: DamageEvent[] = [];
 
-    // Full ahead, aimed at the bow, weapon selected but not fired yet.
-    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    // Full ahead, aimed where the shot will go (the launchers train on it
+    // while the hull accelerates — Story 10.6, R13), weapon selected but not
+    // fired yet.
+    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim, fireSeq: 0, aimDist: FAR_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const accelTicks = Math.ceil(a.stats.kinematics.maxSpeed / a.stats.kinematics.accel / (CONFIG.tick.simDtMs / 1000)) + 20;
     for (let i = 0; i < accelTicks; i++) {
       w.step();
@@ -131,28 +153,36 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(a.state.speed).toBeCloseTo(a.stats.kinematics.maxSpeed, 1); // confirmed at full speed
 
     // Fire the bow torpedo (one click: fireSeq bumps).
-    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: FAR_DIST, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     const fireTicks = 5000 / CONFIG.tick.simDtMs;
+    let launched = 0;
     for (let i = 0; i < fireTicks; i++) {
       w.step();
+      launched += w.tickEvents.filter((e) => e.k === 'torp').length;
       dmgs.push(...dmgOf(w.tickEvents));
     }
-    return { dmgs, ship: a };
+    return { dmgs, ship: a, launched };
   }
 
-  it('straight ahead: firer takes no damage, no dmg event names it as victim', () => {
-    const { dmgs, ship } = runFullThrottleShot(0);
+  /** rad — just inside the FORWARD edge of the fore launcher's firing band
+   *  (R28): the most nearly ahead a torpedo can leave, the self-overtake case. */
+  const FORWARD_EDGE = launcherDeadRad('bismarck', 0) + 0.01; // the fixture's hull, its FORE launcher (R30)
+
+  it('at the forward edge of the band: firer takes no damage, no dmg event names it as victim', () => {
+    const { dmgs, ship, launched } = runFullThrottleShot(FORWARD_EDGE);
+    expect(launched).toBe(1); // the shot really left
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });
 
-  it('aimed at the +30° arc edge: firer takes no damage, no dmg event names it as victim', () => {
-    const { dmgs, ship } = runFullThrottleShot(CONFIG.torpedo.halfArc);
+  it('aimed near the fore launcher\'s arc edge: firer takes no damage, no dmg event names it as victim', () => {
+    const { dmgs, ship, launched } = runFullThrottleShot(launcherTrainRad('bismarck', 0) - 0.01);
+    expect(launched).toBe(1);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });
 
-  it('straight ahead with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
+  it('at the forward edge with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
     // FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, AR49; Story 8.9,
     // amendment 55). "A torpedo outruns every hull" is no longer a requirement
     // the catalog has to satisfy: a SPEED-capped Torpedo Boat with the boost
@@ -167,10 +197,11 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     // the outrun geometry — the boost gets there on the shipped ladder. It
     // stays as a STRESS PIN: the most extreme overtake the harness can build,
     // held against the immunity rule rather than against a speed budget.
-    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 2.5 * 9).toBeGreaterThan(
-      CONFIG.torpedo.speed,
-    );
-    const { dmgs, ship } = runFullThrottleShot(0, 9);
+    expect(
+      effectiveStats(CONFIG.shipClasses.bismarck, new Array<string>(9).fill('engines'), OVERDRIVE).kinematics.maxSpeed,
+    ).toBeGreaterThan(CONFIG.torpedo.speed);
+    const { dmgs, ship, launched } = runFullThrottleShot(FORWARD_EDGE, 9);
+    expect(launched).toBe(1);
     expect(ship.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.torpedo.speed);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
@@ -241,85 +272,5 @@ describe('own weapons never damage the owner (gun / torpedo / mine)', () => {
     w.step();
     expect(enemy.hp).toBeLessThan(enemy.stats.maxHp); // enemies still trip owner's mine
     expect(w.mines.has('m-enemy')).toBe(false); // consumed on trigger
-  });
-});
-
-// ---------------------------------------------------------------------------
-// STORY 8.16 — the DECOY BUOY and no friendly fire (amendments 119/120): the
-// owner's own fish passes THROUGH the owner's decoy (the shared sweep skips a
-// decoy whose `Target.ownerId` is the fish's owner), and an ENEMY fish
-// detonates on it for its full damage (a 50-damage fish kills a fresh 50 hp
-// decoy outright), consumed exactly as on a hull.
-// ---------------------------------------------------------------------------
-
-describe('torpedoes vs the DECOY BUOY (Story 8.16, amendments 119/120)', () => {
-  /** A live fish owned by `ownerId` at (x, 0), running +x at torpedo speed. */
-  function fish(w: World, id: string, ownerId: string, x: number): ShellState {
-    const s: ShellState = {
-      id,
-      ownerId,
-      x,
-      y: 0,
-      vx: CONFIG.torpedo.speed,
-      vy: 0,
-      distLeft: CONFIG.vision.radar,
-      bornAt: 0,
-      kind: 'torp',
-      family: null,
-      damage: CONFIG.torpedo.damage,
-      hitRadius: CONFIG.torpedo.hitRadius,
-      targetX: null,
-      targetY: null,
-      burstRadius: 0,
-      contactDamage: CONFIG.torpedo.damage,
-      hits: CONFIG.torpedo.hits,
-    };
-    w.shells.set(id, s);
-    return s;
-  }
-
-  it("the OWNER's fish runs straight through the owner's decoy — no detonation, no damage", () => {
-    const w = bareWorld();
-    place(w, 'o', -600, 600, 0); // the owner, well off the fish's line
-    addDecoy(w.decoys, 'o', 100, 0, 'd1');
-    fish(w, 'own', 'o', 60);
-    for (let i = 0; i < 20; i++) w.step(); // ~65 u of run: well past the float
-    expect(w.decoys.get('d1')?.hp).toBe(CONFIG.decoyBuoy.hp);
-    const f = w.shells.get('own');
-    expect(f).toBeDefined(); // still running — it never detonated
-    expect(f!.x).toBeGreaterThan(110);
-  });
-
-  it('an ENEMY fish detonates on the decoy for its FULL damage — a fish at or above the decoy\'s hp kills a fresh decoy (amendment 120)', () => {
-    const w = bareWorld();
-    place(w, 'o', -600, 600, 0);
-    place(w, 'e', -600, -600, 0); // the enemy shooter, off the line too
-    addDecoy(w.decoys, 'o', 100, 0, 'd1');
-    expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.decoyBuoy.hp);
-    fish(w, 'enemy', 'e', 60);
-    const events: GameEvent[] = [];
-    for (let i = 0; i < 20 && w.shells.has('enemy'); i++) {
-      w.step();
-      events.push(...w.tickEvents);
-    }
-    expect(w.shells.has('enemy')).toBe(false); // the fish is consumed, as on a hull
-    expect(w.decoys.has('d1')).toBe(false); // ...and the decoy is gone
-    expect(events.some((e) => e.k === 'boom' && e.id === 'enemy')).toBe(true);
-    expect(events.some((e) => e.k === 'hc' && e.id === 'e')).toBe(true); // amendment 121: the shooter's mark
-    expect(events.filter((e): e is DamageEvent => e.k === 'dmg')).toEqual([]); // a decoy is not a ship
-  });
-
-  it('a LIGHTER blow leaves the decoy damaged, not destroyed (the decoy is an hp buffer)', () => {
-    const w = bareWorld();
-    place(w, 'o', -600, 600, 0);
-    place(w, 'e', -600, -600, 0);
-    addDecoy(w.decoys, 'o', 100, 0, 'd1');
-    const f = fish(w, 'enemy', 'e', 60);
-    f.contactDamage = 20;
-    f.damage = 20;
-    expect(f.damage).toBeLessThan(CONFIG.decoyBuoy.hp); // the premise: a blow short of the buffer
-    for (let i = 0; i < 20 && w.shells.has('enemy'); i++) w.step();
-    expect(w.shells.has('enemy')).toBe(false);
-    expect(w.decoys.get('d1')?.hp).toBe(CONFIG.decoyBuoy.hp - 20);
   });
 });

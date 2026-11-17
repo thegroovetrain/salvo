@@ -1,28 +1,113 @@
 // A hull's EFFECTIVE truesight — THE one derivation of "how far can this ship
 // actually see right now".
 //
-// Today it is simply the derived `sightRange`: nothing in the game shrinks or
-// widens sight at runtime. FLASH SHELLS' dazzle (Story 8.17, epic-8 amendment
-// 132) once collapsed it to 1/8 of intel range; that consumable was replaced by
-// the FOULING SHELL in Story 9.4 (Eric ruling 2026-10-11, epic-9 amendments
-// 61–68), whose zone slows props and never touches sight. Story 8.18's in-smoke
-// rule went with Story 9.3 (a countermeasure cloud hides nothing).
+// Undazzled it is the derived `sightRange`. A FLASH SHELLS burst (Story 8.17,
+// epic-8 amendment 132; replaced by the FOULING SHELL in Story 9.4; RESTORED
+// beside it by Story 10.9, epic-10 amendments 2 and 4; RE-CUT by Eric
+// 2026-10-29 into THE WHITEOUT LAW) stamps every non-owner hull inside it with
+// `dazzledUntil = hit + FLASH_WINDOW_MS` (a later hit wins — `max` — never
+// stacks, never shortens). For that window the hull's truesight is the CLEAR
+// CIRCLE of the whiteout:
+//
+//   elapsed in [0, rampMs + holdMs)      → 0 u   (the view ramps to white, holds)
+//   elapsed in [rampMs + holdMs, window) → sightRange × (elapsed − ramp − hold) / clearMs
+//   elapsed ≥ window                     → sightRange (the mark has lapsed)
+//
+// i.e. sight is ZERO through ramp + hold and then grows LINEARLY from 0 to the
+// full `sightRange` across `clearMs` — "it will start clearing out around your
+// ship first, and grow out from there". The curve is UNIFORM for humans and
+// bots: the server's perception (`sightOf`) reads it for every hull, so a bot
+// is blind exactly as long as a captain is, and the client paints the same
+// curve (`flashClearFraction`) over its view.
 //
 // WHY IT STAYS A FUNCTION IN SHARED: it is the single entry point for every
 // consumer of "how far can I see" — the server's perception (`sightOf`) and the
 // client's mirrors of the bubble (the fog hole, the radar dim mask, the
 // projectile cull and prediction). Three client mirrors of the server's sight
 // have desynced before (epic-4 amendments); routing them all through one pure
-// function both sides call means a future sight modifier lands in ONE place and
-// nothing re-derives it per side.
+// function both sides call means the whiteout lands in ONE place and nothing
+// re-derives it per side.
 //
-// Radar range is never an input: sight is a different quantity from intel range.
+// Radar range is NEVER touched and never an input: a flash blinds, it does not
+// deafen (the muzzle flash, smoke halo and foghorn reaches stay undazzled —
+// a flash is a light source; epic-2 amendment 52 "dazzle stays optics-only"
+// stands). Since Story 11.2 there are TWO eye tiers (class-and-name sight and
+// plain-hull sight) — both go through `whiteoutReach`, the one law.
+//
+// FAIL CLOSED: a pending dazzle (`dazzledUntil > 0`) with a non-finite `now` or
+// a non-finite `dazzledUntil` reads as sight 0. The alternative — treating a
+// garbage clock as "undazzled" — would hand a flashed hull its full bubble on a
+// bad input; blindness is the safe error.
 //
 // Pure, zero I/O.
 
+import { CONFIG } from '../constants.js';
 import type { EffectiveStats } from './stats.js';
 
-/** u — the truesight radius a hull actually has: its derived `sightRange`. */
-export function effectiveSight(stats: Pick<EffectiveStats, 'sightRange'>): number {
-  return stats.sightRange;
+/** ms — the whole whiteout window: ramp + hold + clear (the ONE derived total). */
+export const FLASH_WINDOW_MS =
+  CONFIG.flashShells.rampMs + CONFIG.flashShells.holdMs + CONFIG.flashShells.clearMs;
+
+/**
+ * ms into the whiteout a hull marked `dazzledUntil` is at `now` — negative
+ * before the hit (never happens on a real clock), ≥ FLASH_WINDOW_MS once the
+ * mark has lapsed. Non-finite inputs give NaN; callers fail closed on it.
+ */
+export function flashElapsedMs(dazzledUntil: number, now: number): number {
+  return FLASH_WINDOW_MS - (dazzledUntil - now);
+}
+
+/**
+ * 0..1 — how far the clear circle has grown at `elapsedMs` into the whiteout:
+ * 0 through ramp + hold, then linear across `clearMs`, clamped to [0, 1].
+ * NaN elapsed → 0 (fail closed). The client's overlay reads THIS curve so the
+ * painted clearing and the server's perception are one law.
+ */
+export function flashClearFraction(elapsedMs: number): number {
+  const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
+  const t = (elapsedMs - rampMs - holdMs) / clearMs;
+  if (!(t > 0)) return 0; // also catches NaN
+  return t < 1 ? t : 1;
+}
+
+/**
+ * u — ANY eye reach under THE WHITEOUT LAW: `reachU` undazzled, or `reachU ×
+ * flashClearFraction(elapsed)` while a flash mark is pending (fail closed to 0
+ * on an unreadable mark). The ONE law every eye reach goes through — the
+ * class-and-name sight, the plain-hull sight (Story 11.2) and any CONFIG eye
+ * reach a caller scales the same way (e.g. `CONFIG.vision.torpedoSight`) — so
+ * a flashed hull is blinded by one curve at every reach, never a forked copy.
+ * `dazzledUntil` is the hull's server-clock mark (0 / absent = never flashed);
+ * `now` is the caller's clock — this function never reads a clock itself.
+ */
+export function whiteoutReach(reachU: number, dazzledUntil = 0, now = 0): number {
+  if (Number.isNaN(dazzledUntil)) return 0; // fail closed: an unreadable mark is a pending one
+  if (dazzledUntil <= 0 || now >= dazzledUntil) return reachU;
+  return reachU * flashClearFraction(flashElapsedMs(dazzledUntil, now));
+}
+
+/**
+ * u — the CLASS-AND-NAME sight a hull actually has: its `sightRange` under
+ * the whiteout law (`whiteoutReach`). Both clock arguments default to 0 so a
+ * caller with no dazzle to report (a wake reader) passes the stats alone.
+ */
+export function effectiveSight(
+  stats: Pick<EffectiveStats, 'sightRange'>,
+  dazzledUntil = 0,
+  now = 0,
+): number {
+  return whiteoutReach(stats.sightRange, dazzledUntil, now);
+}
+
+/**
+ * u — the PLAIN-HULL sight a hull actually has (Story 11.2, R3): its
+ * `hullSightRange` under the SAME whiteout factor as `effectiveSight`, so the
+ * two tiers clear together and the outer one is never under the inner one.
+ */
+export function effectiveHullSight(
+  stats: Pick<EffectiveStats, 'hullSightRange'>,
+  dazzledUntil = 0,
+  now = 0,
+): number {
+  return whiteoutReach(stats.hullSightRange, dazzledUntil, now);
 }

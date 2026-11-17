@@ -15,6 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { bindRoom } from '../net/roomBindings.js';
 import type { Connection } from '../net/connection.js';
 import type { RoomBindingDeps } from '../net/roomBindings.js';
+import { DEFAULT_CLASS_ID } from '@salvo/shared';
 
 /** The room surface bindRoom touches — signals are callable, not objects. */
 function fakeRoom(): unknown {
@@ -38,7 +39,7 @@ function frameWith(tick: number, cards: readonly string[]): unknown {
     events: [],
     you: {
       x: 0, y: 0, heading: 0, speed: 0, alive: true, hp: 100,
-      cls: 'torpedoBoat', cards, sweep: 0, pts: 0, offer: [], ammo: [],
+      cls: DEFAULT_CLASS_ID, cards, sweep: 0, pts: 0, offer: [], ammo: [],
     },
   };
 }
@@ -69,13 +70,12 @@ function setup(onOwnStats: () => void): {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     foulZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    drops: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
-    audio: { play: vi.fn() },
+    audio: { play: vi.fn(), playCue: vi.fn() },
     names: (id: string) => id,
     colors: () => null,
-    ordnanceHue: () => 0,
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState },
     radar: { onSweepSample: vi.fn() },
@@ -95,11 +95,11 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, state } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['intel']))).toThrow();
     // THE POINT: the mirror advanced despite the throw, so the next frame has a
     // fresh baseline to compare against.
     expect(state.net.you).not.toBeNull();
-    expect((state.net.you as { cards: string[] }).cards).toEqual(['radarSweep']);
+    expect((state.net.you as { cards: string[] }).cards).toEqual(['intel']);
   });
 
   it('does not re-fire onOwnStats on the next frame for the same boon list', () => {
@@ -107,11 +107,11 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['intel']))).toThrow();
     // Same boons: with the mirror advanced, ownStatsChanged is now false, so the
     // second frame must sail straight past the throwing callback. Under the old
     // ordering this threw again, and would have thrown on every frame forever.
-    sink.handler(frameWith(2, ['radarSweep']));
+    sink.handler(frameWith(2, ['intel']));
     expect(onOwnStats).toHaveBeenCalledTimes(1);
   });
 
@@ -123,9 +123,9 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, onServerState } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['intel']))).toThrow();
     expect(onServerState).not.toHaveBeenCalled(); // frame 1 died below the throw
-    sink.handler(frameWith(2, ['radarSweep']));
+    sink.handler(frameWith(2, ['intel']));
     expect(onServerState).toHaveBeenCalledTimes(1);
   });
 
@@ -134,9 +134,9 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, pushFrame } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
-    sink.handler(frameWith(2, ['radarSweep']));
-    sink.handler(frameWith(3, ['radarSweep']));
+    expect(() => sink.handler(frameWith(1, ['intel']))).toThrow();
+    sink.handler(frameWith(2, ['intel']));
+    sink.handler(frameWith(3, ['intel']));
     // EXACTLY 2 (review gate): the throwing frame 1 must NOT reach pushFrame —
     // it is below the throw — and frames 2 and 3 must both get there. A `>= 2`
     // bound would also pass if frame 1 leaked through, which is the opposite of
@@ -147,8 +147,8 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
   it('fires again when the boon list genuinely changes', () => {
     const onOwnStats = vi.fn();
     const { sink } = setup(onOwnStats);
-    sink.handler(frameWith(1, ['radarSweep']));
-    sink.handler(frameWith(2, ['radarSweep', 'hullPoints']));
+    sink.handler(frameWith(1, ['intel']));
+    sink.handler(frameWith(2, ['intel', 'armor']));
     expect(onOwnStats).toHaveBeenCalledTimes(2);
   });
 });

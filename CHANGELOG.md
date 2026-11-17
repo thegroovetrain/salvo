@@ -1,5 +1,131 @@
 # Changelog
 
+## [0.19.20] - 2026-11-12
+
+### Changed
+- **Shells scatter.** Every main-gun and secondary shell now lands at its own spot inside a small oval around your aim point. The oval grows with range, and all barrels of a turret aim at the one point.
+- **A hit is a hit at any range.** Shells no longer do less damage at long range.
+- **Point and shoot.** Turrets and torpedo launchers no longer take time to swing around. If your aim is inside a turret's or launcher's arc, it fires.
+- **A new aim marker.** A brighter, bigger reticle with an oval showing where your shells can land, in place of the lines and blast circles.
+
+### Added
+- **Aim color and aim size settings.** Pick any color for every weapon's aim marker, and size the reticle from 1x to 5x.
+
+## [0.19.19] - 2026-11-12
+
+### Changed
+- **The engine sound is calmer.** A deep rumble with a slow propeller throb: no whine, no hiss, and much quieter.
+
+## [0.19.18] - 2026-11-11
+
+### Added
+- **Engine sound for your ship.** A steam turbine that follows your throttle, your speed and the Shift boost. Each battleship sounds different. Another ship's engine is heard only when it is close alongside.
+- **A storm you can hear.** Wind and rain the whole time you are inside it.
+- **A klaxon when your hull is hurt.** One blast when your hull drops under half, three under a quarter. It keeps sounding, and fades under the water, as your own ship sinks.
+- **Four horns to choose from** on the ship-select screen: Foghorn, Whistle, Bell and Sad Trombone.
+- **A hum from any torpedo that passes close to you.**
+- **New sounds for a smoke screen, a new set of beacons surfacing, an airdrop pickup and the boost kicking in.**
+
+### Changed
+- **Every sound in the game is re-made.** Main battery, secondaries, torpedo launch, mines, special shells, hits, splashes, hull repair, your own hull being hit, a ship sinking, kill confirmation, level up, card fitted, bounty, countdown, match start, the engine telegraph, ramming, burning, fouled propellers and dazzle.
+- **Still no sound files.** Everything is synthesized in your browser.
+- **Distance matters.** Distant sounds arrive quieter, duller and a moment late.
+
+## [0.19.15] - 2026-11-10
+
+### Changed
+- **EXPANDED MINE RACKS is now RACK CAPACITY.** Same card, a name that fits the offer card.
+
+## [0.19.14] - 2026-11-10
+
+### Changed
+- **The ship console is compact.** Same contents, tight spacing, no stretched gaps; it sits bottom-left with water above it.
+- **The weapons console is a two-column box.** Main Battery over Secondaries on the left, Torpedo, Mines and Special on the right, the three ability buttons (C, V, Shift) beneath, all one width. Every cell lists each stat on its own line in readable type (a fourth line on the Torpedo, Mines and Special cells, such as a torpedo's homing). The READY / ARMED / LOCKED words are gone: a solid ring means ready, the amber outline and key means armed, the red-hatched heat bar means overheated.
+- **Reload clocks never wrap.** The seconds count down inside bigger rings, four to a line. A mine rack shows its ring with 10 px pips beside it, one per mine held.
+- **The offer cards are the same cards, stacked.** The card face is unchanged; the cards stand in a narrow column instead of a grid. A new setting, OFFER POSITION, puts them on the RIGHT (default), the LEFT, or in a row along the BOTTOM. If the chosen edge has no room on your screen, the cards use the bottom row.
+- **Every HUD area has a background.** The consoles, the offer cards, the match bar and the kill feed sit on dark glass at 70 %, so they read over radar returns while the map still shows through.
+- **The HUD scales with your window.** On a 13-inch laptop the whole HUD is three quarters size; on a 1920×1080 screen it is full size. The UI SCALE setting still applies on top.
+
+## [0.19.13] - 2026-11-10
+
+### Added
+- **Airdrops.** Crates litter the ocean, two per minute remaining to 12:00; sail over one to take a random +1 to +5 on one of your stats (Story 10.9).
+
+## [0.19.12] - 2026-11-09
+
+### Added
+- **The ship console.** The left edge of the screen now shows your ship: the hull as a big percent over a ten-segment bar (green, amber under half, red under a quarter, with a lighter segment for HULL REPAIR still coming in), your six numbers ARMOR, POWER, RELOAD, ENGINES, INTEL and RANGE with a five-bar ladder for the cards you hold, the helm (heading, speed, the engine telegraph and the rudder) and your level with its track and the banked-level chip.
+- **The weapons console.** The right edge shows your weapons as five tall buttons: Main Battery, Secondaries, Torpedo, Mines and Special. Each says READY, ARMED or LOCKED, shows its tier and its key, has its own reload clock for every turret, tube and mine rack with the seconds counting down inside, and lists its damage, range and reload underneath. Your held mines show as pips beside each rack, and the secondaries show their heat bar. Click a Torpedo, Mines or Special button to ready it, same as its key. Under them are three big buttons for C (HULL REPAIR), V (SMOKE SCREEN) and your Shift ability.
+- **The offer group.** Level-up cards now sit as small cards on the right edge, between the kill feed and the weapons console, whenever you have a level to spend. Click a card, or hold Tab and press 1 to 4, to take it. At the countdown the REDRAW button sits under them.
+
+### Changed
+- **No lockout.** Picking an upgrade never stops your guns, your keys or your ship: the cards are always there while you have levels to spend, and nothing opens or closes.
+- **Damage is shown against an average hull.** Every DAMAGE number on the weapons console is what that weapon deals to a ship with 100 ARMOR, so your POWER shows up in it. The game's damage itself is unchanged.
+- **Hover a card to see what it does.** Hovering an offer card turns every number it would change amber on both consoles, with an arrow and the new value.
+- **The top row is restyled.** The match bar (afloat, kills, clock, ring, kill leader) and the kill feed keep their content and their places, in the consoles' smaller type, with a thin line under the match bar.
+
+### Removed
+- **The bottom bar.** The HP and helm globes, the weapon squares and the XP strip at the bottom of the screen are gone; the consoles replace them.
+- **The Tab window.** Tab no longer opens a refit window; it only picks a card when held with 1 to 4. Pressing 1 to 4 on its own does nothing.
+- **The level-up toast.** No more `LEVEL UP — TAB TO REFIT` message; the cards appearing on the right edge are the signal.
+
+## [0.19.11] - 2026-11-07
+
+### Added
+- **Radio beacons.** At the start of each storm cycle (0:00, 4:00 and 8:00) eight, then four, then two beacons appear on every captain's chart at once, placed in open water inside the live ring and away from every ship. At 1:00 a beacon surfaces and broadcasts: every ship within 500 u of it earns XP at 3 levels a minute, shared evenly among the ships in range. After a minute it starts to sink and the signal fades to nothing over the next minute. A surfaced beacon is a real thing in the water: ships bump into it, every weapon can hit it (it has 1000 HP and 100 ARMOR, exactly like a ship), it smokes and burns when hurt, and sinking it early pays 2 levels of XP split like a ship kill — and starts its one-minute sink at once, for everyone to see. Bots sail to beacons and farm them.
+
+### Removed
+- **The drone fleet.** No more PvE drones, drone kills, drone waves or drone XP; the radio beacons are the first-minute objective instead. (Guards may return later if beacons alone prove boring.)
+
+### Changed
+- **Wire:** protocol 99 → 100 (the beacon fields on the room state; the drone-only fields on the sunk row and on contacts are gone).
+
+## [0.19.10] - 2026-11-06
+
+### Changed
+- **Every level-up offer is one ship upgrade, one equipment card and two wildcards.** The first card is always a ship upgrade and the second always an equipment card (a weapon, a weapon tier or a launcher / rack card). Each of the other two flips a coin between the two kinds. When one kind has nothing left to deal, its slots take the other kind. The opening offer always holds a weapon, as before.
+- **A fully upgraded ship turns levels into stat points.** As the cards run out the offer shows only what is left (three cards, then two, then one). Once nothing is left, each new level automatically adds +1 to one of ARMOR, POWER, ENGINES, RELOAD, RANGE or INTEL, picked at random; nothing piles up unspent. A ship that is already sinking gets no point.
+- **No more INTEL cap.** The radar sweep used to stop speeding up at 30 turns a minute; now every point of INTEL makes it faster, with no limit.
+- **The REDRAW marker is always right.** The server now tells your client whether your one countdown redraw is used, so the marker survives a reconnect, and a redraw that happens to deal the same four cards no longer flashes as refused.
+- **Wire:** protocol 98 → 99 (the redraw-used flag and the bonus stat points on your own ship; the offer draw).
+
+## [0.19.9] - 2026-11-06
+
+### Changed
+- **The card catalog is re-cut.** There are eight ship upgrade lines: ARMOR and POWER (ARMOR cuts the damage you take from all five weapons, POWER raises the damage all five deal), INTEL, RELOAD, ENGINES, the new RANGE (main gun and secondaries), and two new lines for your abilities, HULL REPAIR and SMOKE SCREEN. RELOAD, ENGINES and RANGE give +10 a card (RELOAD and ENGINES were +20). RUDDER is gone: every ship turns at the same rate.
+- **HULL REPAIR and SMOKE SCREEN cards.** Each HULL REPAIR card heals 20 more at once and 20 more over time (200 + 200 at five cards) and shortens the `C` cooldown from 75 s toward 60 s. Each SMOKE SCREEN card shortens the `V` cooldown from 60 s toward 48 s, lengthens the cloud's life from 15 s toward 20 s and makes it about 10 % larger; a cloud keeps the size it had when you pressed `V`. Your RELOAD never touches either cooldown.
+- **Weapon tiers no longer hand out extra shots.** Higher tiers of a torpedo, mine or special shell make that one weapon reload faster (+10 to its own reload score a tier) and nothing else; they no longer add tubes, mines or shots. Naval and fouling mines start with 3 (was 2).
+- **Torpedo launchers.** Your torpedo is fired from a deck launcher that turns toward your cursor like a turret, holds its angle when the cursor leaves its arc, and fires only into its own firing band on either side of the ship. The first torpedo card gives a fore launcher with one tube. Four new one-off cards: AFT LAUNCHER, SECOND TUBE (a second tube on every launcher), SECOND MINE RACK and EXPANDED MINE RACKS. A click the launchers cannot reach fires nothing and spends nothing. The firing bands differ by ship, and the aiming wedge now fans from each launcher, three times longer and fading, brighter where the fore and aft wedges overlap.
+- **Mine racks.** Mines drop from racks at the stern, one clock per rack that restocks a mine each cycle; with two racks they drop in turn.
+- **Cards.** Card color now shows the tier the card grants (green, blue, purple, red, gold; the launcher and rack cards are gold) and the card under your cursor glows in its own color. The kind words are gone from the faces. The hotbar shows a pip for every turret, tube and rack, and the results screen shows your ship's final numbers. On the four-by-two battleships the turret nearer the middle of the ship now draws over the one nearer the end.
+- **Wire:** protocol 97 → 98 (the catalog content, the launcher and rack state, and the smoke cloud's size).
+
+## [0.19.4] - 2026-10-29
+
+### Changed
+- **FLASH SHELLS is a whiteout now.** The burst is a black disc that wipes to white and vanishes. A hull caught in it has its whole screen go white in half a second, hold for a second, then clear over 8.5 s from the ship outward: a circle of normal sight grows around you while the white beyond it fades more slowly. That growing circle is your true sight on the server too, the same for humans and bots, so nothing beyond it reaches you until it does; radar is untouched. A second flash restarts the white. Replaces the quarter-sight dazzle of 0.19.2.
+- **Wire:** protocol 93 → 94 (the flash's timing shape).
+
+## [0.19.3] - 2026-10-29
+
+### Changed
+- **No timer on a buoy's hotbar square.** A dropped buoy's slot no longer counts down: you can drop another as soon as you have stock, and with two buoys out the number meant nothing. The buoy's remaining life is on the chart, in its ring and the arc over its head.
+
+## [0.19.2] - 2026-10-29
+
+### Changed
+- **The Flash Shell is back, and the buoy comes in four kinds.** The consumable picker now lists ten lines. FLASH SHELLS returns beside the FOULING SHELL: click-aimed to the same 1000 u, no damage, one 150 u burst that leaves every enemy hull caught inside with a quarter of its sight for 10 s (radar untouched; the victim sees DAZZLED). The plain DECOY BUOY is gone; RADAR, HEALING, SHIELD and SPEED BUOYs take its place. Every buoy keeps the decoy's body (50 hp, a torpedo sponge, on radar as before) and can now be placed at any bearing around the ship at the same range; it lasts 30 s and works for its owner alone within 750 u. RADAR BUOY: a second radar sweep centred on the buoy, 750 u, turning at your own sweep speed, with islands shadowing it. HEALING BUOY: heal 2 % of missing hull per second, never paused by a hit, on top of your passive heal. SHIELD BUOY: gain shield worth 1 % of max hull per second inside; after you leave (or it expires) the shield holds 15 s then drains to zero over 15 s; it is spent before a SHIELD BLOCK. SPEED BUOY: +25 % top speed inside, the same 15 s hold and 15 s fade after, adding to the Speedboat's Shift. Two buoys of one kind do not stack. Homing torpedoes now go for the nearest enemy buoy in reach before any ship. Bots carry and use all five.
+- **Buoys you can read.** Each buoy has a new glyph: a can-hull beacon whose head is filled in the kind's colour (silver dish, green pulse, blue shield, amber arrow), the same on the belt, in the picker and on the chart. Every buoy draws its 750 u effect ring as a dashed line: yours in the kind's colour with a light tint (the radar buoy's ring holds its sweep), fading as it expires; an enemy's in the mine's alert colour so you see where its effect reaches.
+- **Wire:** protocol 92 → 93 (catalog content; the owner's dazzle, buoy shield, speed stamp and buoy views).
+
+### Fixed
+- A fleet drone that had ever been flashed kept a quarter-sight hull-avoidance scope for the rest of the match (found at the review gate by all three reviewers; never shipped).
+
+## [0.19.1] - 2026-10-28
+
+### Changed
+- **Four consumable slots, chosen by you.** The six fixed consumable keys are gone: before you sail, the class-select screen has a CONSUMABLES row with four squares, and pressing a square opens a picker of every consumable line. The four you choose are your keys 1–4 for the match, the game only ever offers you those four (and only drops them from drones), and your choice is remembered in the browser. A fresh browser starts with HULL REPAIR, SHIELD BLOCK, SMOKE SCREEN and FOULING SHELL. Bots carry a random four each match. The in-match belt is four squares wide. The MULTI-SPECTRAL CM line is called SMOKE SCREEN again (same cloud, same radar return). Protocol version 91 → 92 (Story 10.1, cycle 207; epic-10 amendment 3).
+
 ## [0.19.0] - 2026-10-24
 
 ### Changed

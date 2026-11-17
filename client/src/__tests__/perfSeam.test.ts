@@ -27,7 +27,6 @@ import {
 import { presentStatsFrom, vsyncPlausible, type FrameStats } from '../stage/worstCase.js';
 import { boundedFontWait } from '../render/stage.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { isDroneHull } from '../render/ships.js';
 
 const MAP_RADIUS = 1500;
 
@@ -82,31 +81,23 @@ describe('the READABILITY profile (Story 4.8s ratified subject)', () => {
 describe('the NFR1 profile — the reference scenario the frame budget is judged against', () => {
   const world = buildSceneWorld(MAP_RADIUS, undefined, NFR1_PROFILE);
 
-  it('stages the arena cap of CONTESTANTS plus the PEAK concurrent PvE fleet', () => {
-    // The contestants = the arena cap (16 since Story 9.8; 20 before). The peak fleet is the LARGEST SINGLE WAVE
-    // (groups x hulls per group, derived from CONFIG.fleet — never a literal),
-    // not the sum of the schedule: the waves are minutes apart precisely so
-    // the field is thinned between them.
-    const perGroup =
-      CONFIG.fleet.composition.large + CONFIG.fleet.composition.medium + CONFIG.fleet.composition.small;
-    const peakFleet = perGroup * Math.max(...CONFIG.fleet.waves.map((w) => w.fleets));
-    const sumFleet = perGroup * CONFIG.fleet.waves.reduce((n, w) => n + w.fleets, 0);
-    expect(peakFleet, 'the premise: the peak wave is not the schedule sum').toBeLessThan(sumFleet);
-    expect(world.hulls).toHaveLength(CONFIG.map.playerCap - 1 + peakFleet);
-    // Captains hold roster rows; fleet hulls hold none (amendment 39), so the
-    // roster IS the contestant count.
-    expect(world.roster).toHaveLength(CONFIG.map.playerCap);
-    expect(world.hulls.filter((h) => isDroneHull(h.cls))).toHaveLength(peakFleet);
+  it('stages the arena cap of CONTESTANTS plus extra hulls, every one a captain with a roster row', () => {
+    // The extra hulls past the full arena (the retired drone fleet's slots,
+    // Story 10.8) are captains of real classes: every slot holds a roster row.
+    expect(world.hulls.length).toBe(NFR1_PROFILE.contacts);
+    expect(world.hulls.length).toBeGreaterThan(CONFIG.map.playerCap - 1);
+    expect(world.roster).toHaveLength(world.hulls.length + 1);
   });
 
-  it('INTERLEAVES the two sensor bands, so fleet hulls are not all shoved into the annulus', () => {
-    // A bare `i <= nearContacts` split would have put every fleet hull outside
-    // the truesight bubble — no drone silhouette, no aggro bracket, no hull-hit
-    // flash — and the cheap half of the picture would have been measured as if
-    // it were the whole one.
+  it('INTERLEAVES the two sensor bands, so the extra hulls are not all shoved into the annulus', () => {
+    // A bare `i <= nearContacts` split would have put every extra hull outside
+    // the truesight bubble — no silhouette, no hull-hit flash — and the cheap
+    // half of the picture would have been measured as if it were the whole one.
+    // hulls[k] is slot k + 1; slots below the arena cap are the arena captains.
+    const nearSlots = world.hulls.flatMap((h, k) => (h.far ? [] : [k + 1]));
+    expect(nearSlots.some((i) => i >= CONFIG.map.playerCap)).toBe(true);
+    expect(nearSlots.some((i) => i < CONFIG.map.playerCap)).toBe(true);
     const near = world.hulls.filter((h) => !h.far);
-    expect(near.some((h) => isDroneHull(h.cls))).toBe(true);
-    expect(near.some((h) => !isDroneHull(h.cls))).toBe(true);
     // The near share is the bubble's share of the scope's disc, (sight/radar)^2
     // — one ninth on the twelfths ladder (sight = radar 4/12, epic-9 amendment
     // 103; it was one quarter on the eighths ladder).

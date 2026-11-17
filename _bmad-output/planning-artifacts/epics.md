@@ -90,7 +90,7 @@ FR30: Roving PvE drone fleets in every mode, three tiers (common small / uncommo
 FR31: Win = last match participant afloat; the win check counts participants only in every mode — PvE ships are never participants, can never win, and never need to die for the win.
 FR32: Sinking window: at 0 HP the ship enters a ~5 s reversible sinking state — hull decelerates (ritardando), guns stay live (go down shooting), inputs restricted to fire/aim; lifecycle is alive → sinking → sunk with sinking → alive reserved (future heal). Provisional win semantics: sinking ships stay win-eligible until fully sunk; later sinker wins; same-tick = draw.
 FR33: After sinking: omniscient reveal (fog drops, whole map, camera zooms out, nameplates on every ship) → results modal (kills, placement, time afloat, accrued boons + last offer) → RETURN TO PORT; re-queue happens from home.
-FR34: Standard BR lobbies: minimum 2 human captains, fill-or-timer, capped at 20, zero bot-fill — bots never masquerade as players.
+FR34: Standard BR lobbies: minimum 2 human captains, fill-or-timer, capped at 20, zero bot-fill — bots never masquerade as players. *(superseded in part 2026-10-25 — `sprint-change-proposal-2026-10-25.md`, Story 10.6, epic-10 amendment 1: the standard queue holds 1:00 and bots FILL the roster to a minimum when it fires; "zero bot-fill" is retired; the minimum and the labelling are Eric's at 10.6's spec step)*
 FR35: Solo vs AI mode: the lobby fills with AI combatant bots that pick classes and genuinely fight the battle royale; both modes contain PvE fleets; pure quick-play join for both.
 FR36: Combat bots consume perception.observe() output only (structurally unable to wallhack), decide via utility AI (hunt/position/strike/evade/storm-avoid), act through the same validated input pipeline as humans, at a staggered ~250 ms observe cadence; PvE drones use a cheaper threat-check tier instead of full observe().
 FR37: All non-human ships are driven through the same input pipeline and subject to the same perception rules as human ships — no special code paths.
@@ -556,7 +556,7 @@ FR30: Epic 5 — Roving PvE drone fleets, three tiers
 FR31: Epic 6 — Participants-only win check in every mode
 FR32: Epic 5 — Reversible sinking window (ritardando, guns live)
 FR33: Epic 5 — Omniscient reveal → results → return to port
-FR34: Epic 6 — Standard BR lobby rules (min 2, fill-or-timer, cap 20, no bot-fill)
+FR34: Epic 6 — Standard BR lobby rules (min 2, fill-or-timer, cap 20, no bot-fill) *(bot-fill clause superseded 2026-10-25, Story 10.11)*
 FR35: Epic 6 — Solo vs AI mode with combat bots
 FR36: Epic 6 — Fair combat bots via observe(); PvE threat-check tier
 FR37: Epic 6 — All non-human ships through the same input pipeline
@@ -638,7 +638,7 @@ Two real modes with honest matches: no bot-fill, min-2 fill-or-timer, cap 20, ro
 The beta, self-published: 60 FPS on the reference i7 MacBook, fast cold load, GA4 + a certified CMP + a privacy policy, AdSense H5 Games Ads behind the seam, a How-to-Play page, the upgrade-cards v2 pass, the DESIGN.md real-time-era refresh, ~~split frontend/backend deploys at 0.1.0 / 0.1.0~~ (DEFERRED 2026-08-21 — beta ships one deployable at 0.17.X), and the release gate. Rescoped 2026-08-18 — the portal launch and the Chromebook reference device are retired.
 **FRs covered:** FR39, FR40 (hardens NFR1, NFR2, NFR7, NFR8, NFR9, NFR18, NFR19) · **Also:** AR11 (AdSense implementation), AR17, UX-DR29, UX-DR39
 
-**Extension 2026-09-11 — Epics 8 and 9 (Eric-approved structure).** The sequence continues **7 → 8 → 9**, shipped as ONE unit before the traffic push (*"go big or go home"*). Epic 8 is complete on its own and needs nothing from Epic 9: it plays in full anonymously on the default decks, and the pieces Epic 9 later leans on (the shared deck-legality rules, the door's deck loader, the match record) are built in Epic 8 with the default-deck / no-account path. The Colyseus 0.17 → 0.18 framework upgrade — which the architecture wrote as "E9 story 0, sequenced first" — is homed as **Story 8.0** (Eric 2026-09-11), on the Epic 0 / Story 0.1 pattern, so no epic depends on a later one; its own PR, its own PV bump, a full smoke pass, and it lands before any deck code. *(Re-cut 2026-09-21: decks are retired from Story 8.14 on — the legality rules and the deck loader Epic 9 was to lean on never reach it; see `sprint-change-proposal-2026-09-21.md`.)* *(Renumbered 2026-10-06: the account epic is **Epic 10**; **Epic 9 is Tune and Clean**, inserted by `sprint-change-proposal-2026-10-06.md`. The "one unit" release reading above is LEFT STANDING by Eric's ruling of 2026-10-06 — only the renumbering is noted here.)*
+**Extension 2026-09-11 — Epics 8 and 9 (Eric-approved structure).** The sequence continues **7 → 8 → 9**, shipped as ONE unit before the traffic push (*"go big or go home"*). Epic 8 is complete on its own and needs nothing from Epic 9: it plays in full anonymously on the default decks, and the pieces Epic 9 later leans on (the shared deck-legality rules, the door's deck loader, the match record) are built in Epic 8 with the default-deck / no-account path. The Colyseus 0.17 → 0.18 framework upgrade — which the architecture wrote as "E9 story 0, sequenced first" — is homed as **Story 8.0** (Eric 2026-09-11), on the Epic 0 / Story 0.1 pattern, so no epic depends on a later one; its own PR, its own PV bump, a full smoke pass, and it lands before any deck code. *(Re-cut 2026-09-21: decks are retired from Story 8.14 on — the legality rules and the deck loader Epic 9 was to lean on never reach it; see `sprint-change-proposal-2026-09-21.md`.)* *(Renumbered 2026-10-06: the account epic is **Epic 10**; **Epic 9 is Tune and Clean**, inserted by `sprint-change-proposal-2026-10-06.md`. The "one unit" release reading above is LEFT STANDING by Eric's ruling of 2026-10-06 — only the renumbering is noted here.)* *(Renumbered again 2026-10-25 — `sprint-change-proposal-2026-10-25.md`: three epics are inserted after Tune and Clean — **Epic 10 The Playtest Pass, Epic 11 The Ledger, Epic 12 The Front Door** — and the account epic is **Epic 13**, text kept whole. Eric 2026-10-24: "not setting up databases, accounts, or auth at all just yet"; the Ledger builds the store half anonymously first.)*
 
 ### Epic 8: The Pool *(GDD E8 — upgrades v3 + catalog v4; "The Deck" through 8.13, re-cut 2026-09-21)*
 Pick a hull, pick its gun, sail its `Shift`: spawn with the mounted gun and the class ability, redraw the opening offer during the countdown, draw from the one pool every captain shares into `Q`/`E`/`R`, stock and fire consumables on `1`–`4`, heal from a card, read your final loadout in results, and read How-to-Play's re-cut EQUIPMENT and UPGRADING sections — identical rules for humans and bots. **Two separate claims, deliberately kept apart:** Epic 8 NEEDS NOTHING FROM EPIC 9 (every code path runs with no account module: everything unlocked, a null writer); whether the production door admits anonymous players is Eric's open question and is not decided by anything here. Under it: the common pool (every line, unlimited copies, a weapon guaranteed while a slot is open, a match-wide tilt), the gun pick and the three fixed class Shifts, the nine-slot loadout, consumables on the existing Equipment interface, the level-zero opening with one REDRAW, wake drafting, the damage gate and ordnance collector, smoke as a sight occluder, the held-fire stream, chaff's server-side fakes, uncapped mines and the decoy, bots that draw from the same pool, and the catalog's lines as content. Decks (the 40-card authored deck, its legality rules, the hidden match pool) were built in 8.1–8.13 and are retired by 8.14 — see `sprint-change-proposal-2026-09-21.md`. Opens with Story 8.0, the Colyseus 0.18 upgrade — a FLOOR story with no player-visible change, on the Story 0.1 precedent (the "an epic delivers player value" rule reads "…except for floors").
@@ -651,7 +651,27 @@ Eric's zero-in epic after The Pool, built in his order — **balance and feature
 **FRs covered:** none new — tunes FR1–FR12 (hulls), FR24–FR25 (the ring), FR26 (the map), FR41–FR61 (the pool's lines) in place · **Also:** the project-context Testing Rule (retro 2026-10-06), NFR20–NFR23 (the six-exception invariant is EXTENDED for the buoy, never widened)
 **Standing constraints:** guns are balanced by Eric's math, never by sim (2026-10-02); the sim measures attrition and class share only, quick runs ≤ 99 matches and never unprompted; no friendly fire, ever — a neutral buoy heals, it never hurts; new card glyphs are rendered and shown to Eric before commit; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry.
 
-### Epic 10: The Account *(GDD E10; was Epic 9 until 2026-10-06; re-cut 2026-09-21 — no decks)*
+### Epic 10: The Playtest Pass *(inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E10; **CLOSED 2026-11-12** at the retro, accepted at 0.19.19 — 13 built, 10.14 folded into 11.11, 2 cancelled; `epic-10-retro-2026-11-12.md`)*
+Eric's playtest-feedback epic, built in the order he listed his thoughts: four configurable consumable slots on the LOADOUT screen with keys 1–4; a first-minute objective (guarded supply buoys as a source of consumables and XP — design sitting FIRST); the battle UI (XP and level visible, the upgrade offer as a corner card taken by click or hotkey); the offer-composition law (1× ship, 1× weapon, 1× consumable, 1× wildcard rolled type-first, exhausted types fall back); flak with no range dropoff; bots filling the standard queue at 1:00 (FR34 reversed); the machine gun with the steepest dropoff and a tiered HIGH EXPLOSIVE damage-over-time; and the How-to-Play and Record pass re-homed from Epic 9 as the closing story. Every number is Eric's at the spec step. *(2026-10-27 — `sprint-change-proposal-2026-10-27.md`: Story 10.2 The Flash Shell and the Four Buoys added, built straight after 10.1 — FLASH SHELLS returns beside the FOULING SHELL and the DECOY BUOY splits into RADAR / HEALING / SHIELD / SPEED buoys, ten consumable lines to pick four from; 10.1 BUILDS the LOADOUT consumables row, it does not inherit one.)* *(2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6: **RE-CUT around the beacons / battleships / index slice** that the 10.8 design sitting and its forge produced. Six stories added — 10.3 The Index Model (1000 HP, every stat an index around 100, RUDDER, HULL POINTS + passive healing dead, ramming mass = ARMOR, HUD 0–100 %), 10.4 The Four Battleships (Yamato / Bismarck / Warspite / Iowa replace the three classes; per-turret cooldowns, fore/aft arcs, uniform secondaries on right click, the deck-gun pick tabled, Shift the pre-queue pick), 10.5 The Kit Retire and the Three Equipment Slots (consumables dropped; HULL REPAIR `C` + SMOKE `V` cooldowns; torpedo / mine / special shell on `Q` / `E` / `R`), 10.6 The Catalog Under the Index (+20 flat cards, equipment lines), 10.9 Airdrops (156, +1..+5, flavor), 10.12 Bot Posture Under the Four Hulls, 10.13 The Sound Pass (engine sounds, realistic synthesis — tones-only stands); 10.8 is The Radio Beacons (8/4/2, the pot splits, drones retired); 10.7 re-cut to Ship / Equipment / wildcard / wildcard; 10.15 and 10.16 CANCELLED with the deck guns; 10.1 and 10.2 (built) are RETIRED when 10.5 lands. Build order 10.3 → 10.4 → 10.5 → 10.6 → 10.7 → 10.8 → 10.9 → 10.10 → 10.11 → 10.12 → 10.13 → 10.14. Release posture: ONE UNIT — production receives nothing until the whole slice has had its staging pass.)*
+**FRs covered:** none new — tunes FR19 / FR41–FR61 (the pool and the offer), FR34 (superseded: bot fill), the gun lines in place · **Also:** NFR20–NFR23 (six exceptions, EXTENDED for the DoT), UX-DR47–UX-DR59 (HUD bar, refit cards — re-cut by 10.1 / 10.10)
+**Standing constraints:** every number is Eric's; guns by Eric's math, never by sim; every upgrade tiered (amendment 232); no friendly fire; visual candidates shown to Eric before commit; no in-game copy unasked; a design gap at review is an AskUserQuestion before the PR.
+
+### Epic 11: The Big Ocean *(inserted 2026-11-08 — `sprint-change-proposal-2026-11-08.md`; GDD E11; `brainstorming-session-2026-11-07.md` HARDENED in `forge/big-ocean/forged-idea.md`)*
+*"A marine radar simulator that happens to have a naval battle royale attached."* Real REACH on today's 10,000 u board — radar and guns reach about equally far by real ratio (~9,000 / ~8,700 u), clear-day dark is RESOLUTION not range (a contact is an ARC, no fire-control set), real dispersion replaces distance decay, the twelfths ladder and the RANGE row go (five rows, no AIM row), the set gains five real marine knobs (gain, sea clutter, rain clutter, pulse length, range scale — every one a server-side input; gain buys server-made ghosts), a splash is a one-sweep return, weather is a return-strength model built rain-first on the fog field, beacons chart at the midpoint between neighbor pairs, the camera is free with the whole board as its minimum zoom. Bench order: the bench page gate → 11.1 dispersion → 11.2 hectometers and reach → 11.3 the arc → 11.4 the operated set → 11.5 the splash return → 11.6 rain first → 11.7 beacon midpoints → 11.8 the free camera → 11.9 bot posture → 11.10 the weather arms → 11.11 How-to-Play and Record. Epic 10 finishes first on today's ocean; Epic 11 is its own production release.
+**FRs covered:** none new — re-cuts FR24–FR28 and the Weapon Systems reach sentences in place; RANGE leaves FR41–FR61's pool · **Also:** NFR1–NFR2 (paint budget measured on staging), NFR20–NFR23 (six exceptions EXTENDED for the arc / ghosts / splash), UX-DR9
+**Standing constraints:** every number is Eric's (every forge figure a `[dial]` for the bench page); the client draws nothing it wasn't sent; nothing below the observer's gain leaves the server; a performance verdict comes from staging, never a dev build; visual candidates shown to Eric before commit; no in-game copy unasked; a design gap at review is an AskUserQuestion before the PR.
+
+### Epic 12: The Ledger *(was Epic 11 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E12)*
+The match-data store, now, strictly for Eric's trends, balance and bot tuning from real matches: Render managed Postgres per environment behind `@colyseus/database`, absence-gated on `DATABASE_URL`, mounted behind the `AccountWriter` port that already receives a complete `MatchRecord` at every match end; every row anonymous (no callsign, no account column yet); a readout script rendering the harness's report shapes over live matches.
+**FRs covered:** none new — the server-side match record half of the GDD's Account progression section, anonymously · **Also:** AR22–AR25 (store half), NFR25–NFR27
+**Standing constraints:** the ledger never takes the game down; nothing in a tick awaits it; `world.ts` / `match.ts` keep zero persistence imports; `databases:` lands with the code that reads it, never ahead; PII rule on every log line.
+
+### Epic 13: The Front Door *(was Epic 12 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E13)*
+H5 Games Ads is approved; the AdSense site review says Google cannot crawl the site and finds no content (every page is an empty document filled by JavaScript; no description on the home, no Open Graph, no robots.txt, no sitemap). The landing page is redesigned in Google Stitch (prompts by the agent, Eric driving), every page carries its real text in the HTML at build time with the meta set, robots.txt and sitemap, and the site is carried through publisher approval to the first live interstitial on production.
+**FRs covered:** FR39–FR40 (hardens NFR7–NFR9, NFR18–NFR19) · **Also:** AR11, UX-DR29, UX-DR39
+**Standing constraints:** DESIGN.md is the source of truth and the Stitch output is reconciled with it before anything is built; NFR2's load budget untouched; staging's noindex / gate untouched; no in-game copy.
+
+### Epic 14: The Account *(was Epic 13 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; GDD E14; was Epic 10 from 2026-10-06 to 2026-10-25 — `sprint-change-proposal-2026-10-25.md`, text kept whole; was Epic 9 until 2026-10-06; re-cut 2026-09-21 — no decks)*
 Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Under it: the first persistent store (Render Postgres behind an absence-gated in-process module), OAuth-only auth verified at both doors, the server-only unlock check at the door and the match-record writer, two-state settings, self-serve deletion, Eric's admin console, the privacy paragraph, and key rebinding. **Closes with a design & doc reconciliation story** (the Story 7.6 pattern, Eric 2026-09-11) that writes the v3 corrections back into `gdd.md`, `game-architecture.md`, the deferred-work ledger and both tracker files, so no implementing agent ever again reads a sentence the rulings retired.
 **FRs covered:** FR62–FR70, FR72 · **Also:** NFR24–NFR28, NFR30, AR22–AR34, AR51, AR61, AR63, UX-DR60–UX-DR78 (UX-DR72's privacy half)
 **Standing constraints:** store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; the account layer never takes the game down; Story 7-7 stays deferred and this adds no deployable; anonymous play on production is Eric's open question and is not pre-empted by any story.
@@ -2508,7 +2528,7 @@ So that Epic 10's database and auth layer is built on current code and no shippe
 **And** nothing a player can feel: `PROTOCOL_VERSION` unchanged unless a wire type changes; `goldenFrames` byte-identical; both scripted smokes first-try; performance judged on staging after the merge, never locally
 **And** the record: a spec with a before/after version table per workspace; one amendment; `CHANGELOG`; `project-context.md` Technology Stack updated to the new versions; the ledger's npm-audit entry stamped RESOLVED; both trackers stamped with one line each; no in-game copy; no gameplay change.
 
-### Story 9.17 (MOVED OUT OF EPIC 9, 2026-10-23): How-to-Play and Record *(was 9.8 until 2026-10-11, 9.11 until 2026-10-13, 9.12 until 2026-10-13 second, 9.13 until 2026-10-14; 9.17 until 2026-10-23 — `sprint-change-proposal-2026-10-23.md`: Eric moved it out of Epic 9 ("move How to Play until later"); the number is re-used by the Dependency Sweep above; the text below is kept whole as the record of what the pass owes and is re-homed at the Epic 10 correct-course)*
+### Story 9.17 (MOVED OUT OF EPIC 9, 2026-10-23): How-to-Play and Record *(was 9.8 until 2026-10-11, 9.11 until 2026-10-13, 9.12 until 2026-10-13 second, 9.13 until 2026-10-14; 9.17 until 2026-10-23 — `sprint-change-proposal-2026-10-23.md`: Eric moved it out of Epic 9 ("move How to Play until later"); the number is re-used by the Dependency Sweep above; the text below is kept whole as the record of what the pass owes and is re-homed at the Epic 10 correct-course; **re-homed 2026-10-25 as Story 10.14 of Epic 10 The Playtest Pass** — `sprint-change-proposal-2026-10-25.md`)*
 
 As a new captain reading How-to-Play,
 I want every item in the game described there in Eric's words,
@@ -2522,11 +2542,600 @@ So that nothing I can draw is a mystery.
 **And** the GDD's Development Epics table and the mechanics sections 9.1–9.12 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern; incl. the fog-bank sentences in the GDD Arena section, FR28 and EXPERIENCE.md's fog reads, K = 5 / +1 / +5 → K = 100 / +20 / +100, DESIGN.md's D′ bar — 2026-10-14; incl. the eighths → twelfths ladder, "two truesight diameters", "radar = sight × 2", the 0.5×–1.5× zoom range and EXPERIENCE.md's ladder lines — 2026-10-13, `sprint-change-proposal-2026-10-13-twelfths-ladder.md`); `catalog-v3.md` gains the new lines and the three retirements as a dated addendum; `game-architecture.md` gains a dated notice for the smoke-occluder and chaff-fakes patterns
 **And** `epic-9-context-amendments.md` holds every ruling; the epic-9 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
 
-## Epic 10: The Account *(GDD E10 — was Epic 9 / E9 until the 2026-10-06 Sprint Change Proposal inserted Epic 9 Tune and Clean; stories 9.N → 10.N, text unchanged; re-cut 2026-09-21 — no decks)*
+## Epic 10: The Playtest Pass *(inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E10; Eric's eight itemized playtest thoughts of 2026-10-25, in HIS order, minus the site item which is Epic 12)*
 
-Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Ten stories in build order (Eric-approved 2026-09-11; Story 10.5 deleted and 10.4 / 10.6 / 10.7 / 10.11 re-scoped by the 2026-09-21 Sprint Change Proposal). Standing constraints on every story: store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; **the account layer never takes the game down** (nothing in a tick ever awaits the database); Story 7-7 stays deferred and nothing here adds a deployable, CORS or a cross-origin cookie; the account HTTP API is NOT part of `PROTOCOL_VERSION` (its contract is the endpoint path set, pinned by test); every log line obeys the PII rule (NFR24); **anonymous play on production is Eric's open question and no story pre-empts it**; the dev/staging host is account-only (FIRM — built in 10.2). File homes, naming and placement rules per AR56–AR58.
+Eric's playtest-feedback epic after Tune and Clean, built in the order he listed the thoughts: four configurable consumable slots, a first-minute objective (design sitting first), the battle UI (XP seen, the offer in the corner), the offer-composition law, flak without dropoff, bots filling the standard queue at 1:00, the machine gun's dropoff and its High Explosive ladder, and the How-to-Play and Record pass re-homed from Epic 9 as the closing story. Standing constraints on every story: **every number is Eric's**, ruled at the story's spec step through AskUserQuestion — the spec author never fills one in and marks any unruled clause `[unruled]`; guns are balanced by Eric's math, never by sim (2026-10-02), and the sim measures attrition and class share only (quick runs ≤ 99 matches, never unprompted); the master perception invariant keeps exactly SIX exceptions and is EXTENDED, never widened, for any new event; no friendly fire, ever; every upgrade is tiered, never one-off (epic-8 amendment 232); visual candidates are rendered and shown to Eric before they are committed; new-feature explanations go to How-to-Play only, in Eric's copy; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry. The epic's own rulings live in `epic-10-context-amendments.md`.
 
-### Story 10.1: The Account Store Foundation (floor story)
+*(2026-10-27 — `sprint-change-proposal-2026-10-27.md`, amendment 2: **Story 10.2 The Flash Shell and the Four Buoys** is inserted and BUILT SECOND, straight after 10.1 — build order 10.1 → 10.2 (then numbered 10.9) → the rest; the 2026-11-04 renumbering below gives the final numbers. Story 10.1 is corrected the same day: the port LOADOUT screen of amendment 96 is NOT built (the class-select layer is what exists), so 10.1 builds the CONSUMABLES row and its picker.)*
+
+*(2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6: **the epic is RE-CUT around the slice the 10.8 design sitting produced** (`brainstorming-session-2026-11-03.md`, HARDENED in `forge/beacons-battleships-index/forged-idea.md`). Eric 2026-11-04: *"the brainstorm for the first minute objective obviously became much, much bigger. Time to work literally all of it into the plan."* The slice's stories are 10.3–10.6, 10.8, 10.9, 10.12 and 10.13 below (renumbered the same day — see the table); 10.8 is The Radio Beacons; 10.7 is re-cut; 10.15 and 10.16 are CANCELLED; 10.1 and 10.2 are built and RETIRED when 10.5 lands. **Build order: 10.3 → 10.4 → 10.5 → 10.6 → 10.7 → 10.8 → 10.9 → 10.10 → 10.11 → 10.12 → 10.13 → 10.14.** **Release posture: ONE UNIT** — every story its own PR and cycle on `development`; production stays on 0.19.4 until the whole slice has had its staging pass (the Epic 8 + 9 "go big or go home" posture); the version at that release is Eric's call then. Every lock of the forge is restated in amendment 6 so no story author reads the memlog. The order 10 → 11 → 12 → 13 HOLDS.)*
+
+*(RENUMBERED 2026-11-04, same day, Eric: *"Renumber and reorder everything that was done before so that its in the order it was done up to this point, then number the new stories in order after that."* Old → new: 10.1 → 10.1 (built first), 10.9 → **10.2** (built second), 10.10 → **10.3**, 10.11 → **10.4**, 10.12 → **10.5**, 10.13 → **10.6**, 10.4 → **10.7**, 10.2 → **10.8**, 10.14 → **10.9**, 10.3 → **10.10**, 10.6 → **10.11**, 10.15 → **10.12**, 10.16 → **10.13**, 10.8 → **10.14**; the two cancelled gun stories go to the tail — 10.5 → **10.15**, 10.7 → **10.16**. The number sequence 10.1 → 10.14 IS the build order. Every Epic 10 planning artifact, both trackers and the story / spec file names carry the new numbers; code comments, the 2026-10-25 / 10-27 proposals and the epic-9 records keep the old numbers as dated history — read them through this table.)*
+
+### Story 10.1: Four Configurable Consumable Slots *(BUILT 2026-10-28, cycle 207, 0.19.1, PV 92, amendment 3 — **RETIRED when Story 10.5 lands** (2026-11-04, `sprint-change-proposal-2026-11-04.md`): the CONSUMABLES row, the picker, the kit and keys 1–4 go with the consumables; the text below stands as the record of what was built)*
+
+As a captain,
+I want to choose the four consumables my ship can carry before I sail,
+So that the game only ever offers me the consumables I actually want, on keys 1–4.
+
+**Eric's thought (2026-10-25, verbatim):** *"Go back down to 4 consumable slots, make what each slot holds player-configurable so that the game only gives you those consumables."* **Ruled the same day:** configured on the port **LOADOUT screen** as a CONSUMABLES row in amendment 96's key · value grammar, saved in localStorage like the callsign; **the keys return to 1–4**, one per slot in order. Supersedes Story 9.2's six fixed keys (epic-9 amendments 31–38) for the slot count and the key row.
+
+**Acceptance Criteria:**
+
+**Given** the port class-select layer (`client/src/ui/classSelect.ts`: class cards, SPECIAL, DECK GUN, color hoist — amendment 96's LOADOUT screen is specified but NOT built; corrected 2026-10-27, `sprint-change-proposal-2026-10-27.md`) and the six fixed consumable keys of Story 9.2
+**When** the slots land
+**Then** the port screen gains a CONSUMABLES row in amendment 96's KEY · VALUE grammar (promoting the class-select layer to the LOADOUT screen as far as that row needs — the layout is a rendered candidate shown to Eric before commit) whose picker modal fills exactly four slots from every non-stub consumable line of the catalog (six at this story, ten once Story 10.2 lands), each line at most once `[unruled]`; the choice persists in localStorage beside the callsign and rides the seat to the server at join (the server validates it in `game/inputs.ts` / the room-options sanitizer — malformed is silently replaced by the default four) (FR41, FR45)
+**And** the offer draw (`sim/draw.ts`) deals a consumable line ONLY if it is one of the captain's four; amendment 94 (a consumable is dealt even at cap, greyed) stands unless Eric rules otherwise at the spec step
+**And** the HUD's key row shows four slots on `1`–`4` in slot order; the fifth and sixth keys and their squares are retired; the keyboard chokepoint's `preventDefault` set follows
+**And** bots receive a default four by the 8-20 rule (same pool, same rules); the default four for a fresh browser is Eric's at the spec step `[unruled]`
+**And** `PROTOCOL_VERSION` bumps (the seat carries the loadout); How-to-Play's keys copy is owed to 10.14, not written here.
+
+### Story 10.2: The Flash Shell and the Four Buoys *(inserted 2026-10-27 — `sprint-change-proposal-2026-10-27.md`, amendment 2; BUILT SECOND in the epic, straight after Story 10.1; BUILT 2026-10-29 / 11-03, cycles 208–210, 0.19.2–0.19.4, PV 93–94, amendments 4–5 — **RETIRED when Story 10.5 lands** (2026-11-04, `sprint-change-proposal-2026-11-04.md`): the four buoys are TABLED (brainstorm #62 — maybe later as random map spawns), FLASH SHELLS survives as a special-shell option keeping amendment 5's whiteout, SUPERCAVITATING TORPEDO as a torpedo option (#61); the text below stands as the record of what was built)*
+
+As a captain,
+I want more to choose from when I fill my four consumable slots — the Flash Shell back, and a buoy for radar, healing, shield or speed,
+So that the four I carry are a real choice and a buoy does more than soak a torpedo.
+
+**Eric's brief (2026-10-27, verbatim):** *"Right now there are six choices, of which the player picks four. Lets add back in the Flash Shell. Lets also split the Buoy into Four varieties... Radar, Healing, Shield, and Speed. All of them will have the same 50 HP stats and will soak up torpedoes/attract homing torpedoes as a preference over ships, but each of them has a different special area effect."* **Ruled the same day** (AskUserQuestion + chat): the FLASH SHELLS that returns is the old one as it was (epic-8 amendment 132), beside the FOULING SHELL; the plain DECOY BUOY is GONE, the four replace it; every buoy has a **750 u** effect radius and **expires 1:00** after it is dropped; *"friendly ships"* = the owner's own ship (no teams). The consumable list becomes ten: HULL REPAIR · SHIELD BLOCK · MULTI-SPECTRAL COUNTERMEASURE · FOULING SHELL · FLASH SHELLS · SUPERCAVITATING TORPEDO · RADAR BUOY · HEALING BUOY · SHIELD BUOY · SPEED BUOY (DEPTH CHARGE stays a stub).
+
+**Acceptance Criteria:**
+
+**Given** the ten-line consumable catalog and Story 10.1's four slots
+**When** the lines land
+**Then** `flashShells` returns to the catalog as a consumable line (cap 5, click-aimed to the radar rung, zero damage, one r150 u burst: every non-friendly afloat hull inside sees 1/8 of its intel range for 10 s, never stacks, radar untouched, the victim's DAZZLED tell — the numbers re-confirmed by Eric at the spec step) beside `foulingShell`, which is untouched (FR41, FR45)
+**And** `decoyBuoy` is RETIRED and `radarBuoy`, `healingBuoy`, `shieldBuoy`, `speedBuoy` take its place: each 50 hp, dropped astern in the mine's rear sector, painted on radar exactly as the decoy was, never hurt by its owner's ordnance, persisting when its owner sinks `[reading]`, **750 u effect radius, 1:00 lifetime**, any torpedo that runs into it detonating there, and **homing torpedoes preferring a buoy over a ship** when both are acquirable (NEW — `acquireNearest` in `shared/src/sim/shell.ts` takes the nearest today; the preference law is confirmed at the spec step)
+**And** RADAR BUOY: for its lifetime a second radar for its OWNER — its own rotating sweep centred on the buoy, 750 u range, at the RPM the owner's intel ladder gives the owner's own sweep; its paints reach the owner only, through `perception.observe()` / `signals.ts` like every sensor, islands shadowing it (Eric 2026-08-02); the SIX perception exceptions stay six and the invariant suite is EXTENDED for the new source (NFR20–NFR23)
+**And** HEALING BUOY: the owner's ship inside the radius heals **2 % of its MISSING hp per second**, never interrupted by being hit, stacking on top of the built-in passive heal (which still pauses on hit)
+**And** SHIELD BUOY: each second the owner's ship is inside the radius it gains **shield worth 1 % of its max hp**; after it leaves the radius or the buoy expires the shield **holds 15 s, then ticks down to zero over another 15 s**; damage eats shield before hull; a cap and the ordering with SHIELD BLOCK `[unruled]`
+**And** SPEED BUOY: the owner's ship inside the radius has its **max speed raised 25 %** (through `effectiveStats()`, both sides, so prediction holds); after leaving or expiry the bonus **holds 15 s, then ramps to zero over 15 s**; stacking with the Speedboat's Shift `[reading: stacks — confirm at spec]`
+**And** every effect is owner-only (no teams); whether two buoys of one kind stack `[unruled]`; the HUD shows the owner what it needs (buoy shield, buoy speed) in the existing tell grammar and no in-game copy is added unasked; `OwnShip` and the catalog change the wire → `PROTOCOL_VERSION` bumps
+**And** bots take and use the five lines by the 8-20 rule (weights Eric's at the spec step); the 10.1 picker lists the ten lines; How-to-Play entries and the GDD / catalog-v3 / DESIGN.md dated stamps (R36, the R1 "RADAR BUOY is gone" bullet, the consumable-strip row) are owed to Story 10.14.
+
+### Story 10.3: The Index Model *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; FLOOR story of the beacons / battleships / index slice; BUILT FIRST of the re-cut — order 10.3 → 10.4 → 10.5 → 10.6 → 10.7 → 10.8 → 10.9 → 10.10 → 10.11 → 10.12 → 10.13 → 10.14)*
+
+As a captain reading my ship,
+I want every hull to show 0–100 % and every stat to be a plain number around 100,
+So that I can read toughness, punch and speed on one ruler without ever doing arithmetic.
+
+**Eric's rulings (2026-11-03 brainstorm #4, #40–#45, #67; forge premise 3; forge locks):** every ship has **1000 HP shown as whole-number 0–100 %** — nobody ever sees a raw figure out of 1000, theirs or anyone's, no effective-HP or hits-to-sink readout; **every stat is an index around 100** — ARMOR, POWER (the attacker-side number; "lethality" rejected), RELOAD, ENGINES, **RUDDER** (NEW — turn rate; ENGINES does not include it), INTEL (= radar sweep speed: 100 = 15 RPM, 200 = 30 RPM, linear), RANGE (IS an index, #67); **100 = the average ship = Bismarck** (#43); a real ship is a set of offsets; **equal main-gun DPS across hulls** — a heavy slow hit lives in high POWER + low RELOAD, never in more damage per second (#41; the facilitator's one-rule reading: POWER × RELOAD ≈ 10,000, RELOAD above 100 = faster); **weapons are balanced as a percent of average health per hit** (#4); **toughness = ARMOR, never HP**; effective HP is the hidden truth. Costs accepted (forge): *"we'll rescale everything"* — **HULL POINTS dies** (+50 maxHp per card contradicts 1000 flat, the same reason Shield dies, #64), **passive healing dies** (the 2 %/s out-of-combat regen AND the PASSIVE HEALING ladder — HULL REPAIR becomes the one heal at 10.5), **RELOAD becomes a multiplicative law**, **ramming mass under flat HP = ARMOR** (probably; the 9.5 energy law keeps its shape with the ARMOR index as mass). The 9.9 Armor Piercing gate (victim ARMOR minus attacker POWER through K/(K+E)) already nets an average pair to today's base; a +20 card stays a 17 % step (forge: Cloud's crack dissolved).
+
+**Acceptance Criteria:**
+
+**Given** `CONFIG.shipClasses` (three hulls at 300 / 350 / 300 hp), `effectiveStats()` as the one fold, the HULL POINTS and PASSIVE HEALING ladders, the regen tick, and the 9.5 ramming law reading mass from `effectiveStats().maxHp`
+**When** the index model lands
+**Then** every hull's `maxHp` is 1000 and every derived stat is an index (ARMOR, POWER, RELOAD, ENGINES, RUDDER, INTEL, RANGE) folded ONCE in `effectiveStats()` from (hull offsets + fitted cards + collected airdrops) — the only place a stat is derived, both sides (FR41, NFR20)
+**And** every weapon's damage is re-ruled as a share of 1000 (Eric's numbers at the spec step `[unruled]`); the main-gun law holds equal DPS across hulls; RELOAD is multiplicative; INTEL sets the sweep RPM linearly from 15 at 100; RUDDER sets turn rate and ENGINES does not; RANGE scales the main-gun reach
+**And** the HULL POINTS ladder, the PASSIVE HEALING ladder and the out-of-combat regen are REMOVED from the sim and the catalog deal (dated notes in `catalog.ts`); the ramming law reads ARMOR as mass with Eric's calibration re-confirmed at the spec step `[unruled]`
+**And** the HP bar, every hp arc, the results screen and the How-to-Play stat table show whole-number percent only; `OwnShip` / contact frames carry percent or 0–1000 — the client never renders a raw figure; the HUD rows are a RENDERED candidate shown to Eric before commit
+**And** today's three classes are expressed as index offsets as a SCAFFOLD so the game plays until 10.4 replaces them `[reading — Eric may veto]`; bots sail unchanged through the fold; the harness reports in percent and index
+**And** `PROTOCOL_VERSION` bumps (the client reads the stat block); the GDD "Flat damage model" / "Ship classes" sentences and catalog-v3 are stamped at 10.14, not here.
+
+### Story 10.4: The Four Battleships *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.3; **DESIGN SITTING FIRST** — Eric 2026-11-04: *"The transition to historical ships also will require a design session as these are being modeled on real-world historical battleships, so they need accurate topdown profiles, as well as accurate deck gun placements and arcs."* Before this story is created, a sitting with Eric produces, from real naval drawings, each ship's top-down hull profile at the game's scale, its turret positions and the per-turret arcs its real geometry gives — RENDERED as an artifact for his yes; the sitting's output is the story's spec input for the hull sprites, the radar silhouettes and the arc tables. The sitting may run while 10.3 is built.)*
+
+As a captain at the port,
+I want to pick Yamato, Bismarck, HMS Warspite or USS Iowa and fight with her real guns,
+So that picking a ship is the real choice and every hull has a rhythm of its own.
+
+**Eric's rulings (2026-11-03 brainstorm #3, #25–#39, #46–#47; forge premise 4; forge locks):** the four historical battleships **REPLACE the three classes** (SPEEDBOAT / REPEATER / DREADNOUGHT retire; Missouri and Dreadnought dropped from the list); **all four are battleships on purpose — the fast-and-fragile verb is GONE**; their stats decide glass-cannon vs beefcake; mixed ship types rejected. **The ship IS the armament** (#26): **the deck-gun pick is TABLED** (#25 — CANNON / MACHINE GUN / FLAK stay in the catalog for reference, never dealt); armaments are tweaked from the REAL loadouts and balanced against each other, deviating from history on purpose for fun (#30, #32). **Turret layout is a gameplay fact** — 3×3 Yamato and Iowa, 4×2 Bismarck and Warspite (#33); **each turret has its own cooldown** (#36); **fore / aft arcs reflecting the real ship's geometry** — broadside brings everything, bow-on the forward turrets (6 on 3×3, 4 on 4×2), stern-on the aft (3 / 4) (#37, forge lock); **the rule is arc, click, reload** — a left click fires the next ready turret whose arc reaches the aim point, no volley picker (#38); **rhythm is the player's** (click fast for a near-instant volley or spread the clicks; not a stat axis). **Secondaries on right mouse**: a UNIFORM machine-gun-type weapon on every hull — shorter range, less damage, can hit hulls, and they **SWEEP MINES** (#39, forge); **mines are hurt by secondaries ONLY, the main battery ignores them** (forge; epic-9 amendments 20 / 200 re-read as "the sweeping weapon"). **Shift becomes the pre-queue pick** in the slot the deck gun occupies today (#31); the list stays **boost / hunker / instant reload** for now (#46); **any ship may take any Shift** (#47; dominant pairs fixed by numbers after staging, never by restricting the pick). **Lasting identity = LAYOUT ONLY** (turret layout, arcs, per-turret rhythm); stats are a head start cards and drops may erase; #35's "four feels" (Yamato slowest / tankiest / hits hardest, Bismarck the hard-to-sink brawler, Warspite the long-range ship, Iowa the fast ship) are restated as layout feels and starting offsets. Rejected standing: turrets as hit zones or any localized damage; aircraft and AA, ever (#29); per-hull secondaries; three ships. Accepted weak point: Bismarck and Warspite share 4×2 with near-identical arcs. **Every number in the brainstorm's ship table is a placeholder for Eric's harness session.**
+
+**Acceptance Criteria:**
+
+**Given** the 10.3 index model with the three classes scaffolded onto it, the single deck gun with one cooldown, and the class-select layer (three class cards, SPECIAL row, DECK GUN chips, COLOR hoist)
+**When** the four hulls land
+**Then** `CONFIG.shipClasses` holds exactly four hulls — `yamato`, `bismarck`, `warspite`, `iowa` `[ids: reading]` — each a set of index offsets from Bismarck = 100 (Eric's at the spec step `[unruled]`), a turret layout (3×3 or 4×2) and per-turret arcs reflecting the real ship AS THE DESIGN SITTING DREW THEM (top-down profile, turret positions, arcs — Eric-approved before the story exists); the three class ids retire with dated notes (FR8, Pillar 3)
+**And** the main battery is per-turret state in shared sim: each turret its own cooldown, a left click fires the NEXT READY turret whose arc reaches the aim point, else nothing; turret state rides the own-ship frame so prediction matches; the harness's gun×tier readouts become hull×layout readouts
+**And** secondaries are one uniform weapon on every hull on right click (range, damage, rate Eric's `[unruled]`), hit hulls and are the ONLY thing that hurts a mine (the main battery passes over a mine's marker); `CONFIG.mine.hp` 10 stands
+**And** the deck-gun pick leaves the seat and the Shift pick takes its place (join option + sanitizer fail-open to a default `[unruled]`); the SPECIAL row becomes the Shift picker; CANNON / MACHINE GUN / FLAK are never dealt or mounted
+**And** the class-select layer shows four ship cards with the Shift pick and the color hoist — a RENDERED candidate shown to Eric before commit; DESIGN.md is read first and the changed rows are stamped
+**And** bots sail all four hulls, aim through arcs and fire the next ready turret at minimum (10.12 tunes the rest); `silhouette.ts` radar imprints are re-cut for four battleships; the fleet and weapons smokes stay green
+**And** `PROTOCOL_VERSION` bumps; GDD / catalog-v3 / How-to-Play stamps are 10.14's.
+
+### Story 10.5: The Kit Retire and the Three Equipment Slots *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.4; RETIRES the surfaces Stories 10.1 and 10.2 built)*
+
+As a captain in a fight,
+I want a heal and a smoke on two keys I never have to think about, and my torpedo, mine and special shell each on a key of their own,
+So that the kit is three choices I made by leveling, not ten buttons to manage.
+
+**Eric's rulings (2026-11-03 brainstorm #27–#28, #51–#55, #57, #60–#64, #68–#70; forge premise 6; forge locks):** **consumables are DROPPED** (#60) — the kit was *"too many buttons to manage, not broken."* **HULL REPAIR (Damage Control) and SMOKE become universal abilities on a cooldown — no stock, no slot** (#60); **HULL REPAIR IS the heal** and **healing stays scarce**: its cooldown is LONG — longer than a typical fight, a minute or more, the exact number Eric's harness — so pressing it early is a real mistake; no passive healing beside it (identity-fork lock 4 stands). **Three equipment slots — torpedo, mine, special shell — start empty, are filled ONLY by level-up cards** (#51, #57: airdrops never hand out a weapon), **ONE kind per slot, chosen once**; a filled slot keeps appearing in offers as tier-ups of the slotted weapon (#54); each slot weapon keeps its own tiered upgrades (#53). **Keys (#68–#70):** `Q` readies the torpedo, `E` the mine, `R` the special shell; **ready-and-click** — a readied weapon fires on the next LEFT click in place of a turret shot; the special shell has its own separate cooldown (#55); `C` = HULL REPAIR, `V` = SMOKE; `Shift` = the Shift ability; **right click fires the secondaries OR cancels a readied Q / E / R** — a readied torpedo blocks the secondaries until cancelled or fired (forge: confirmed as intended). **FLASH SHELLS → a special-shell option** keeping amendment 5's whiteout; **SUPERCAVITATING TORPEDO → a torpedo option**; each with its own upgrade track (#61). **The four buoys (RADAR / HEALING / SHIELD / SPEED, Story 10.2) are TABLED** — maybe back later as random things that spawn on the map (#62); decoys were the buoys and are tabled with them; **SMOKE IS the countermeasure cloud of Story 9.3** (#63 — already the live game; the SMOKE SCREEN line becomes the `V` cooldown); **SHIELD goes** — HUNKER is the equivalent, and temporary HP makes no sense once HP is a flat 1000 with ARMOR as the difference (#64). Rejected: a torpedo-mine-special slot handed to everyone at spawn (#27, superseded by #51).
+
+**Acceptance Criteria:**
+
+**Given** the four-slot kit on keys 1–4 (Story 10.1), the ten consumable lines with their stock and caps (Story 10.2), the DECOY / buoy store, the SHIELD BLOCK channel, and the countermeasure cloud of Story 9.3
+**When** the retire lands
+**Then** the consumable system is REMOVED — `ConsumableKit`, keys 1–4, the belt squares, the CONSUMABLES row and picker on the class-select layer, consumable stock and caps, `ai/consumables` weights, the buoy store's catalog ids; the SHIELD BLOCK channel and every shield term go; a saved kit in localStorage is ignored
+**And** HULL REPAIR and SMOKE are two universal cooldown abilities on `C` and `V` — no stock, no card, no slot; HULL REPAIR heals (amount and the LONG cooldown Eric's at the spec step `[unruled]`) and is the ONLY heal in the game; SMOKE is the 9.3 cloud on a cooldown `[unruled]`; both ride `game/inputs.ts`
+**And** three equipment slots — torpedo, mine, special shell — exist on every hull, EMPTY at spawn, each filled once by a card (10.6) with ONE kind per slot for the match; `Q` / `E` / `R` ready a slot's weapon, the next left click fires it in place of a turret shot, right click cancels; a readied torpedo blocks the secondaries; the special shell has its own cooldown; the ready state is self-private on the own-ship frame
+**And** FLASH SHELLS keeps amendment 5's whiteout as a special-shell option and SUPERCAVITATING TORPEDO its 8-series rule as a torpedo option; the four buoys, the decoy and SHIELD BLOCK leave the game with dated notes (code kept dormant or deleted is the implementer's call; nothing dealable remains)
+**And** what a drone drops between this story and 10.8 (consumables gone, drones not yet) is XP only `[reading — Eric may veto at the spec step]`; the FOULING SHELL's fate (a special-shell option is the reading) and the DEPTH CHARGE stub are 10.6's `[unruled]`
+**And** the HUD hotbar is re-cut for Q / E / R + C / V + Shift — a RENDERED candidate shown to Eric before commit; `settings.ts` keys copy follows; bots use the two cooldowns and ready-and-click at minimum (10.12 tunes timing)
+**And** `PROTOCOL_VERSION` bumps; How-to-Play, GDD Consumables v3, catalog-v3 and DESIGN.md consumable-strip / loadout-row / buoy rows are stamped at 10.14. *(This story undoes the player-facing surfaces of cycles 207–210 — Stories 10.1 and 10.2, PRs #309–#312 — an accepted cost recorded in the forge.)*
+
+### Story 10.6: The Catalog Under the Index *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.5; Story 10.7 Offer Composition is built straight after it; BUILT 2026-11-06, cycle 215, 0.19.9, PV 98, epic-10 amendment 12, `spec-10-6-the-catalog-under-the-index.md` — the text below is superseded where amendment 12 rules: no flat +20 on every index (RELOAD, ENGINES and RANGE are +10), no RUDDER, no TEST BOTH dial, no capacity in the tiers, no 5 %-per-tier reload step; the fixed torpedo sectors are gone for launchers)*
+
+As a captain leveling up,
+I want every card to be a flat +20 on one index or a weapon for an empty slot,
+So that one card means the same thing on every hull and my three slots fill by choice.
+
+**Eric's rulings (2026-11-03 brainstorm #52–#54, #56–#58; forge locks and rejections):** **cards work as they do now** — same offer, same draw, same pool shape (#56); **cards are the ONLY way to fill an empty equipment slot** (#57); **index bumps on cards are FLAT +20 whoever you are; cards are NOT ship-flavored** (#58; rejected: cards that scale with the ship's index; wider offsets; RELOAD out of the index); the ship-upgrade cap of 5 per line stands (epic-9 re-cut). **Does POWER scale torpedo / mine damage? TEST BOTH, keep what feels better** (#52). **Does ARMOR reduce torpedo / mine damage? TEST** — "magic damage" unaffected by armor is not the worst idea; slot weapons keep their own tiered upgrades regardless (#53). The retired lines leave the deal: HULL POINTS and PASSIVE HEALING (10.3), the deck-gun lines (10.4 — kept for reference), every consumable line (10.5).
+
+**Acceptance Criteria:**
+
+**Given** `shared/src/sim/catalog.ts` (29 lines / 114 cards of catalog v3 as amended through Epic 9 and Stories 10.1 / 10.2) and the two-stage draw in `sim/draw.ts`
+**When** the catalog lands
+**Then** the SHIP UPGRADE kind is one tiered line per index — ARMOR, POWER, RELOAD, ENGINES, RUDDER, INTEL and RANGE `[which of these are dealt is Eric's at the spec step — unruled]` — each card +20 flat on its index, cap 5 per line, identical on every hull (FR41, FR45)
+**And** the EQUIPMENT kind holds the torpedo kinds, the mine kinds and the special shells (FLASH SHELLS, and the FOULING SHELL as the reading `[unruled]`; which torpedo and mine kinds survive from catalog v3 is Eric's `[unruled]`); the FIRST card of a kind fills that slot for the match and later cards of the SAME kind are its tier-ups; a different kind for a filled slot is never dealt
+**And** HULL POINTS, PASSIVE HEALING, the deck-gun lines and the consumable lines are not dealable (dated notes; the deck-gun lines stay in the file for reference)
+**And** POWER-on-equipment and ARMOR-against-equipment are each ONE dev dial (`CONFIG`), both settings built, Eric chooses on staging — the dial's default is his `[unruled]`
+**And** bots draw from the same pool by the 8-20 rule; `catalog-v3.md`'s dated addendum, the GDD stamps and How-to-Play are 10.14's; `PROTOCOL_VERSION` bumps (catalog content is wire contract).
+
+### Story 10.7: Offer Composition *(RE-CUT 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6: consumables die with Story 10.5 and the WEAPON kind becomes EQUIPMENT (torpedo / mine / special-shell fills and tier-ups, Story 10.6); Eric's law is now **1× Ship Upgrade, 1× Equipment, 1× wildcard, 1× wildcard** — two guaranteed kinds and two wildcards rolled type-first, an exhausted type falling back to the others exactly as his 2026-10-25 example shows (rejected: Ship / Equipment / Equipment-or-Ship / wildcard; deciding at 10.6's spec step). Lands straight after 10.6. The 2026-10-25 text below is kept as the record; read "Weapon" as Equipment and strike "Consumable". BUILT 2026-11-06, cycle 216, 0.19.10, PV 99, epic-10 amendment 13, `spec-10-7-offer-composition.md` — the `[unruled]` marks below are ruled there: a wildcard is a 50 / 50 coin, a REDRAW re-rolls everything, a maxed hull's levels each become +1 index point on a random one of ARMOR / POWER / ENGINES / RELOAD / RANGE / INTEL (Eric re-ruled it the same day), and the wire DID change — the own row carries the redraw-used flag for the pip and the bonus points.)*
+
+As a captain leveling up,
+I want every offer to hold one ship upgrade, one equipment card and two wildcards,
+So that I always have a real choice of kind, and never four of the same thing while others remain.
+
+**Eric's rule (2026-10-25, verbatim):** *"Choices gained on upgrade should always include: 1× Ship Upgrade, 1× Weapon Upgrade, 1× Consumable, 1× Ship Upgrade, Weapon Upgrade, Or Consumable. When you are out of any of those upgrade types, then they should roll the other types."* His worked example: all weapons at Tier V → `1× Ship Upgrade, 1× Ship Upgrade OR Consumable, 1× Consumable, 1× Ship Upgrade OR Consumable`; out of Ship Upgrades too → four Consumables. *"If the pool is unknown (i.e. for the Ship Upgrade, Weapon Upgrade, OR Consumable slot) then roll for the type first and then roll for the item."*
+
+**Acceptance Criteria:**
+
+**Given** the two-stage kind-then-line draw of `sim/draw.ts` (Story 8.14, "a weapon guaranteed while a slot is open")
+**When** the composition law lands
+**Then** `drawOffer` builds a four-slot TYPE plan first — `[ship, equipment, wildcard, wildcard]` (2026-11-04 re-cut; was `[ship, weapon, consumable, wildcard]`) — then draws one eligible line per slot from that type's pool; a slot whose type has no eligible line widens to the remaining types exactly as Eric's example shows; with nothing but one kind left the offer is four of that kind (never empty while anything is dealable; amendment 94's consumable clause is moot after 10.5) (FR19, FR41)
+**And** each wildcard rolls its type first (Ship or Equipment), then its line; the type weights are Eric's at the spec step (`[unruled]`; equal halves is the reading); a REDRAW redraws the lines under the same plan `[unruled]`
+**And** the law is one pure shared function both sides can replay; property tests assert the plan invariants (every reachable state yields the ruled kinds; no duplicate line in an offer); the Story 8.14 weapon-guarantee law is retired with a dated note
+**And** no wire change (`BoonOffer` stays four line ids) unless the client needs the slot types for the 10.10 cards — then PV bumps.
+
+### Story 10.8: The Radio Beacons *(the First-Minute Objective — designed 2026-11-03 in `brainstorming-session-2026-11-03.md`, HARDENED in `forge/beacons-battleships-index/forged-idea.md`, written into the plan 2026-11-04 by `sprint-change-proposal-2026-11-04.md`, amendment 6; this text REPLACES the "design sitting first" slot heading as the 2026-10-25 ruling said it would; lands after 10.7 in the re-cut order; RETIRES THE DRONES; BUILT 2026-11-07, cycle 217, 0.19.11, PV 100, epic-10 amendment 14, `spec-10-8-the-radio-beacons.md` — where amendment 14 rules the text below is superseded: 3 levels/min for one float minute then a one-minute sink, solid and shootable 1000 HP / ARMOR 100, destroyed = sinks early and pays 2 levels, none at sudden death)*
+
+As a captain in the first minute,
+I want to hear a beacon broadcast its position and decide whether to race it, pick another, stalk its edge or let someone else go first,
+So that the opening is a read of the other captains, not a wait.
+
+**Eric's thought (2026-10-25, verbatim):** *"Need some kind of objective for players in the first minute. Drones themselves are fairly uninteresting, perhaps some marked supply buoys with guards? This could transition into a source of consumables, experience, etc. Perhaps look into other kinds of pickups on the map."*
+
+**Eric's rulings (2026-11-03 brainstorm #1, #3–#12, #24, #48, #50, #65–#66; forge premises 1–2):** **drones are RETIRED** — Eric's symptom, verbatim gist: *"a lot of ships, can't tell player from drone (intentional, but the map feels busy), still having to hunt them, and they do NOT draw players into conflict with each other effectively"*; they worked as built; they may return as beacon GUARDS if beacons alone are good but boring (a few passive targets also possible) — **test beacons alone first** (#5). **It is a RADIO BEACON, not a crate** (#8): the signal fades, the beacon sinks. **8 / 4 / 2 beacons per ring cycle** (#1; forge: *"beacons build at 8/4/2"*; fewer = 6/4/2 tabled for later); **on the chart for EVERY captain from the cycle's 0:00 because it broadcasts** (#9, #48 — that is the whole telegraph; airdrops are sight-only, beacons are global); **it surfaces at 1:00** — the reserved SUPPLY beat of the four-beat ring rhythm (#3, the walkthrough); **one beacon per zone, no outer ring** (#7 — only the beacon location is telegraphed; if guards return they work on range from the beacon); **signal range 500 u** — the farm zone is a circle of sight-bubble width around the beacon (#11, provisional); **XP straight into the meter, per tick while a hull sits in range; leaving keeps what was banked** (#4, #8); **rate = 2 levels/min when fresh, ticking down as the beacon visibly sinks, reaching zero about when the ring starts closing — 3:00 of the cycle** (#4, #66; the sinking hull IS the timer; late beacons paying more rejected); **THE POT SPLITS** — one tick shared by every hull in range (two get half each, three a third); fighting over it, not fighting, and sharing are all real options (forge, overturning #12 full rate; "only the nearest receives" rejected as king-of-the-hill); **farming is not loud** — no extra paint for a receiving hull (#10); **placed by the fleet-spawn rule** — inside the live ring, clear of land, outside every afloat captain's 1000 u disc, as far from everything afloat and from each other as possible (#24, the drone-fleet anchor rule); **the standoff is fine as is, no nudge rule** (#50); the ring REVEAL at 2:00 is the beacon's natural exit cue (walkthrough). **Radar noise without drones is DEFERRED until this slice is tested** (#65 — options logged: guards-as-noise, a beacon radar return, airdrop blips, or accept that every blip is a captain). **Bots farm beacons** (#23). Open dial (Eric's harness): beacon XP per tick vs the 1 level/min passive drip. **Transport (Eric 2026-11-04):** beacons are global world facts and travel **like the revealed zone rings, through the Colyseus schema** — never through per-client frames; the SIX perception exceptions stay six.
+
+**Acceptance Criteria:**
+
+**Given** the PvE drone fleet (`server/src/game/drones.ts`, `CONFIG.fleet`, `xp.droneTierLevels`, fleet waves and their smokes), the zone's four-beat rhythm with beat 2 reserved (SUPPLY), and the 10.3 index model
+**When** the beacons land
+**Then** at each ring cycle's 0:00 the server places 8 / 4 / 2 beacons (by ring group) by the fleet-spawn rule and every client learns their positions at once through the schema beside the revealed rings — a dated notice in `game-architecture.md` is owed to 10.14; nothing per-ship rides the schema (AR-schema rule) (FR13, FR19)
+**And** each beacon surfaces at the cycle's 1:00 and pays XP per tick into the meter of every afloat hull within 500 u, the tick SPLIT evenly among them; the rate is 2 levels/min fresh and falls linearly `[curve shape: reading]` to zero at the cycle's 3:00, when the beacon is gone; a hull that leaves keeps what it banked; a receiving hull gets no extra paint
+**And** the drone fleet is RETIRED: no drones spawn, drone-kill XP and drone drops end, `CONFIG.fleet` / `droneTierLevels` and the fleet smokes go or are re-scripted (amendment 214 shape); `DRONE_HULL_IDS` leave `HULL_IDS` with dated notes; identity-fork lock 6 (noise) is satisfied by the retirement
+**And** the beacon is drawn on the chart from 0:00 (the signal) and on the water from 1:00 (the sinking hull) with its 500 u ring — a RENDERED candidate shown to Eric before commit; no in-game copy unasked
+**And** bots sail to and farm beacons at minimum (10.12 tunes contest and exit); the harness reports beacon XP per hull and hulls-in-range per beacon per tick; `MatchRecord` carries beacon XP
+**And** radar noise without drones is observed on this story's staging pass and recorded, not solved; `PROTOCOL_VERSION` bumps (schema shape); the GDD Enemy Design / Economy stamps are 10.14's.
+
+### Story 10.9: Airdrops *(inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.8 The Radio Beacons)*
+
+As a captain on my way somewhere,
+I want a crate on my line to be worth a small detour,
+So that the ocean has litter worth picking up without ever becoming a chore.
+
+**Eric's rulings (2026-11-03 brainstorm #2, #13–#23, #48–#49; forge premise 5):** the minute pickups are **AIRDROPS** (#13; *"could be airdrops for all I care"*); **count = 2 per minute remaining until the third close ENDS (12:00): 24 at 0:00 → 2 at 11:00, 156 in all**; **uniform scatter, biased away from beacons** (#15); **permanent for the match** (#16); **the stat is random, not tied to where it lands** (#21); **+1..+5 of the stat per drop, random in range** (#22 — averages 3; the "hoarder is a viable style" reading is DROPPED by the forge); **adds straight to the index, no cap** (#18 — airdrop ARMOR sits on the same number the ARMOR card raises); **pickup is sail-over** (#49); **a sunk ship leaves one fixed pickup, perhaps a small bundle of stats** (#14, #20 — wreckage draws a third party late); **drops sit forever; the storm destroys what it closes over** (#19); **airdrops PAINT on radar by their imprint** — a small stationary blip reads as a crate at radar range (forge lock, overriding #48's sight-only chart for the FIND; the radar-noise thread is NOT answered by drops, they are legible); the stat glyph (#17) needs sight `[forge assumption, unruled]`; **bots collect drops** (#23). **Airdrops are FLAVOR** (forge): litter on purpose, taken when on your line, never a route. Rejected: drops worth a card; fewer-bigger-exclusive; drops with a downside; location-taught stats; airdrops handing out a weapon (#57).
+
+**Acceptance Criteria:**
+
+**Given** the 10.3 index model, the 10.8 beacons and the zone's four-beat rhythm
+**When** airdrops land
+**Then** the server spawns 2 × (minutes remaining to 12:00) airdrops at the match's 0:00 and the same count each minute — 156 in all for the shipped ring ladder — scattered uniformly inside the live ring, clear of land, biased away from every beacon (the bias law Eric's `[unruled]`); each carries one random index stat and a random +1..+5
+**And** an afloat hull sailing over a drop collects it: the bonus is added to that hull's index for the rest of the match through the one fold (`effectiveStats()`), uncapped; a sunk hull leaves ONE pickup at its wreck (a bundle — contents Eric's `[unruled]`); a drop the storm closes over is destroyed
+**And** a drop is seen through ordinary perception — it paints on radar by a small stationary imprint and is sighted like any contact; the stat glyph shows at sight range `[unruled whether radar range too]`; NO new perception exception — contacts and events come from `perception.observe()`; the invariant suite is EXTENDED for the new contact kind
+**And** the chart glyph and the pickup tell are a RENDERED candidate shown to Eric before commit; no in-game copy unasked
+**And** bots take a drop on their line (10.12 tunes appetite); the harness reports drops taken per hull and the index spread at end; `MatchRecord` carries drops taken; `PROTOCOL_VERSION` bumps.
+
+### Story 10.10: The Battle UI — XP Seen, the Offer in the Corner
+
+*(2026-11-09, epic-10 amendments 16–17, cycle 218, 0.19.12: BUILT as the FULL in-game UI/UX pass — ship console left, weapons console right (the weapon rows are the buttons), the offer group on the right edge mid-height, Tab+1..4 or a click picks with NO combat lockout, every changing number under a hovered card turns amber with an arrow, every weapon shows its damage against an ARMOR-100 hull; the corner was shown as options and Eric picked; Tab survives only as the pick modifier. Supersedes the `[unruled]` marks below.)*
+
+As a captain mid-fight,
+I want to see my XP and level at a glance and take an upgrade without a dialog in my face,
+So that leveling up never costs me the fight I'm in.
+
+**Eric's thought (2026-10-25, verbatim):** *"In game UI needs some improvements. XP/levels not really very visible unless you know what you are looking for. Tabbing open a dialog to upgrade can get in the way of fights, need to find a way to incorporate this into the in-game battle UI without getting in the way, so your choice pops up in the corner or something and you just click it (or use the hotkey) when convenient."*
+
+**Acceptance Criteria:**
+
+**Given** the shipped HUD bar, the XP readout and the `Tab` refit window
+**When** the battle UI lands
+**Then** visual candidates for the XP / level readout and the corner offer are RENDERED (an artifact page from the real HUD modules) and shown to Eric; DESIGN.md is read first and the chosen candidate is reconciled with its tokens before any commit (standing rule)
+**And** a pending offer appears as a compact card group in a corner Eric chooses `[unruled]`, each card taken by click or by its hotkey, never blocking the helm or the guns; the group stays until spent, banked levels stack legibly; the countdown REDRAW keeps working
+**And** whether `Tab` survives as an alternate open is Eric's at the spec step `[unruled]`; the hotbar, kill feed and alert row keep their attention-priority placement (Story 4.8)
+**And** client-only unless a wire field is needed; every register ≥ 9 px; the perception invariant is untouched (offers are self-private already).
+
+### Story 10.11: Bots Fill the Standard Queue at 1:00 *(BUILT 2026-11-10, cycle 222, 0.19.16, PV 101 unchanged, epic-10 amendment 20, `spec-10-11-bots-fill-the-standard-queue-at-1-00.md` — the `[unruled]` marks below are ruled there: fill to the full 16, one captain arms the timer, no bot mark; the whole behavior is the Render switch `HC_QUEUE_BOT_FILL`, a number of seconds, unset or 0 = off)*
+
+As a captain queuing alone,
+I want a match to start within a minute whether or not other people showed up,
+So that there is always a game.
+
+**Eric's thought (2026-10-25, verbatim):** *"Solo queue goes down to 1:00 lobby time and fills with bots at that time if there aren't enough players, so there is always a game."* **Ruled the same day: yes — the queue holds 1:00 and bots fill the roster up to a minimum.** This REVERSES FR34 / Story 6.1 ("zero bot-fill — bots never masquerade as players"; GDD "No bot-fill in standard lobbies"); the FR carries a dated supersession stamp from this proposal and the GDD sentences are stamped at 10.14.
+
+**Acceptance Criteria:**
+
+**Given** `StandardQueueRoom` (fill-or-timer at `queueTimerMs` 120000, arming at `minHumans` 2) and the Solo vs AI bot roster
+**When** bot fill lands
+**Then** the standard queue's timer is 1:00 (`queueTimerMs` 60000); when it fires with fewer captains than the roster minimum, the match forms with combat bots filling to that minimum — the minimum, and whether a LONE captain arms the timer, are Eric's at the spec step `[unruled]`
+**And** bots are ordinary ships through the input pipeline, drawing from the same pool with the same rules (8-20); the win check counts them as participants as today
+**And** whether a bot is labelled as one in the kill feed, roster and results is Eric's at the spec step (the honesty posture of Epic 6, re-ruled) `[unruled]`; the queue-liveness readout on the home never lies about the fill
+**And** the lobby and queue smokes are updated as scripted scenarios (amendment 214); `CONFIG.lobby` changes bump PV only where the client reads them.
+
+### Story 10.12: Bot Posture Under the Four Hulls *(BUILT 2026-11-11, cycle 223, 0.19.17, PV 101 unchanged, epic-10 amendment 21, `spec-10-12-bot-posture-under-the-four-hulls.md` — Eric's rulings replace the `[unruled]` marks below: always angle off (not by layout), HULL REPAIR early / late by personality (not "late" for all), the Shift weighted by personality, the beacon contested by personality, `forager` retired; inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6; lands after 10.11; the closing bot story — every slice story keeps bots functional on what it changes, this one tunes them)*
+
+As a captain in a match with bots,
+I want a bot in a Yamato to fight like a Yamato — turning for its arcs, sweeping my mines, farming a beacon and leaving before the ring,
+So that bots are worth fighting under the new game.
+
+**Eric's rulings (2026-11-03 brainstorm #23, #59; 2026-11-04 AskUserQuestion: "bots sail in every story + one posture story at the end"):** bots are retooled for the four hulls — arcs, per-turret rhythm, secondaries — an accepted cost (#59); bots collect drops and farm beacons (#23, "of course yes"). Standing: bots are ordinary ships through the input pipeline, a bound `observe` thunk is their whole world, `ai/` never imports `world.js`, the 9.13 posture measures (land contact, storm share, ram deaths) are the yardstick.
+
+**Acceptance Criteria:**
+
+**Given** Stories 10.3–10.11 landed with bots minimally functional on each
+**When** the posture pass lands
+**Then** a bot turns to bring fresh turrets into arc, chooses broadside vs bow-on by its layout, and paces its clicks by turret readiness; it fires secondaries at hulls in their reach and sweeps a sighted mine with them; it readies and fires its slotted torpedo / mine / special shell by the tactic kit; it presses HULL REPAIR late (the LONG cooldown is a real cost) and SMOKE to break contact; it picks a Shift at seat `[weights unruled]`
+**And** a bot sails to a beacon when one is on its side of the ring, farms it, contests or shares by posture, and leaves at the reveal (2:00) when the beacon is on the wrong side; it takes an airdrop on its line and never detours for one (flavor, not a route)
+**And** the 9.13 harness measures (land contact, storm share, ram deaths, placement by hull) are reported before and after; every number is Eric's at the spec step `[unruled]`; the fleet / weapons / zone smokes are re-scripted for the four hulls and the beacons
+**And** server-only; `PROTOCOL_VERSION` unchanged; the GDD "Enemy Design and AI" stamps are 10.14's.
+
+### Story 10.13: The Sound Pass *(BUILT 2026-11-11 — cycle 224, 0.19.18, PV 102; epic-10 amendment 22; `spec-10-13-the-sound-pass.md`; inserted 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6(l); lands after 10.12, before 10.14 closes the epic)*
+
+As a captain at the helm,
+I want to hear my engines under me and guns, water and hits that sound like the real thing,
+So that the ocean sounds like a navy, not a console.
+
+**Eric's rulings (2026-11-04, chat + AskUserQuestion):** *"a sound design pass needs to happen, too. I want engine sounds and more realistic sounds overall."* **Source: SYNTHESIS ONLY, made realistic** — the GDD's "WebAudio tones only, no sound files" rule STANDS (rejected: recorded samples; deciding at the spec step); the pass pushes WebAudio synthesis (noise shaping, filters, layering, modulation) toward realistic engines, guns, water and hits. **Order: after 10.12, before 10.14.** Every sound is Eric's: candidates are AUDITIONED by him (a playable artifact page built from the real `client/src/audio` modules — the audio analog of the rendered-candidate rule) before any cue is committed. The mute toggle, the foghorn-as-sensor mechanic and the "Silly Is Sanctioned" wrapper are untouched.
+
+**Acceptance Criteria:**
+
+**Given** `client/src/audio/` (context, tones, horns, hpSting, deniedCue, twinMap — synthesized cues only) and the four hulls, the turrets, the secondaries, the equipment, the beacons and the airdrops of the slice
+**When** the sound pass lands
+**Then** every hull has an ENGINE sound synthesized in WebAudio that follows its own throttle and speed (and Shift boost), the own ship audible under the player and other hulls audible by distance within sight `[what the listener hears of enemy engines, and whether sound is ever a sensor beyond sight, is Eric's at the spec step — unruled; the perception invariant is untouched: the client synthesizes from what it already receives]`
+**And** the main battery, the secondaries, torpedo launch and run, mine drop, special shells, hits on hull, hull repair, smoke, beacon signal and airdrop pickup each get a realistic synthesized cue, layered and filtered — the cue list and every character choice are Eric's `[unruled]`; the existing cues (foghorn, hp sting, denied, pings) are re-voiced in the same pass only where Eric says so
+**And** candidates are auditioned on an artifact page from the real modules and approved by Eric before commit; no sound file ships; NFR2's load budget is untouched; the mute toggle silences everything
+**And** client-only; `PROTOCOL_VERSION` unchanged; the GDD "Audio and Music" section is stamped at 10.14 (the tones-only rule stands, "realistic synthesis" added).
+
+### Story 10.14: How-to-Play and Record *(**DEFERRED 2026-11-12 and FOLDED INTO Story 11.11** — Eric, epic-10 retro, epic-10 amendment 24 / epic-11 amendment 2: the text below is kept whole as the list 11.11 owes; Epic 10 closed without it; re-homed from Epic 9 — 2026-10-23, epic-9 amendment 216; the moved-out text under the Epic 9 heading "Story 9.17 (MOVED OUT OF EPIC 9, 2026-10-23)" is the record of what the Epic 9 half owes and is incorporated here by reference)*
+
+As a new captain reading How-to-Play,
+I want every item in the game described there in Eric's words,
+So that nothing I can draw, carry or meet is a mystery.
+
+**Acceptance Criteria:**
+
+**Given** every live story of the re-cut epic landed (10.3–10.13; 10.1 / 10.2 built then retired; 10.15 / 10.16 cancelled — 2026-11-04)
+**When** the record closes
+**Then** How-to-Play carries, in Eric's copy, everything the Epic 9 pass owed (the moved-out 9.17 text: MULTI-SPECTRAL COUNTERMEASURE, FOULING SHELL, PASSIVE HEALING, ARMOR, ARMOR PIERCING, FOG BANKS, ramming and grounding, HUNKER, the white-vs-warning note, private lobbies, drone drops; SMOKE SCREEN / CHAFF / FLASH SHELLS removed) PLUS this epic's: the four consumable slots and keys 1–4, the LOADOUT consumables row, FLASH SHELLS returned beside the FOULING SHELL and the four buoys (RADAR / HEALING / SHIELD / SPEED, the DECOY BUOY retired — Story 10.2, 2026-10-27), the offer composition, flak and machine-gun dropoff, HIGH EXPLOSIVE, bot fill at 1:00, and the first-minute objective as designed; with a derived stat table *(2026-11-04 re-cut — `sprint-change-proposal-2026-11-04.md`: the list is now the SLICE's — the four battleships and their layouts, turrets / arcs / arc-click-reload, the secondaries and mine sweeping, the index model and the percent bar (ARMOR · POWER · RELOAD · ENGINES · RUDDER · INTEL · RANGE), the three equipment slots and keys `Q` / `E` / `R` / `C` / `V` / `Shift` / right click, HULL REPAIR and SMOKE as cooldowns, the +20 cards and the offer law, the radio beacons, the airdrops, bot fill at 1:00, the battle UI, the engine and weapon sounds; and the RETIREMENTS — the three classes, the deck-gun pick, every consumable line and keys 1–4, the four buoys and the decoy, SHIELD BLOCK, the drones and their drops, passive healing, HULL POINTS; the flak / MG dropoff and HIGH EXPLOSIVE entries are struck with 10.15 / 10.16)*
+**And** the GDD's Development Epics table and every mechanics sentence Epics 9 AND 10 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern; incl. everything the moved-out text lists, FR34 / the GDD lobby sentences for bot fill, the six-keys sentences for four slots, the draw law for composition, the attenuation sentences; *2026-11-04:* the Ship classes table and Pillar 3's three-class promise → four battleships, the Weapon Systems deck-gun sentences, Consumables v3, the Flat damage model and "Armor IS HP" lineage → the index model, Enemy Design's drone fleet → beacons, the Economy's drone XP, the success metric "All three classes see real pick rates"); `catalog-v3.md` gains the new lines and retirements as a dated addendum; `game-architecture.md` gains dated notices (smoke occluder, chaff fakes, the per-gun attenuation, the DoT source; *2026-11-04:* the schema sentence gains "and the live beacons", the stat fold's index shape, the two new world objects, the drone fleet retired)
+**And** `epic-10-context-amendments.md` holds every ruling; the epic-10 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
+
+### Story 10.15: Flak Takes No Range Dropoff *(was 10.5; moved to the tail at the 2026-11-04 renumbering; CANCELLED 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6: the deck-gun pick is TABLED by Story 10.4 (brainstorm #25 — CANNON / MACHINE GUN / FLAK stay in the catalog for reference, never dealt); the per-gun attenuation idea is recorded as tabled with the guns. Eric: cancel both. Text below kept as the record.)*
+
+As a flak gunner,
+I want my burst to hit as hard at the rim of my range as at the muzzle,
+So that a burst shell behaves like a burst shell.
+
+**Eric's rule (2026-10-25, verbatim):** *"Flak, being a burst shell, should suffer no damage dropoff from range."*
+
+**Acceptance Criteria:**
+
+**Given** `CONFIG.gunAttenuation` (one global `fullFrac` 0.5 / `minFactor` 0.5 — epic-9 amendment 187)
+**When** the dial lands
+**Then** range attenuation becomes a PER-GUN dial (deck gun, machine gun, flak) folded through the one attenuation function; flak's curve is flat (factor 1.0 at every range); the deck gun keeps today's values; the machine gun's values are Story 10.16's
+**And** the harness's gun×tier readouts carry the per-gun curve; the How-to-Play stat table is owed to 10.14
+**And** shared-only; `PROTOCOL_VERSION` bumps only if the client reads the block.
+
+### Story 10.16: The Machine Gun — Steepest Dropoff, High Explosive on the Ladder *(was 10.7; moved to the tail at the 2026-11-04 renumbering; CANCELLED 2026-11-04 — `sprint-change-proposal-2026-11-04.md`, amendment 6: same reason as 10.15; HIGH EXPLOSIVE on a tiered ladder is recorded as tabled with the guns. Text below kept as the record.)*
+
+As a machine gunner,
+I want my light shells to fade hardest with range but set the enemy burning when they land,
+So that the gun rewards closing in and keeps up with the other two.
+
+**Eric's thought (2026-10-25, verbatim):** *"Machine guns, being the lightest shell, should suffer the steepest damage dropoff, but probably should get High Explosive stat on its tiered upgrades, that has a scaling chance to apply a scaling damage over time on hit to compensate."*
+
+**Acceptance Criteria:**
+
+**Given** the per-gun attenuation dial (10.15) and the machine gun's tiered upgrade line
+**When** HE lands
+**Then** the machine gun's attenuation curve is the steepest of the three (values Eric's `[unruled]`); its tiered upgrades gain a HIGH EXPLOSIVE stat — a chance per hit to apply a damage-over-time, chance AND tick damage scaling by tier, duration a dial — every number Eric's at the spec step `[unruled]`; no one-off card (amendment 232)
+**And** the DoT is a new damage source through the one damage path: victim-private like every damage, armor applies per Eric's ruling `[unruled]`, never friendly fire, the six-exception invariant EXTENDED for any new event and never widened; whether HE stacks with the FOULING SHELL's zone or the burn zone is Eric's `[unruled]`
+**And** the harness reports HE procs and DoT damage per tier; `effectiveStats()` is the only fold; the card face and any glyph are rendered and shown to Eric before commit
+**And** `PROTOCOL_VERSION` bumps for any new wire event.
+
+## Epic 11: The Big Ocean *(inserted 2026-11-08 — `sprint-change-proposal-2026-11-08.md`; GDD E11; Eric's 2026-11-07 design sitting `brainstorming-session-2026-11-07.md`, HARDENED in `forge/big-ocean/forged-idea.md`; the Ledger / Front Door / Account shifted to Epics 12 / 13 / 14 with their text whole)*
+
+**The pillar, restated (Eric, forge lock 12):** *"A marine radar simulator that happens to have a naval battle royale attached."* The set works like a real marine radar; realism of the set decides every knob question; the game's goal is fun; **ratios are what is kept, not kilometers.** The board STAYS 10,000 u — the "big ocean" is real REACH on today's ocean: one scale factor (~0.5) maps every real distance onto it, and reaches, optics and torpedo runs are set by real ratio to the board, never by km (forge lock 5). Radar and guns reach about equally far; **clear-day dark is RESOLUTION, not range** — a contact is an ARC, sharp in range and wide in bearing, wider than a salvo pattern at gun reach, and there is no fire-control set (lock 1). Real dispersion replaces distance decay (lock 3); the twelfths ladder and the RANGE row go (#68, #74 — five index rows, no AIM row, lock 2); the set gains five real marine knobs — gain, sea clutter, rain clutter, pulse length, range scale — every one a server-side input, with gain buying server-made ghost returns (locks 7–8); a splash is a one-sweep radar return (lock 9); weather is a return-strength model built rain-first on the existing fog field (lock 10); the camera is free with the whole board as its minimum zoom (lock 11, #23–#24); time compression is explicit (lock 4). Killed: MARPA, the AIM row, beam-width and sector-scan knobs, a km-fixed beacon band, the fleet-anchor beacon rule, the 40–50 km board.
+
+**Sequence and release (Eric 2026-11-08, `sprint-change-proposal-2026-11-08.md`):** Epic 10 FINISHES FIRST on today's ocean (10.9–10.14; its one-unit release posture unchanged); Epic 11 follows and is its **own production release** — every story its own PR and build cycle on `development`, nothing reaching production until the whole ocean has had its staging pass; the version at that release is Eric's call then. 10.12 Bot Posture, 10.13 The Sound Pass and 10.14 How-to-Play are revisited by 11.9 / 11.11 — an accepted cost.
+
+**Build order = the forge's bench order: the Bench Page gate → 11.1 → 11.2 → 11.3 → 11.4 → 11.5 → 11.6 → 11.7 → 11.8 → 11.9 → 11.10 → 11.11.** Standing constraints on every story: **every number is Eric's**, ruled at the story's spec step through AskUserQuestion — the spec author never fills one in and marks any unruled clause `[unruled]`; every forge figure below is a `[dial]` for the bench page and Eric's harness, never a spec; the master perception invariant keeps exactly SIX exceptions and is EXTENDED, never widened, for the arc, the ghosts and the splash; the client draws nothing it wasn't sent; no friendly fire, ever; visual candidates are rendered and shown to Eric before they are committed; new-feature explanations go to How-to-Play only, in Eric's copy (11.11); a design gap found at review is an AskUserQuestion before the PR, never a ledger entry; every story keeps bots functional on what it changes and 11.9 tunes them; a performance claim is measured on staging, never on a Vite dev build or Eric's MacBook. The epic's own rulings live in `epic-11-context-amendments.md`.
+
+**FRs covered:** none new — re-cuts FR24–FR28 (the ring, the map, radar and sight), FR41–FR61 (the pool: RANGE leaves it), the Weapon Systems reach sentences in place · **Also:** NFR1–NFR2 (the client paint budget — measured on staging), NFR20–NFR23 (the six-exception invariant EXTENDED for the arc, the ghosts and the splash), UX-DR9 (the silhouette stays the hitbox at real size)
+
+### The Bench Page *(design GATE before Story 11.1's create-story — the Story 10.4 sitting pattern, epic-10 amendment 7; docs and a throwaway page, no build cycle; may run while Epic 10's tail is built)*
+
+Forge handoff: *"Rendered-math page FIRST (dispersion ellipse + arc paint at 20 km on real seeds, beam-width and ghost-rate dials) for Eric's yes."* A live page built from the REAL shared functions (the esbuild recipe of Story 9.11; the "render the real math live" rule of 2026-10-15): the dispersion ellipse at every range with the two percentages as dials; the arc paint at ~9,000 u on real `generateMap` seeds with beam width and pulse length as dials; the return-strength model under rain with gain and ghost rate as dials. Eric's yes on the page is the spec input of 11.1 (the curve) and 11.3 / 11.4 (the beam, the ghost floor). Every number he sets on the page is recorded in `epic-11-context-amendments.md` and is still re-confirmed at the story's spec step.
+
+### Story 11.1: Real Dispersion *(FLOOR story; lock 3; #33, #39)*
+
+As a captain firing at a contact,
+I want my salvo to land in a pattern that grows with range and hits for the same damage anywhere it lands,
+So that a long shot is a gamble on the pattern, never a weaker hit.
+
+**Eric's rulings (forge lock 3; #33, #39):** an **ellipse growing linearly with range — ~1 % of range along the shot and ~1/3 of that across** `[dial]`; a **small floor at point blank** so a shell never lands exactly on the click; **flat damage anywhere in the pattern**; **the same function for the secondaries**; **a pure shared function seeded from the match stream**; **the two percentages are `CONFIG` dials**. **Distance decay is RETIRED** (#39: *"real dispersion, secondaries included; distance decay goes"*). Point-blank is a no-miss knife fight, accepted. If clear-day gunnery is too random the dial is this curve, never an index row (lock 2). Bench: *"dispersion cannot wait — arm (b) is meaningless without it."*
+
+**Acceptance Criteria:**
+
+**Given** shells that land exactly on their target today (`shared/src/sim/shell.ts` `stepShell`, `targetX / targetY` set by `fireGunShells` / `turretSalvo` / `makeBallistic`), `CONFIG.gunAttenuation { fullFrac 0.5, minFactor 0.5 }` applied by `attenuation.ts` `rangeAttenuation` in `world.ts`, and the bots' `aimScatterU`
+**When** dispersion lands
+**Then** `shared/src/sim/dispersion.ts` is one pure function (aim point, range, seed) → landing point: an ellipse whose along-axis grows linearly with range at `CONFIG.dispersion.alongFrac` and whose across-axis is `acrossFrac` of that, with a point-blank floor `[dial — the bench page's numbers, re-confirmed at the spec step]`, seeded from the match stream so the server is authoritative and a seeded test replays it (FR1–FR12 re-cut)
+**And** every main-battery turret, every secondary and every shell-type weapon sets its landing point through it; damage inside the pattern is flat — `rangeAttenuation`, `shellAttenuation` and `CONFIG.gunAttenuation` are REMOVED with dated notes (epic-9 amendment 187 superseded)
+**And** the bots' `aimScatterU` is folded into or retired by the function `[reading — 11.9 decides the hold rule]`; the harness's gun×tier readouts become hit share by range
+**And** `PROTOCOL_VERSION` bumps if the client predicts landing points; the GDD Weapon Systems "distance decay" sentences are stamped at 11.11.
+
+### Story 11.2: The Hectometer Ruler and Real Reach *(lock 4, lock 5; #41, #48, #68, #74, #80)*
+
+As a captain reading my chart,
+I want every reach — radar, guns, eyes, torpedoes — to be a real ratio of the board on one ruler in hectometers,
+So that the ocean is the same size and everything on it reaches as far as the real thing did.
+
+**Eric's rulings (forge locks 4–5; #41, #48, #68, #74, #80):** **the board STAYS 10,000 u**; **one scale factor (~0.5) maps real distances onto it** — targets `[dial]`: **radar ~9,000 u** (from 1,500), **guns ~8,700 u** (from 1,000–1,250), **hull visible ~4,600 u** (from 500), **class-ID by eye ~3,000 u**; **hulls stay real size** (the one concession); **torpedoes get a range that tiers up** (#41); **the twelfths ladder can go** (#68) and **RANGE is dropped — reach is a weapon fact in hectometers** (#74; lock 2: five rows, the maxed-hull random-row rule rolls five); **RANGE is hectometers** (#48: 250 = 25.0 km) and radar sits on the same ruler; **time compression is explicit** — one factor over real time on every RATE, "knots" a label, the clock 16 min (lock 4); **the ring ladder, `offsetCap` and the reveal beat STAY** (today's tuning sits at the playable limit: worst chase 0.6 R ≈ 2 min × 30 u/s × 85 %); **map gen, height raster and islands UNTOUCHED** (#95: *"islands look right at today's scale"*); **the ring does not change** (#61), **the clock stands** (#31), **spawns stand** (#32). Three states of a contact (#80): smear / sighted silhouette (class-ID tier) / full hull. Bench: *"the zone tests pinning rung ratios against radar / 12 die on purpose when the ladder retires — record it as a ruling, not a failing build."*
+
+**Acceptance Criteria:**
+
+**Given** `SIGHT = 500`, `RUNG = SIGHT × 3 / 12`, `CONFIG.vision { sight, muzzleFlash, farRadar, radar, dropout }`, every weapon `rangeU` written as `RUNG × n`, `stats.ts` `sightRange = radarRange / 3`, the RANGE index (`index.range`, `RANGE_ROWS`, `scaleDeckGunRange`, the +10 card of amendment 12, amendment 13's six-row roll), and the rung-ratio tests
+**When** the ruler lands
+**Then** every reach is a named hectometer fact in `CONFIG` set by real ratio to the board — radar, main battery, secondaries, sight (hull) and class-ID (a second sight tier), muzzle flash, every shell type, every torpedo kind with a range that tiers up `[dial — every number Eric's at the spec step]`; `RUNG`, the ladder doc comment and the twelfths changelog entries retire with dated notes; the rung-ratio tests (`zone.test.ts`, `dropout.test.ts`, `catalog.test.ts`, `stats.test.ts`, `foghorn.test.ts`, `radarShadow.test.ts`, `radarWire.test.ts`) are deleted or re-expressed as a RULING in `epic-11-context-amendments.md`, never patched to pass (FR24–FR28 re-cut)
+**And** the RANGE row leaves the index — five rows ARMOR / POWER / RELOAD / ENGINES / INTEL; its card leaves the deal; the maxed-hull bonus rolls five (amendment 13 superseded in that clause); a hull's main-battery reach is the weapon's fact `[unruled — whether a per-hull offset survives as a weapon fact rather than a row]`
+**And** sight has two tiers — a silhouette without class at the class-ID reach, a full hull inside the hull reach — through `perception.observe()` with the six exceptions untouched; the twelfths dropout (`dropout.ts`) is re-expressed in hectometers or replaced by 11.4's strength model `[unruled — decided at this spec step]`
+**And** a time-compression factor is NAMED in `CONFIG` and every rate reads through it without changing today's play `[reading — today's rates already embody ~4.2×; naming the factor must not move a number]`; the chart's range rings are hectometers
+**And** `CONFIG.map.baseRadius` 5000, `CONFIG.zone`, `TERRAIN_PARAMS`, island generation and the hull polygons are UNTOUCHED; whether 9,000 u radar needs real-height shadows (#60) is Eric's at the spec step `[unruled]`
+**And** bots sail unchanged through the fold; the fleet / weapons / zone smokes stay green; `PROTOCOL_VERSION` bumps (the client reads the reach block); the GDD / How-to-Play stamps are 11.11's.
+
+### Story 11.3: The Arc *(lock 1, lock 8 — the beam is a `CONFIG` dial; #4, #5, #30)*
+
+As a captain reading my set,
+I want a contact at long range to paint as an arc — sharp in range, wide in bearing — not a dot,
+So that knowing WHERE a ship is becomes the skill, even on a clear day.
+
+**Eric's rulings (forge locks 1 and 8; #4, #5, #30; verified against code):** **a contact is an ARC**: sharp in range (pulse length, hundreds of meters), wide in bearing (a ~5–6° beam `[dial]` = ~500 u at 9,000 u), **wider than a salvo pattern at gun reach**; **beam width is a `CONFIG` dial** (Eric: *"keep it tweakable so we can play with it easily"*) — NOT a player knob, and no sector scan (Friday's #15 re-ruled); one fixed wide beam, 15 rpm base, INTEL tunes it. The blip on the wire is ALREADY a fuzzed 9 u cell rect with no id / heading / exact position — **the arc is an extension of `paintCoverage` in `signals.ts`, not a new channel**. **Client paint ∝ range² at a fixed cell (~36× at 9,000 u) — the range-scaled cell is required; MEASURE on staging first; zoom-level lattices (#30) only if the frame demands** (bench: *"two experiments, one number each, measured"*).
+
+**Acceptance Criteria:**
+
+**Given** `signals.ts` `sweptThisTick` / `blipGate` / `paintMask` → `radarRaster.ts` `paintCoverage` (dilation + glint seeded per paint), `GhostPaint { gx, gy, w, h, bits }` on the wire, `CLIENT_CONFIG.blip.heatmap.cellU = radarCellU` 9 and `radarMarch.ts` `rayStep`
+**When** the arc lands
+**Then** a radar paint is smeared in BEARING about the observer by `CONFIG.vision.beamDeg` `[dial]` and kept sharp in RANGE by a pulse-length term, server-side inside `paintCoverage` / `paintMask`, so the wire still carries only a cell mask and never an exact position; the invariant suite is EXTENDED: a paint's bearing extent never leaks the target's true bearing more tightly than the beam allows; the SIX exceptions stay six (NFR20–NFR23)
+**And** the radar cell scales with range on the client (`radarField.ts` / `radarMarch.ts`) so the paint bill stays bounded at 9,000 u; the frame is CAPTURED on staging at full reach (never a Vite dev build, never Eric's MacBook) and recorded; zoom-level lattices (#30) are built ONLY if that capture demands it `[measured, not assumed]`
+**And** the phosphor decay and the client-side speckle stay client render math (the server keeps no blip history); a ship's arc repeats in place across sweeps, which 11.4's ghosts will not
+**And** bots read the arc center as today's blip `[reading — 11.9 tunes]`; `PROTOCOL_VERSION` bumps only if the mask shape changes; the GDD radar sentences are stamped at 11.11.
+
+### Story 11.4: The Operated Set *(locks 7 and 8; #9, #12, #13, #16, #69; bench: gain is a server-side perception input)*
+
+As a radar operator,
+I want gain, sea clutter, rain clutter, pulse length and range scale under my hand, and to pay for turning the gain up with ghosts I have to read through,
+So that tuning the set is the skill and nothing I did not earn ever reaches my screen.
+
+**Eric's rulings (forge locks 7–8; #9, #12, #13, #16, #69):** **player knobs, all real marine controls: gain, sea clutter, rain clutter, pulse length, range scale**; **knobs free and instant** (#16 — no dead time, no vulnerability window); **gain = server-made false returns**: above a gain threshold the server adds seeded GHOST returns to that observer's frame, indistinguishable from a one-sweep real return (same arc fuzz, same cell shape); the rate rises with gain and weather; **a ghost never repeats at the same place next sweep, a ship does** — persistence across sweeps is the skill, phosphor memory the tool; **ghosts must sometimes land near real ships** (no "blip with company" tell); **the client draws nothing it wasn't sent** — cosmetic speckle only is client-side; **EVERY knob that shapes what is painted is a server-side input via `inputs.ts`** (Cloud's Friday "gain alone" withdrawn); **the strength model**: a return's strength falls with range and target size, it is painted iff it clears the observer's gain threshold; **bots run one honest radar setting** (#69; knobs open to bots later / RL); range scale = zoom (#30, lock 8). INTEL stays sweep speed (#49); INTEL-as-signal-strength is back pocket (#46), not built.
+
+**Acceptance Criteria:**
+
+**Given** `InputMsg` (seq, throttle, rudder, aim, fireSeq, aimDist, slot, fireT, actSeq, act, hornSeq, held, sec) sanitized in `game/inputs.ts` at 40 msgs / s, `perception.observe()` → `signals.ts` `blipGate` → `frames.ts`, `effectiveStats()` carrying `radarRange` / `sweepRpm`, and 11.3's arc
+**When** the set lands
+**Then** five knob fields ride `InputMsg` — gain, sea clutter, rain clutter, pulse length, range scale — finite-checked and clamped in `inputs.ts`, stored per observer in `World`, applied in `observe()` and nowhere else; malformed is silently dropped; they take effect on the next sweep with no dead time (FR27–FR28 re-cut)
+**And** a return-STRENGTH model in shared sim gives every candidate paint a strength from range and target size `[dial]`; a paint reaches the frame iff strength ≥ the observer's gain threshold — **nothing below the observer's gain ever leaves the server** (a new property-style invariant line); sea clutter raises the floor near the observer, pulse length trades reach for resolving two close ships `[dial — the exact laws are the bench page's, re-confirmed at the spec step]`
+**And** GHOSTS: per observer per sweep the server rolls seeded false returns above the gain threshold at a rate rising with gain (and, from 11.6, weather) `[dial]`, each painted with the arc fuzz of a real one-sweep return, never repeating in place, sometimes placed near real ships — a new `SIGNAL_REGISTRY` source through `observe()`, with its own invariant line: **a ghost carries no real position** (NOT a seventh exception)
+**And** the knob controls on the HUD are a RENDERED candidate shown to Eric before commit (DESIGN.md read first); range scale IS the camera zoom (11.8); no in-game copy unasked
+**And** bots set the five knobs once to one honest setting (`ai/`, no `world.js` import); the harness reports knob settings and ghost counts per hull; `MatchRecord` carries the knob settings at end
+**And** `PROTOCOL_VERSION` bumps (five new intents on the wire); the GDD Fog of War / radar sentences are stamped at 11.11.
+
+### Story 11.5: The Splash Return *(lock 9; #7, #84)*
+
+As a captain who just fired,
+I want my shells' splashes to paint on radar for one sweep like any return, and my shells themselves to stay things you can only see,
+So that the miss is information — for me, and for whoever I was shooting at.
+
+**Eric's rulings (forge lock 9; #7, #84):** **a splash is a one-sweep radar return** — the server plants a short-lived scatterer the size of the water column where a shell lands; any set sweeping it in that window paints it with the same arc fuzz as a ship, no owner, no color; **it never repeats** (reads like a ghost unless you fired); it goes through `observe` like a ship — **a new frame event with its own perception-invariant line, NOT a seventh exception**; **shells in flight stay sight-only** (#84 "shells stay visible in flight" is to SIGHT; fire-control sets tracked shells, ours doesn't); **the miss is information for both sides**. Error ranking at gun reach: arc > lead over ~20 s of flight > pattern — splashes are what sharpen the arc (lock 1).
+
+**Acceptance Criteria:**
+
+**Given** 11.1's landing points, 11.3's arc fuzz, 11.4's strength model and the `SIGNAL_REGISTRY`
+**When** the splash return lands
+**Then** every shell landing (main battery, secondaries, shell types) plants a scatterer at its landing point with a lifetime `[dial — the water column's hang time]` and a size `[dial]` in `World`; a scatterer is a `SIGNAL_REGISTRY` source painted by any sweep that crosses it in its window, with the arc fuzz and the strength model, no owner and no color on the wire; the invariant suite gains its line (a splash paint reveals landing position only to the arc's precision and never the firer) (NFR20–NFR23)
+**And** shells in flight remain SIGHT-ONLY projectiles (materializing at the sight boundary as today) and never paint on radar
+**And** the client draws a splash return exactly as it draws any one-sweep return (no special glyph on the radar layer; the chart's splash PEGS are 11.8's and are the firer's own knowledge)
+**And** bots may read a splash as a return `[reading — 11.9]`; `PROTOCOL_VERSION` bumps (a new event kind); the GDD stamps are 11.11's.
+
+### Story 11.6: Rain First *(lock 10 — the first weather build; #8, #13, #17, #37, #100)*
+
+As a captain in a rain band,
+I want the rain to cut my sight as the fog does today AND to weaken real returns and raise the ghosts on my set, with a rain-clutter knob that trades one for the other,
+So that weather is the fog of war on every sensor, not just my eyes.
+
+**Eric's rulings (forge lock 10; #8, #13, #17, #37, #100):** **weather = the return-STRENGTH model's second axis** — strength falls with rain along the path; the ghost rate rises with gain and local clutter; **two axes, light × precipitation; FIRST BUILD = RAIN (day) ONLY**: **the fog field IS the rain** (#37 — the existing fractal density field = rain bands) — sight cut in bands as today + weakened real returns + raised ghost rate inside the bands; **the rain-clutter knob suppresses the band at the cost of weak returns**; **weather is fixed per match** (#17), **the server rolls once at room creation with the map, on the welcome next to `fogSeed`, nothing on the schema; unknown at queue** (#100 provisional → ruled; Murat's #10 answered); clear, night/clear and night/rain are TEST ARMS (11.10). Friday's "three match types" is superseded by the two-axis reading.
+
+**Acceptance Criteria:**
+
+**Given** `shared/src/sim/fog.ts` (sight-only today: `fogDensityAt`, `fogTollAlong`, `fogCutForTarget`), `fogSeed` on `WelcomeMsg`, `fogCut` on the schema, and 11.4's strength model and ghost generator
+**When** rain lands
+**Then** the strength model gains a rain term integrating `fogDensityAt` along the observer → target path (the same field that cuts sight), so a real return inside or behind a band is weakened and may fall below the observer's gain `[dial]`; the ghost rate rises with the local density at the observer `[dial]`; the rain-clutter knob (11.4) suppresses the band's ghosts at the cost of further weakening real returns in it `[dial — the trade is the bench page's]`
+**And** a `weather` roll rides the welcome beside `fogSeed` (server, at room creation; `rollZoneRings`-style seeded) and nothing per-match weather rides the schema; the queue and the home never show it
+**And** sight through rain is exactly today's fog toll (epic-9 amendments 162–176 stand); the field's look may be re-cut as RAIN — a rendered candidate shown to Eric first `[unruled]`
+**And** bots sail unchanged through it (one honest setting; 11.9 tunes); `PROTOCOL_VERSION` bumps (the welcome grows); the GDD Fog Banks sentences are stamped at 11.11.
+
+### Story 11.7: Beacon Midpoint Placement *(lock 6; #94 re-read; supersedes epic-10 amendment 6(g)'s fleet-spawn placement)*
+
+**2026-11-15 — epic-11 amendment 15 (Eric, before the spec step): BUILT AS RANDOM PLACEMENT, NOT MIDPOINTS.** Each beacon is a random open-water point inside the live ring (edge margin, land, a 500 u captain keep-out — shrunk from 1,000 at review), at least half the placement radius from the other beacons (2,250 / 1,500 / 750 u); counts 7 / 5 / 3. The pairing, midpoint and 30 s nudge below are superseded unbuilt; the fleet-anchor rule is deleted (beacons were its only consumer). Spec: `spec-11-7-beacon-random-placement.md`.
+
+As a captain at the cycle's 0:00,
+I want the beacon nearest me to be charted between me and my neighbor, nudged toward where the ring will be,
+So that two of us are drawn to the same water and nobody sails from the rim to the middle for it.
+
+**Eric's rulings (forge lock 6; #94 and its forge crack):** Eric's beacon intent is to DRAW players in — ideally two fighting over each beacon per phase, never a long traverse; today's `placeBeacons` → `pickFleetAnchor` max-min from hulls **pushes beacons AWAY from players — the opposite of the intent**. Ruled: **a beacon is charted at the MIDPOINT between two neighboring hulls** (cycle 0 = adjacent spawn pairs → 8 beacons, two players equidistant each; later cycles pair surviving hulls, nearest unpaired neighbor), **then nudged toward the ring center until inside the hypothetical next ring** (same center as the live ring, the next ring's radius) **by at most ONE dial expressed as TIME: 30 s of baseline sailing (~900 u today)** `[dial]`; keeps min beacon spacing and the captain keep-out disc as today; **counts 8/4/2 unchanged**; the "10k band" reading and the fleet-anchor rule are RETIRED for beacons. Accepted weak points: equidistant beacons favor the faster hull (the neighbor-ambush meta is "the game"); a beacon can still end up in the storm after the real ring shifts — the nudge is not a safety promise.
+
+**Acceptance Criteria:**
+
+**Given** `world.ts` `placeBeacons` → `spawn.ts` `pickFleetAnchor` (uniform disc minus `edgeMarginU` 500, max-min from afloat hulls, captain discs denied), `CONFIG.beacons { counts [8, 4, 2], rangeU 500 }`, `CONFIG.zone.ringRadii` and the hypothetical-next-ring reading
+**When** the placement lands
+**Then** at a cycle's 0:00 the server pairs afloat hulls (cycle 0: adjacent spawn pairs; later: nearest unpaired neighbor, a leftover hull pairing with its nearest `[reading]`), charts each beacon at the pair's midpoint, and nudges it along the line to the live ring's center until it lies inside the hypothetical next ring (next radius about the live center) — moving it at most `CONFIG.beacons.nudgeSeconds × baseline speed` `[dial: 30 s]`; min spacing, `edgeMarginU`, land avoidance and the 1000 u captain disc hold as today; when the ring is too small for the count the count falls as today (FR13, FR19)
+**And** `pickFleetAnchor` stays for spawns and leaves `placeBeacons` with a dated note; epic-10 amendment 6(g)'s "placed by the fleet-spawn rule" and brainstorm-11-03 #24 / #50 are superseded with dated notes
+**And** the harness reports distance-to-nearest-hull per beacon at placement and hulls-in-range per beacon per tick (before / after); bots farm as today
+**And** server-only; `PROTOCOL_VERSION` unchanged (the schema shape is the same); the GDD Economy sentence is stamped at 11.11.
+
+### Story 11.8: The Free Camera *(lock 11; #23–#26, #30)*
+
+As a captain at a 9,000 u set,
+I want to pan and zoom anywhere on the chart, see the whole board at once, always find my own hull and my held contacts, and read my own salvo history as pegs,
+So that the map is the only instrument I need.
+
+**Eric's rulings (forge lock 11; #23–#26, #30):** **free camera** — pan anywhere, zoom anywhere, one key snaps home; **no scope, no first-person, no vision subsystem; the map is the only instrument** (#23); **markers hold screen size when zoomed out** — own hull and held contacts always findable (#24); **lead lives in your head** — no fire-control solution (#25; MARPA killed); **splash pegs** — every salvo leaves a fading mark on the chart (#26; forge build order step 6); **zoom IS the range scale** (#30; the radar overlay stops at the set's range); **min zoom = the whole board at once** — the chart shows everything the client already knows (islands, ring, beacons, own paint); **phone is NOT a target platform**. Ideas NOT ruled and NOT built here: fire-where-you-look (#29), follow a contact (#27), the range ring on the chart (#28), hull-down marks (#22).
+
+**Acceptance Criteria:**
+
+**Given** `client/src/render/camera.ts` (`userZoomLimits`, `intelFitSpanU`, `ringFitSpanU`, the intel zoom waypoint of amendment 208), `CLIENT_CONFIG.zoom { closeSpanU 880, defaultSpanU 1320 }` and the per-module zoom compensation (`strokeWorldWidth` in `zone.ts` / `map.ts` / `beacons.ts` / `stage.ts` / `spectate.ts`)
+**When** the camera lands
+**Then** the camera pans and zooms freely with the whole board as the minimum zoom and today's close span as the maximum `[dial]`; one key snaps home to own ship; the reveal / intel waypoints of Stories 9.8 / 200 survive as waypoints, not limits `[reading]`; range scale (11.4) and zoom are one control
+**And** one screen-size rule holds for own hull, held contacts, beacons, mines and markers at every zoom (a rendered candidate shown to Eric first; DESIGN.md read first and its rows stamped)
+**And** every salvo the captain fires leaves a fading peg at its landing point on the chart (own knowledge, from the own-ship fire events; never another captain's) `[look: rendered candidate; fade time a dial]`
+**And** camera tests use MOVING ships (amendment 208); client-only unless a wire field is needed; the perception invariant is untouched; every register ≥ 9 px; no in-game copy unasked.
+
+### Story 11.9: Bot Posture on the Big Ocean *(#62–#64, #69; the closing bot story — every earlier story keeps bots functional, this one tunes them; revisits 10.12)*
+
+As a captain in a match with bots,
+I want a bot to read its set like a player — trusting a return that repeats, holding fire until the pattern gives it a real chance, never sniping across the board,
+So that bots are worth fighting at 9,000 u.
+
+**Eric's rulings (forge; #62–#64, #69):** **bots run one honest radar setting** (#69; knobs open to bots later / RL); **bots need the persistence read** (a return that repeats across sweeps is a ship; a ghost is not) and **a hit-probability hold fraction** — the hold-band reading of `CONFIG.bots.gunBand` becomes a hit-probability fraction from the dispersion function (#63: *"bots don't snipe"*); bots see ghosts too (accepted). Standing: bots are ordinary ships through the input pipeline, a bound `observe` thunk is their whole world, `ai/` never imports `world.js`, the 9.13 posture measures (land contact, storm share, ram deaths, placement by hull) are the yardstick. #64 (turn toward the flash bearing) is an idea, not a ruling.
+
+**Acceptance Criteria:**
+
+**Given** Stories 11.1–11.8 landed with bots minimally functional on each, `ai/doctrine.ts` `gunBand` / `holdFireAboveU`, `ai/battery.ts`, `ai/tacticKit.ts` `scatterOffset` / `aimPoint` / `shotReaches`, and 10.12's posture
+**When** the posture pass lands
+**Then** a bot holds its main battery until the dispersion function gives at least a hit-probability fraction `[dial — Eric's at the spec step]` against the arc it reads, never firing at full reach on a single return; it treats a return that repeats in place across sweeps as a ship and a one-sweep return as noise or a splash; it keeps one honest knob setting through the match
+**And** the 9.13 harness measures are reported before and after on the new reach, plus hit share by range and shots at ghosts; every number is Eric's at the spec step `[unruled]`; the fleet / weapons / zone smokes are re-scripted for the new reaches
+**And** server-only; `PROTOCOL_VERSION` unchanged; the GDD "Enemy Design and AI" stamps are 11.11's.
+
+### Story 11.10: The Weather Arms *(lock 10's test arms; #17–#19, #85–#86; the night dial)*
+
+As a captain queuing for a match,
+I want the match to sometimes be clear, sometimes night, sometimes night and rain — and never to know which until I am on the water,
+So that weather decides what sees, and the clear day is the hard match.
+
+**Eric's rulings (forge lock 10; #17–#19, #85–#86; bench):** after rain-day works, the TEST ARMS: **clear**, **night / clear**, **night / rain**; **night optics ≈ today's 500 u sight** (moonlit battleship spotting 2–5 km real × the board factor); clear optics = 11.2's hull / class-ID reaches; **night light sources both work** (#19) — star shells stay, your muzzle flash gives you away; emergent (#85–#86): night shells arrive unseen, flashes are the warning, flash bearing with no range; **the night target's dial is the SIZE of the flash at ~20 km** (Samus: dread-with-agency if the flash reads with a bearing, boredom if it's a pixel) — parked until this story. Clear day may be a turkey shoot (a 20 km gun on a 22 km pond at 0:00) — **the dial is the ghost floor at zero gain**, untested. Which arms SHIP, and the roll's weights, are Eric's on staging `[unruled]`.
+
+**Acceptance Criteria:**
+
+**Given** 11.6's `weather` roll (rain / day only) and the strength model, 11.2's sight tiers, the star shells and the muzzle-flash tell
+**When** the arms land
+**Then** the weather roll carries two axes — light (day / night) × precipitation (clear / rain) — with each arm playable on staging through a dev room option under `HC_DEV_OPTIONS=1` (amendment 214 shape) and production rolling by weights Eric sets `[unruled]`; night sets the sight reaches to the night optics `[dial]` and the star shells / muzzle-flash tells keep working; clear runs the rain term at zero
+**And** the ghost floor at zero gain `[dial]` is what keeps a clear day from being a turkey shoot — judged on staging against the clear arm; the flash's rendered size at long reach is a rendered candidate shown to Eric (the night dial)
+**And** bots sail every arm with one honest setting; the harness reports attrition and placement per arm (quick runs ≤ 99 matches, never unprompted); `PROTOCOL_VERSION` bumps only if the welcome shape changes; the GDD stamps are 11.11's.
+
+### Story 11.11: How-to-Play and Record *(closes the epic; revisits 10.13 / 10.14 for the new reach; **2026-11-12 — epic-10 retro, epic-11 amendment 2: OWNS Story 10.14 WHOLE** — 10.14 was deferred and folded in, so its acceptance criteria, kept under its own heading, are part of this story and are written once for the big ocean)*
+
+As a new captain reading How-to-Play,
+I want the set, its knobs, the arc, the ghosts, the splashes, the pattern and the weather described in Eric's words,
+So that nothing I can tune, read or shoot at is a mystery.
+
+**Acceptance Criteria:**
+
+**Given** Stories 11.1–11.10 landed
+**When** the record closes
+**Then** How-to-Play carries, in Eric's copy, the big ocean: the pillar sentence, the five knobs and what each costs, the arc and the persistence read, ghosts, the splash return, dispersion and the pattern, hectometers and the real reaches, rain and the arms, the free camera and the pegs; and the RETIREMENTS — the twelfths ladder, distance decay, the RANGE row; 10.14's text written for today's reach is re-cut where the numbers moved and 10.13's cues are re-auditioned where a reach changed what the player hears `[Eric's at the spec step]`
+**And** the GDD's Development Epics table and every mechanics sentence Epic 11 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern: Weapon Systems reach / decay sentences, Arena and Level Design radar / sight / fog sentences, the twelfths ladder stamps of Epic 9, the Economy's beacon placement, Enemy Design, the Fog of War pillar); `game-architecture.md` gains dated notices (the five knob inputs, the strength model and ghosts as a signal source, the splash event, the weather seat on the welcome, the camera as the range scale); DESIGN.md / EXPERIENCE.md rows the camera and knob candidates changed are stamped
+**And** `epic-11-context-amendments.md` holds every ruling incl. the bench page's numbers and the retired-tests ruling; the epic-11 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
+
+## Epic 12: The Ledger *(was Epic 11 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E12)*
+
+The match-data store Eric asked for *"strictly for collecting match data right now so I can see trends, balance, and tune bots from games that include human players."* The server already builds a complete server-only `MatchRecord` at every finished match and hands it to a `NullWriter`; this epic mounts the first persistent store behind it and a script that reads it back in the harness's report shapes. Every row is anonymous — no account column exists yet (Epic 14 adds it), and the callsign is dropped at the writer (Eric 2026-10-25). Standing constraints: **the ledger never takes the game down** (absence-gated on `DATABASE_URL`; nothing in a tick ever awaits it; a failed write is a log line and a metric); `game/world.ts` and `game/match.ts` keep zero persistence imports; `render.yaml` `databases:` entries land in the same PR as the code that reads them, never ahead (AR24); every log line obeys the PII rule (NFR24); a dependency lands in the story that mounts it (project-context, 2026-10-24).
+**FRs covered:** none new — delivers the "every deck in every match server-side for Eric's own metrics" half of the GDD's Account progression section (now "every loadout"), anonymously · **Also:** AR22–AR25 (store half only), NFR25–NFR27
+
+### Story 12.1: The Match Ledger (floor story)
+
+As the operator (Eric),
+I want every finished match written to a database the game never depends on,
+So that I can see trends, balance and bot behaviour from real matches with people in them.
+
+**This is a FLOOR story on the Story 0.1 / 8.0 precedent — no player-visible change.** Data layer RULED 2026-10-25: Render managed Postgres + `@colyseus/database` (Drizzle + `postgres`, present in `server/package.json` since 8.0 and mounted HERE for the first time).
+
+**Acceptance Criteria:**
+
+**Given** `MatchRecord` / `buildMatchRecord` (`server/src/game/matchRecord.ts`) and the `AccountWriter` port with its `NullWriter` (`server/src/game/accountWriter.ts`)
+**When** the ledger lands
+**Then** `server/src/ledger/` is an in-process module mounted once in `app.config.ts`; `createAccountWriter()` returns the real writer when `DATABASE_URL` is set and the `NullWriter` otherwise — the game is byte-identical without the URL; with it set but the database unreachable or a migration failing, the process STILL STARTS with the writer OFF and logs `ledger.disabled { reason }` once (AR23 posture, NFR25)
+**And** storage is Render managed Postgres per environment (`hullcracker-db`, `hullcracker-dev-db`; region `oregon`; smallest paid tier) under `databases:` in `render.yaml` with `DATABASE_URL` via `fromDatabase.property: connectionString`, landing in THIS PR; no persistent disk on either web service; Render managed backups only (AR24, NFR26)
+**And** tables `matches`, `match_participants`, `match_hands` mirror `MatchRecord` (match id, mode, PV, game version, ended-at, activation, duration, end cause, outcome, winner; per participant an opaque participant id, role, hull, gun, placement, kills, PvE kills, damage dealt, final cards, banked levels; per hand dealt-at, offered, taken, taken-at, redrawn) with **no callsign and no account column** (`userId` stays `null` in the record; the column is Epic 14's); migrations are checked-in SQL under `server/drizzle/` generated by `drizzle-kit` and run at boot — never `"auto"`; the Colyseus auth / plugin tables are NOT wired; `drizzle-orm`'s pin is exact (AR25)
+**And** the writer is an in-process FIFO, retry once, `flush()` on SIGTERM (a Render redeploy must not lose the matches in flight); nothing on the tick ever awaits it; bots and humans are written alike (role tells them apart)
+**And** local dev and the server test suite run the REAL schema on PGlite (`HC_DEV_DB=pglite`) so `npm run check` exercises the real SQL with no Postgres installed; plain `npm run dev` is ledger-OFF (AR55, NFR26)
+**And** `/metrics` gains `ledger.writeOk / writeFailed / queueDepth`; the log gains `ledger.write.ok { matchId, rows }` / `ledger.write.failed` under the PII rule; the privacy policy (`policyCopy.ts`) gains ONE sentence that match results (hull, gun, placement, cards) are stored server-side with no name attached; the staging host gets its own database so the writer is QA'd there; `PROTOCOL_VERSION` does NOT bump.
+
+### Story 12.2: Reading the Ledger
+
+As the operator (Eric),
+I want the balance readouts I already know from the batch-sim harness, over the real matches in the ledger,
+So that I tune from what people actually did.
+
+**Acceptance Criteria:**
+
+**Given** the ledger (12.1) and the harness's report modules (`server/scripts/harness/` — class share, gun × tier, placement, pool readouts, bot readouts)
+**When** the readout lands
+**Then** `server/scripts/ledgerReport.mjs` reads the store (`DATABASE_URL` or `HC_DEV_DB=pglite`) and renders the harness's existing shapes over live matches — win and placement share by hull and by gun, hands offered vs taken by line, consumable use, humans vs bots, match duration and end cause — filterable by game version, date range and mode; text output in the harness's register, no web UI, no admin console (that is 13.7)
+**And** the report functions are pure over plain rows (unit-tested on fixtures); the script is documented beside the balance-sim how-to; nothing runs unprompted
+**And** no code under `game/` changes; no PV change.
+
+## Epic 13: The Front Door *(was Epic 12 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E13)*
+
+Eric has **H5 Games Ads approval**; the **AdSense site review says Google cannot crawl the site and finds no content**, so the publisher site is not approved. Today every page — home, How-to-Play, Privacy — is an empty document filled by JavaScript; the home has no description; no page has Open Graph tags, a canonical or structured data; there is no `robots.txt` or `sitemap.xml`. The interstitial, the certified CMP and GA4 are already built behind the `PortalAdapter` (Epic 7). This epic redesigns the landing page (Google Stitch, prompts by the agent, Eric driving — Eric 2026-10-25), makes every page crawlable with its real text in the HTML, and carries the site through approval. Standing constraints: DESIGN.md is the design source of truth and the Stitch output is reconciled with it before anything is built; NFR2's load budget is untouched; staging's `noindex` / gate posture is untouched; no in-game copy; `render.yaml` stays the live deploy config.
+**FRs covered:** FR39–FR40 (hardens NFR7–NFR9, NFR18–NFR19) · **Also:** AR11 (AdSense), UX-DR29, UX-DR39
+
+### Story 13.1: The Landing Page, Redesigned *(design pass — Google Stitch; team effort)*
+
+As a first-time visitor (and as Google's crawler),
+I want the front page to tell me what this game is and how to play it before I ever click,
+So that I know whether to sail — and the site reads as a real site.
+
+**Eric (2026-10-25):** *"we need to SERIOUSLY rethink the landing page and user experience so that we can get the site itself approved."* **Ruled:** design pass first, in **Google Stitch**; *"You will be responsible for creating prompts, though. Team effort."*
+
+**Acceptance Criteria:**
+
+**Given** DESIGN.md / EXPERIENCE.md and today's home (`client/src/ui/home.ts`)
+**When** the design pass runs
+**Then** the agent writes the Stitch prompts from DESIGN.md's tokens and registers and a content brief — what the page SAYS before the canvas: the pitch, how to play in a few lines, the modes, the How-to-Play and Privacy links, the community links — with the page's copy Eric's `[unruled]`; Eric drives Stitch and picks
+**And** the chosen output is reconciled with DESIGN.md (tokens, type ramp, registers, the 1366×768 floor) and recorded there as a dated v5 update with the mock; EXPERIENCE.md's Journey A gains the first-visit read; Eric ratifies before 13.2 builds
+**And** no code changes.
+
+### Story 13.2: Crawlable Pages
+
+As Google's crawler (and a reader with scripting off),
+I want every page to carry its words in the HTML it serves,
+So that the site has content to index and nothing to guess.
+
+**Acceptance Criteria:**
+
+**Given** the three Vite entries (`/`, `/how-to-play`, `/privacy`) whose bodies are filled by JS from `home.ts`, `how-to-play/copy.ts`, `privacy/policyCopy.ts`, and the ratified 13.1 design
+**When** crawlable pages land
+**Then** every page's content is in the document AT BUILD TIME — the home pitch per 13.1, the How-to-Play copy and the privacy policy prerendered from their existing copy modules (the modules stay the single source; the runtime hydrates, never re-renders different text); a scripting-disabled reader gets the full text (NFR2 untouched — static text costs nothing)
+**And** the home carries a `<meta name="description">`; every page carries Open Graph + Twitter-card tags, a canonical URL and a page-specific `<title>`; production serves `/robots.txt` (allow all; sitemap pointer) and `/sitemap.xml` (the three pages); `ads.txt` verified present; the staging host keeps `X-Robots-Tag: noindex` and the gate exactly as today
+**And** the home's visible chrome follows the 13.1 design; the game canvas and every DOM layer behave as today; the client build order and `express.static` serving are unchanged
+**And** structural tests only (the three documents contain their copy modules' headings; the meta set per page; robots/sitemap routes) — never a copy pin; `PROTOCOL_VERSION` unchanged.
+
+### Story 13.3: Publisher Approval
+
+As the operator (Eric),
+I want the site resubmitted and the first live interstitial seen on production,
+So that the H5 approval turns into revenue.
+
+**Acceptance Criteria:**
+
+**Given** 13.2 on production
+**When** the approval loop runs
+**Then** Eric resubmits the site in AdSense; whatever the review names is fixed in this story (each fix its own cycle, trackers stamped once)
+**And** once approved, the production smoke the ledger has owed since Epic 7 is run and recorded — Google's CMP renders, the `return-to-port` interstitial fires, GA4 consent flows (`deferred-work.md` "production smoke once Google's CMP renders", both entries closed); `VITE_ADSENSE_SLOT_RESULTS` stays Eric's call
+**And** done = the publisher site is approved and the first live interstitial is seen on production; no game code changes.
+
+## Epic 14: The Account *(was Epic 13 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; GDD E14 — was Epic 10 from the 2026-10-06 Sprint Change Proposal until 2026-10-25, when `sprint-change-proposal-2026-10-25.md` inserted Epics 10–12 (The Playtest Pass, The Ledger, The Front Door) and shifted this epic right with its text kept whole — stories 10.N → 13.N, text unchanged (→ 14.N on 2026-11-08); was Epic 9 / E9 until 2026-10-06; re-cut 2026-09-21 — no decks)*
+
+Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Ten stories in build order (Eric-approved 2026-09-11; Story 14.5 deleted and 14.4 / 14.6 / 14.7 / 14.11 re-scoped by the 2026-09-21 Sprint Change Proposal). Standing constraints on every story: store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; **the account layer never takes the game down** (nothing in a tick ever awaits the database); Story 7-7 stays deferred and nothing here adds a deployable, CORS or a cross-origin cookie; the account HTTP API is NOT part of `PROTOCOL_VERSION` (its contract is the endpoint path set, pinned by test); every log line obeys the PII rule (NFR24); **anonymous play on production is Eric's open question and no story pre-empts it**; the dev/staging host is account-only (FIRM — built in 14.2). File homes, naming and placement rules per AR56–AR58.
+
+### Story 14.1: The Account Store Foundation (floor story) *(2026-10-25 note — `sprint-change-proposal-2026-10-25.md`: Epic 12 The Ledger builds the STORE half of this story first (Render Postgres + `@colyseus/database`, absence-gated, migrations, PGlite, `/metrics`) for anonymous match data; when this story is created it inherits that store and shrinks to the auth-side env table and the account tables — decided at its create-story, text below left as written)*
 
 As the operator (Eric),
 I want a database the game can write to, that is completely inert when it isn't configured,
@@ -2547,7 +3156,7 @@ So that accounts can be built on it without the game ever depending on it to boo
 **And** the env table is documented (`DATABASE_URL`, `JWT_SECRET`, `SESSION_SECRET`, `HC_OAUTH_GOOGLE_ID/_SECRET`, `HC_OAUTH_DISCORD_ID/_SECRET`, `HC_SITE_ORIGIN` in the clear); **no secret is ever a `VITE_` variable**; `client/.env.*` is added to `.gitignore` (`deferred-work.md:1789`) (NFR27)
 **And** `/metrics` gains the `account` block; `/liveness` is proposed as `healthCheckPath` in the same PR (Eric's yes, `:1710`); the staging host gets its own database and OAuth apps so accounts ARE QA'd there (AR23, AR54).
 
-### Story 10.2: Sign In with Google or Discord
+### Story 14.2: Sign In with Google or Discord
 
 As a captain,
 I want to sign in with Google or Discord and be recognised at the door,
@@ -2555,7 +3164,7 @@ So that the game can keep things for me — and nothing about my match changes b
 
 **Acceptance Criteria:**
 
-**Given** the store foundation (10.1)
+**Given** the store foundation (14.1)
 **When** OAuth sign-in lands
 **Then** auth is `@colyseus/auth` 0.18 on a CURATED endpoint subset (userdata + OAuth start + OUR callback) — Google `openid`, Discord `identify`, no email scope on either; `auth-login`, `auth-register`, `auth-anonymous` and forgot/reset/confirm are NEVER mounted (a pin test asserts the mounted path set); the popup callback is REPLACED by `oauthCallback.ts`, which `postMessage`s to `HC_SITE_ORIGIN` (never `'*'`, never derived from the `Host` header) (FR62, AR27)
 **And** identity is keyed `(provider, subject)` through the module's own `onOAuthProviderCallback` upsert into `account_identities` + `account_profiles`; the callback writes `anonymous: false` (the module's default is `true`); `colyseus_users.email` is NULL for every player permanently; **a signed-in caller completing OAuth with a SECOND provider gets that identity LINKED to the same user** (Eric 2026-09-09) — never merged by email, never a second account (FR62, AR26, AR27)
@@ -2564,9 +3173,9 @@ So that the game can keep things for me — and nothing about my match changes b
 **And** the client: a `SIGN IN` row (`GOOGLE · DISCORD`, Primary Button register, 30 px) renders on the anonymous home ONLY while `/liveness` reports `account: true` — ABSENT otherwise, never disabled; a popup closed/blocked or a provider error leaves the home anonymous and reports on the home status line in the `denied` register; signed in, the row is absent and the **Account Chip** (`LV n · n ⬢`, top-right by the settings gear, 34 px) stands, updating on sign-in, sign-out and every token spent; the signed-in home is today's home + the chip and NOTHING else — no `DECKS` link (UX-DR67, UX-DR68)
 **And** Settings gains SIGN OUT; `state.ts` gains one `account` slice written ONLY by `net/account.ts`; `/liveness` `account: true` is the client's only signal; the log gains `account.signin { provider, userId }`, `account.link`, `account.signout` under the PII rule (AR51, AR53, UX-DR69)
 **And** **the dev/staging host is ACCOUNT-ONLY** (Eric, FIRM — UX-DR73): behind a server env flag set on `hullcracker-dev` only (never on production, where anonymous play stays Eric's open question), an anonymous verification result at EITHER door is refused with a stable reason after the staging-key gate, the anonymous home renders the SIGN IN row and no mode buttons, and a mid-match reconnect is not re-gated (the resume token is the auth — the same posture as the PV and staging gates); the flag's absence leaves production byte-identical; pinned by a test at both doors (FR61, UX-DR73)
-**And** a signed-in player's MATCH is byte-identical to an anonymous player's (deck loading stays on the default path until 10.5); the `dev.hullcracker.io`-style staging name question (`deferred-work.md:1720`) is raised because OAuth redirect URIs must name the host; `PROTOCOL_VERSION` does NOT bump (HTTP only).
+**And** a signed-in player's MATCH is byte-identical to an anonymous player's (deck loading stays on the default path until 14.5); the `dev.hullcracker.io`-style staging name question (`deferred-work.md:1720`) is raised because OAuth redirect URIs must name the host; `PROTOCOL_VERSION` does NOT bump (HTTP only).
 
-### Story 10.3: Two-State Settings and Profile
+### Story 14.3: Two-State Settings and Profile
 
 As a signed-in captain,
 I want my callsign, colour, last class and settings to follow my account,
@@ -2574,16 +3183,16 @@ So that I get the same ship on any browser — while an anonymous player keeps t
 
 **Acceptance Criteria:**
 
-**Given** sign-in (10.2) and the shipped localStorage settings store
+**Given** sign-in (14.2) and the shipped localStorage settings store
 **When** D17 / Novel Pattern 9 lands
 **Then** the settings store is ONE store with two backends, `SettingsSource = 'local' | 'account'`, flipped only by `net/account.ts`; ANONYMOUS is byte-identical to today (`hullcracker.*` localStorage, no progression, no deck editor); SIGNED IN makes `account_profiles` the source of truth for callsign, colour preference, last class AND the settings store (FR67, AR31)
 **And** the first sign-in of a fresh account SEEDS the profile from local (never wiping a carried callsign); every later sign-in overwrites local; edits while signed in write both; sign-out leaves local as it was (Eric 2026-09-09 verbatim) (FR67)
 **And** `color_pref` is a PREFERENCE, never the server-assigned wheel index; the client-side random default `colorPref` (`deferred-work.md:321`) is re-homed so the server's no-pref branch is reachable; the colorblind-assist repaint seam (`:324`) is the settings→home seam this story builds (AR26)
 **And** `hullcracker.mode` either gains a reachable reader or is deleted — decided here, not carried (`:1193`); the settings ANALYTICS row's EEA truth and the consent-storage fail-open (`:1389`, `:1404`) are NOT papered over by the migration and are called out if untouched (AR61)
-**And** the Settings overlay's binding reference lists the v3 scheme (Q/E/R generic, `Shift`, 1–4 belt, no `5`) — view-only until 10.9 (UX-DR69)
+**And** the Settings overlay's binding reference lists the v3 scheme (Q/E/R generic, `Shift`, 1–4 belt, no `5`) — view-only until 14.9 (UX-DR69)
 **And** the log gains nothing new with PII; no PV change.
 
-### Story 10.4: The Ship Screen
+### Story 14.4: The Ship Screen
 
 As a captain,
 I want one screen where I pick my ship, pick its gun, see its `Shift`, and see everything I have unlocked,
@@ -2591,7 +3200,7 @@ So that choosing a hull and seeing what I own are the same act — and the anony
 
 **Acceptance Criteria:**
 
-**Given** sign-in (10.2), the catalog (8.1), the gun pick and the class Shifts (8.14, 8.15) and the shipped class-select layer
+**Given** sign-in (14.2), the catalog (8.1), the gun pick and the class Shifts (8.14, 8.15) and the shipped class-select layer
 **When** the merged screen lands (ratified as the Ship & Deck screen, Eric 2026-09-11; the deck column DELETED and the tile widened by the 2026-09-21 Sprint Change Proposal — UX-DR60–66 await the designer's re-cut, see the proposal §4.5)
 **Then** ONE DOM layer replaces the shipped class-select layer (scroll rail, ghost card, class frame retired; `classSelect.ts` and any `deckEditor.ts` idea MERGE) — no route, no `DECKS` link; opened ONLY by the deploy buttons / the Class Chip (`SELECT CLASS` / `CHANGE`); at the class layer's 1318 px; panes left→right class tiles · collection grid (widths re-cut by the designer now the 280 px deck column is gone); **CONFIRM SELECTION pinned bottom-right** (50 px amber Primary Button); header `SELECT CLASS · WHAT WILL YOU SAIL?` with the account chip hard right; 1–3 / arrows highlight, **Enter = CONFIRM SELECTION** unless a text field has focus, ESC returns home; the grid is the only thing that scrolls (FR64, UX-DR60)
 **And** the Class Tile keeps its silhouette · class designation (`[NAME PENDING — Eric]`) · SPEED / ARMOR / TURNING pip rows on absolute anchors · a 14 px hue swatch, and REGAINS two rows the 8.10 tile lost: a **`Shift` ability line** (the hull's fixed ability, one glyph and one label) and a **gun picker** (three chips — deck gun preselected, machine gun, flak gun — the pick rides the seat as `gun`, 8.14); still no Q/E rows, no deck row, no fantasy line; selected = personal-hue outline + glow; **the Color Hoist sits at the FOOT of the tile column** (UX-DR26's sole home moves here); **the ghost "MORE CLASSES IN DEVELOPMENT" card is DROPPED** (Eric 2026-09-11) (UX-DR61)
@@ -2600,11 +3209,11 @@ So that choosing a hull and seeing what I own are the same act — and the anony
 **And** CONFIRM SELECTION returns to home with the Class Chip updated (sub-line class · gun); first-run `SELECT CLASS` with the first hull pre-focused stands; the layer follows the yield rule (no inline `visibility` survives a hidden ancestor — `deferred-work.md:1374`, `:1379`); every register ≥ 9 px; the z register is left as the class layer's (UX-DR60, UX-DR84-equivalent)
 **And** client-only, no PV change (the `gun` seat field is 8.14's bump).
 
-### Story 10.5: ~~Named Decks and the Pre-Queue Gate~~ — DELETED 2026-09-21
+### Story 14.5: ~~Named Decks and the Pre-Queue Gate~~ — DELETED 2026-09-21
 
-Deleted by the 2026-09-21 Sprint Change Proposal: there are no decks to name, build, save or check. The only pre-queue check that survives is "hull and gun unlocked", done at the door in 10.6. The `decks` table, `/api/account/decks`, the deck dropdown, the legality line, the `−`/`+` steppers, `deckId`, `loadDeckFor`, `SAIL DEFAULT DECK`, `deck.rejected` and UX-DR64 / UX-DR65 / UX-DR71 / UX-DR75 never ship. The number is kept so 10.6–10.11 do not renumber.
+Deleted by the 2026-09-21 Sprint Change Proposal: there are no decks to name, build, save or check. The only pre-queue check that survives is "hull and gun unlocked", done at the door in 14.6. The `decks` table, `/api/account/decks`, the deck dropdown, the legality line, the `−`/`+` steppers, `deckId`, `loadDeckFor`, `SAIL DEFAULT DECK`, `deck.rejected` and UX-DR64 / UX-DR65 / UX-DR71 / UX-DR75 never ship. The number is kept so 14.6–14.11 do not renumber.
 
-### Story 10.6: Tokens, XP and Unlocks
+### Story 14.6: Tokens, XP and Unlocks
 
 As a signed-in captain,
 I want to earn tokens by playing and spend them on lines, guns and hulls I don't yet have,
@@ -2614,16 +3223,16 @@ So that my collection grows by variety, never by power — and a new player's De
 
 **Acceptance Criteria:**
 
-**Given** the Ship screen (10.4) and the `NullWriter` port (8.21)
+**Given** the Ship screen (14.4) and the `NullWriter` port (8.21)
 **When** progression lands
 **Then** `account_progress (user_id, xp, tokens_spent)` and `unlocks (user_id, kind: line | gun | hull, id)` exist; level and available tokens are DERIVED (`level = f(xp)`, `available = level − tokens_spent`), never stored, so the match-end write is one atomic `UPDATE … SET xp = xp + $1` (FR65, AR26)
 **And** `shared/src/sim/progression.ts` + `CONFIG.progression` carry the placement-scaled per-match XP curve, `soloXpFactor` (Solo vs AI discounted), `matchesToCatalog` (the OPEN intent dial, measured over the catalog as built) and the `[DRAFT]` prices per kind; one token per account level; `PROTOCOL_VERSION` bumps ONLY if the client reads the block (the `CONFIG.fleet` precedent) (FR65, AR52)
 **And** **THREE unlock surfaces, one currency** (Eric 2026-09-21): a **line** is unlocked WHOLE (its copies are unlimited in the pool, 8.14 — there is nothing per copy to buy), a **gun** (deck gun, machine gun, flak gun) and a **hull**; never bought with money; the **Default Set** (`CONFIG.progression.defaultSet`, the lines / guns / hulls every account and every anonymous captain has from day one) is EVERYTHING until Eric pares it down from playtest data; the door checks the seat's hull and gun against the account's unlocks, and `drawOffer` filters each participant's pool by theirs (FR65)
 **And** the collection tile becomes the control: **PRESS, THEN CONFIRM on the SAME tile** — the first press turns a locked tile AMBER with `⬢ n` (the price), the second press buys it; a pending tile cancels on ESC or any click elsewhere; an unaffordable tile is inert with its price dimmed; no armory page; unlocked IN PLACE (Hearthstone / MTG Arena shape) (UX-DR63 as re-cut)
-**And** the REAL `AccountWriter` replaces the `NullWriter`: `recordMatch(record)` computes XP and tokens through `progression.ts` INSIDE the same transaction as the history rows (10.7 reads them), an in-process FIFO, retry once, `flush()` on shutdown (Render's SIGTERM on every deploy must not lose twenty XP grants); bots, anonymous captains and mid-match-deleted captains are written with `user_id = NULL`; nothing on the tick ever awaits it (AR33, AR34, NFR25)
+**And** the REAL `AccountWriter` replaces the `NullWriter`: `recordMatch(record)` computes XP and tokens through `progression.ts` INSIDE the same transaction as the history rows (14.7 reads them), an in-process FIFO, retry once, `flush()` on shutdown (Render's SIGTERM on every deploy must not lose twenty XP grants); bots, anonymous captains and mid-match-deleted captains are written with `user_id = NULL`; nothing on the tick ever awaits it (AR33, AR34, NFR25)
 **And** the account chip's `LV n · n ⬢` updates on every token spent; the log gains `account.write.ok { matchId, rows }` / `account.write.failed`; `/metrics` `account.writeOk / writeFailed / queueDepth`; the gun-mix win band (8.20) is the measurement that unlocks are variety, never power; token count and account level surface on the chip and on the Ship screen; nothing is ever bought with money (FR61, FR65, UX-DR74).
 
-### Story 10.7: Match History and the Admin Console
+### Story 14.7: Match History and the Admin Console
 
 As a signed-in captain,
 I want to read back my own draws — hull, gun, cards taken — from every match I've played, and as the operator, I want to read everyone's,
@@ -2631,7 +3240,7 @@ So that I learn from what I brought, drew and took, and Eric can see how the cat
 
 **Acceptance Criteria:**
 
-**Given** the real writer (10.6)
+**Given** the real writer (14.6)
 **When** history and admin land
 **Then** `matches (id, mode, started_at, ended_at, roster_size, winner_class)` and `match_participants (match_id, user_id nullable FK ON DELETE SET NULL, role, class, placement, kills, gun, drawn [{lineId, atMs}], taken [{lineId, atMs}])` exist and are written by the writer; `MatchRecord.pool` is stored whole (FR66, AR26)
 **And** `GET /api/account/history?cursor=` returns ONLY the caller's own rows — hull, gun, drawn / taken with `T+mm:ss` stamps, placement, kills — cursor-paged, keyed on the caller's user id and never on match id, so **enemy draws are never returned by any route**; **the hidden pool appears only as the pool cards that player DREW** (Eric 2026-09-11) (FR66, AR30)
@@ -2640,7 +3249,7 @@ So that I learn from what I brought, drew and took, and Eric can see how the cat
 **And** the reconnect `sunk` catch-up note (`deferred-work.md:544`) and the quitter-wins question (`:1212`) are checked against what history now persists and either carried or raised; the `endedBy` enum persists only after `:921` is resolved (8.21)
 **And** the log's one-line-per-match rule holds; no PV change.
 
-### Story 10.8: Delete My Account
+### Story 14.8: Delete My Account
 
 As a signed-in captain,
 I want to delete my account and everything it holds,
@@ -2648,13 +3257,13 @@ So that leaving is one honest action — and the match records stay, with my nam
 
 **Acceptance Criteria:**
 
-**Given** every account table (10.2–10.7)
+**Given** every account table (14.2–14.7)
 **When** deletion lands
 **Then** an authenticated `DELETE /api/account` runs ONE transaction: bump the token version FIRST, delete identities, profile, unlocks and progress, delete the `colyseus_users` row, set `match_participants.user_id = NULL` on every referencing row, respond 204; the anonymised match rows are RETAINED (Eric's metrics survive as anonymous rows) (FR68, AR30)
 **And** Settings gains **DELETE ACCOUNT** with a confirm; after deletion the client is anonymous with local settings as they were; a mid-match deletion writes that captain's record with `user_id = NULL` (FR67, FR68, UX-DR69)
-**And** the log gains `account.delete { userId }`; Google's and Discord's developer-terms expectation of a deletion path is met and cited in 10.10; no PV change.
+**And** the log gains `account.delete { userId }`; Google's and Discord's developer-terms expectation of a deletion path is met and cited in 14.10; no PV change.
 
-### Story 10.9: Key Rebinding
+### Story 14.9: Key Rebinding
 
 As a captain,
 I want to rebind the keys I play with,
@@ -2664,14 +3273,14 @@ So that the scheme fits my hands — saved in my browser if I'm anonymous, and w
 
 **Acceptance Criteria:**
 
-**Given** two-state settings (10.3) and the shipped fixed v3 bindings
+**Given** two-state settings (14.3) and the shipped fixed v3 bindings
 **When** rebinding lands (Eric 2026-09-11 — reversing the post-beta deferral)
 **Then** bindings are per ACTION, never per key: helm W/S/A/D, weapon slots Q/E/R, `Shift` boost, belt 1–4 (**a belt digit and its refit-card pick are ONE action with two contexts — rebinding one rebinds both**), Tab, F, M, zoom; defaults are the v3 scheme; a binding conflict is REFUSED with a `denied` pulse on the clashing row, never silently swapped; RESET TO DEFAULTS exists (FR72, UX-DR78)
 **And** bindings persist through the two-state settings source — localStorage when anonymous, an account setting when signed in (seed-from-local on first sign-in, account wins after, edits write both) (FR72, FR67)
 **And** the Settings overlay's binding reference becomes the editor: one row per action in the existing key-chip family, click a chip and press a key; every chip everywhere (hotbar, refit cards, helm globe, How-to-Play keycaps) renders the live binding; the keyboard chokepoint's `preventDefault` set follows the bindings; rebinding `Shift` keeps the tap semantics and `Shift+Tab` still reaches Tab (UX-DR78, UX-DR59)
-**And** AR17's and UX-DR31's "key remapping deferred post-beta" are recorded as REVERSED in Story 10.11's list; client-only plus the account settings field; no PV change.
+**And** AR17's and UX-DR31's "key remapping deferred post-beta" are recorded as REVERSED in Story 14.11's list; client-only plus the account settings field; no PV change.
 
-### Story 10.10: The Privacy Paragraph
+### Story 14.10: The Privacy Paragraph
 
 As a signed-in captain,
 I want the privacy policy to say plainly what the account holds and how to delete it,
@@ -2679,14 +3288,14 @@ So that every sentence on that page is still a claim about shipped behaviour.
 
 **Acceptance Criteria:**
 
-**Given** every account feature landed (10.2–10.9)
+**Given** every account feature landed (14.2–14.9)
 **When** the paragraph lands in `client/src/privacy/policyCopy.ts`
 **Then** ONE added paragraph on signed-in accounts states: what is held (provider name + opaque subject id; chosen callsign, colour preference, last class; the settings store incl. key bindings; unlocks and progress; per-match rows of own deck, draws and picks with placement and kills), the 30-day session token in localStorage, self-serve deletion leaving match rows with no account reference, that nothing is stored for a player who does not sign in, that the operator's admin console can read these tables, and Google and Discord named as providers (FR70, UX-DR72)
 **And** the voice is third-person Hullcracker.io throughout — `Hullcracker.io` as the subject, never the passive, never an agentless absolute the code cannot support (the cycle-108 traps); the absence of a named controller IS the standing ruling and is not reopened (FR70)
 **And** the policy's contact address and Google URLs render as links, not plain text (`deferred-work.md:1234`), through a helper How-to-Play can share
 **And** `client/src/__tests__/privacyPolicy.test.ts` pins the new paragraph's claims and still carries NO name denylist; text only, no PV change.
 
-### Story 10.11: Design & Doc Reconciliation (Epics 8–10)
+### Story 14.11: Design & Doc Reconciliation (Epics 8–14) *(widened from "Epics 8–10" 2026-10-25)*
 
 As the next agent to open these documents,
 I want `gdd.md`, `game-architecture.md`, `DESIGN.md`, the ledger and the trackers to say what Epics 8, 9 and 10 actually built,
@@ -2696,11 +3305,11 @@ So that I never build a draw-pile counter because a sentence Eric retired is sti
 
 **Acceptance Criteria:**
 
-**Given** Epics 8, 9 and 10 landed
+**Given** Epics 8 through 13 landed
 **When** the reconciliation runs
 **Then** the UX pass's "corrections owed upstream" are written into `gdd.md` and `game-architecture.md` with dated supersession stamps: **the 2026-09-21 Sprint Change Proposal's re-cut** (decks retired, the common pool and its tilt, the gun pick, the three class Shifts, missile / monitor / heat seeking cut, the class designations, the retired match pool) reconciled across `gdd.md`, `catalog-v3.md`, `game-architecture.md` (the deck door and `checkDeck` amendment already ledgered at `deferred-work.md:1843`, now also the `gun` seat) and the `DESIGN.md` flags in the proposal's §4.5; the draw-pile counter DELETED (GDD deck model § / E8 story 3; D22's `OwnShip.deckLeft` off the wire); results = final LOADOUT, brought/drawn/taken history-only; ARMOR / SPEED / TURNING / DECK GUN start at Tier I equipped (catalog R14 wording); deck NAMES allowed (forge/GDD "Rejected" list; D12 `decks.name`); COPIES acquired per copy (GDD § Account progression; D12 `unlocks`; `matchesToCatalog` over 114 cards); the standalone `/decks` route gone (E9 story 3; `deckEditor.ts` + `classSelect.ts` merged); the dev/staging host account-only; keyboard-only out of scope (NFR wording); Sticky Keys accepted (AR63)
 **And** this run's own rulings are written back the same way: NO FRIENDLY FIRE retires FR7's outrun law and the D25 non-exempt readings; the pre-queue legality gate supersedes D18's door-first framing; "starter" → `DEFAULT` in copy; key rebinding IN (AR17 / UX-DR31 reversed); the free auto-heal's actual mechanism recorded; `shield-ring` retired from DESIGN.md; the party-round wording fixes (AR63)
 **And** every ledger thread named RESOLVED in AR59–AR62 is stamped in `deferred-work.md` with its closing story; every thread CARRIED that a story parked is stamped with where it now lives; the Story 7-7 revival brief gains the account-API CORS line (`deferred-work.md:1817`)
-**And** `sprint-status.yaml` and `gds-workflow-status.yaml` carry their one-line stamps for Epics 8–10 (status, date, cycle, PV range, pointer) — never narrative; `epic-8-context-amendments.md` / `epic-9-context-amendments.md` / `epic-10-context-amendments.md` hold the rulings; `docs/key-decisions.md` gains the E8/E9/E10 entries in the house style (CLAUDE.md itself is frozen — Eric 2026-09-14)
+**And** `sprint-status.yaml` and `gds-workflow-status.yaml` carry their one-line stamps for Epics 8–10 (status, date, cycle, PV range, pointer) — never narrative; `epic-8-` through `epic-14-context-amendments.md` hold the rulings; `docs/key-decisions.md` gains the E8/E9/E10 entries in the house style (CLAUDE.md itself is frozen — Eric 2026-09-14)
 **And** `DESIGN.md`'s `components:` marks the 18 added tokens BUILT (minus `shield-ring`, retired), the 4 retired tokens gone, and the ratified mocks stamped; `EXPERIENCE.md`'s Journey C loses its `[ASSUMPTION]` tags where Eric redlined them
 **And** no code changes; `npm run check` green; both trackers diffed against the previous story's PR to prove the stamp rule held.

@@ -7,13 +7,13 @@
 //      EffectiveStats (same fold, same firewall — HOOK_REGISTRY stays EMPTY);
 //   3. `slotFill` effects mutate ONLY the one LoadoutSlot[] structure, through
 //      applySlotEffect below — used INCREMENTALLY by the server and REPLAYED by
-//      the client over loadoutFor output, taking the first empty WEAPON slot;
+//      the client over loadoutFor output, into the equipment's FAMILY SLOT
+//      (Story 10.5: `Q` torpedo, `E` mine, `R` special shell — one kind per
+//      slot, sim/loadout.ts `familySlotFor`);
 //   4. `behavior(hookId, params)` executes registered hooks (sim/hooks.ts)
-//      per-tick on BOTH sides, so prediction survives;
-//   5. `stock` effects mutate the same LoadoutSlot[] through the same
-//      applySlotEffect, in the kind's OWN FIXED consumable slot (Story 9.2,
-//      epic-9 amendments 21/31 — the packed belt of Story 8.7 is retired):
-//      nothing packs, nothing shifts, an unkeyed stub stocks nowhere.
+//      per-tick on BOTH sides, so prediction survives.
+// The fifth path, `stock` (a consumable copy into its kit slot), is DELETED
+// with the kit (2026-11-05, Story 10.5, epic-10 amendment 11).
 // Nothing else moves — a stat-only card leaves the loadout reference-equal, a
 // slot-only card leaves stats byte-identical (property-pinned in tests).
 //
@@ -27,25 +27,17 @@
 //     remaining hazard by refusing a stat path that takes `add` from one line
 //     and `mult` from another.
 //   - TIERS ARE DERIVED, NOT EFFECTS. `equipment[id].tier` is written from the
-//     copy count (see applyLineTier), which is what lets the −5 %/tier reload
-//     step live in ONE place (sim/stats.ts clampStats) instead of being
+//     copy count (see applyLineTier), which is what lets the per-weapon RELOAD
+//     bonus (Story 10.6, R5) live in ONE place (sim/stats.ts clampStats) instead of being
 //     restated as an effect on every tier of every equipment line.
 //
 // THE TWO RE-PIN HOMES stay exactly two: this fold's tail (rePinDerived, which
 // covers a mid-fold write to a path a derived number rides) and clampStats (the
 // firewall's unconditional output pass). Nothing else re-derives.
 
-import type { EquipmentId, GunId, LoadoutSlot, ShiftId, SlotItemId } from './loadout.js';
-import {
-  DEFAULT_GUN,
-  DEFAULT_SHIFT,
-  WEAPON_SLOTS,
-  consumableSlotFor,
-  equipmentMaxAmmo,
-  isConsumableId,
-  loadoutFor,
-} from './loadout.js';
-import { CONFIG } from '../constants.js';
+import type { EquipmentId, LoadoutSlot, ShiftId } from './loadout.js';
+import { deriveAbilityStats } from './abilityStats.js';
+import { DEFAULT_SHIFT, equipmentMaxAmmo, familySlotFor, loadoutFor } from './loadout.js';
 import {
   BOON_STAT_PATH_SET,
   DOCTRINE_MODES,
@@ -53,8 +45,6 @@ import {
   type BoonDoctrineEffect,
   type BoonEffect,
   type BoonStatEffect,
-  type BoonStockEffect,
-  type ConsumableId,
   type DoctrineWeapon,
 } from './effects.js';
 import {
@@ -70,13 +60,11 @@ import {
   broadsideMountSpread,
   broadsideTraverse,
   clampSpreadRung,
-  damageMultiplierFor,
   deriveMineRings,
+  publishedDamageMultiplier,
   type EffectiveStats,
 } from './stats.js';
-
-/** ms per minute — sweepRpm -> sweepPeriodMs re-derivation after the fold. */
-const MS_PER_MINUTE = 60000;
+import { deriveIndexStats, deriveSightRanges } from './indexStats.js';
 
 /** Write one stat effect onto the (freshly-built, mutation-safe) stats tree.
  *  Paths are one, two or three segments deep (`maxHp`, `kinematics.turnRate`,
@@ -123,9 +111,8 @@ function applyDoctrineEffect(stats: EffectiveStats, e: BoonDoctrineEffect): void
  * Write the LADDER RUNG a line's copies bought onto its target equipment row.
  * An `equipment` line's tier IS its copies held (copy 1 is the bare weapon);
  * the slotless DECK GUN ladder's is `1 + copies`, because its tier I ships
- * equipped. Every other kind moves no tier (an add-on bolts a verb on; a
- * consumable stocks a rack). See sim/stats.ts reloadTierScale for what the
- * number then buys.
+ * equipped. An add-on moves no tier (it bolts a verb or a mount on). See
+ * sim/stats.ts applyReloadLaw for what the number then buys.
  */
 function applyLineTier(stats: EffectiveStats, line: CatalogLine, copies: number): void {
   // A LINE NOBODY HOLDS WRITES NOTHING. Every row is already seeded at tier 1
@@ -169,8 +156,17 @@ function forEachHeldEffect(
  *  The sibling of the clampStats pass; these two sites are the only ones. */
 function rePinDerived(stats: EffectiveStats): void {
   const eq = stats.equipment;
-  stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
-  stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
+  // THE INDEX DERIVATIONS (Story 10.3, sim/indexStats.ts): speed from ENGINES,
+  // sweep (and its period, capped) from INTEL, the cooldown scale from RELOAD
+  // (the turn rate is the one baseline since Story 10.6 — R2) — idempotent in
+  // the authored indices, so a mid-fold index write can never leave a derived
+  // number stale. The ONE-SHOT RELOAD-LAW and MOUNT-CAPACITY multiplies
+  // are NOT here (they would double-apply); they live in clampStats alone.
+  deriveIndexStats(stats);
+  // THE TWO ABILITIES' DERIVED NUMBERS (Story 10.6, sim/abilityStats.ts):
+  // each cooldown from its own score, the smoke disc from its rung —
+  // idempotent, so a mid-fold score write never leaves them stale.
+  deriveAbilityStats(stats);
   // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is a
   // stat-addressable dial the cards step, so it is folded, never derived.
   // The broadside TRAVERSE and MOUNT SPREAD both read their authored ladders
@@ -178,14 +174,17 @@ function rePinDerived(stats: EffectiveStats): void {
   eq.broadside.spreadRung = clampSpreadRung(eq.broadside.spreadRung);
   eq.broadside.traverseRad = broadsideTraverse(eq.broadside.spreadRung);
   eq.broadside.mountSpreadRad = broadsideMountSpread(eq.broadside.spreadRung);
-  // THE LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is the 4/12
-  // rung of intel range (Story 9.8, epic-9 amendment 103 — was 4/8, radar / 2).
-  stats.sightRange = stats.radarRange / 3;
+  // THE TWO EYE REACHES (Story 11.2, R3 / R14 / R18): class-and-name sight and
+  // plain-hull sight are their own CONFIG facts (sim/indexStats.ts
+  // deriveSightRanges). "Truesight is the 4/12 rung of intel range" (Eric
+  // 2026-08-16; `radarRange / 3` since Story 9.8) RETIRED 2026-11-12 with the
+  // twelfths ladder.
+  deriveSightRanges(stats);
   // ARMOR'S DAMAGE MULTIPLIER (Story 9.7, epic-9 amendments 86–88) rides the
   // whitelisted `armor` path through the one formula, so a mid-fold Armor
   // write can never leave it stale (clampStats floors Armor and re-derives).
-  // Victim-only (amendment 120(e)): `armorPiercing` never enters it here.
-  stats.damageMultiplier = damageMultiplierFor(stats.armor);
+  // Victim-only (amendment 120(e)): `power` never enters it here.
+  stats.damageMultiplier = publishedDamageMultiplier(stats.armor);
   // EVERY MINE RING, all three kinds, through the one derivation
   // (sim/stats.ts deriveMineRings). A contact mine's trip ring rides its blast
   // radius; the captive's rides its TIER and its burst is pinned.
@@ -203,8 +202,8 @@ function rePinDerived(stats: EffectiveStats): void {
  * Fold every `stat` and `doctrine` effect the held `cards` buy into `stats` IN
  * PLACE, plus each line's derived TIER. Consumed ONLY by effectiveStats()
  * (sim/stats.ts): the one legal path from cards to derived numbers, so the
- * desync firewall holds. `stock`, `slotFill` and `behavior` effects are no-ops
- * here — their homes are the rack, the loadout and the hook registry.
+ * desync firewall holds. `slotFill` and `behavior` effects are no-ops here —
+ * their homes are the loadout and the hook registry.
  */
 export function applyCardStats(
   stats: EffectiveStats,
@@ -241,44 +240,6 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
 }
 
 /**
- * The effective pool size for ANYTHING a slot may hold (Story 8.7). Equipment
- * goes to `equipmentMaxAmmo` unchanged; a CONSUMABLE's ceiling is its LINE's
- * `cap` — five copies of a cap-5 line is five uses, and a stack has no stats
- * row to read a pool off. An id no line in the given catalog names caps at 0
- * (fail-closed: nothing can be stocked, nothing can be fired).
- *
- * IT LIVES HERE, NOT IN sim/loadout.ts, for one mechanical reason: it needs the
- * CATALOG, and sim/catalog.ts validates itself at import while reading
- * loadout's `EQUIPMENT_IDS` — so a catalog import in loadout.ts closes a module
- * cycle that makes the catalog validate against an empty id set (observed:
- * `deckGun: appliesTo unknown equipment 'gun'`). loadout.ts stays a leaf; this
- * module already owns both the weapon row and the consumable slots.
- */
-export function slotMaxAmmo(stats: EffectiveStats, id: SlotItemId, catalog: Catalog = CATALOG): number {
-  if (!isConsumableId(id)) return equipmentMaxAmmo(stats, id);
-  return Object.hasOwn(catalog, id) ? catalog[id].cap : 0;
-}
-
-/**
- * THE SLOT a copy of `lineId` would go into: the kind's OWN FIXED slot
- * (`consumableSlotFor`, Story 9.2) — whether it already holds a stack (a second
- * copy deepens it) or is empty (a first copy opens it). `null` when the kind
- * has no key (the DEPTH CHARGE stub) or when the slot holds something else or
- * is missing (a malformed array is fail-closed: a missing slot is never
- * "empty"). There is no packing: another kind's stack can never move it.
- *
- * Pure over the slot ids alone, so both sides call the same function over the
- * same data: the server passes `loadout.map(s => s.equipmentId)` and the client
- * passes the ids it replayed from `OwnShip.cards`.
- */
-export function stockSlotFor(slotIds: readonly (SlotItemId | null)[], lineId: ConsumableId): number | null {
-  const slot = consumableSlotFor(lineId);
-  if (slot === null) return null;
-  const held = slotIds[slot];
-  return held === null || held === lineId ? slot : null;
-}
-
-/**
  * WHY A PICK IS REFUSED, or `null` when it is legal (Story 8.14 review, F1/F2).
  *
  * THE ONE PREDICATE behind every "can this ship take this card" question in the
@@ -286,83 +247,80 @@ export function stockSlotFor(slotIds: readonly (SlotItemId | null)[], lineId: Co
  * every directed grant), `World.spendCard` (which returns BEFORE consuming the
  * level, so a refused pick leaves the offer byte-identical), the client's
  * greyed refit card, the bot spend scorer and the batch-sim spend instrument.
- * Before it existed each of those asked only whether the belt could stock the
- * line, so a line that already OWNED a slot walked straight past its own
- * `cap`: five HULL REPAIR could be followed by a sixth copy that cost a level
- * and silently refilled the stack after the first use.
+ * (The level-zero guarantee's `usableLines` that also ran it was retired with
+ * the guarantee — Story 10.7, 2026-11-06, epic-10 amendment 13.)
  *
- * The three refusals, in the order they are decided:
+ * The four refusals, in the order they are decided:
  *   - `stub` — the line's mechanism is not built (amendment 11), or the id is
  *     not an OWN PROPERTY of the catalog at all (fail closed: an unknown id and
  *     a prototype key are both refusals, never a grant).
- *   - `atCap` — the ship already holds `cap` copies. TRUE FOR EVERY KIND,
- *     consumables included: the draw deals a consumable at its cap on purpose
- *     (amendment 94), and THIS is what makes that card unpickable. Since Story
- *     9.2 it is the ONLY consumable refusal besides `stub`: every kind owns a
- *     fixed slot, so there is no full belt to refuse into (the old `beltFull`
- *     is deleted — epic-9 amendment 21).
- *   - `noWeaponSlot` — copy 1 of an equipment line (the bare weapon) with all
- *     three of Q/E/R occupied: it would land in `cards` with no slot to live in.
+ *   - `atCap` — the ship already holds `cap` copies.
+ *   - `noWeaponSlot` — copy 1 of an equipment line (the bare weapon) with
+ *     NOWHERE TO GO. Since Story 10.5 (Eric 2026-11-05, epic-10 amendment 11 —
+ *     one kind per slot for the match) that means: the weapon's FAMILY slot
+ *     already holds a DIFFERENT kind (HEAVY or SUPERCAV after LIGHT is
+ *     slotted), or the weapon has no family slot at all (BROADSIDE, which left
+ *     the deal — R6), or the slot is missing from a malformed array. Before
+ *     10.5 it meant "all three of Q/E/R occupied". The draw never offers such
+ *     a line (sim/draw.ts), so this is the forced-pick gate.
+ *   - `noHost` — an ADD-ON (since Story 10.6: the four one-off WEAPON cards,
+ *     AFT TORPEDO LAUNCHER, SECOND LAUNCHER TUBE, SECOND MINE RACK and
+ *     EXPANDED MINE RACKS) whose FAMILY SLOT holds none of the equipment it
+ *     names (Eric 2026-11-05, R10: "dealt only once their family slot is
+ *     filled"). The draw never offers one either (`addonHosted`).
+ *
+ * A TIER-UP IS NEVER A SLOT QUESTION: copies 2..cap of a held line are legal
+ * whatever the row holds — the weapon is already aboard.
  *
  * Pure over plain data — the held card ids (one entry per copy) and the
  * replayed slot ids — so both sides evaluate one function over one set of
  * facts and can never disagree about whether a pick is legal. A short or
- * malformed slot array is fail-closed for the weapon row: a missing slot is
- * never "empty".
+ * malformed slot array is fail-closed: a missing slot is never "empty".
  *
- * This enum is a reason for the ENGINE, not player-facing text (since Story
- * 9.2 the client's `SLOTS FULL` foot is for `noWeaponSlot` only; a capped
- * consumable card carries no foot word — epic-9 amendment 32).
+ * This enum is a reason for the ENGINE, not player-facing text.
  */
-export type PickRefusal = 'stub' | 'atCap' | 'noWeaponSlot';
+export type PickRefusal = 'stub' | 'atCap' | 'noWeaponSlot' | 'noHost';
 
 export function pickRefusal(
   held: readonly string[],
-  slotIds: readonly (SlotItemId | null)[],
+  slotIds: readonly (EquipmentId | null)[],
   lineId: string,
   catalog: Catalog = CATALOG,
 ): PickRefusal | null {
   const line = Object.hasOwn(catalog, lineId) ? catalog[lineId] : undefined;
   if (line === undefined || line.stub === true) return 'stub';
-  // A consumable with no key has no slot to stock into (Story 9.2): it is
-  // refused like a stub, so an un-stubbed but unkeyed line can never enter
-  // `cards` without a home. Production has no such line; this guards the gap.
-  if (line.kind === 'consumable' && consumableSlotFor(lineId as ConsumableId) === null) return 'stub';
   const copies = boonStackCount(held, lineId);
   if (copies >= line.cap) return 'atCap';
-  if (line.kind === 'equipment' && copies === 0) return weaponRowRefusal(slotIds);
+  if (line.kind === 'equipment' && copies === 0) return familySlotRefusal(line, slotIds);
+  if (line.kind === 'addon' && !addonHosted(line, slotIds)) return 'noHost';
   return null;
 }
 
-/** The weapon-row half of `pickRefusal`: copy 1 needs one of Q/E/R empty. */
-function weaponRowRefusal(slotIds: readonly (SlotItemId | null)[]): PickRefusal | null {
-  return WEAPON_SLOTS.some((i) => slotIds[i] === null) ? null : 'noWeaponSlot';
+/**
+ * IS AN ADD-ON'S HOST ABOARD? True iff some equipment the line names in
+ * `appliesTo` sits in its own FAMILY SLOT (Story 10.6, Eric 2026-11-05, R10 /
+ * I8): the torpedo one-offs name every torpedo, so any torpedo in `Q` hosts
+ * them; the mine one-offs, any mine in `E`. Read off the SLOT IDS — the
+ * replayed loadout — so the draw, the pick and the client's greyed card ask
+ * the one question over one set of facts. Fail-closed: no `appliesTo`, a
+ * slotless target or a short array is "not hosted". It REPLACES the add-on
+ * rule "a host held OR any weapon slot still open" (amendment 89b), which
+ * let an add-on be dealt ahead of its host.
+ */
+export function addonHosted(line: CatalogLine, slotIds: readonly (EquipmentId | null)[]): boolean {
+  return (line.appliesTo ?? []).some((eq) => {
+    const slot = familySlotFor(eq);
+    return slot !== null && slotIds[slot] === eq;
+  });
 }
 
-/**
- * Stock ONE copy at the kind's FIXED slot (Story 9.2): `n += 1` on the stack
- * already there, or a fresh `{ n: 1, reloadMsLeft: 0 }` stack in that empty
- * slot. A STUB line is refused by the same catalog-driven gate `slotFill` uses;
- * an unkeyed kind or a malformed slot is a SILENT no-op that leaves the loadout
- * byte-identical. No other slot is ever read or written.
- */
-function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, catalog: Catalog): void {
-  // The consumable's line IS its id (a consumable line fills its own rack), so
-  // the stub gate reads the catalog row directly rather than through
-  // `lineForEquipment`, which maps equipment rows to the lines that FIT them.
-  const line = catalog[effect.equipmentId];
-  if (line?.stub === true) return;
-  const index = stockSlotFor(loadout.map((s) => s.equipmentId), effect.equipmentId);
-  if (index === null) return; // unkeyed kind or malformed slot: nothing moves
-  const slot = loadout[index];
-  if (slot === undefined) return;
-  if (slot.equipmentId === effect.equipmentId && slot.state !== null) {
-    slot.state.n += 1; // the SAME state object: a stack deepens, it is never rebuilt
-    return;
-  }
-  slot.equipmentId = effect.equipmentId;
-  // A STACK NEVER RELOADS (catalog-v3 R40): reloadMsLeft is 0 for its whole life.
-  slot.state = { n: 1, reloadMsLeft: 0 };
+/** The slot half of `pickRefusal`: copy 1 needs its weapon's FAMILY slot
+ *  EMPTY. No family slot (BROADSIDE), a missing slot or any occupant — it can
+ *  only be a different kind, since `copies === 0` — is a refusal. */
+function familySlotRefusal(line: CatalogLine, slotIds: readonly (EquipmentId | null)[]): PickRefusal | null {
+  const weapon = tierTargetOf(line);
+  const slot = weapon === undefined ? null : familySlotFor(weapon);
+  return slot !== null && slotIds[slot] === null ? null : 'noWeaponSlot';
 }
 
 /**
@@ -371,21 +329,19 @@ function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, catalog: Ca
  * on grant) and the client (slotsWithCards, replayed over loadoutFor output).
  * `stat`/`behavior`/`doctrine` effects are structural no-ops here.
  *
- * TWO HOMES INSIDE THE ONE ARRAY: a `slotFill` takes the first empty WEAPON
- * slot, a `stock` takes its kind's FIXED consumable slot (applyStock above).
- * Neither can reach the other's row, which is why a full weapon row never
- * spills into the consumable slots and a consumable never displaces a weapon.
+ * THE FILL RULE (Story 10.5, Eric 2026-11-05, epic-10 amendment 11): a
+ * `slotFill` goes into the equipment's FAMILY SLOT — a torpedo into `Q`, a
+ * mine into `E`, a special shell into `R` (sim/loadout.ts `familySlotFor`) —
+ * and ONLY while that slot is empty. It touches NOTHING else: no other slot's
+ * state object is even re-read, so fitting a weapon can never disturb another
+ * slot's reload timer (pinned by identity in boons.test.ts). Which slot a
+ * weapon lands in is therefore a fact about its KIND, never about the order
+ * the cards arrived in (the first-empty-slot rule of Story 8.5 is retired).
  *
- * THE FILL RULE (Story 8.5): a `slotFill` takes the FIRST slot in
- * `WEAPON_SLOTS` (2, 3, 4) that is still empty, and touches NOTHING else — no
- * other slot's state object is even re-read, let alone rewritten, so fitting a
- * weapon can never disturb another slot's reload timer (pinned by identity in
- * boons.test.ts). Three silent no-ops, each leaving the loadout untouched: a
- * STUB line, equipment ALREADY fitted anywhere, and a full weapon row.
- *
- * `slotReplace` is DELETED (Story 8.1) — no catalog-v3 line swaps one piece of
- * equipment for another, so the branch and its degenerate-self-replace guard
- * went with the mechanism.
+ * Silent no-ops, each leaving the loadout untouched: a STUB line, equipment
+ * with NO family slot (BROADSIDE — R6), a family slot that is already
+ * occupied (the same kind: already fitted; another kind: one kind per slot),
+ * and a malformed array missing the slot.
  */
 export function applySlotEffect(
   loadout: LoadoutSlot[],
@@ -393,10 +349,6 @@ export function applySlotEffect(
   stats: EffectiveStats,
   catalog: Catalog = CATALOG,
 ): void {
-  if (effect.kind === 'stock') {
-    applyStock(loadout, effect, catalog); // the kind's fixed slot (Story 9.2)
-    return;
-  }
   if (effect.kind !== 'slotFill') return; // not a slot home
   // NEVER FIT A STUB WEAPON. A stub line carries a real `slotFill` on copy 1
   // with NO module behind it, and this is the ONE gate both sides share: the
@@ -406,58 +358,42 @@ export function applySlotEffect(
   // line stops being guarded the moment its `stub` flag comes off.
   const line = lineForEquipment(effect.equipmentId, catalog);
   if (line?.stub === true) return;
-  if (loadout.some((s) => s.equipmentId === effect.equipmentId)) return; // already fitted: no-op
-  for (const i of WEAPON_SLOTS) {
-    const slot = loadout[i];
-    if (slot === undefined || slot.equipmentId !== null) continue; // occupied (or malformed)
-    slot.equipmentId = effect.equipmentId;
-    slot.state = freshSlotState(stats, effect.equipmentId);
-    return;
-  }
-  // Every weapon slot is full: a silent no-op, loadout untouched. A LEGAL deck
-  // can never reach this (deck rule `equipmentLines` caps a deck at three
-  // equipment lines, and three is exactly the row's width) — property-pinned
-  // over random legal decks in nineSlots.test.ts.
+  const index = familySlotFor(effect.equipmentId);
+  if (index === null) return; // no family slot (BROADSIDE left the deal — R6)
+  const slot = loadout[index];
+  if (slot === undefined || slot.equipmentId !== null) return; // occupied (or malformed): one kind per slot
+  slot.equipmentId = effect.equipmentId;
+  slot.state = freshSlotState(stats, effect.equipmentId);
 }
 
 /**
  * The client-side loadout derivation (ONE derivation, both sides): the
- * universal loadoutFor fit with every held card's slot effects
- * replayed over it, IN FIT ORDER. `fleet` selects the gun-only drone fit;
- * `gun` is the seat's pick (slot 0) and `shift` the hull's class Shift (slot 1,
- * Story 8.15 — resolve it with `classShift(cls)`).
+ * universal loadoutFor fit with every held card's slot effects replayed over
+ * it. `shift` is the SEAT'S pick
+ * (slot 1 — Story 10.4; `OwnShip.shift` off the wire client-side). Slot 0 is
+ * the main battery on every captain. There is no kit parameter since Story
+ * 10.5 (the kit is retired).
  *
- * THIS REPLAY IS IN FIT ORDER, NOT FOLD ORDER, and that is the one place the
- * two diverge on purpose. The weapon row fills FIRST-EMPTY-FIRST, so WHICH
- * weapon sits in Q, E and R is a fact about the order a captain took the
- * cards in, not about the catalog. The server applies each grant as it
- * happens, so the client must replay `OwnShip.cards` (which rides the wire IN
- * FIT ORDER) the same way, or the two would disagree about the row.
- * Property-pinned in boons.test.ts. Stats, by contrast, are order-INDEPENDENT
- * by construction.
+ * THE REPLAY WALKS THE CARDS IN FIT ORDER, and since Story 10.5 the order only
+ * matters between two KINDS OF ONE FAMILY — the first one fitted holds the
+ * slot for the match, exactly as the server's incremental grants decided it
+ * (a legal hand never holds two, `pickRefusal` refuses the second). Between
+ * families the order is irrelevant: each kind lands in its own family's slot.
+ * Stats are order-INDEPENDENT by construction.
  *
  * Pool STATE here is the fresh full-pool baseline (the live counts ride
  * OwnShip.ammo, slot-aligned).
- *
- * THE CONSUMABLE SLOTS NEED NO CODE HERE (Story 8.7; fixed slots since 9.2).
- * Every copy of a consumable line is replayed like any other card, and each one
- * runs the same `stock` branch the server ran on grant — so k copies held IS
- * `n = k` in that kind's own fixed slot, whatever order the kinds arrived in,
- * with no wire field to carry the count. A copy SPENT in play leaves
- * `ship.cards` server-side, so the next replay lands on `n − 1` by itself.
  */
 export function slotsWithCards(
   stats: EffectiveStats,
   cards: readonly string[],
   catalog: Catalog = CATALOG,
-  fleet = false,
-  gun: GunId = DEFAULT_GUN,
   shift: ShiftId = DEFAULT_SHIFT,
 ): LoadoutSlot[] {
-  // Slot 0 is the SEAT'S gun (Story 8.14) and slot 1 the HULL'S Shift (8.15):
-  // the same `loadoutFor` the spawn ran, so a replay on either side re-mounts
-  // what the captain picked and the class carries, never a literal.
-  const loadout = loadoutFor(stats, fleet, gun, shift);
+  // Slot 0 is the MAIN BATTERY and slot 1 the SEAT'S Shift (Story 10.4): the
+  // same `loadoutFor` the spawn ran, so a replay on either side re-mounts what
+  // the captain picked, never a literal.
+  const loadout = loadoutFor(stats, shift);
   const seen = new Map<string, number>();
   for (const id of cards) {
     for (const e of copyEffects(id, seen, catalog)) applySlotEffect(loadout, e, stats, catalog);

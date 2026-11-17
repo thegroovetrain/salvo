@@ -21,7 +21,7 @@
 //
 //   HANDS — one sanitized-shape InputMsg per live bot per tick through
 //   port.submitInput (full sanitizeInput, `fireT: 0`, no privileged path),
-//   exactly as the fleet AI and every human client write intent. Steering
+//   exactly as every human client writes intent. Steering
 //   and firing are therefore emitted EVERY tick; only DELIBERATION (target
 //   reselection, posture, boon spends) is gated, on this bot's
 //   decision-cadence slot (CONFIG.bots.decisionCadenceMs, staggered by id
@@ -35,8 +35,8 @@
 // incapable of addressing any ship but its own; the eslint boundary bans
 // world.js outright and makes perception.js type-only for this directory.
 
-import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
-import { testProfileHull } from './profiles.js';
+import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShiftId, type ShipClassId } from '@salvo/shared';
+import { profileOf, rollShift, testProfileHull } from './profiles.js';
 import { COMBAT_BRAIN } from './tactics.js';
 import type {
   AnyProfileId,
@@ -58,6 +58,11 @@ const MIND_STREAM_K = 0x9e3779b9;
  *  `seed + n·K1` and `seed + m·K2` coincide only where n·K1 ≡ m·K2 (mod 2^32),
  *  unreachable at lobby-sized n, m with these two constants. */
 const SPEND_STREAM_K = 0x7f4a7c15;
+/** The SHIFT-STREAM multiplier (Story 10.12, R5) — the weighted Shift roll's
+ *  own per-enrollment stream, a third DISTINCT odd constant (unused by any
+ *  other stream mint), so dealing the Shift moves no class, profile,
+ *  callsign, mind or spend draw. */
+const SHIFT_STREAM_K = 0x6c8e9cf5;
 
 /** The Story 9.13 mind seats (amendments 192–202) in their enroll / new-life
  *  state — one literal so enroll and the per-life release can never drift. */
@@ -71,6 +76,7 @@ function freshStory913Seats(): Required<
     | 'route'
     | 'coverPoint'
     | 'patrolWaypoint'
+    | 'beaconGoal'
     | 'patrolBestU'
     | 'patrolProgressAt'
     | 'hitVolleyAt'
@@ -91,6 +97,7 @@ function freshStory913Seats(): Required<
     route: null,
     coverPoint: null,
     patrolWaypoint: null,
+    beaconGoal: null,
     patrolBestU: Infinity,
     patrolProgressAt: 0,
     hitVolleyAt: new Map(),
@@ -133,14 +140,14 @@ const FROZEN_DECISION: BotDecision = Object.freeze({
   aim: 0,
   aimDist: 0,
   fireSlot: null,
-  actSlot: null,
+  act: null,
   held: false,
   spendChoice: null,
 });
 
 /**
  * Drives every enrolled bot through the normal input path. Owned by World
- * (constructed beside FleetController on its own decorrelated seed); still
+ * (constructed on its own decorrelated seed); still
  * zero Colyseus. World calls tick() once per step at the `botsTick` row —
  * immediately before applyInputs, so bot input is consumed the same tick —
  * handing in the per-bot entries it built for this tick.
@@ -186,11 +193,10 @@ export class BotController {
    * uniformly at random from its offer — the tuned-profile instance of the
    * blind-vacuum rows' measurement design, reachable only through the
    * batch-sim harness (`--bot-spend random`), set before any enrollment.
-   * Under 'gun' (2026-10-01, same door: `--bot-spend gun`) a bot takes its
-   * mounted gun's ladder card whenever the hand deals it, else the weighted
-   * scorer — so a campaign can reach and measure tier V guns.
+   * (The 'gun' mode — `--bot-spend gun` — retired with the deck-gun ladders'
+   * reach on a captain, Story 10.4.)
    */
-  spend: 'profile' | 'random' | 'gun' = 'profile';
+  spend: 'profile' | 'random' = 'profile';
 
   constructor(port: BotWorldPort, seed: number) {
     this.port = port;
@@ -250,7 +256,7 @@ export class BotController {
    * Enroll a new bot: roll its class, priority profile and callsign off the
    * controller's seeded stream, create its mind (stagger phase from the id
    * hash), and hand back what World.addBot needs for addShip. The mind's own
-   * rng is decorrelated per enrollment (the FleetController idiom).
+   * rng is decorrelated per enrollment.
    *
    * `hull` (Story 6.5) lets the CALLER pick the class — a caller building a
    * whole field at once deals a balanced spread rather than nineteen
@@ -273,8 +279,14 @@ export class BotController {
    * never passes one, and the rolled profile comes from CONFIG.bots.profiles
    * — which contains no test id — so a real Solo vs AI opponent can never
    * carry a test row.
+   *
+   * THE SHIFT (Story 10.12, Eric 2026-11-11, R5) is dealt AFTER the
+   * personality is known: `rollShift` over the bot's profile (rolled or
+   * forced), drawn off a stream of its OWN (SHIFT_STREAM_K), so the class /
+   * profile / callsign draws above are byte-identical to before. World.addBot
+   * uses it unless its caller forces a Shift.
    */
-  enroll(id: string, hull?: ShipClassId, profile?: AnyProfileId): { name: string; hullId: ShipClassId } {
+  enroll(id: string, hull?: ShipClassId, profile?: AnyProfileId): { name: string; hullId: ShipClassId; shift: ShiftId } {
     this.enrollCounter += 1;
     const rolled = this.rng.pick(SHIP_CLASS_IDS);
     const rolledHull = hull ?? rolled;
@@ -282,6 +294,7 @@ export class BotController {
     const prof: AnyProfileId = profile ?? rolledProfile;
     const hullId = (profile === undefined ? null : testProfileHull(profile)) ?? rolledHull;
     const name = this.drawCallsign();
+    const shift = rollShift(profileOf(prof), mulberry32((this.seed + this.enrollCounter * SHIFT_STREAM_K) >>> 0));
     this.minds.set(id, {
       rng: mulberry32((this.seed + this.enrollCounter * MIND_STREAM_K) >>> 0),
       spendRng: mulberry32((this.seed + this.enrollCounter * SPEND_STREAM_K) >>> 0),
@@ -290,7 +303,6 @@ export class BotController {
       actSeq: 0,
       profile: prof,
       spendRandom: this.spend === 'random',
-      spendGunFirst: this.spend === 'gun',
       phase: botPhase(id, this.cadenceTicks),
       view: null,
       viewAt: -1,
@@ -303,7 +315,7 @@ export class BotController {
       unbeachUntil: 0,
       ...freshStory913Seats(),
     });
-    return { name, hullId };
+    return { name, hullId, shift };
   }
 
   /** Forget a bot (called by World.removeShip). */
@@ -401,7 +413,7 @@ export class BotController {
   /** Fold a decision into one validated InputMsg (and at most one spend). */
   private submit(id: string, mind: BotMind, d: BotDecision): void {
     if (d.fireSlot !== null) mind.fireSeq += 1;
-    if (d.actSlot !== null) mind.actSeq += 1;
+    if (d.act !== null) mind.actSeq += 1;
     mind.seq += 1;
     const msg: InputMsg = {
       seq: mind.seq,
@@ -413,11 +425,14 @@ export class BotController {
       slot: d.fireSlot ?? 0,
       fireT: 0, // no-claim sentinel: a server-driven shooter never back-dates
       actSeq: mind.actSeq,
-      actSlot: d.actSlot ?? 0,
+      // Story 10.5: the press names its ability by wire code (0 = the Shift).
+      act: d.act ?? 0,
       // Story 8.15: the machine gun's LEVEL, straight from the decision. A held
       // tick carries fireSlot null, so `slot` is 0 — the one slot the World's
       // streamControl lets a level fire — and fireSeq does not move.
       held: d.held,
+      // Story 10.4: the SECONDARIES level, straight from the decision (absent = released).
+      sec: d.sec === true,
       hornSeq: 0, // bots never honk (question-gate B5)
     };
     this.port.submitInput(id, msg);

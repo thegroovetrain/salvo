@@ -1,0 +1,210 @@
+// Story 10.6 — the own torpedo launchers' predict-and-correct (the battery's
+// contract, sim/ownBattery.ts): the client steps its launchers with the SAME
+// shared stepper the server runs toward the same aim point, overwrites them
+// from every own frame (`you.launchers`), keeps an un-acked predicted fire
+// through a stale frame, and reads the click verdict off the shared R16 pick:
+// out-of-arc / cooling / fire, one click one torpedo.
+
+import { describe, expect, it } from 'vitest';
+import {
+  CONFIG,
+  DEFAULT_CLASS_ID,
+  initialLaunchers,
+  launcherAimPoint,
+  launcherAngle,
+  pickTube,
+  stepLaunchers,
+  type AimPose,
+  type LauncherState,
+} from '@salvo/shared';
+import { OwnLaunchers } from '../sim/ownLaunchers.js';
+import { PENDING_CAPACITY } from '../sim/prediction.js';
+import { predictTorpedoClick, stepOwnLaunchers, torpedoClickPrediction } from '../sim/ownLaunchersTick.js';
+
+const DT = CONFIG.tick.simDtMs;
+const HULL = DEFAULT_CLASS_ID;
+const POSE: AimPose = { x: 0, y: 0, heading: 0 };
+const AIM_DIST = 600;
+/** Dead ahead, the starboard beam, dead astern (world bearings at heading 0). */
+const AHEAD = 0;
+const BEAM = Math.PI / 2;
+const ASTERN = Math.PI;
+const FORE_ONLY = { torpedoLaunchers: 1, tubesPerLauncher: 1 };
+const BOTH_TWO = { torpedoLaunchers: 2, tubesPerLauncher: 2 };
+
+/** A model corrected onto the wire launchers of `counts`. */
+function seeded(counts = FORE_ONLY, ack = 0): OwnLaunchers {
+  const l = new OwnLaunchers(HULL);
+  l.correct({ cls: HULL, launchers: initialLaunchers(HULL, counts) }, ack);
+  return l;
+}
+
+/** One predicted tick toward the aim — the launchers SNAP to it (no traverse, Story 11.1 R16). */
+function aimAt(l: OwnLaunchers, aim: number): void {
+  l.step(POSE, aim, AIM_DIST, DT);
+}
+
+describe('OwnLaunchers — the wire defines what is held', () => {
+  it('starts empty: no torpedo, no launchers, every click out of arc', () => {
+    const l = new OwnLaunchers(HULL);
+    expect(l.states).toEqual([]);
+    expect(l.pick(POSE, AHEAD, AIM_DIST).verdict).toBe('out-of-arc');
+  });
+
+  it('a frame with `launchers` seeds them; a frame without empties them', () => {
+    const l = seeded(BOTH_TWO);
+    expect(l.states).toEqual(initialLaunchers(HULL, BOTH_TWO));
+    l.correct({ cls: HULL }, 1);
+    expect(l.states).toEqual([]);
+  });
+});
+
+describe('OwnLaunchers.step — the shared stepper, same aim point', () => {
+  it('produces exactly what stepLaunchers produces toward launcherAimPoint', () => {
+    const l = seeded(BOTH_TWO);
+    const ref = initialLaunchers(HULL, BOTH_TWO);
+    for (let i = 0; i < 30; i++) {
+      const aim = i < 15 ? BEAM : -BEAM / 2;
+      l.step(POSE, aim, AIM_DIST, DT);
+      stepLaunchers(ref, HULL, POSE, launcherAimPoint(POSE, HULL, aim, AIM_DIST), DT);
+    }
+    expect(l.states).toEqual(ref);
+    expect(l.angles()).toEqual(ref.map((s) => s.a));
+  });
+
+  it('SNAPS: one tick sets every launcher to the shared launcherAngle for the aim (no traverse, R16)', () => {
+    const l = seeded(BOTH_TWO);
+    for (const aim of [BEAM, -BEAM, AHEAD, ASTERN, (3 * Math.PI) / 4]) {
+      aimAt(l, aim);
+      const point = launcherAimPoint(POSE, HULL, aim, AIM_DIST);
+      l.states.forEach((s, i) => expect(s.a, `aim ${aim} launcher ${i}`).toBe(launcherAngle(HULL, i, POSE, point)));
+    }
+  });
+
+  it('hold() keeps every angle and still runs the tube clocks', () => {
+    const l = seeded();
+    aimAt(l, BEAM);
+    const a = l.states[0].a;
+    l.fire(0, 0, 1000, 5);
+    l.hold(DT);
+    expect(l.states[0].a).toBe(a);
+    expect(l.states[0].tubes[0]).toBe(1000 - DT);
+  });
+
+  it('stepOwnLaunchers holds while not afloat or with no pose', () => {
+    const l = seeded();
+    stepOwnLaunchers(l, POSE, { aim: BEAM, aimDist: AIM_DIST }, false);
+    stepOwnLaunchers(l, null, { aim: BEAM, aimDist: AIM_DIST }, true);
+    expect(l.states[0].a).toBe(initialLaunchers(HULL, FORE_ONLY)[0].a);
+    stepOwnLaunchers(l, POSE, { aim: BEAM, aimDist: AIM_DIST }, true);
+    expect(l.states[0].a).not.toBe(initialLaunchers(HULL, FORE_ONLY)[0].a);
+  });
+});
+
+describe('OwnLaunchers.correct — from the wire, keeping un-acked fires', () => {
+  const wire = (tubes: number[], a = 0): LauncherState[] => [{ a, tubes }];
+
+  it('takes the wire clocks verbatim; a launcher the model did not hold takes the wire angle', () => {
+    const l = new OwnLaunchers(HULL);
+    l.correct({ cls: HULL, launchers: wire([1234], 0.5) }, 3);
+    expect(l.states).toEqual(wire([1234], 0.5));
+  });
+
+  // Review F-B: the frame's angle came from a latency-old aim; with no
+  // traverse the angle is a pure function of the local pose + aim, so the
+  // correction must not flick it back.
+  it('keeps the LOCALLY DERIVED angle over the frame\'s, while the tubes are the frame\'s', () => {
+    const l = seeded();
+    aimAt(l, BEAM);
+    const derived = launcherAngle(HULL, 0, POSE, launcherAimPoint(POSE, HULL, BEAM, AIM_DIST));
+    expect(l.states[0].a).toBe(derived); // the premise
+    const stale = derived + 0.3;
+    l.correct({ cls: HULL, launchers: wire([1234], stale) }, 3);
+    expect(l.states[0].a).toBe(derived);
+    expect(l.states[0].tubes).toEqual([1234]);
+  });
+
+  it('a frame older than the fire keeps the local clock; the acking frame takes the server value', () => {
+    const l = seeded();
+    l.fire(0, 0, 9000, 10);
+    l.correct({ cls: HULL, launchers: wire([0], 0.2) }, 9); // stale: built before the click
+    expect(l.states[0].tubes[0]).toBe(9000);
+    expect(l.states[0].a).not.toBe(0.2); // the angle is never the frame's (F-B)
+    l.correct({ cls: HULL, launchers: wire([0]) }, 10); // acked: denied on the server
+    expect(l.states[0].tubes[0]).toBe(0);
+  });
+
+  it('the safety valve gives the clock back to the server after PENDING_CAPACITY frames', () => {
+    const l = seeded();
+    l.fire(0, 0, 9000, 1_000_000);
+    for (let i = 1; i < PENDING_CAPACITY; i++) {
+      l.correct({ cls: HULL, launchers: wire([0]) }, 0);
+      expect(l.states[0].tubes[0]).toBe(9000);
+    }
+    l.correct({ cls: HULL, launchers: wire([0]) }, 0);
+    expect(l.states[0].tubes[0]).toBe(0);
+  });
+
+  it('a frame for another hull re-seeds from it', () => {
+    const l = seeded();
+    l.correct({ cls: 'iowa', launchers: initialLaunchers('iowa', BOTH_TWO) }, 0);
+    expect(l.hullId).toBe('iowa');
+    expect(l.states).toEqual(initialLaunchers('iowa', BOTH_TWO));
+  });
+});
+
+describe('the torpedo fire verdict — the shared R16 pick', () => {
+  it('is the shared pickTube over the predicted states', () => {
+    const l = seeded(BOTH_TWO);
+    aimAt(l, BEAM);
+    expect(l.pick(POSE, BEAM, AIM_DIST)).toEqual(
+      pickTube(l.states, HULL, POSE, launcherAimPoint(POSE, HULL, BEAM, AIM_DIST)),
+    );
+  });
+
+  it('fore only, aim astern: OUT OF ARC — not in arc, not loaded, nothing predicted fired', () => {
+    const l = seeded();
+    aimAt(l, ASTERN);
+    expect(torpedoClickPrediction(l, true, POSE, ASTERN, AIM_DIST)).toEqual({ alive: true, loaded: false, inArc: false });
+    expect(predictTorpedoClick(l, POSE, ASTERN, AIM_DIST, 9000, 1)).toBeNull();
+    expect(l.states[0].tubes).toEqual([0]);
+  });
+
+  it('fore only, aim dead ahead: OUT OF ARC — the fore launcher\'s own dead wedge (R28)', () => {
+    const l = seeded();
+    aimAt(l, AHEAD);
+    expect(torpedoClickPrediction(l, true, POSE, AHEAD, AIM_DIST)).toEqual({ alive: true, loaded: false, inArc: false });
+    expect(predictTorpedoClick(l, POSE, AHEAD, AIM_DIST, 9000, 1)).toBeNull();
+  });
+
+  it('in arc with every bearing tube reloading: COOLING — in arc, not loaded', () => {
+    const l = seeded();
+    aimAt(l, BEAM);
+    l.fire(0, 0, 9000, 1);
+    expect(torpedoClickPrediction(l, true, POSE, BEAM, AIM_DIST)).toEqual({ alive: true, loaded: false, inArc: true });
+  });
+
+  it('the launcher\'s current angle plays no part: at rest, an in-band aim FIRES at once (R16)', () => {
+    const l = seeded(); // never stepped: still at rest
+    expect(torpedoClickPrediction(l, true, POSE, BEAM, AIM_DIST)).toEqual({ alive: true, loaded: true, inArc: true });
+    expect(predictTorpedoClick(l, POSE, BEAM, AIM_DIST, 9000, 1)).not.toBeNull();
+    expect(l.states[0].tubes).toEqual([9000]);
+  });
+
+  it('in arc and loaded: FIRE — one click starts exactly ONE tube', () => {
+    const l = seeded(BOTH_TWO);
+    aimAt(l, BEAM);
+    expect(torpedoClickPrediction(l, true, POSE, BEAM, AIM_DIST)).toEqual({ alive: true, loaded: true, inArc: true });
+    const pick = predictTorpedoClick(l, POSE, BEAM, AIM_DIST, 9000, 7);
+    expect(pick).not.toBeNull();
+    const running = l.states.flatMap((s) => s.tubes).filter((t) => t > 0);
+    expect(running).toEqual([9000]);
+    expect(l.states[pick!.launcher].tubes[pick!.tube]).toBe(9000);
+    expect(l.summary().n).toBe(3);
+  });
+
+  it('no pose reads out of arc', () => {
+    const l = seeded();
+    expect(torpedoClickPrediction(l, true, null, AHEAD, AIM_DIST).inArc).toBe(false);
+  });
+});

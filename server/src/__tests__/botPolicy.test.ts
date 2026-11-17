@@ -23,31 +23,26 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  CONSUMABLE_KEY_ORDER,
-  CONSUMABLE_SLOTS,
   EQUIPMENT_IDS,
   SLOT_COUNT,
-  GUN_IDS,
-  MOUNTED_GUN,
+  SHIFT_IDS,
   MULLIGAN_CHOICE,
   SHIP_CLASS_IDS,
   WEAPON_SLOTS,
-  classShift,
-  consumableSlotFor,
+  familySlotFor,
   drawOffer,
   effectiveStats,
   hullEnvelope,
   mulberry32,
   slotsWithCards,
-  type ConsumableId,
   type Contact,
   type EffectiveStats,
   type EquipmentId,
   type GameEvent,
   type HullId,
+  type ShipClassId,
   type LineId,
   type Rng,
-  type SlotItemId,
   type ZoneRing,
   contactHitDamage,
 } from '@salvo/shared';
@@ -106,22 +101,24 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], clouds: [], drops: [], ...over };
 }
 
-function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
+function contact(id: string, x: number, y: number, cls: HullId = 'yamato'): Contact {
   return { id, x, y, heading: 0, speed: 20, cls };
 }
 
-/** A radar paint: a 2x2 all-lit footprint at absolute cell (gx, gy).
- *  Centroid = ((gx+1) * cell, (gy+1) * cell). */
+/** A HULL-SIZED radar paint: a 12x2 all-lit footprint (108 u — longer than
+ *  `CONFIG.bots.cratePaintMaxU`, so never filtered as a crate, Story 10.9)
+ *  whose centroid is the old 2x2 one at (gx, gy):
+ *  ((gx+1) * cell, (gy+1) * cell). */
 function returnBlip(gx: number, gy: number, t: number): GameEvent {
-  return { k: 'blip', t, gx, gy, w: 2, h: 2, bits: [0b1111] };
+  return { k: 'blip', t, gx: gx - 5, gy, w: 12, h: 2, bits: [0xffffff] };
 }
 
 const CELL = CONFIG.vision.radarCellU;
 
-function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'battleship'): EffectiveStats {
+function stats(cls: ShipClassId = 'yamato'): EffectiveStats {
   return effectiveStats(hullEnvelope(cls));
 }
 
@@ -131,16 +128,15 @@ const WIDE_RING: ZoneRing = { cx: 0, cy: 0, r: 100000 };
  *  hulls). A test FIXTURE, not a game rule: each in-game row keeps sailing the
  *  hull it was written against so every stats-dependent expectation below
  *  reads exactly as before; a test row reads its bound hull. */
-const FIXTURE_HULL: Readonly<Record<BotProfileId, 'torpedoBoat' | 'battleship' | 'mineLayer'>> = {
-  raider: 'torpedoBoat',
-  duelist: 'torpedoBoat',
-  bulwark: 'battleship',
-  siege: 'battleship',
-  forager: 'mineLayer',
-  trapper: 'mineLayer',
+const FIXTURE_HULL: Readonly<Record<BotProfileId, ShipClassId>> = {
+  raider: 'bismarck',
+  duelist: 'bismarck',
+  bulwark: 'yamato',
+  siege: 'yamato',
+  trapper: 'warspite',
 };
 
-function fixtureHull(id: AnyProfileId): 'torpedoBoat' | 'battleship' | 'mineLayer' {
+function fixtureHull(id: AnyProfileId): ShipClassId {
   return isTestProfileId(id) ? TEST_PROFILE_HULL[id] : FIXTURE_HULL[id];
 }
 
@@ -185,19 +181,17 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('every taste names real catalog lines, a known style and a belt-hunger level the scorer prices', () => {
+  it('every taste names real catalog lines and a known style', () => {
     // Every favorite names something real.
     for (const p of Object.values(BOT_PROFILES)) {
-      for (const c of p.taste.favoriteConsumables) expect(Object.hasOwn(CATALOG, c), c).toBe(true);
       for (const w of p.taste.favoriteWeapons) expect(Object.hasOwn(CATALOG, w), w).toBe(true);
       expect(['specialist', 'rounded'], p.id).toContain(p.taste.style);
-      expect(Object.hasOwn(CONFIG.bots.cardPoints.beltHunger, p.taste.beltHunger), p.id).toBe(true);
     }
   });
 
   it('appetiteFor reads the row\'s own entry, else the neutral base — and the guns sit below neutral (the fallback, tried last)', () => {
     const bare = { ...profileOf('raider'), appetite: {} };
-    const GUNS: readonly string[] = ['gun', 'machineGun', 'flak'];
+    const GUNS: readonly string[] = ['gun', 'machineGun', 'flak', 'mainBattery'];
     for (const eq of EQUIPMENT_IDS) {
       expect(appetiteFor({ ...bare, appetite: { [eq]: 7 } as Partial<Record<EquipmentId, number>> }, eq), eq).toBe(7);
       if (GUNS.includes(eq)) expect(appetiteFor(bare, eq), eq).toBeLessThan(APPETITE_NEUTRAL);
@@ -231,7 +225,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
   // profiles.ts engagementBand is deleted; the doctrine band (ai/doctrine.ts
   // gunBand) carries the same contract.
   it('the doctrine band anchors on the MOUNTED gun, scales with its reach, ignores radar', () => {
-    const base = stats('battleship');
+    const base = stats('yamato');
     const siege = profileOf('siege');
     const longGun = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 2 } } };
     expect(gunBand(siege, longGun).max).toBeCloseTo(gunBand(siege, base).max * 2, 6);
@@ -251,37 +245,29 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     // Eric ruling C2, carried by the appetite table since the doctrine pass:
     // siege reaches for flares EAGERLY (the shipped staleness trigger).
     expect(appetiteFor(profileOf('siege'), 'starShells')).toBeGreaterThanOrEqual(APPETITE_EAGER);
-    for (const id of ['raider', 'duelist', 'forager', 'trapper'] as const) {
+    for (const id of ['raider', 'duelist', 'trapper'] as const) {
       expect(profileOf('bulwark').disengageHpFrac).toBeLessThan(profileOf(id).disengageHpFrac);
     }
   });
 
-  it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): both nudge the band outward and forager breaks off earliest', () => {
+  it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): trapper nudges the band outward, still inside its gun reach', () => {
     // Cycle 110's A/B measured the ML dying before its payoff (181.1s afloat
     // vs the random control's 264.0s); Eric ruled these values verbatim —
     // hang back to survive to the payoff. The relations below are the ruling's
     // shape; the dial values themselves are Eric's to retune.
-    // (The ruled 0.45–0.80 / 0.25–0.50 bands retired with every profile
-    // fraction in Story 9.13, amendment 198: both now nudge the gun's band
-    // OUTWARD — hanging back — and lean away at the odds gate, amendment 194.)
-    const forager = profileOf('forager');
-    expect(forager.bandNudge).toBeGreaterThan(0);
+    // (The ruled bands retired with every profile fraction in Story 9.13,
+    // amendment 198: the trapper now nudges the gun's band OUTWARD — hanging
+    // back — and leans away at the odds gate, amendment 194. Its forager
+    // sibling retired in Story 10.12, R6.)
     const trapper = profileOf('trapper');
     expect(trapper.bandNudge).toBeGreaterThan(0);
-    // Forager is now the EARLIEST break-off in the game — survival IS its
-    // plan — and its whole band stays inside its own gun reach (the band is a
-    // fraction of that reach, Story 9.8 ruling 126), so hanging back costs no
-    // firepower.
-    for (const id of ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const) {
-      expect(forager.disengageHpFrac).toBeGreaterThan(profileOf(id).disengageHpFrac);
-    }
-    expect(CONFIG.bots.gunBand.cannon[1] * (1 + forager.bandNudge)).toBeLessThanOrEqual(1);
+    expect(CONFIG.bots.gunBand.cannon[1] * (1 + trapper.bandNudge)).toBeLessThanOrEqual(1);
   });
 
-  it('THE ODDS GATE IS FLAVORED BY PROFILE (epic-9 amendment 194): raider and duelist lean in, bulwark holds, forager and trapper lean away, siege and trapper lie in wait', () => {
+  it('THE ODDS GATE IS FLAVORED BY PROFILE (epic-9 amendment 194): raider and duelist lean in, bulwark holds, trapper leans away, siege and trapper lie in wait', () => {
     const bar = (id: BotProfileId) => profileOf(id).oddsThreshold;
     for (const id of ['raider', 'duelist'] as const) expect(bar(id)).toBeLessThan(bar('bulwark'));
-    for (const id of ['forager', 'trapper'] as const) expect(bar(id)).toBeGreaterThan(bar('bulwark'));
+    expect(bar('trapper')).toBeGreaterThan(bar('bulwark'));
     const leaners = Object.values(BOT_PROFILES).filter((p) => p.leansIn).map((p) => p.id).sort();
     expect(leaners).toEqual(['duelist', 'raider']);
     const holders = Object.values(BOT_PROFILES).filter((p) => p.holdsInCover).map((p) => p.id).sort();
@@ -322,14 +308,6 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('forager is the one profile that would rather shoot world content', () => {
-    const f = profileOf('forager');
-    expect(f.targetWeights.fleet).toBeGreaterThan(f.targetWeights.captain);
-    for (const id of ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const) {
-      const w = profileOf(id).targetWeights;
-      expect(w.fleet).toBeLessThanOrEqual(w.captain);
-    }
-  });
 });
 
 // --- perception fold: the radar wire -----------------------------------------
@@ -460,8 +438,7 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
       speed: 0,
       seenAt: 10000,
       live: true,
-      cls: 'battleship' as HullId,
-      fleet: false,
+      cls: 'yamato' as HullId,
       firstSeenAt: 0,
       hits: 0,
       sunk: false,
@@ -487,20 +464,22 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
     expect(behind).toBeLessThan(open);
   });
 
-  it('a clear-line target takes the slot from a blocked one — including a forager\'s fleet prize', () => {
-    // The measured worst case: `forager` weights fleet 2.0 against captain
-    // 0.5, which is what parked a Mine Layer on a drone group behind a rock.
-    const m = mind('forager');
-    m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, fleet: true, cls: 'droneSmall' as HullId }));
+  it('a clear-line target takes the slot from a blocked one that otherwise outscores it', () => {
+    // The measured worst case was a (since retired) forager's fleet prize
+    // behind a rock (the fleet retired at Story 10.8); the same shape with a
+    // HURT track: a hit history outscores a fresh one, until the rock stands
+    // in the way.
+    const m = mind('trapper');
+    m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, hits: 2 }));
     m.contacts.set('openWater', plotTrack({ id: 'openWater', x: 0, y: 400 }));
-    const sit = situation({ profile: profileOf('forager'), stats: stats('mineLayer'), islands: [ROCK] });
+    const sit = situation({ profile: profileOf('trapper'), stats: stats('warspite'), islands: [ROCK] });
     expect(selectTarget(m, sit)?.id).toBe('openWater');
-    // With the rock gone the fleet weight wins, exactly as it always did.
-    expect(selectTarget(m, situation({ profile: profileOf('forager'), stats: stats('mineLayer') }))?.id).toBe('behindRock');
+    // With the rock gone the hurt track wins, exactly as it always did.
+    expect(selectTarget(m, situation({ profile: profileOf('trapper'), stats: stats('warspite') }))?.id).toBe('behindRock');
   });
 
   it('forces PURSUE over the band postures, so the bot opens the angle', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const t = plotTrack({ x: Math.min(400, st.equipment.gun.rangeU * 0.5), y: 0 });
     const sit = () => situation({ profile: profileOf('duelist'), stats: st });
     expect(choosePosture(sit(), t)).toBe('engage'); // in own reach, clear water (amendment 194)
@@ -539,7 +518,7 @@ describe('ai/utility — self-private Hit Calls (hc)', () => {
   it('hits raise a track\'s score — a hurt target is a better target', () => {
     const m = mind();
     foldView(m, view({ contacts: [contact('e1', 200, 0)] }), 1000);
-    const sit = situation({ now: 2000, profile: profileOf('raider'), stats: stats('torpedoBoat') });
+    const sit = situation({ now: 2000, profile: profileOf('raider'), stats: stats('bismarck') });
     const before = scoreTrack(onlyTrack(m), sit, tracksOf(m));
     foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 200, y: 0 }] }), 1500);
     const after = scoreTrack(onlyTrack(m), sit, tracksOf(m));
@@ -579,20 +558,6 @@ describe('ai/utility — the reaction delay (E2 competence knob)', () => {
 describe('ai/utility — profile-weighted target selection', () => {
   const NOW = 20000;
 
-  function twoTargets(m: BotMind): void {
-    foldView(m, view({ contacts: [contact('cap', 200, 0, 'battleship'), contact('fleet', 210, 0, 'droneSmall')] }), 1000);
-  }
-
-  it('forager prefers the fleet hull; duelist prefers the captain', () => {
-    const mf = mind('forager');
-    twoTargets(mf);
-    expect(selectTarget(mf, situation({ now: NOW, profile: profileOf('forager'), stats: stats('mineLayer') }))?.id).toBe('fleet');
-
-    const md = mind('duelist');
-    twoTargets(md);
-    expect(selectTarget(md, situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') }))?.id).toBe('cap');
-  });
-
   it('a human is a contact like any other (ruling B3) — only KIND is weighed', () => {
     // Two participant contacts, identical but for id: nothing in the score
     // can separate them, because nothing on the wire separates a human
@@ -603,15 +568,20 @@ describe('ai/utility — profile-weighted target selection', () => {
     // mirror images 19 s later — the pin is about identity, not motion.
     const still = (c: Contact): Contact => ({ ...c, speed: 0 });
     foldView(m, view({ contacts: [still(contact('human', 200, 0)), still(contact('bot-3', -200, 0))] }), 1000);
-    const sit = situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') });
+    const sit = situation({ now: NOW, profile: profileOf('duelist'), stats: stats('bismarck') });
     const all = tracksOf(m);
     expect(scoreTrack(all[0], sit, all)).toBeCloseTo(scoreTrack(all[1], sit, all), 9);
   });
 
   it('an isolated target outscores one with company, for a raider', () => {
     const m = mind('raider');
-    foldView(m, view({ contacts: [contact('lone', 250, 0), contact('pair', -250, 0), contact('escort', -260, 10)] }), 1000);
-    const sit = situation({ now: NOW, profile: profileOf('raider'), stats: stats('torpedoBoat') });
+    // Mirror ranges either side of the bot, a full sight apart — farther than
+    // the scorer's isolation radius (a fraction of sight) reaches — and an
+    // escort a ship's length from the pair.
+    const d = CONFIG.vision.sight / 2;
+    const beside = hullEnvelope('yamato').hull.length;
+    foldView(m, view({ contacts: [contact('lone', d, 0), contact('pair', -d, 0), contact('escort', -d - beside, beside)] }), 1000);
+    const sit = situation({ now: NOW, profile: profileOf('raider'), stats: stats('bismarck') });
     expect(selectTarget(m, sit)?.id).toBe('lone');
   });
 
@@ -631,7 +601,7 @@ describe('ai/utility — profile-weighted target selection', () => {
 
 describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () => {
   const NOW = 20000;
-  const TB = stats('torpedoBoat');
+  const TB = stats('bismarck');
   const raider = profileOf('raider');
   /** hp — just under the profile's disengage fraction: a BROKEN hull. */
   const broken = TB.maxHp * raider.disengageHpFrac - 1;
@@ -654,49 +624,45 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   it('fires in the ruled state: broken hull, sighted target in reach, predicted hit >= the estimated remaining hp', () => {
     // A thrice-hit target reads as CRIPPLED (0 remaining) to the bot's own
     // estimate, so any strike above the allowance is judged to sink it.
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(CONFIG.bots.ramReachU).toBeGreaterThan(150);
-    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneMedium').hp, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
+    expect(contactHitDamage(TB.armor, hullEnvelope('yamato').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
     expect(choosePosture(sit(), crippled)).toBe('ram');
-    // ...and a FRESH target whose base hp the predicted hit covers outright —
-    // the target's own approach speed adds to the closing speed.
-    const fresh = sighted('droneSmall', 150, 0, 20, Math.PI);
-    const vn = TB.kinematics.maxSpeed + 20;
-    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneSmall').hp, vn, CONFIG.ram).b).toBeGreaterThanOrEqual(hullEnvelope('droneSmall').hp);
-    expect(choosePosture(sit(), fresh)).toBe('ram');
+    // (The "fresh target the hit covers outright" case rode the retired PvE
+    // drone's small envelope hp — no battleship can be rammed down from full.)
   });
 
   it('holds with a healthy target the hit cannot sink: the broken hull disengages instead', () => {
-    const healthy = sighted('battleship', 150, 0);
-    const hit = contactHitDamage(TB.maxHp, hullEnvelope('battleship').hp, TB.kinematics.maxSpeed, CONFIG.ram).b;
-    expect(hit).toBeLessThan(hullEnvelope('battleship').hp);
+    const healthy = sighted('yamato', 150, 0);
+    const hit = contactHitDamage(TB.armor, hullEnvelope('yamato').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b;
+    expect(hit).toBeLessThan(hullEnvelope('yamato').hp);
     expect(choosePosture(sit(), healthy)).toBe('disengage');
   });
 
   it('holds above the disengage fraction — a ram is a broken hull\'s last ditch, never an opener', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('ram');
     expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('disengage');
   });
 
   it('holds beyond ramReachU, for an unsighted plot, and for a plot with no class', () => {
-    expect(choosePosture(sit(), sighted('droneMedium', CONFIG.bots.ramReachU + 50, 3))).toBe('disengage');
-    const lost = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit(), sighted('yamato', CONFIG.bots.ramReachU + 50, 3))).toBe('disengage');
+    const lost = sighted('yamato', 150, 3);
     lost.live = false;
     expect(choosePosture(sit(), lost)).toBe('disengage');
-    const anon = sighted('droneMedium', 150, 3);
+    const anon = sighted('yamato', 150, 3);
     anon.cls = null;
     expect(choosePosture(sit(), anon)).toBe('disengage');
   });
 
   it('a strike under the allowance never triggers it, whatever the estimate says', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit({ speed: CONFIG.ram.allowanceU }), crippled)).toBe('disengage');
   });
 
   it('the closing speed is PROJECTED on the bearing to the target (review gate): sternway and a bow pointed away close nothing', () => {
     const max = TB.kinematics.maxSpeed;
-    const still = sighted('droneMedium', 150, 3);
+    const still = sighted('yamato', 150, 3);
     // Bow on the target at full speed: the whole speed closes.
     expect(closingSpeed(sit(), still, 150, 0, 150)).toBeCloseTo(max, 9);
     // Pointed away, or abeam: nothing of the bot's own speed closes.
@@ -705,12 +671,12 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
     // Making sternway toward it: speed < 0 projects negative — nothing.
     expect(closingSpeed(sit({ speed: -10 }), still, 150, 0, 150)).toBe(0);
     // A target running away takes its speed off; one coming on adds it.
-    const fleeing = sighted('droneMedium', 150, 3, 20, 0);
+    const fleeing = sighted('yamato', 150, 3, 20, 0);
     expect(closingSpeed(sit(), fleeing, 150, 0, 150)).toBeCloseTo(max - 20, 9);
-    const coming = sighted('droneMedium', 150, 3, 20, Math.PI);
+    const coming = sighted('yamato', 150, 3, 20, Math.PI);
     expect(closingSpeed(sit(), coming, 150, 0, 150)).toBeCloseTo(max + 20, 9);
     // A target outrunning the bot: floored at 0.
-    const gone = sighted('droneMedium', 150, 3, max + 5, 0);
+    const gone = sighted('yamato', 150, 3, max + 5, 0);
     expect(closingSpeed(sit(), gone, 150, 0, 150)).toBe(0);
     // ...and the trigger follows the projection: a broken hull pointed away
     // from a crippled target does not ram it, a sternway hull neither.
@@ -719,11 +685,11 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   });
 
   it('a WRECK is never a ram target: a sunk track reads dead to the trigger', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit(), crippled)).toBe('ram');
     const m = mind('raider');
-    foldView(m, view({ contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'droneMedium' }] }), 1000);
-    foldView(m, view({ events: [{ k: 'sunk', id: 'e1' }], contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'droneMedium' }] }), 1050);
+    foldView(m, view({ contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'yamato' }] }), 1000);
+    foldView(m, view({ events: [{ k: 'sunk', id: 'e1' }], contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'yamato' }] }), 1050);
     const wreck = onlyTrack(m);
     wreck.hits = 3;
     wreck.seenAt = NOW;
@@ -732,7 +698,7 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   });
 
   it('the storm still outranks it', () => {
-    const crippled = sighted('droneMedium', 150, 3);
+    const crippled = sighted('yamato', 150, 3);
     expect(choosePosture(sit({ ring: { cx: 5000, cy: 0, r: 100 } }), crippled)).toBe('ringRun');
   });
 });
@@ -767,15 +733,15 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
   it('no target = reposition; in own reach = engage; beyond it on good odds = pursue (epic-9 amendments 193–195)', () => {
     const duelist = profileOf('duelist');
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const reach = st.equipment.gun.rangeU;
-    const sit = situation({ now: NOW, profile: duelist, stats: st, hullId: 'torpedoBoat', maxHp: st.maxHp, hp: st.maxHp });
+    const sit = situation({ now: NOW, profile: duelist, stats: st, hullId: 'bismarck', maxHp: st.maxHp, hp: st.maxHp });
     expect(choosePosture(sit, null)).toBe('reposition');
     expect(choosePosture(sit, target(mind('duelist'), reach - 10))).toBe('engage');
     // A peer-classed target (its own hull is the duelist's) beyond reach: the
     // odds read a full hull against a peer — 1.0, past the duelist's bar.
     const far = mind('duelist');
-    foldView(far, view({ contacts: [{ ...contact('e1', reach + 200, 0, 'torpedoBoat'), speed: 0 }] }), 1000);
+    foldView(far, view({ contacts: [{ ...contact('e1', reach + 200, 0, 'bismarck'), speed: 0 }] }), 1000);
     expect(choosePosture(sit, onlyTrack(far))).toBe('pursue');
   });
 
@@ -792,7 +758,7 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     const m = mind('bulwark');
     const t = target(m, 40);
     const ring: ZoneRing = { cx: 0, cy: 0, r: 500 };
-    const st = stats('battleship');
+    const st = stats('yamato');
     const margin = ringDeadband(st, 0);
     const at = (x: number, prev: BotPosture): BotPosture =>
       choosePosture(situation({ now: NOW, profile: profileOf('bulwark'), stats: st, ring, x, y: 0 }), t, prev);
@@ -812,16 +778,25 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
   it('the deadband is the HULL\'s own full-ahead turn radius — per class, off EffectiveStats', () => {
     for (const cls of SHIP_CLASS_IDS) {
-      const k = CONFIG.shipClasses[cls].kinematics;
+      const k = effectiveStats(CONFIG.shipClasses[cls]).kinematics;
       expect(ringDeadband(stats(cls), 0)).toBeCloseTo(k.maxSpeed / k.turnRate, 6);
     }
     // The ordering is the whole point: the hull that takes longest to turn
     // around gets the most water to do it in.
-    expect(ringDeadband(stats('battleship'), 0)).toBeGreaterThan(ringDeadband(stats('mineLayer'), 0));
-    expect(ringDeadband(stats('mineLayer'), 0)).toBeGreaterThan(ringDeadband(stats('torpedoBoat'), 0));
+    // (Story 10.4: the four hulls share one turn rate, so the radius orders by
+    // top speed — read off the stats, never a hand-written hull order.)
+    const radius = (cls: ShipClassId): number => {
+      const k = effectiveStats(CONFIG.shipClasses[cls]).kinematics;
+      return k.maxSpeed / k.turnRate;
+    };
+    for (const a of SHIP_CLASS_IDS) {
+      for (const b of SHIP_CLASS_IDS) {
+        if (radius(a) > radius(b)) expect(ringDeadband(stats(a), 0)).toBeGreaterThan(ringDeadband(stats(b), 0));
+      }
+    }
     // NEVER a fraction of ring radius: that would be widest on the opening
     // 2800u ring and tightest on the 660u endgame ring, i.e. backwards.
-    expect(ringDeadband(stats('battleship'), 0)).toBeLessThan(CONFIG.vision.radar);
+    expect(ringDeadband(stats('yamato'), 0)).toBeLessThan(CONFIG.vision.radar);
   });
 
   /**
@@ -833,7 +808,7 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
    * missed, and the cross-model review caught it. This pins the pair.
    */
   it('BOTH RING LENGTHS ARE BOOST-AWARE, and rated speed is a FLOOR', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const rated = st.kinematics.maxSpeed;
     const boosted = rated * 1.3; // roughly what a `raider` makes under boost
 
@@ -874,35 +849,21 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     expect(choosePosture(sit, t, 'ringRun')).toBe('ringRun');
   });
 
-  it('forager on a fleet hull farms; duelist on the same hull does not', () => {
-    const m = mind('forager');
-    foldView(m, view({ contacts: [contact('d1', 100, 0, 'droneSmall')] }), 1000);
-    const t = onlyTrack(m);
-    expect(choosePosture(situation({ now: NOW, profile: profileOf('forager'), stats: stats('mineLayer') }), t)).toBe('farm');
-    expect(choosePosture(situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') }), t)).not.toBe('farm');
-  });
 });
 
 // --- spending ---------------------------------------------------------------
 
-/** A bare spend state: one level banked, healthy, nothing fitted, every slot
- *  empty and the cannon mounted (the defaults `BotSpendState` documents). */
+/** A bare spend state: one level banked, nothing fitted, every slot empty
+ *  and the main battery mounted (the defaults `BotSpendState` documents). */
 function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
-  return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
+  return { bankedLevels: 1, offer: null, cards: [], ...over };
 }
 
-/** SLOT_COUNT slot ids: the given gun, the boost, then Q/E/R as named, and
- *  each named consumable in ITS OWN fixed slot (`consumableSlotFor`, Story
- *  9.2) — every other slot empty. */
-function slotsOf(
-  weapons: readonly (SlotItemId | null)[] = [],
-  consumables: readonly ConsumableId[] = [],
-  gun: EquipmentId = 'gun',
-): (SlotItemId | null)[] {
-  const out: (SlotItemId | null)[] = [gun, 'boost'];
+/** SLOT_COUNT slot ids: the given gun, the boost, then the three FAMILY
+ *  slots (torpedo, mine, special shell — Story 10.5) as named. */
+function slotsOf(weapons: readonly (EquipmentId | null)[] = [], gun: EquipmentId = 'gun'): (EquipmentId | null)[] {
+  const out: (EquipmentId | null)[] = [gun, 'boost'];
   for (let i = 0; i < WEAPON_SLOTS.length; i += 1) out.push(weapons[i] ?? null);
-  for (let i = 0; i < CONSUMABLE_SLOTS.length; i += 1) out.push(null);
-  for (const id of consumables) out[consumableSlotFor(id)!] = id;
   return out;
 }
 
@@ -920,9 +881,15 @@ function countingRng(seed: number): { rng: Rng; calls: () => number } {
 }
 
 const P = CONFIG.bots.cardPoints;
-const SHIP_LADDERS = ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const;
-/** Every equipment line (copy 1 = a new weapon), read off the catalog. */
-const EQUIPMENT_LINES = Object.keys(CATALOG).filter((k) => CATALOG[k].kind === 'equipment' && CATALOG[k].stub !== true);
+// The seven SHIP ladders: Story 10.6 (Eric 2026-11-05, R1 / R2) retired RUDDER and added HULL REPAIR and
+// SMOKE SCREEN; Story 11.2 (Eric 2026-11-12, R9) retired RANGE (reach is a fact on the hull's battery).
+const SHIP_LADDERS = ['armor', 'power', 'engines', 'intel', 'reload', 'hullRepair', 'smokeScreen'] as const;
+/** Every DEALABLE weapon line (copy 1 = a new weapon into its family slot),
+ *  read off the catalog — a line with no family slot (the BROADSIDE, which
+ *  left the deal in Story 10.5, R6) is refused by `pickRefusal`. */
+const EQUIPMENT_LINES = Object.keys(CATALOG).filter(
+  (k) => CATALOG[k].kind === 'equipment' && CATALOG[k].stub !== true && familySlotFor(k as EquipmentId) !== null,
+);
 
 describe('ai/spending — the card policy', () => {
   it('returns null with nothing banked, and null with a healthy hull + no offer', () => {
@@ -930,50 +897,44 @@ describe('ai/spending — the card policy', () => {
     expect(chooseSpend(profileOf('raider'), spendState())).toBeNull();
   });
 
-  // THE HEAL LEFT THE SPEND POLICY (Story 8.8, epic-8 amendments 46 + 49).
-  // `healHpFrac` gates FIRING a stocked HULL REPAIR from the belt, not buying
-  // one with a level, and the policy NEVER returns a negative — which matters
-  // because World.spendPoint refuses every negative as malformed. (Hurt DOES
-  // raise the HULL REPAIR card's score since Story 8.20 — pinned below.)
-  it('a hurt hull still picks a card off an ordinary hand — and never returns a negative', () => {
+  // THE HEAL IS NOT A SPEND (Story 8.8; HULL REPAIR is the `C` ability since
+  // Story 10.5): the policy never reads hp and NEVER returns a negative —
+  // which matters because World.spendPoint refuses every negative as malformed.
+  it('an ordinary hand is picked — and never a negative', () => {
     const raider = profileOf('raider');
-    const hurt = raider.healHpFrac * 100 - 1;
-    expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBeNull();
-    expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['heavyTorpedo'] }))).toBe(0);
-    expect(chooseSpend(raider, spendState({ hp: 100, offer: ['heavyTorpedo'] }))).toBe(0);
-    expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGun'] }))).toBe(0);
+    expect(chooseSpend(raider, spendState({ offer: null }))).toBeNull();
+    expect(chooseSpend(raider, spendState({ offer: ['heavyTorpedo'] }))).toBe(0);
+    expect(chooseSpend(raider, spendState({ offer: ['deckGun'] }))).toBe(0);
   });
 
   // ...AND THE MULLIGAN NEVER REACHES THE BOTS (Story 8.10, amendment 60).
   // MULLIGAN_CHOICE (-2) is a HUMAN captain's button: World.mulligan refuses
   // any other role outright. This pin is the other half: the policy cannot
   // even ask.
-  it('no profile, at any hp, on any hand or seed, ever returns a negative choice', () => {
+  it('no profile, on any hand or seed, ever returns a negative choice', () => {
     const hands = [
-      ['deckGun', 'hullPoints'],
-      ['hullRepair', 'reload', 'speed', 'hullPoints'],
+      ['deckGun', 'armor'],
+      ['intel', 'reload', 'engines', 'armor'],
       ['heavyTorpedo', 'navalMines', 'broadside', 'starShells'],
-      ['hullPoints'],
+      ['armor'],
     ];
     for (const row of [...Object.values(BOT_PROFILES), ...Object.values(TEST_PROFILES)]) {
       const id = row.id;
-      for (const hp of [1, 10, 50, 99, 100]) {
-        for (const [h, offer] of hands.entries()) {
-          for (let seed = 1; seed <= 8; seed += 1) {
-            const where = `${id}@${hp}/hand${h}/seed${seed}`;
-            const got = chooseSpend(row, spendState({ hp, offer }), undefined, mulberry32(seed));
-            expect(got, where).not.toBeNull();
-            expect(got!, where).toBeGreaterThanOrEqual(0);
-            expect(got!, where).not.toBe(MULLIGAN_CHOICE);
-            expect(got!, where).toBeLessThan(offer.length); // ...and always a real index
-          }
+      for (const [h, offer] of hands.entries()) {
+        for (let seed = 1; seed <= 8; seed += 1) {
+          const where = `${id}/hand${h}/seed${seed}`;
+          const got = chooseSpend(row, spendState({ offer }), undefined, mulberry32(seed));
+          expect(got, where).not.toBeNull();
+          expect(got!, where).toBeGreaterThanOrEqual(0);
+          expect(got!, where).not.toBe(MULLIGAN_CHOICE);
+          expect(got!, where).toBeLessThan(offer.length); // ...and always a real index
         }
       }
     }
   });
 
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
-    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['turning', 'radarSweep'] }));
+    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['armor', 'intel'] }));
     expect(idx).not.toBeNull();
     expect(idx).toBeGreaterThanOrEqual(0);
   });
@@ -985,46 +946,45 @@ describe('ai/spending — the card policy', () => {
   // the same `pickRefusal` the server does and never scores what it refuses.
 
   it('SKIPS an at-cap line and takes a card it can actually hold', () => {
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    const offer = ['hullRepair', 'hullPoints', 'speed', 'reload'];
-    const idx = chooseSpend(profileOf('siege'), spendState({ cards: five, offer }));
+    const capped = new Array<string>(CATALOG.intel.cap).fill('intel');
+    const offer = ['intel', 'armor', 'engines', 'reload'];
+    const idx = chooseSpend(profileOf('siege'), spendState({ cards: capped, offer }));
     expect(idx).not.toBeNull();
-    expect(offer[idx!]).not.toBe('hullRepair');
-    expect(cardScore(profileOf('siege'), spendState({ cards: five }), 'hullRepair')).toBeNull();
+    expect(offer[idx!]).not.toBe('intel');
+    expect(cardScore(profileOf('siege'), spendState({ cards: capped }), 'intel')).toBeNull();
   });
 
-  it('SKIPS copy 1 of a weapon with Q/E/R full — and never a consumable for want of a slot (Story 9.2)', () => {
-    const rowFull: (SlotItemId | null)[] = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', ...new Array<null>(SLOT_COUNT - 5).fill(null)];
-    const idx = chooseSpend(profileOf('siege'), spendState({ slotIds: rowFull, offer: ['broadside', 'hullPoints'] }));
-    expect(idx).toBe(1); // `broadside` is copy 1 with nowhere to go
-    // Every OTHER keyed kind stocked in its own fixed slot: the last kind's
-    // slot is still its own, so the card is scored, never refused.
-    const slotIds: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, ...new Array<null>(SLOT_COUNT - 5).fill(null)];
-    const others = CONSUMABLE_KEY_ORDER.filter((k) => k !== 'supercavTorpedo');
-    for (const k of others) slotIds[consumableSlotFor(k)!] = k;
-    expect(cardScore(profileOf('siege'), spendState({ slotIds, cards: [...others] }), 'supercavTorpedo')).not.toBeNull();
+  it('SKIPS copy 1 of a weapon whose FAMILY slot holds another kind (Story 10.5 — one kind per slot), and never scores the undealt BROADSIDE', () => {
+    const siege = profileOf('siege');
+    const torpedoFilled = slotsOf(['lightTorpedo']);
+    const s = spendState({ cards: ['lightTorpedo'], slotIds: torpedoFilled });
+    expect(cardScore(siege, s, 'heavyTorpedo')).toBeNull();
+    expect(cardScore(siege, s, 'supercavTorpedo')).toBeNull();
+    expect(chooseSpend(siege, { ...s, offer: ['heavyTorpedo', 'armor'] })).toBe(1);
+    // ...while a kind of an EMPTY family is still a weapon card.
+    expect(cardScore(siege, s, 'navalMines')).not.toBeNull();
+    expect(cardScore(siege, spendState(), 'broadside')).toBeNull(); // no family slot: never fittable
   });
 
   it('DOES NOT SPEND when every card in the hand is refused — the level stays banked (matrix: Dead hand)', () => {
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    const capped = [...five, ...new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')];
+    const capped = [...new Array<string>(CATALOG.intel.cap).fill('intel'), ...new Array<string>(CATALOG.armor.cap).fill('armor')];
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
       const { rng, calls } = countingRng(5);
-      expect(chooseSpend(profileOf(id), spendState({ cards: capped, offer: ['hullRepair', 'hullPoints'] }), undefined, rng), id)
+      expect(chooseSpend(profileOf(id), spendState({ cards: capped, offer: ['intel', 'armor'] }), undefined, rng), id)
         .toBeNull();
       expect(calls(), id).toBe(0);
     }
     // ...and a RANDOM profile holds it too, rather than rolling a dead index.
-    expect(chooseSpend(profileOf('randomMineLayer'), spendState({ cards: capped, offer: ['hullRepair', 'hullPoints'] }),
+    expect(chooseSpend(profileOf('randomWarspite'), spendState({ cards: capped, offer: ['intel', 'armor'] }),
       undefined, mulberry32(3))).toBeNull();
   });
 
   it('an unknown id or a stub is never scored and never wins, and cannot crash the policy', () => {
     const siege = profileOf('siege');
     expect(cardScore(siege, spendState(), 'noSuchLine')).toBeNull();
-    expect(cardScore(siege, spendState(), 'depthCharge')).toBeNull(); // the one stub consumable
+    expect(cardScore(siege, spendState(), 'depthCharge')).toBeNull(); // the one stub line
     expect(cardScore(siege, spendState(), '__proto__')).toBeNull();
-    expect(chooseSpend(siege, spendState({ offer: ['noSuchLine', 'depthCharge', 'hullPoints'] }))).toBe(2);
+    expect(chooseSpend(siege, spendState({ offer: ['noSuchLine', 'depthCharge', 'armor'] }))).toBe(2);
     expect(chooseSpend(siege, spendState({ offer: ['noSuchLine'] }))).toBeNull();
   });
 });
@@ -1034,15 +994,15 @@ describe('ai/spending — the card policy', () => {
 // through `cardScore` and its outcome through `chooseSpend`.
 
 describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
-  it('Eric\'s example: raider, heavy torpedo at 4 (its highest), slots full → torpedo 4 beats countermeasure 3', () => {
+  it('Eric\'s example: raider, heavy torpedo at 4 (its highest) → torpedo (two bonuses) beats a favorite ladder at 0 (one bonus)', () => {
     const raider = profileOf('raider');
     const s = spendState({
-      cards: ['heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'lightTorpedo', 'navalMines'],
-      slotIds: slotsOf(['heavyTorpedo', 'lightTorpedo', 'navalMines']),
+      cards: ['heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'navalMines'],
+      slotIds: slotsOf(['heavyTorpedo', 'navalMines']),
     });
     expect(cardScore(raider, s, 'heavyTorpedo')).toBe(P.base + P.favorite + P.style);
-    expect(cardScore(raider, s, 'countermeasure')).toBe(P.base + P.favorite + P.beltHunger.medium);
-    expect(chooseSpend(raider, { ...s, offer: ['countermeasure', 'heavyTorpedo'] })).toBe(1);
+    expect(cardScore(raider, s, 'engines')).toBe(P.base + P.favorite);
+    expect(chooseSpend(raider, { ...s, offer: ['engines', 'heavyTorpedo'] })).toBe(1);
   });
 
   it('Weapon vs plain upgrade: every personality takes a non-favorite weapon (3.5) over a no-bonus ladder (2)', () => {
@@ -1059,81 +1019,43 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     }
   });
 
-  it('Two-bonus upgrade vs favorite weapon: siege radarSweep at max(U) 4 beats starShells 3.75', () => {
+  it('Two-bonus upgrade vs favorite weapon: siege intel at max(U) 4 beats starShells 3.75', () => {
     const siege = profileOf('siege');
-    const s = spendState({ cards: ['radarSweep'] });
+    const s = spendState({ cards: ['intel'] });
     expect(cardScore(siege, s, 'starShells')).toBe(P.favoriteWeapon);
-    expect(cardScore(siege, s, 'radarSweep')).toBe(P.base + P.favorite + P.style);
-    expect(chooseSpend(siege, { ...s, offer: ['starShells', 'radarSweep'] })).toBe(1);
+    expect(cardScore(siege, s, 'intel')).toBe(P.base + P.favorite + P.style);
+    expect(chooseSpend(siege, { ...s, offer: ['starShells', 'intel'] })).toBe(1);
   });
 
-  it('Favorite among weapons: trapper takes navalMines (3.75) over broadside (3.5)', () => {
+  it('Favorite among weapons: trapper takes navalMines (favorite) over heavyTorpedo (plain weapon)', () => {
     const trapper = profileOf('trapper');
     expect(cardScore(trapper, spendState(), 'navalMines')).toBe(P.favoriteWeapon);
-    expect(cardScore(trapper, spendState(), 'broadside')).toBe(P.weapon);
-    expect(chooseSpend(trapper, spendState({ offer: ['broadside', 'navalMines'] }))).toBe(1);
+    expect(cardScore(trapper, spendState(), 'heavyTorpedo')).toBe(P.weapon);
+    expect(chooseSpend(trapper, spendState({ offer: ['heavyTorpedo', 'navalMines'] }))).toBe(1);
   });
 
-  it('Needed heal: siege at 30% hp, none carried → hullRepair 4 beats a favorite weapon 3.75 (hunger NOT applied)', () => {
-    const siege = profileOf('siege');
-    const hurt = spendState({ hp: 30 });
-    expect(30 / 100).toBeLessThan(siege.healHpFrac);
-    expect(cardScore(siege, hurt, 'hullRepair')).toBe(P.base + P.hurtRepair);
-    expect(chooseSpend(siege, { ...hurt, offer: ['starShells', 'hullRepair'] })).toBe(1);
-    // The same bot healthy reads its LOW belt hunger instead: 2 − 1 = 1.
-    expect(cardScore(siege, spendState(), 'hullRepair')).toBe(P.base + P.beltHunger.low);
-    // HURT counts the repair still draining in — the heal tactic's own read.
-    expect(cardScore(siege, spendState({ hp: 30, repairHp: 30 }), 'hullRepair')).toBe(P.base + P.beltHunger.low);
-    // A zero maxHp is never "hurt" (no divide-by-zero verdict).
-    expect(cardScore(siege, spendState({ hp: 0, maxHp: 0 }), 'hullRepair')).toBe(P.base + P.beltHunger.low);
-  });
-
-  it('a HURT bot already carrying HULL REPAIR scores it as carried, favorite still counted', () => {
-    const bulwark = profileOf('bulwark'); // hullRepair IS a bulwark favorite
-    const carrying = spendState({ hp: 10, cards: ['hullRepair'], slotIds: slotsOf([], ['hullRepair']) });
-    expect(cardScore(bulwark, carrying, 'hullRepair')).toBe(P.base + P.favorite + P.carried);
-    // ...and hurt with none carried: base + hurtRepair + favorite, never below 4.
-    expect(cardScore(bulwark, spendState({ hp: 10 }), 'hullRepair')).toBe(P.base + P.hurtRepair + P.favorite);
-  });
-
-  it('Healthy, low hunger: duelist takes a plain ladder (2) over an uncarried HULL REPAIR (1)', () => {
-    const duelist = profileOf('duelist');
-    const s = spendState({ cards: ['speed'] }); // hullPoints below max(U): no specialist bonus
-    expect(cardScore(duelist, s, 'hullRepair')).toBe(P.base + P.beltHunger.low);
-    expect(cardScore(duelist, s, 'hullPoints')).toBe(P.base);
-    expect(chooseSpend(duelist, { ...s, offer: ['hullRepair', 'hullPoints'] })).toBe(1);
-  });
-
-  it('Already carried: bulwark carrying shieldBlock takes countermeasure 3 over shieldBlock 2', () => {
+  it('Style rounded: bulwark armor 3, engines 0 → engines 3 (min of U) ties armor 3 (favorite)', () => {
     const bulwark = profileOf('bulwark');
-    const s = spendState({ cards: ['shieldBlock'], slotIds: slotsOf([], ['shieldBlock']) });
-    expect(cardScore(bulwark, s, 'shieldBlock')).toBe(P.base + P.favorite + P.carried);
-    expect(cardScore(bulwark, s, 'countermeasure')).toBe(P.base + P.beltHunger.high);
-    expect(chooseSpend(bulwark, { ...s, offer: ['shieldBlock', 'countermeasure'] })).toBe(1);
-  });
-
-  it('Style rounded: bulwark hullPoints 3, speed 0 → speed 3 (min of U) ties hullPoints 3 (favorite)', () => {
-    const bulwark = profileOf('bulwark');
-    const s = spendState({ cards: ['hullPoints', 'hullPoints', 'hullPoints'] });
-    expect(cardScore(bulwark, s, 'speed')).toBe(P.base + P.style);
-    expect(cardScore(bulwark, s, 'hullPoints')).toBe(P.base + P.favorite);
-    expect(cardScore(bulwark, s, 'speed')).toBe(cardScore(bulwark, s, 'hullPoints'));
+    const s = spendState({ cards: ['armor', 'armor', 'armor'] });
+    expect(cardScore(bulwark, s, 'engines')).toBe(P.base + P.style);
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite);
+    expect(cardScore(bulwark, s, 'engines')).toBe(cardScore(bulwark, s, 'armor'));
   });
 
   it('Tie, no rng: the lowest offer index wins', () => {
     const bulwark = profileOf('bulwark');
-    const s = spendState({ cards: ['hullPoints', 'hullPoints', 'hullPoints'] });
-    expect(chooseSpend(bulwark, { ...s, offer: ['hullPoints', 'speed'] })).toBe(0);
-    expect(chooseSpend(bulwark, { ...s, offer: ['speed', 'hullPoints'] })).toBe(0);
+    const s = spendState({ cards: ['armor', 'armor', 'armor'] });
+    expect(chooseSpend(bulwark, { ...s, offer: ['armor', 'engines'] })).toBe(0);
+    expect(chooseSpend(bulwark, { ...s, offer: ['engines', 'armor'] })).toBe(0);
     // A lower-scoring card ahead of the tie does not shift the answer.
-    const withReload = spendState({ cards: ['hullPoints', 'hullPoints', 'hullPoints', 'reload'] }); // reload 1 copy: plain 2
-    expect(chooseSpend(bulwark, { ...withReload, offer: ['reload', 'speed', 'hullPoints'] })).toBe(1);
+    const withReload = spendState({ cards: ['armor', 'armor', 'armor', 'reload'] }); // reload 1 copy: plain 2
+    expect(chooseSpend(bulwark, { ...withReload, offer: ['reload', 'engines', 'armor'] })).toBe(1);
   });
 
   it('Tie, rng: exactly ONE draw, a tied index, and both tied indices occur over seeds', () => {
     const bulwark = profileOf('bulwark');
-    // hullPoints 3 (favorite) and speed 3 (min of U) tie; reload at 1 copy is plain 2.
-    const two = spendState({ cards: ['hullPoints', 'hullPoints', 'hullPoints', 'reload'], offer: ['reload', 'hullPoints', 'speed'] });
+    // armor 3 (favorite) and engines 3 (min of U) tie; reload at 1 copy is plain 2.
+    const two = spendState({ cards: ['armor', 'armor', 'armor', 'reload'], offer: ['reload', 'armor', 'engines'] });
     expect(two.offer!.map((id) => cardScore(bulwark, two, id))).toEqual([P.base, P.base + P.favorite, P.base + P.style]);
     const tied = [1, 2];
     const seen = new Set<number>();
@@ -1152,20 +1074,20 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
   it('Tie, rng: a NON-tied hand consumes no draw', () => {
     const trapper = profileOf('trapper');
     const { rng, calls } = countingRng(9);
-    expect(chooseSpend(trapper, spendState({ offer: ['broadside', 'navalMines', 'hullPoints'] }), undefined, rng)).toBe(1);
+    expect(chooseSpend(trapper, spendState({ offer: ['heavyTorpedo', 'navalMines', 'armor'] }), undefined, rng)).toBe(1);
     expect(calls()).toBe(0);
   });
 
   it('Style specialist: the build\'s HIGHEST line earns the bonus; a line at cap leaves U', () => {
     const raider = profileOf('raider');
-    // speed at 2 is max(U): +favorite +style; hullPoints at 0 is not.
-    const s = spendState({ cards: ['speed', 'speed'] });
-    expect(cardScore(raider, s, 'speed')).toBe(P.base + P.favorite + P.style);
-    expect(cardScore(raider, s, 'hullPoints')).toBe(P.base);
-    // speed at CAP leaves U (and is refused); hullPoints at 1 is now the max.
-    const capped = spendState({ cards: [...new Array<string>(CATALOG.speed.cap).fill('speed'), 'hullPoints'] });
-    expect(cardScore(raider, capped, 'speed')).toBeNull();
-    expect(cardScore(raider, capped, 'hullPoints')).toBe(P.base + P.style);
+    // engines at 2 is max(U): +favorite +style; armor at 0 is not.
+    const s = spendState({ cards: ['engines', 'engines'] });
+    expect(cardScore(raider, s, 'engines')).toBe(P.base + P.favorite + P.style);
+    expect(cardScore(raider, s, 'armor')).toBe(P.base);
+    // engines at CAP leaves U (and is refused); armor at 1 is now the max.
+    const capped = spendState({ cards: [...new Array<string>(CATALOG.engines.cap).fill('engines'), 'armor'] });
+    expect(cardScore(raider, capped, 'engines')).toBeNull();
+    expect(cardScore(raider, capped, 'armor')).toBe(P.base + P.style);
   });
 
   it('an empty build is FLAT (min = max of U), so no ladder earns either style\'s bonus (R11)', () => {
@@ -1178,58 +1100,79 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     }
   });
 
-  it('ARMOR PIERCING is a favorite of the raider and the duelist, never the bulwark (epic-9 amendment 157)', () => {
+  it('POWER (was ARMOR PIERCING) is a favorite of the raider and the duelist, never the bulwark (epic-9 amendment 157)', () => {
     // Same empty build, same style status for every ship ladder: the ONLY
-    // difference between armorPiercing and a non-favorite ladder is the
+    // difference between power and a non-favorite ladder is the
     // favorite bonus — matched by isFavoriteUpgrade on the line's own id.
     const s = spendState();
-    expect(cardScore(profileOf('raider'), s, 'armorPiercing')).toBe(cardScore(profileOf('raider'), s, 'turning')! + P.favorite);
-    expect(cardScore(profileOf('duelist'), s, 'armorPiercing')).toBe(cardScore(profileOf('duelist'), s, 'speed')! + P.favorite);
-    expect(cardScore(profileOf('bulwark'), s, 'armorPiercing')).toBe(cardScore(profileOf('bulwark'), s, 'speed'));
+    expect(cardScore(profileOf('raider'), s, 'power')).toBe(cardScore(profileOf('raider'), s, 'armor')! + P.favorite);
+    expect(cardScore(profileOf('duelist'), s, 'power')).toBe(cardScore(profileOf('duelist'), s, 'engines')! + P.favorite);
+    expect(cardScore(profileOf('bulwark'), s, 'power')).toBe(cardScore(profileOf('bulwark'), s, 'engines'));
   });
 
-  it('Flat build (R11): bulwark at level 0 → hullPoints 2+1 = 3 (no style bonus), a non-favorite weapon 3.5 wins', () => {
-    const bulwark = profileOf('bulwark'); // rounded; favorite upgrades hullPoints + passiveHealing; favorite weapons broadside + starShells
+  it('a one-off ADD-ON is an upgrade of its family (Story 10.6, I8): `weapons` favorite, refused with no host', () => {
+    const raider = profileOf('raider'); // favorite upgrades include 'weapons'
+    const bulwark = profileOf('bulwark'); // ...and this one's do not
+    expect(raider.taste.favoriteUpgrades).toContain('weapons');
+    expect(bulwark.taste.favoriteUpgrades).not.toContain('weapons');
+    const unhosted = spendState({ cards: [], slotIds: slotsOf() });
+    expect(cardScore(raider, unhosted, 'secondLauncherTube')).toBeNull(); // no torpedo held: `noHost`
+    const hosted = spendState({ cards: ['heavyTorpedo'], slotIds: slotsOf(['heavyTorpedo'], 'mainBattery') });
+    const fav = cardScore(raider, hosted, 'secondLauncherTube')!;
+    const plain = cardScore(bulwark, hosted, 'secondLauncherTube')!;
+    expect(fav).not.toBeNull();
+    expect(plain).not.toBeNull();
+    // Same build, same style standing: the only difference is the favorite bonus
+    // (both tastes' style rules leave the 0-copy add-on where they leave it).
+    expect(fav - P.favorite).toBeGreaterThanOrEqual(P.base);
+    expect(plain).toBeGreaterThanOrEqual(P.base);
+  });
+
+  it('Flat build (R11): bulwark at level 0 → armor 2+1 = 3 (no style bonus), a non-favorite weapon 3.5 wins', () => {
+    const bulwark = profileOf('bulwark'); // rounded; favorite upgrade armor (hullPoints + passiveHealing until Story 10.3); favorite weapons the shells
     const s = spendState();
-    expect(cardScore(bulwark, s, 'hullPoints')).toBe(P.base + P.favorite);
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite);
     expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(P.weapon);
-    expect(chooseSpend(bulwark, { ...s, offer: ['hullPoints', 'lightTorpedo'] })).toBe(1);
+    expect(chooseSpend(bulwark, { ...s, offer: ['armor', 'lightTorpedo'] })).toBe(1);
   });
 
-  it('Uneven build: bulwark holding one weapon, ladders at 0 → both at min(U) = 0: hullPoints 4, speed 3', () => {
+  it('Uneven build: bulwark holding one weapon, ladders at 0 → both at min(U) = 0: armor 4, engines 3', () => {
     const bulwark = profileOf('bulwark');
     const s = spendState({ cards: ['lightTorpedo'], slotIds: slotsOf(['lightTorpedo']) });
-    expect(cardScore(bulwark, s, 'hullPoints')).toBe(P.base + P.favorite + P.style);
-    expect(cardScore(bulwark, s, 'speed')).toBe(P.base + P.style);
-    expect(chooseSpend(bulwark, { ...s, offer: ['speed', 'hullPoints'] })).toBe(1);
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite + P.style);
+    expect(cardScore(bulwark, s, 'engines')).toBe(P.base + P.style);
+    expect(chooseSpend(bulwark, { ...s, offer: ['engines', 'armor'] })).toBe(1);
   });
 
-  it('"gun" favors EVERY ladder of the mounted gun, and style reads only the MOUNTED gun\'s ladders', () => {
-    const forager = profileOf('forager'); // rounded; favorites gun + reload
-    const s = spendState({ cards: ['hullPoints'] });
-    // The cannon mounted: its one ladder (turret + barrel are its rungs) is a favorite and sit at min(U) = 0.
-    for (const l of ['deckGun']) {
-      expect(cardScore(forager, s, l), l).toBe(P.base + P.favorite + P.style);
+  it('a GUN ladder (one with a host row) matches no favorite — the dead `gun` favorite is gone (Story 10.12) — and style reads only the MOUNTED gun\'s ladders', () => {
+    const s = spendState({ cards: ['armor'] });
+    // The cannon mounted (a hand-built slot 0 — since Story 10.4 a captain
+    // mounts the main battery): its one ladder sits at min(U) = 0.
+    const cannon = { ...s, slotIds: slotsOf([], 'gun') };
+    const mg = { ...s, slotIds: slotsOf([], 'machineGun') };
+    for (const p of Object.values(BOT_PROFILES)) {
+      // The style bonus on a mounted gun's ladder at min(U): a ROUNDED taste's.
+      const style = p.taste.style === 'rounded' ? P.style : 0;
+      expect(cardScore(p, cannon, 'deckGun'), p.id).toBe(P.base + style);
+      // No slots supplied = a captain's default slot 0, the MAIN BATTERY (Story
+      // 10.4), which hosts no ladder: the cannon's ladder is out of U.
+      expect(cardScore(p, s, 'deckGun'), p.id).toBe(P.base);
+      // The machine gun mounted: its ladder is in U, the cannon's leaves it.
+      expect(cardScore(p, mg, 'machineGun'), p.id).toBe(P.base + style);
+      expect(cardScore(p, mg, 'deckGun'), p.id).toBe(P.base);
     }
-    // The machine gun mounted: its ladder is the gun favorite and in U...
-    const mg = { ...s, slotIds: slotsOf([], [], 'machineGun') };
-    expect(cardScore(forager, mg, 'machineGun')).toBe(P.base + P.favorite + P.style);
-    // ...and the cannon's ladders leave U (still `gun` family — never dealt here).
-    expect(cardScore(forager, mg, 'deckGun')).toBe(P.base + P.favorite);
-    // A personality without the gun favorite reads a gun ladder as plain + style.
-    expect(cardScore(profileOf('raider'), spendState({ cards: ['speed'] }), 'deckGun')).toBe(P.base);
   });
 
   it('"weapons" favors a tier copy of a HELD weapon; copy 1 is a weapon card, not an upgrade', () => {
-    const siege = profileOf('siege'); // favorites weapons + radarSweep; specialist
-    const s = spendState({ cards: ['navalMines', 'navalMines'], slotIds: slotsOf(['navalMines']) });
+    const siege = profileOf('siege'); // favorites weapons + intel; specialist
+    const s = spendState({ cards: ['navalMines', 'navalMines'], slotIds: slotsOf([null, 'navalMines']) });
     expect(cardScore(siege, s, 'navalMines')).toBe(P.base + P.favorite + P.style); // 2 copies = max(U)
-    expect(cardScore(siege, s, 'broadside')).toBe(P.favoriteWeapon); // unheld: a weapon for an empty slot
+    expect(cardScore(siege, s, 'starShells')).toBe(P.favoriteWeapon); // unheld: a weapon for an empty family slot
     expect(cardScore(profileOf('duelist'), s, 'navalMines')).toBe(P.base + P.style); // no `weapons` favorite
   });
 
-  it('every personality ranks every new weapon above any one-bonus upgrade or consumable', () => {
-    const oneBonusCeiling = P.base + P.favorite; // === base + style === base + beltHunger.high
+  it('every personality ranks every new weapon above any one-bonus upgrade', () => {
+    const oneBonusCeiling = Math.max(P.base + P.favorite, P.base + P.style);
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
       for (const w of EQUIPMENT_LINES) {
         expect(cardScore(profileOf(id), spendState(), w)!, `${id} ${w}`).toBeGreaterThan(oneBonusCeiling);
@@ -1239,11 +1182,11 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
 
   it('a bot SETTLES: its favorite weapon absent, it takes the best card present', () => {
     const trapper = profileOf('trapper'); // favorite weapons: the three mine racks
-    expect(chooseSpend(trapper, spendState({ offer: ['hullRepair', 'broadside', 'hullPoints'] }))).toBe(1);
+    expect(chooseSpend(trapper, spendState({ offer: ['armor', 'heavyTorpedo', 'broadside'] }))).toBe(1);
   });
 
   it('cardScore is pure: no rng, and the same answer twice', () => {
-    const s = spendState({ cards: ['hullPoints'] });
+    const s = spendState({ cards: ['armor'] });
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
       for (const l of Object.keys(CATALOG)) {
         expect(cardScore(profileOf(id), s, l)).toBe(cardScore(profileOf(id), s, l));
@@ -1254,35 +1197,34 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
 
 // --- THE PROPERTY: NO PERSONALITY SAILS TEN LEVELS WEAPONLESS ------------------
 // Through the REAL draw: each level's hand is `drawOffer` over the ship's own
-// state (neutral weights; the level-zero guarantee on the first offer only, as
-// World.materializeOffer passes it), the pick is `chooseSpend`, and the pick is
+// state (neutral weights, exactly as World.materializeOffer calls it — every
+// level runs the same four-slot plan since Story 10.7), the pick is `chooseSpend`, and the pick is
 // applied by replaying the cards through `slotsWithCards` — the one slot fold
-// the World and the client share. The bot sails healthy and never FIRES a
-// consumable, so the belt only fills. The distribution is logged per
-// personality as a reading, not a threshold.
+// the World and the client share. The distribution is logged per personality
+// as a reading, not a threshold.
 
 describe('ai/spending — ten seeded levels through the real draw (Story 8.20)', () => {
   const SEEDS = 50;
   const LEVELS = 10;
 
-  interface RunResult { weapons: number; consumableCopies: number; beltLines: number; wasted: number }
+  interface RunResult { weapons: number; wasted: number }
 
   function runOnce(id: BotProfileId, seed: number): RunResult {
     const pickRng = mulberry32((seed * 7919 + 17) >>> 0);
     const cls = pickRng.pick(SHIP_CLASS_IDS);
-    const gun = pickRng.pick(GUN_IDS);
+    const shift = pickRng.pick(SHIFT_IDS); // the seat's pick (Story 10.4 — was the seat gun)
     const drawRng = mulberry32(seed);
     const spendRng = mulberry32((seed * 104729 + 3) >>> 0);
     const profile = profileOf(id);
     const cards: string[] = [];
     let wasted = 0;
-    const slotIds = (): (SlotItemId | null)[] =>
-      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, CATALOG, false, gun, classShift(cls))
+    const slotIds = (): (EquipmentId | null)[] =>
+      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, CATALOG, shift)
         .map((s) => s.equipmentId);
     for (let level = 0; level < LEVELS; level += 1) {
       const ids = slotIds();
-      const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: MOUNTED_GUN[gun] };
-      const offer = drawOffer(ship, new Map(), drawRng, CATALOG, { guarantee: level === 0 });
+      const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: 'mainBattery' as const };
+      const offer = drawOffer(ship, new Map(), drawRng, CATALOG);
       const choice = chooseSpend(profile, spendState({ offer, cards, slotIds: ids }), CATALOG, spendRng);
       if (choice === null) wasted += 1;
       else cards.push(offer[choice]);
@@ -1290,29 +1232,23 @@ describe('ai/spending — ten seeded levels through the real draw (Story 8.20)',
     const ids = slotIds();
     return {
       weapons: WEAPON_SLOTS.filter((i) => ids[i] !== null).length,
-      consumableCopies: cards.filter((c) => CATALOG[c].kind === 'consumable').length,
-      beltLines: CONSUMABLE_SLOTS.filter((i) => ids[i] !== null).length,
       wasted,
     };
   }
 
   it('no personality × seed ends ten levels with zero Q/E/R weapons (distribution logged)', () => {
-    const table: Record<string, { meanWeapons: number; meanConsumableCopies: number; meanBeltLines: number; zeroWeapon: number; wasted: number }> = {};
+    const table: Record<string, { meanWeapons: number; zeroWeapon: number; wasted: number }> = {};
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
       let w = 0;
-      let c = 0;
-      let b = 0;
       let zero = 0;
       let wasted = 0;
       for (let seed = 1; seed <= SEEDS; seed += 1) {
         const r = runOnce(id, seed);
         w += r.weapons;
-        c += r.consumableCopies;
-        b += r.beltLines;
         wasted += r.wasted;
         if (r.weapons === 0) zero += 1;
       }
-      table[id] = { meanWeapons: w / SEEDS, meanConsumableCopies: c / SEEDS, meanBeltLines: b / SEEDS, zeroWeapon: zero, wasted };
+      table[id] = { meanWeapons: w / SEEDS, zeroWeapon: zero, wasted };
     }
     console.log('[8.20 scorer distribution, 50 seeds x 10 levels]', JSON.stringify(table));
     for (const [id, row] of Object.entries(table)) expect(row.zeroWeapon, id).toBe(0);
@@ -1335,7 +1271,7 @@ describe('ai/utility — track persistence (built as the chaff counter; the jamm
   function anonAt(now: number, firstSeenAt: number): BotTrack {
     return {
       id: null, x: 400, y: 0, heading: null, speed: null, seenAt: now,
-      live: false, sunk: false, cls: null, fleet: false, firstSeenAt, hits: 0,
+      live: false, sunk: false, cls: null, firstSeenAt, hits: 0,
       vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     };
   }
@@ -1390,7 +1326,8 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
     // flat list — and from BOT_PROFILES entirely — is therefore proof of
     // unreachability, not a probabilistic claim.
     const testIds = Object.keys(TEST_PROFILES);
-    expect(testIds.sort()).toEqual(['randomBattleship', 'randomMineLayer', 'randomTorpedoBoat']);
+    // One test row per hull (Story 10.4: the four battleships).
+    expect(testIds.map((id) => TEST_PROFILE_HULL[id as keyof typeof TEST_PROFILE_HULL]).sort()).toEqual([...SHIP_CLASS_IDS].sort());
     for (const id of CONFIG.bots.profiles) expect(testIds).not.toContain(id);
     for (const id of testIds) expect(Object.hasOwn(BOT_PROFILES, id)).toBe(false);
   });
@@ -1408,19 +1345,19 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
       expect(row.oddsThreshold).toBe(1);
       expect(row.leansIn).toBe(false);
       expect(row.holdsInCover).toBe(false);
-      expect(row.targetWeights).toEqual({ captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 });
+      expect(row.targetWeights).toEqual({ captain: 1.0, damaged: 1.0, isolated: 1.0 });
       expect(row.disengageHpFrac).toBe(CONFIG.bots.disengageHpFrac);
-      expect(row.healHpFrac).toBe(CONFIG.bots.healHpFrac);
       // Every appetite entry at or above EAGER, so every equipment verb is
       // exercised and the read is not shaped by a doctrine preference…
       for (const v of Object.values(row.appetite)) expect(v).toBeGreaterThanOrEqual(APPETITE_EAGER);
-      // …with the gun ladder still the LOWEST entries (the universal fallback
+      // …with the guns still the LOWEST entries (the universal fallback
       // order). Story 8.20 writes the two pickable guns explicitly at the
-      // gun's own 2.0 (the numbers the retired family fallback resolved).
-      const GUNS = ['gun', 'machineGun', 'flak'];
+      // battery's own value (the deck `gun` they were once read off is dead
+      // and left the rows at Story 10.12; the main battery anchors them).
+      const GUNS = ['machineGun', 'flak', 'mainBattery'];
       for (const [eq, v] of Object.entries(row.appetite)) {
-        if (GUNS.includes(eq)) expect(v).toBe(appetiteFor(row, 'gun'));
-        else expect(v).toBeGreaterThan(appetiteFor(row, 'gun'));
+        if (GUNS.includes(eq)) expect(v).toBe(appetiteFor(row, 'mainBattery'));
+        else expect(v).toBeGreaterThan(appetiteFor(row, 'mainBattery'));
       }
     }
   });
@@ -1428,7 +1365,7 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
   it('every in-game row spends WEIGHTED; profileOf resolves both id spaces', () => {
     for (const p of Object.values(BOT_PROFILES)) expect(p.spend).toBe('weighted');
     expect(profileOf('raider')).toBe(BOT_PROFILES.raider);
-    expect(profileOf('randomBattleship')).toBe(TEST_PROFILES.randomBattleship);
+    expect(profileOf('randomYamato')).toBe(TEST_PROFILES.randomYamato);
   });
 });
 
@@ -1440,20 +1377,20 @@ describe('ai/spending — random mode (wave 4)', () => {
   const TRAP = { next: trapRng, float: trapRng, int: trapRng, pick: trapRng } as unknown as Rng;
 
   it('the WEIGHTED path draws ONLY on a tie, and is byte-identical with or without an rng on a clear winner', () => {
-    const offer = ['deckGun', 'heavyTorpedo', 'hullPoints'];
+    const offer = ['deckGun', 'heavyTorpedo', 'armor'];
     const bare = chooseSpend(profileOf('raider'), spendState({ offer }));
     expect(bare).toBe(1); // a favorite weapon, 3.75, clears every 3-point card
     // No tie: a trap rng must neither change the answer nor be touched.
     expect(chooseSpend(profileOf('raider'), spendState({ offer }), undefined, TRAP)).toBe(bare);
     // A tie: exactly one draw.
     const { rng, calls } = countingRng(4);
-    chooseSpend(profileOf('raider'), spendState({ offer: ['deckGun', 'hullPoints'] }), undefined, rng);
+    chooseSpend(profileOf('raider'), spendState({ offer: ['deckGun', 'armor'] }), undefined, rng);
     expect(calls()).toBe(1);
   });
 
   it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
-    const row = profileOf('randomMineLayer');
-    const offer = ['deckGun', 'heavyTorpedo', 'hullPoints', 'speed'];
+    const row = profileOf('randomWarspite');
+    const offer = ['deckGun', 'heavyTorpedo', 'armor', 'engines'];
     // The policy must be exactly one rng.int(0, offer.length - 1) draw: replay
     // the same seed independently and demand index equality, draw for draw.
     const rng = mulberry32(99);
@@ -1468,16 +1405,15 @@ describe('ai/spending — random mode (wave 4)', () => {
     expect(seen.size).toBe(offer.length);
   });
 
-  it('a hurt random profile picks a card like any other — the heal branch is gone', () => {
-    const row = profileOf('randomTorpedoBoat');
-    const hurt = row.healHpFrac * 100 - 1;
+  it('a random profile picks a two-card hand with one draw — no heal branch', () => {
+    const row = profileOf('randomBismarck');
     const rng = mulberry32(7);
-    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGun', 'hullPoints'] }), undefined, rng))
+    expect(chooseSpend(row, spendState({ offer: ['deckGun', 'armor'] }), undefined, rng))
       .toBe(mulberry32(7).int(0, 1));
   });
 
   it('nothing banked / no offer stay null in random mode, same as weighted', () => {
-    const row = profileOf('randomBattleship');
+    const row = profileOf('randomYamato');
     const rng = mulberry32(3);
     expect(chooseSpend(row, spendState({ bankedLevels: 0, offer: ['x'] }), undefined, rng)).toBeNull();
     expect(chooseSpend(row, spendState({ offer: null }), undefined, rng)).toBeNull();
@@ -1492,11 +1428,13 @@ describe('ai/spending — random mode (wave 4)', () => {
 describe('Story 8.15 — the new ids read their family\'s appetite', () => {
   const ALL_ROWS: AnyProfileId[] = [...(Object.keys(BOT_PROFILES) as BotProfileId[]), ...TEST_PROFILE_IDS];
 
-  it('MG/flak read the CANNON appetite; INSTANT RELOAD / HUNKER read the BOOST appetite', () => {
+  it('MG/flak read the MAIN BATTERY appetite; INSTANT RELOAD / HUNKER read the BOOST appetite', () => {
+    // Story 10.12: the dead deck `gun` left the rows; the main battery (the
+    // captain's slot 0 since Story 10.4) anchors the gun family.
     for (const id of ALL_ROWS) {
       const row = profileOf(id);
-      expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'gun'));
-      expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'gun'));
+      expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'mainBattery'));
+      expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'mainBattery'));
       expect(appetiteFor(row, 'instantReload'), id).toBe(appetiteFor(row, 'boost'));
       expect(appetiteFor(row, 'hunker'), id).toBe(appetiteFor(row, 'boost'));
     }

@@ -10,9 +10,11 @@
 // or foundered (its frames stop at founder) — and a ghost must never shove the
 // own hull. Sinking hulls still ride the frames and stay solid (amendment 82).
 //
-// MASS. A contact's class base hp (or the drone envelope's) through the shared
-// `hullEnvelope`: the client cannot know a contact's upgrades, and the share
-// error is bounded by the overlap depth, which the reconcile folds away.
+// MASS. A contact's class base ARMOR index through
+// the shared `hullEnvelope` — mass = ARMOR since Story 10.3 (ruling 2), the
+// same number the server's resolver reads: the client cannot know a contact's
+// upgrades (amendment 84(j)), and the share error is bounded by the overlap
+// depth, which the reconcile folds away.
 //
 // ALLOCATION. One body (state + world polygon scratch) per id, created on its
 // first sighting and dropped when the store no longer holds the id — never per
@@ -36,9 +38,11 @@ export class ContactBodies {
 
   /**
    * This frame's bodies: every sighted contact except `ownId`, posed at `at`
-   * (server ms). The list (and its bodies) is reused by the next call.
+   * (server ms), then every `fixed` body appended as handed in — the solid
+   * radio beacons (Story 10.8, sim/beaconView.ts `BeaconBodies`), immovable.
+   * The list (and its bodies) is reused by the next call.
    */
-  build(src: ContactPoseSource, at: number, ownId: string): readonly ContactBody[] {
+  build(src: ContactPoseSource, at: number, ownId: string, fixed: readonly ContactBody[] = []): readonly ContactBody[] {
     this.list.length = 0;
     this.held.clear();
     for (const id of src.ids()) {
@@ -48,6 +52,7 @@ export class ContactBodies {
       if (body !== null) this.list.push(body);
     }
     for (const id of this.byId.keys()) if (!this.held.has(id)) this.byId.delete(id);
+    for (const b of fixed) this.list.push(b);
     return this.list;
   }
 
@@ -74,7 +79,7 @@ export class ContactBodies {
       body = { id, state: { x: 0, y: 0, heading: 0, speed: 0 }, poly: [], mass: 0, movable: true };
       this.byId.set(id, body);
     }
-    body.mass = hullEnvelope(cls).hp;
+    body.mass = hullEnvelope(cls).index.armor;
     return body;
   }
 }

@@ -24,29 +24,135 @@
 // math it consumes are the pure functions in render/litZones.ts.
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
-import { CONFIG, effectiveSight, type EffectiveStats } from '@salvo/shared';
+import { CONFIG, effectiveHullSight, effectiveSight, type EffectiveStats } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { FOG_FILL_ALPHA, bakeFogTexture } from './textures.js';
 
-/** The observer's two vision ranges, as the stat plumbing carries them; the
+/** The observer's vision ranges, as the stat plumbing carries them; the
  *  sight derivation (`effectiveSight`, shared/src/sim/sight.ts) reads the
- *  sight half. */
+ *  class-and-name half. */
 export type VisionRanges = Pick<EffectiveStats, 'sightRange' | 'radarRange'>;
+
+/** The fog hole's one input: the PLAIN-HULL reach (Story 11.2, R20). */
+export type HullSightRange = Pick<EffectiveStats, 'hullSightRange'>;
+
+/** The own hull's FLASH SHELLS mark as the client reads it: the self-private
+ *  `you.dazzledUntil` (0 = none) and the server-clock estimate it is read
+ *  against. The one input every client mirror of the server's truesight takes. */
+export interface DazzleClock {
+  until: number;
+  now: number;
+}
+
+/** u — the smallest hole-radius change `Fog.setDazzle` calls a move: float
+ *  noise at a quantizer step boundary (quantizeSightU's F6 clamp) is far
+ *  below it, every real step (sight / sightSteps) far above. */
+const HOLE_MOVE_EPS_U = 1e-6;
+
+/** No flash mark: the undazzled clock every mirror starts from. */
+export const NO_DAZZLE: DazzleClock = Object.freeze({ until: 0, now: 0 });
+
+/**
+ * Pure: `sightU` floored onto `CLIENT_CONFIG.flashWhiteout.sightSteps` equal
+ * steps of the full `sightRange` — the re-bake quantum of the fog hole and the
+ * radar dim mask while a whiteout's clear circle grows (epic-10 amendment 5).
+ * A full (or wider) radius passes through untouched, so an undazzled hull's
+ * hole is exactly its sight; a partial one is floored, so the drawn hole is
+ * never WIDER than the server's sight (fail closed).
+ */
+export function quantizeSightU(sightU: number, sightRange: number): number {
+  if (!(sightU < sightRange)) return sightU;
+  const step = sightRange / CLIENT_CONFIG.flashWhiteout.sightSteps;
+  if (!(step > 0)) return sightU;
+  // the epsilon absorbs float error at a step boundary; the min keeps its last
+  // step on sight exactly — and NEVER ABOVE the input (gate fix F6): just below
+  // a boundary the epsilon rounds up, so the hole is clamped to sightU there.
+  return Math.min(sightU, sightRange, Math.floor(sightU / step + 1e-9) * step);
+}
+
+/**
+ * Pure: the observer's effective CLASS-AND-NAME sight radius (u) on the same
+ * re-bake quantum as the fog hole — what the RADAR's eye-side mirrors read
+ * (`Radar.sightHoleU`: the dim mask's anchor, the cloud return gate's bubble,
+ * the hull feather). Until Story 11.2 this WAS the fog hole; the hole is the
+ * plain-hull reach since (R20), and the class-and-name reach keeps every
+ * radar mirror on the one reach the server's sight gates read.
+ */
+export function eyeHoleRadiusU(ranges: Pick<VisionRanges, 'sightRange'>, dazzle: DazzleClock = NO_DAZZLE): number {
+  return quantizeSightU(effectiveSight(ranges, dazzle.until, dazzle.now), ranges.sightRange);
+}
 
 /**
  * Pure: the world-space radius (u) the fog's sight hole is baked at — the
- * observer's effective truesight, a boon-widened constant per build. It is the
- * SHARED `effectiveSight` — the very function the server's perception
- * (`sightOf`) calls — never a local factor, which is the whole point: a hole
- * of any other size would draw clear water where the server reveals nothing
- * (or fog where it reveals everything), i.e. the fog circle would LIE.
+ * observer's effective PLAIN-HULL sight (Story 11.2, R20: the hole is the
+ * outer eye reach, `effectiveHullSight`; it was the class-and-name sight
+ * before): the sight range, or the
+ * whiteout's CLEAR CIRCLE while an enemy FLASH SHELLS mark holds this ship
+ * (Eric 2026-10-29, epic-10 amendment 5: 0 through ramp + hold, then growing
+ * linearly to full sight across the clear). It is the SHARED `effectiveSight`
+ * — the very function the server's perception (`sightOf`) calls — never a
+ * local factor, which is the whole point: an un-shrunk hole would draw clear
+ * water where the server reveals nothing, i.e. the fog circle would LIE. The
+ * growing circle is floored onto `quantizeSightU`'s steps so the hole (and
+ * the radar dim mask that shares this number) re-bakes a bounded number of
+ * times per flash, never per frame.
  *
- * (Story 9.3, epic-9 amendment 40, deleted the in-smoke argument; Story 9.4
- * deleted the FLASH SHELLS dazzle argument with the consumable — nothing
- * shrinks sight at runtime any more.)
+ * (Story 9.3, epic-9 amendment 40, deleted the in-smoke argument: a
+ * countermeasure cloud never shrinks the hole.)
  */
-export function fogHoleRadiusU(ranges: VisionRanges): number {
-  return effectiveSight(ranges);
+export function fogHoleRadiusU(ranges: HullSightRange, dazzle: DazzleClock = NO_DAZZLE): number {
+  return quantizeSightU(effectiveHullSight(ranges, dazzle.until, dazzle.now), ranges.hullSightRange);
+}
+
+/** px — the longer side of the baked fog canvas never exceeds this (Story
+ *  11.2): the bake covers TWICE the viewport (see `fogBakeSize`) and is drawn
+ *  scaled up when that is larger. The fill is flat and the hole's feather is a
+ *  quarter of the hole, so a reduced-resolution bake reads the same. */
+export const FOG_BAKE_MAX_PX = 2048;
+
+/**
+ * Pure: the fog bake's logical size (px) and its resolution scale (≤ 1).
+ *
+ * THE BAKE COVERS THE SCREEN FROM ANY ON-SCREEN HULL (Story 11.2): the sprite
+ * is centered on the own hull, so a sprite of 2 × the viewport (+ the shake
+ * margin each side) covers every screen pixel wherever on screen the hull sits
+ * — the NORMAL bake (`holeRadiusPx` 0), at the pre-11.8 resolution.
+ *
+ * THE WIDE BAKE, ONLY WHILE THE HULL IS OFF SCREEN (Story 11.8; `fogWideBake`
+ * decides): the free camera can pan the hull past any viewport-sized sprite,
+ * and the flat strips around it (`fogFrameRects`) would then paint fog over
+ * on-screen water inside the hole. Passing the hole radius makes each side at
+ * least the hole's diameter (+ the margin): everything outside the sprite is
+ * then outside the hole, and the strips are exactly right wherever the hull
+ * is. The canvas is capped at `FOG_BAKE_MAX_PX` on its longer side by the
+ * returned `scale` (the fill is flat and the feather a quarter of the hole, so
+ * the coarser wide bake reads the same). A non-finite or negative hole radius
+ * adds nothing.
+ */
+export function fogBakeSize(viewW: number, viewH: number, holeRadiusPx = 0): { w: number; h: number; scale: number } {
+  const hole = Number.isFinite(holeRadiusPx) && holeRadiusPx > 0 ? 2 * holeRadiusPx + 2 * EXTRA_MARGIN_PX : 0;
+  const w = Math.max(1, 2 * viewW + 2 * EXTRA_MARGIN_PX, hole);
+  const h = Math.max(1, 2 * viewH + 2 * EXTRA_MARGIN_PX, hole);
+  const scale = Math.min(1, FOG_BAKE_MAX_PX / Math.max(w, h));
+  return { w, h, scale };
+}
+
+/** px — how far inside the screen a hull must come back before the wide bake
+ *  is dropped (the hysteresis band of `fogWideBake`). */
+export const FOG_WIDE_BAND_PX = 32;
+
+/**
+ * Pure: does the fog need the WIDE bake (Story 11.8 review)? The normal bake
+ * (2 × the viewport about the hull) covers the screen exactly while the hull
+ * is on screen, so the wide one is taken only once the hull's screen point
+ * (`sx`, `sy`) leaves the viewport, and dropped only once it is back inside by
+ * `FOG_WIDE_BAND_PX` — an edge-straddling hull never flips the bake (each flip
+ * is a full re-bake). A non-finite point counts as off screen.
+ */
+export function fogWideBake(wide: boolean, sx: number, sy: number, viewW: number, viewH: number): boolean {
+  const edge = Math.min(sx, viewW - sx, sy, viewH - sy);
+  if (!Number.isFinite(edge)) return true;
+  return wide ? edge < FOG_WIDE_BAND_PX : edge < 0;
 }
 
 /**
@@ -79,7 +185,7 @@ export interface FogHole {
 }
 
 /**
- * Extra bake margin (px) beyond camera lead: shake headroom (step 11) + slack.
+ * Extra bake margin (px): shake headroom (step 11) + slack.
  * Exported so render/shake.ts can clamp its peak magnitude to the same budget
  * — the fog overlay must never expose a screen edge, however hard the hit.
  */
@@ -145,6 +251,10 @@ export class Fog {
   private bakedZoomValue = NaN;
   private viewW = 0;
   private viewH = 0;
+  /** The WIDE bake (Story 11.8 review: the hull is off screen) is current. */
+  private wide = false;
+  /** The resolution scale of the last bake (`fogBakeSize`). */
+  private bakeScaleValue = NaN;
   /** Inverse mask that punches star-shell lit-zone holes in the fog sprite —
    *  its filled circles become the CLEARED regions (setMask inverse). Empty when
    *  no owned zone is active, in which case the mask is detached so the fog
@@ -153,7 +263,17 @@ export class Fog {
   private holesActive = false;
   /** Effective sight AND radar radii (u) the hole is derived from — swapped
    *  by a boon via setSightRange(); base = CONFIG.vision. */
-  private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
+  private ranges: VisionRanges & HullSightRange = {
+    sightRange: CONFIG.vision.sight,
+    radarRange: CONFIG.vision.radar,
+    hullSightRange: CONFIG.vision.hullSight,
+  };
+  /** The own hull's FLASH SHELLS mark (the victim-private you.dazzledUntil)
+   *  against the server clock. While it holds, the baked hole is the
+   *  whiteout's clear circle (`fogHoleRadiusU`), because the SERVER is already
+   *  perceiving this ship that way: an un-shrunk hole would draw clear water
+   *  where the server reveals nothing, i.e. the fog circle would lie. */
+  private readonly dazzle: DazzleClock = { until: 0, now: 0 };
 
   constructor(layer: Container) {
     this.sprite = new Sprite(Texture.EMPTY);
@@ -163,16 +283,37 @@ export class Fog {
     layer.addChild(this.holeMask); // in the scene graph so its transform resolves
   }
 
-  /** Adopt new (effective) sight and radar radii. Callers must rebake()
-   *  after — same path as a resize — so the baked hole matches the server's
-   *  fog. */
-  setSightRange(sightRange: number, radarRange: number): void {
-    this.ranges = { sightRange, radarRange };
+  /** Adopt new (effective) sight, radar and plain-hull radii (the hole is the
+   *  last — Story 11.2). Callers must rebake() after — same path as a resize —
+   *  so the baked hole matches the server's fog. */
+  setSightRange(sightRange: number, radarRange: number, hullSightRange: number): void {
+    this.ranges = { sightRange, radarRange, hullSightRange };
+  }
+
+  /**
+   * Adopt the own hull's FLASH SHELLS mark against the server clock (Story 2.8;
+   * the whiteout since Eric 2026-10-29, epic-10 amendment 5). Returns TRUE when
+   * the baked hole went stale — the (quantized) radius actually moved — so the
+   * caller rebakes only then: twice around the hold, then once per
+   * `sightSteps` step while the circle grows (one per step over 8.5 s), never per frame.
+   */
+  setDazzle(until: number, now: number): boolean {
+    const before = this.holeRadiusU();
+    this.dazzle.until = until;
+    this.dazzle.now = now;
+    // A float-noise move is no move: at a step boundary the F6 clamp can hand
+    // back sightU a hair under the lattice point the next frame reaches.
+    return Math.abs(this.holeRadiusU() - before) > HOLE_MOVE_EPS_U;
+  }
+
+  /** Is the flash mark currently held? Test/observation seam. */
+  get isDazzled(): boolean {
+    return this.dazzle.until > this.dazzle.now;
   }
 
   /** The radius (u) this instance's hole is baked at (the pure rule above). */
   private holeRadiusU(): number {
-    return fogHoleRadiusU(this.ranges);
+    return fogHoleRadiusU(this.ranges, this.dazzle);
   }
 
   /** The composed zoom of the last bake (NaN before the first). */
@@ -187,21 +328,44 @@ export class Fog {
     this.viewW = viewW;
     this.viewH = viewH;
     const old = this.sprite.texture;
-    const margin = CLIENT_CONFIG.camera.leadMax * zoom + EXTRA_MARGIN_PX;
-    this.sprite.texture = bakeFogTexture(viewW, viewH, this.holeRadiusU() * zoom, margin);
+    const holePx = this.holeRadiusU() * zoom;
+    const { w, h, scale } = fogBakeSize(viewW, viewH, this.wide ? holePx : 0);
+    this.bakeScaleValue = scale;
+    this.sprite.texture = bakeFogTexture(Math.ceil(w * scale), Math.ceil(h * scale), holePx * scale, 0);
+    this.sprite.scale.set(1 / scale);
     if (old !== Texture.EMPTY) old.destroy(true);
   }
 
+  /** The resolution scale of the last bake (NaN before the first). */
+  get bakeScale(): number {
+    return this.bakeScaleValue;
+  }
+
+  /** Whether the current bake is the wide (hull off screen) one. */
+  get wideBake(): boolean {
+    return this.wide;
+  }
+
   /** Track the own ship: place the baked hole on its screen position, and
-   *  fill whatever the sprite no longer covers (the centre slide, Story 9.8).
+   *  fill whatever the sprite no longer covers (the centre slide, Story 9.8;
+   *  past the hole's own edge once the wide bake is up, Story 11.8).
    *  The sprite's top-left is snapped to whole pixels (the hole moves < 0.5 px)
    *  so its edges meet the strips without a coverage seam. */
   update(holeScreenX: number, holeScreenY: number): void {
-    const tex = this.sprite.texture;
-    const left = Math.round(holeScreenX - tex.width / 2);
-    const top = Math.round(holeScreenY - tex.height / 2);
-    this.sprite.position.set(left + tex.width / 2, top + tex.height / 2);
-    this.drawFrame(fogFrameRects(left, top, tex.width, tex.height, this.viewW, this.viewH));
+    // The hull left (or came back on) the screen: switch bakes (hysteresis in
+    // `fogWideBake`, so only a real crossing re-bakes) — before placing.
+    const wide = fogWideBake(this.wide, holeScreenX, holeScreenY, this.viewW, this.viewH);
+    if (wide !== this.wide) {
+      this.wide = wide;
+      if (Number.isFinite(this.bakedZoomValue)) this.rebake(this.viewW, this.viewH, this.bakedZoomValue);
+    }
+    // The DRAWN size (texture × the bake's resolution scale, `fogBakeSize`).
+    const sw = this.sprite.width;
+    const sh = this.sprite.height;
+    const left = Math.round(holeScreenX - sw / 2);
+    const top = Math.round(holeScreenY - sh / 2);
+    this.sprite.position.set(left + sw / 2, top + sh / 2);
+    this.drawFrame(fogFrameRects(left, top, sw, sh, this.viewW, this.viewH));
   }
 
   private drawFrame(rects: readonly FogRect[]): void {

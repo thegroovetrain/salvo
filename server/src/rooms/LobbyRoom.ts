@@ -21,7 +21,7 @@ import {
   resolveSeedText,
   type LobbyPhase,
 } from '@salvo/shared';
-import { protocolVersionError, sanitizeGun, type JoinOptions } from './roomOptions.js';
+import { protocolVersionError, sanitizeShift, type JoinOptions } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
 import { assertSoloCreateAllowed } from './createThrottle.js';
 import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
@@ -127,7 +127,7 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
   }
 
   private readonly policy = new LobbyPolicy();
-  /** Sanitized identity + frozen gun per captain, ready for formArena. */
+  /** Sanitized identity + frozen Shift per captain, ready for formArena. */
   private readonly seats = new Map<string, SeatedCaptain>();
   private phase: LobbyPhase = 'open';
   /** The resolved uint32 seed, or null = random map (ruling 3). Decided ONCE,
@@ -163,9 +163,9 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
       return;
     }
     // Sanitized and frozen at THIS door, exactly like the queue (Story 8.14):
-    // identity options ride the seat's options, the gun rides its `auth`.
+    // identity options ride the seat's options, the Shift (Story 10.4) rides its `auth`.
     const arenaOptions = sanitizeArenaOptions(options);
-    const gun = sanitizeGun(options.gun, this.log);
+    const shift = sanitizeShift(options.shift, this.log);
     this.joinCounter += 1;
     // The blank-callsign fallback is resolved HERE and carried on the seat:
     // the arena's own CAPTAIN-n counts ITS joins, so letting it re-draw would
@@ -173,7 +173,7 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     // sanitizeName unchanged, so the roster name IS the arena name.
     const name = arenaOptions.name ?? `CAPTAIN-${this.joinCounter}`;
     arenaOptions.name = name;
-    this.seats.set(client.sessionId, { client, options: arenaOptions, gun });
+    this.seats.set(client.sessionId, { client, options: arenaOptions, shift });
     const captain = this.policy.onJoin(client.sessionId, name);
     const row = new LobbyPlayer();
     row.id = client.sessionId;

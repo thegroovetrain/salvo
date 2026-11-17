@@ -12,10 +12,10 @@
 // THE THREE RATIFIED RULES THIS MODULE ENCODES
 //
 //  • AFLOAT counts CAPTAINS — every PARTICIPANT, the local player included
-//    (the public-register cycle, superseding amendment 19's all-hulls count:
-//    drones are not combatants). Story 6-5 widened "captains" from humans to
+//    (the public-register cycle, superseding amendment 19's all-hulls count).
+//    Story 6-5 widened "captains" from humans to
 //    participants: an AI captain holds a roster row and is counted, because it
-//    contests the match exactly as a human does. Fleet hulls never are. The
+//    contests the match exactly as a human does. The
 //    rule and its doctrine note live in score.ts
 //    (isAfloatHull), beside the rival count it remains half-asymmetric with.
 //  • THE RING READOUT IS A CONTINUOUS COUNTDOWN (amendment 26, superseding
@@ -29,15 +29,17 @@
 //  • STORM INFORMATION WEARS THE STORM REGISTER (amendment 21): the ring segment
 //    is storm-readout violet, amber only inside the urgency window. The
 //    AFLOAT/KILLS/T+ numbers are phosphor tabular (Geist Mono is monospaced, so
-//    the figures are tabular for free) and their LABELS are dim-alpha phosphor —
-//    never `textMuted`, which amendment 17 retired for load-bearing HUD text.
+//    the figures are tabular for free). Their LABELS were dim-alpha phosphor
+//    until Story 10.10 (R13, O12) restyled the row into the battle consoles'
+//    register: the words are `textPrimary` now — never `textMuted` or
+//    `textSecondary`, which amendment 17 retired for load-bearing HUD text.
 
 import type { ZonePhase } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { textSafe } from '../util/color.js';
 import { ellipsizeName } from '../util/text.js';
 import { KILL_LEADER_MARK } from './bounty.js';
-import { monoTextWidth } from './refitCardFit.js';
+import { monoTextWidth } from '../util/monoMeasure.js';
 
 const CB = CLIENT_CONFIG.chromeBar;
 const C = CLIENT_CONFIG.colors;
@@ -178,10 +180,6 @@ export interface ChromeSegment {
  * lookup missed — either way the WHOLE segment (its separator included) is
  * omitted, because a bar that printed a bare `☠︎ ` with nothing after it
  * would be a register with no register.
- *
- * There is deliberately no drone case: a drone can never hold the throne (the
- * server counts CAPTAIN kills only), so the feed's "drone grey is pinned
- * verbatim, never run through textSafe" exception has no analogue here.
  */
 export interface BountyHolder {
   /** Roster callsign (mid-ellipsized here, at the one shared name cap). */
@@ -197,17 +195,10 @@ export interface ChromeBarView {
    *  phase lines own top-center. */
   visible: boolean;
   /** Captains still afloat — every participant (human OR AI), the local player
-   *  included (the public-register cycle; drones are excluded — score.ts
-   *  isAfloatHull). */
+   *  included (the public-register cycle — score.ts isAfloatHull). */
   afloat: number;
-  /** Own kills, the server-authoritative public roster tally — EVERY hull the
-   *  server credited, DRONES INCLUDED (the same number the results modal
-   *  reports). Never a client recount. HONEST CAVEAT: this denominator now
-   *  deliberately differs from the AFLOAT segment beside it — AFLOAT counts
-   *  captains only (the public-register cycle) while KILLS still counts every
-   *  hull, so a solo captain can read `1 AFLOAT · 5 KILLS` off five drone
-   *  kills. Whether KILLS should go captains-only awaits an owner ruling
-   *  (ledgered); until then the roster tally stands unchanged. */
+  /** Own kills, the server-authoritative public roster tally (the same number
+   *  the results modal reports). Never a client recount. */
   kills: number;
   /** Elapsed match time (ms) = serverNow − zoneStartT, clamped at 0. */
   matchMs: number;
@@ -251,12 +242,15 @@ function sep(): ChromeSegment {
   return { text: SEP, color: C.phosphor, alpha: CB.sepAlpha };
 }
 
-/** A phosphor NUMBER (full alpha) + its dim-phosphor LABEL, in that order. */
+/** A WORD of the row — `AFLOAT` / `KILLS` / the `T+` prefix: text-primary at
+ *  full alpha (Story 10.10, the consoles' register). */
+function word(text: string): ChromeSegment {
+  return { text, color: C.textPrimary, alpha: 1 };
+}
+
+/** A phosphor NUMBER (full alpha) + its text-primary WORD, in that order. */
 function readout(value: string, label: string): ChromeSegment[] {
-  return [
-    { text: value, color: C.phosphor, alpha: 1 },
-    { text: label, color: C.phosphor, alpha: CB.labelAlpha },
-  ];
+  return [{ text: value, color: C.phosphor, alpha: 1 }, word(label)];
 }
 
 /**
@@ -282,9 +276,9 @@ function bountyRegister(holder: BountyHolder | null): ChromeSegment[] {
  * Pure: the whole bar, as an ordered segment list.
  *
  * Order and register (the ratified mock, as amended): `n AFLOAT · n KILLS ·
- * T+mm:ss · <ring> · ☠︎ <NAME>`. The `T+` prefix is a LABEL (dim phosphor)
+ * T+mm:ss · <ring> · ☠︎ <NAME>`. The `T+` prefix is a WORD (text-primary)
  * and the clock after it is the number, so the three left-hand segments read
- * identically: bright value, dim caption.
+ * identically: phosphor value, text-primary caption.
  *
  * The bounty rides at the TAIL deliberately: it is the only OPTIONAL register
  * in the row, and appending it leaves the ten shipped segments at byte-
@@ -297,7 +291,7 @@ export function chromeBarSegments(view: ChromeBarView): ChromeSegment[] {
     sep(),
     ...readout(tally(view.kills), ' KILLS'),
     sep(),
-    { text: 'T+', color: C.phosphor, alpha: CB.labelAlpha },
+    word('T+'),
     { text: fmtBarClock(view.matchMs), color: C.phosphor, alpha: 1 },
     sep(),
     { text: view.ring.text, color: view.ring.urgent ? C.amber : C.stormReadout, alpha: 1, pulsed: true },
@@ -327,7 +321,7 @@ export interface ChromeBarLayout {
 /**
  * Pure: lay the segments out as one contiguous row CENTERED on `screenW / 2`.
  *
- * Widths come from the repo's mono width MODEL (refitCardFit's
+ * Widths come from the repo's mono width MODEL (util/monoMeasure.ts
  * `monoTextWidth` — chars × 0.605em + letter-spacing) rather than from a Pixi
  * measurement. Two reasons, in order of importance: it is the SAME model the
  * container-fit law's pins use, so the fit proof and the actual layout can never

@@ -21,11 +21,9 @@ import {
   isAfloat,
   CONFIG,
   SLOT_GUN,
-  WEAPON_SLOTS,
   effectiveStats,
-  consumableSlotFor,
+  familySlotFor,
   equipmentMaxAmmo,
-  isConsumableId,
   type Catalog,
   type CatalogLine,
   type HookRegistry,
@@ -36,7 +34,7 @@ import { buildFrame } from '../game/frames.js';
 
 const DT = CONFIG.tick.simDtMs;
 
-// NINE FIXED-ROLE SLOTS (Story 8.5): [gun, boost, weapon x3, consumable x4],
+// FIVE FIXED-ROLE SLOTS (Story 10.5): [gun, boost, torpedo, mine, shell],
 // the same shape on every captain hull. `SLOT_EXTRA` is gone with the old
 // four-slot loadout.
 //
@@ -46,8 +44,17 @@ const DT = CONFIG.tick.simDtMs;
 // the same way before, for a different reason (TEST_CATALOG, injected below,
 // is deliberately content-free and carried none of the shipped weapon lines),
 // which is exactly the content-independence these pins are built on.
-/** Where this suite's one slotFill card lands on the fixture. */
-const SLOT_FILL = WEAPON_SLOTS[0];
+/** Where this suite's hand-fit pool weapon sits: the SPECIAL-SHELL family
+ *  slot. (It was the torpedo slot until Story 10.6, when the torpedo's pool
+ *  became the summary of its LAUNCHERS — the generic pool clamp / top-up
+ *  under test no longer runs on it.) */
+const POOL_WEAPON = 'starShells' as const;
+const SLOT_FILL = familySlotFor(POOL_WEAPON)!;
+/** Where the `bolterRack` slotFill (naval mines) lands: the MINE family slot
+ *  (Story 10.5 — a slotFill goes to its family's slot, not the first empty). */
+const MINE_SLOT = familySlotFor('navalMines')!;
+/** Where the OMNI card's star shells land: the special-SHELL family slot. */
+const SHELL_SLOT = familySlotFor('starShells')!;
 /** The full SLOT_COUNT id list: the fitted ids in slot order, then nulls. */
 const ids = (...fitted: (string | null)[]): (string | null)[] => [
   ...fitted,
@@ -78,26 +85,24 @@ const BEHAVIOR_CARD = line('surgeProtocol', [{ kind: 'behavior', hookId: 'surge'
 const STAT_CARD = line('ironPlating', [{ kind: 'stat', path: 'maxHp', add: 40 }]);
 const FILL_CARD = line('bolterRack', [{ kind: 'slotFill', equipmentId: 'navalMines' }]);
 
-/** ONE line carrying FOUR effect kinds at once (the story's acceptance shape):
- *  a stat, a slot fill, a behavior hook and a consumable stock — which STOPPED
- *  being ignored in Story 8.7: the `stock` now lands a one-copy stack in the
- *  first belt slot, and the assertions below say so. */
+/** ONE line carrying THREE effect kinds at once (the story's acceptance
+ *  shape): a stat, a slot fill and a behavior hook (the consumable `stock`
+ *  kind left with the kit, Story 10.5). */
 const OMNI_CARD = line('omni', [
-  // `radarRange`, not `sightRange`: truesight became DERIVED at the Intel
-  // Range merge and left BOON_STAT_PATHS, so a sight-addressing line no longer
-  // type-checks. Widening radar here still exercises a stat effect AND now
-  // proves the derivation reaches sightRange through applyCard (asserted below).
+  // `radarRange`, not `sightRange`: truesight left BOON_STAT_PATHS at the
+  // Intel Range merge, so a sight-addressing line no longer type-checks.
+  // Widening radar here exercises a stat effect through applyCard. (Sight no
+  // longer derives from radar — it is its own pinned fact since Story 11.2.)
   { kind: 'stat', path: 'radarRange', mult: 1.25 },
   { kind: 'slotFill', equipmentId: 'starShells' },
   { kind: 'behavior', hookId: 'surge', params: { bonus: 20 } },
-  { kind: 'stock', equipmentId: 'hullRepair' },
 ]);
 
 /** Pool-cap movers: a raiser (+3 tubes) and, applied AFTER it, a shrinker
  *  (-2) — the only way to LOWER a cap below a live pool, since every shipped
  *  pool is 1. */
-const WIDE_TUBES = line('deepMagazine', [{ kind: 'stat', path: 'equipment.heavyTorpedo.maxAmmo', add: 3 }]);
-const NARROW_TUBES = line('crampedMagazine', [{ kind: 'stat', path: 'equipment.heavyTorpedo.maxAmmo', add: -2 }]);
+const WIDE_TUBES = line('deepMagazine', [{ kind: 'stat', path: 'equipment.starShells.maxAmmo', add: 3 }]);
+const NARROW_TUBES = line('crampedMagazine', [{ kind: 'stat', path: 'equipment.starShells.maxAmmo', add: -2 }]);
 /** A maxHp-LOWERING card (the hp invariant's only trigger). */
 const FRAIL_HULL = line('strippedArmor', [{ kind: 'stat', path: 'maxHp', mult: 0.5 }]);
 
@@ -128,7 +133,7 @@ function bareWorld(seed = 1, opts: WorldOptions = OPTS): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
+function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'bismarck'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
@@ -142,7 +147,7 @@ function place(w: World, id: string, x: number, y: number, hull: ShipClassId = '
  *  either, so the pool-cap cases (which address `equipment.heavyTorpedo`)
  *  write the slot directly — exactly what `applySlotEffect` would write. What
  *  they pin is the CLAMP/TOP-UP on a fitted pool, not how it got fitted. */
-function fitWeapon(ship: ShipRecord, id: 'heavyTorpedo'): void {
+function fitWeapon(ship: ShipRecord, id: typeof POOL_WEAPON): void {
   ship.loadout[SLOT_FILL] = {
     equipmentId: id,
     state: { n: equipmentMaxAmmo(ship.stats, id), reloadMsLeft: 0 },
@@ -165,12 +170,12 @@ describe('behavior card — the kinematics hook executes in the REAL world tick'
     w.applyCard(a, 'surgeProtocol');
     a.input.throttle = 1;
     c.input.throttle = 1;
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 400; i++) {
       w.step();
       control.step();
     }
     const bonus = 20;
-    const base = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const base = effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed;
     expect(c.state.speed).toBeCloseTo(base, 6); // control capped at class max
     expect(a.state.speed).toBeCloseTo(base + bonus, 6); // hook raised the cap
     expect(a.state.x).toBeGreaterThan(c.state.x + 1); // measurable position change
@@ -212,11 +217,11 @@ describe('behavior card — the kinematics hook executes in the REAL world tick'
     w.applyCard(a, 'surgeProtocol');
     a.input.throttle = 1;
     a.boostUntil = Number.MAX_SAFE_INTEGER; // hold the bespoke boost window open
-    for (let i = 0; i < 200; i++) w.step();
+    for (let i = 0; i < 400; i++) w.step();
     // Story 8.9 / amendment 55: the boost pays a PROPORTION of the post-fold
     // max (factor x maxSpeed), not a flat u/s; the hook's +20 still lands on
     // top, additively, because it composes AFTER.
-    const tbMax = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const tbMax = effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed;
     const expected = tbMax + tbMax * CONFIG.boost.factor + 20;
     expect(a.state.speed).toBeCloseTo(expected, 6);
   });
@@ -236,7 +241,7 @@ describe('World.applyCard — two homes, nothing else', () => {
     w.applyCard(a, 'ironPlating');
     expect(a.cards).toEqual(['ironPlating']);
     expect(a.stats).toEqual(effectiveStats(a.cls, ['ironPlating'], TEST_CATALOG));
-    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
+    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.bismarck.hp + 40);
     expect(a.loadout).toBe(loadoutRef); // same array
     a.loadout.forEach((s, i) => {
       expect(s).toBe(slotRefs[i]); // same slot objects
@@ -252,8 +257,8 @@ describe('World.applyCard — two homes, nothing else', () => {
     const statsBefore = a.stats;
     w.applyCard(a, 'bolterRack');
     expect(a.stats).toEqual(statsBefore); // recomputed, but byte-identical (no stat effect)
-    expect(a.loadout[SLOT_FILL].equipmentId).toBe('navalMines');
-    expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout[MINE_SLOT].equipmentId).toBe('navalMines');
+    expect(a.loadout[MINE_SLOT].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 0, reloadMsLeft: 1234 }); // untouched
   });
 
@@ -281,41 +286,39 @@ describe('World.applyCard — two homes, nothing else', () => {
     }).toEqual(before);
   });
 
-  it('ONE card carrying FOUR effect kinds: stats via effectiveStats, slots in the one loadout, behavior per-tick, nothing else (story AC)', () => {
+  it('ONE card carrying THREE effect kinds: stats via effectiveStats, slots in the one loadout, behavior per-tick, nothing else (story AC)', () => {
     const w = bareWorld(3);
     const control = bareWorld(3);
     const a = place(w, 'a', 0, 0); // TB under TEST_CATALOG: [gun, boost, empty x7]
     const c = place(control, 'a', 0, 0);
     a.hp = 42;
     w.applyCard(a, 'omni');
+    // Nothing else — hp untouched by application (the R8 passive regen, Story
+    // 10.5, heals the hull over the 400 ticks below, so this reads here).
+    expect(a.hp).toBe(42);
     // Home 1 — stats: exactly the effectiveStats fold (sight boon included).
     expect(a.stats).toEqual(effectiveStats(a.cls, ['omni'], TEST_CATALOG));
     expect(a.stats.radarRange).toBeCloseTo(CONFIG.vision.radar * 1.25, 9);
-    // The whole point of the merge: truesight is the 4/12 rung (radar / 3 since
-    // Story 9.8, amendment 103), so it MOVED with radar through the one
-    // derivation rather than needing its own card.
-    expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 3, 9);
-    // Home 2 — slots: BOTH slot effects landed in the one structure, each in
-    // its own row (Story 8.7). The `slotFill` took the first WEAPON slot; the
-    // `stock` took its kind's fixed slot as a fresh one-copy stack that never
-    // reloads. Neither can reach the other's row.
-    // Since Story 9.2 the stock lands in HULL REPAIR's own fixed slot.
-    const expected: (string | null)[] = ['gun', 'boost', 'starShells', ...new Array<null>(SLOT_COUNT - 3).fill(null)];
-    expected[consumableSlotFor('hullRepair')!] = 'hullRepair';
+    // (ASSERTION RETIRED 2026-11-12 — Story 11.2, a ruling recorded in the
+    // epic-11 amendments: "sightRange = radar / 3" pinned the twelfths ladder;
+    // sight is its own hectometer fact now and no longer moves with radar.)
+    // Home 2 — slots: the `slotFill` took its FAMILY's slot (the special
+    // shell slot, Story 10.5) in the one structure.
+    const expected: (string | null)[] = new Array<null>(SLOT_COUNT).fill(null);
+    expected[SLOT_GUN] = 'mainBattery';
+    expected[1] = 'boost';
+    expected[SHELL_SLOT] = 'starShells';
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(expected);
-    expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
-    expect(a.loadout[consumableSlotFor('hullRepair')!].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[SHELL_SLOT].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
     // Hooks — the behavior effect executes on the real tick (outruns control).
     a.input.throttle = 1;
     c.input.throttle = 1;
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 400; i++) {
       w.step();
       control.step();
     }
-    expect(a.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 20, 6);
+    expect(a.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed + 20, 6);
     expect(a.state.x).toBeGreaterThan(c.state.x + 1);
-    // Nothing else — hp untouched by application (42 minus nothing; no damage here).
-    expect(a.hp).toBe(42);
   });
 
   it('an id the catalog cannot resolve is REFUSED outright — it never even reaches `cards` (fail-closed)', () => {
@@ -332,24 +335,23 @@ describe('World.applyCard — two homes, nothing else', () => {
     expect(a.cards).toEqual([]);
     expect(a.stats).toEqual(statsBefore);
     expect(ammoStates(a)).toEqual(ammoBefore);
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('mainBattery', 'boost'));
   });
 
   it('a cap-LOWERING stat card clamps the live pool DOWN to the new cap', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB under TEST_CATALOG: [gun, boost, empty x7]
-    fitWeapon(a, 'heavyTorpedo');
-    w.applyCard(a, 'deepMagazine'); // torpedo cap 1 -> 4
-    expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
-    a.loadout[SLOT_FILL].state!.n = 4; // a full, widened pool
-    w.applyCard(a, 'crampedMagazine'); // cap 4 -> 2
-    expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 1);
-    expect(a.loadout[SLOT_FILL].state!.n).toBe(2); // clamped, never above the cap
-    // The invariant holds for EVERY fitted slot, not just the moved one — and
-    // a BELT slot is skipped through the shared narrowing guard (Story 8.7: a
-    // consumable stack has no stats row and no cap to clamp to).
+    fitWeapon(a, POOL_WEAPON);
+    const base = a.stats.equipment.starShells.maxAmmo;
+    w.applyCard(a, 'deepMagazine'); // cap base -> base + 3
+    expect(a.stats.equipment.starShells.maxAmmo).toBe(base + 3);
+    a.loadout[SLOT_FILL].state!.n = base + 3; // a full, widened pool
+    w.applyCard(a, 'crampedMagazine'); // cap -> base + 1
+    expect(a.stats.equipment.starShells.maxAmmo).toBe(base + 1);
+    expect(a.loadout[SLOT_FILL].state!.n).toBe(base + 1); // clamped, never above the cap
+    // The invariant holds for EVERY fitted slot, not just the moved one.
     for (const slot of a.loadout) {
-      if (slot.equipmentId === null || isConsumableId(slot.equipmentId)) continue;
+      if (slot.equipmentId === null) continue;
       expect(slot.state!.n).toBeLessThanOrEqual(equipmentMaxAmmo(a.stats, slot.equipmentId));
     }
   });
@@ -357,14 +359,15 @@ describe('World.applyCard — two homes, nothing else', () => {
   it('a cap-RAISING stat card fills the pool to the new cap (amendment 41 — everything arrives loaded; FLIPS the 2.5 no-top-up pin)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    fitWeapon(a, 'heavyTorpedo');
+    fitWeapon(a, POOL_WEAPON);
+    const base = a.stats.equipment.starShells.maxAmmo;
     a.loadout[SLOT_FILL].state!.n = 0;
-    a.loadout[SLOT_FILL].state!.reloadMsLeft = 900; // mid-reload, empty tubes
-    w.applyCard(a, 'deepMagazine'); // cap 1 -> 4
-    expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
+    a.loadout[SLOT_FILL].state!.reloadMsLeft = 900; // mid-reload, empty pool
+    w.applyCard(a, 'deepMagazine'); // cap base -> base + 3
+    expect(a.stats.equipment.starShells.maxAmmo).toBe(base + 3);
     // The raise arrives loaded: the pool fills to the NEW cap immediately
     // (the reload timer keeps running toward nothing — it settles at full).
-    expect(a.loadout[SLOT_FILL].state!.n).toBe(CONFIG.torpedo.maxAmmo + 3);
+    expect(a.loadout[SLOT_FILL].state!.n).toBe(base + 3);
   });
 
   it('a maxHp-LOWERING stat card clamps hp to the new cap; a RAISING one still does not heal', () => {
@@ -393,13 +396,13 @@ describe('World.applyCard — two homes, nothing else', () => {
     expect(a.cards).toEqual([]);
     expect(a.stats).toEqual(statsBefore);
     expect(ammoStates(a)).toEqual(ammoBefore);
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('mainBattery', 'boost'));
   });
 
   it('REPEATED ids stack by occurrence up to the line CAP: copy 2 of a cap-2 line folds its tier, copy 3 buys nothing', () => {
     const w = bareWorld(1, { hookRegistry: TEST_HOOKS, catalog: LADDER_CATALOG });
     const a = place(w, 'a', 0, 0);
-    const base = CONFIG.shipClasses.torpedoBoat.hp;
+    const base = CONFIG.shipClasses.bismarck.hp;
     w.applyCard(a, 'twinPlating');
     expect(a.stats.maxHp).toBe(base + 40);
     w.applyCard(a, 'twinPlating');
@@ -429,10 +432,10 @@ describe('lifecycle — redeployShip and respawn both preserve the build', () =>
     for (let i = 0; i < ticks; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.cards).toEqual(['ironPlating', 'bolterRack']);
-    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
+    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.bismarck.hp + 40);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp, card fold included
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost', 'navalMines'));
-    expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('mainBattery', 'boost', null, 'navalMines'));
+    expect(a.loadout[MINE_SLOT].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
   });
 
   // THE TRUTH FLIPPED (Story 8.10 review, P1): the activation redeploy used to
@@ -450,7 +453,7 @@ describe('lifecycle — redeployShip and respawn both preserve the build', () =>
     expect(a.cards).toEqual(['ironPlating', 'bolterRack']);
     expect(a.stats).toEqual(effectiveStats(a.cls, ['ironPlating', 'bolterRack'], TEST_CATALOG));
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp, card fold included
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost', 'navalMines'));
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('mainBattery', 'boost', null, 'navalMines'));
     // ...and the per-tick fold is rebuilt, not stale: these two cards carry no
     // kinematics hook, so the hull still runs the identity path against a
     // card-less control (the behaviors cache was re-derived, not carried

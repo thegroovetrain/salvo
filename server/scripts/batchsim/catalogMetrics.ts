@@ -56,10 +56,10 @@
 //    analytically over CONFIG; this measures what actually lands. Damage is
 //    aggregated PER VICTIM PER TICK because a multi-barrel gun click is N
 //    separate bursts (N separate DamageEvents) inside one tick — the "does the
-//    max BARREL click one-shot a 45hp small drone" question is a TICK question,
+//    max BARREL click one-shot a hull" question is a TICK question,
 //    not an event question, and both readings are reported separately.
 
-import { CONFIG, type ShellState } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, type ShellState } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import { contactBlastRadius } from '../../src/game/equipment/mines.js';
 
@@ -72,6 +72,16 @@ const AMOUNT_EPS = 1e-6;
 function rawSources(): { label: string; amount: number }[] {
   const tickS = CONFIG.tick.simDtMs / 1000;
   return [
+    // THE MAIN BATTERY (Story 10.4): one row per distinct per-hull shell
+    // damage (R2 — every row a `mainBattery` label, so a 24 and a 27 both
+    // classify) and the secondaries' round. (Its 18 hp bodyblock row retired
+    // with the blast, 2026-11-13, epic-11 amendment 8: direct hits only.) These are the
+    // captain's guns; the deck-gun `gun` rows are kept for reference (amendment 6).
+    ...[...new Set(SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].battery.shellDamage))].map((amount) => ({
+      label: 'mainBattery',
+      amount,
+    })),
+    { label: 'secondaries', amount: CONFIG.secondaries.damage },
     { label: 'gun', amount: CONFIG.gun.damage },
     { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
     // Story 8.15: the two pickable guns. The machine gun's direct shell deals
@@ -81,28 +91,23 @@ function rawSources(): { label: string; amount: number }[] {
     // collide AT TIER I; the merge-by-amount below stays, so any future
     // collision still prints as one merged label rather than a silent mislabel.
     // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
-    // so a laddered or attenuated hit is classified by first match on its
-    // amount — a DamageEvent names neither its weapon nor its shell family, so
-    // this ledger cannot key on family the way classifyShell's LAUNCH ledger
-    // does (that would need a field on the wire event, i.e. server/src). Since
-    // Story 9.12 (Eric 2026-10-16, epic-9 amendment 184) EVERY deck-gun blow
-    // is range-attenuated (to `gunAttenuation.minFactor` at range — the dial,
-    // not a number here) unless aimed into the firer's own light (amendment
-    // 187), and a flak burst falls to HALF at the rim (`flak.rimFactor`), so
-    // only a near or lit, dead-centre hit lands on its bare-amount row. A Tier
-    // III flak burst (20) files under `starShells` (20); an attenuated cannon
-    // or machine-gun blow (floor(D × factor)) files under whichever base
-    // amount it happens to equal — at the 2026-10-17 dial (0.5) a Tier I
-    // cannon shell at max range lands 4 and files under `flakBodyblock`;
-    // anything else files by first match or under `other:<amount>`. Harness attribution only; the fix (classify by
-    // shell family, not amount) is in deferred-work.md.
+    // so a laddered hit is classified by first match on its amount — a
+    // DamageEvent names neither its weapon nor its shell family, so this
+    // ledger cannot key on family the way classifyShell's LAUNCH ledger does
+    // (that would need a field on the wire event, i.e. server/src). A flak
+    // burst falls to HALF at the rim (`flak.rimFactor`), so only a
+    // dead-centre flak hit lands on its bare-amount row; a Tier III flak burst
+    // (20) files under `starShells` (20); anything else files by first match
+    // or under `other:<amount>`. (Range attenuation, which also moved deck-gun
+    // amounts, retired 2026-11-12, Story 11.1: deck-gun blows are flat with
+    // range.) Harness attribution only; the fix (classify by shell family,
+    // not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
     { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
     { label: 'broadside', amount: CONFIG.broadside.damage },
     { label: 'torpedo', amount: CONFIG.torpedo.damage },
     { label: 'mine', amount: CONFIG.mine.damage },
-    { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
     // The storm is a RAMP since 2026-10-07 (Story 9.1): one row per distinct
     // rung, all labelled `storm`, so a bite at any close classifies as storm.
     ...[...new Set(CONFIG.zone.stormDps)].map((dps) => ({ label: 'storm', amount: dps * tickS })),
@@ -164,7 +169,9 @@ export type ClassifiedShell = Pick<ShellState, 'kind' | 'damage' | 'family' | 't
  *  never by amount: a machine-gun shell and a flak shell are unambiguous even
  *  where their damage collides with another source. */
 export function classifyShell(shell: ClassifiedShell): string {
-  if (shell.family === 'mg') return 'machineGun';
+  // Story 10.4: the only `mg` rounds left in play are the SECONDARIES (no
+  // hull mounts the machine gun any more).
+  if (shell.family === 'mg') return 'secondaries';
   if (shell.family === 'flak') return 'flak';
   // A CAPTIVE MINE's torpedo is filed by its HIT RULE, never its damage: it
   // is the game's one CONTACT-BLAST projectile (point-less yet carrying a
@@ -202,8 +209,7 @@ export interface CatalogSample {
    *  defensively (`?? {}`), like `bots` on MatchSample. */
   fitsByClass?: Record<string, Record<string, number>>;
   /** spender label -> boon id -> fits. The label is a bot's PROFILE id (an
-   *  in-game or test-only row), or the ship's role ('captain'; 'fleet' is
-   *  structurally empty — fleet hulls never draw) — so a blind-vacuum run
+   *  in-game or test-only row), or the ship's role ('captain') — so a blind-vacuum run
    *  reads per-test-row and a mixed lobby splits policy from policy. Same
    *  optionality as fitsByClass. */
   fitsByProfile?: Record<string, Record<string, number>>;
@@ -212,9 +218,8 @@ export interface CatalogSample {
   hp: Record<string, number>;
   /** ordnance label -> projectiles spawned. */
   launched: Record<string, number>;
-  /** mines laid / decoys deployed (not projectiles — counted by id diff). */
+  /** mines laid (not projectiles — counted by id diff). */
   minesLaid: number;
-  decoysDeployed: number;
   /** largest SINGLE DamageEvent, and largest per-victim PER-TICK total. */
   maxEventDamage: number;
   maxTickDamage: number;
@@ -238,9 +243,9 @@ export interface CatalogSample {
    *  max (2 barrels x 13 at CANNON tier V, near — Eric 2026-10-16, Story
    *  9.12; two barrels at every tier), but THIS METRIC CANNOT SEE IT: a hit
    *  counts as 'gun' only at the bare amount (`CONFIG.gun.damage`, 8), so
-   *  laddered (10–13) or range-attenuated cannon shells file under another
-   *  label or `other:<amount>` and the only multi-barrel click it records is
-   *  the near Tier I twin (2 x 8 = 16). Attribution by shell family is open
+   *  laddered (10–13) cannon shells file under another label or
+   *  `other:<amount>` and the only multi-barrel click it records is the Tier
+   *  I twin (2 x 8 = 16). Attribution by shell family is open
    *  work (deferred-work.md, 2026-10-02 review gate). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
@@ -258,7 +263,6 @@ const emptySample = (): CatalogSample => ({
   hp: {},
   launched: {},
   minesLaid: 0,
-  decoysDeployed: 0,
   maxEventDamage: 0,
   maxTickDamage: 0,
   maxTickByHull: {},
@@ -295,7 +299,6 @@ export class CatalogCollector {
   private readonly seenBoons = new Map<string, number>();
   private readonly seenShells = new Set<string>();
   private readonly seenMines = new Set<string>();
-  private readonly seenDecoys = new Set<string>();
 
   observe(world: World, active: boolean): void {
     if (!active) return;
@@ -345,11 +348,6 @@ export class CatalogCollector {
       if (this.seenMines.has(id)) continue;
       this.seenMines.add(id);
       this.sample.minesLaid += 1;
-    }
-    for (const id of world.decoys.keys()) {
-      if (this.seenDecoys.has(id)) continue;
-      this.seenDecoys.add(id);
-      this.sample.decoysDeployed += 1;
     }
   }
 
