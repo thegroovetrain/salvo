@@ -12,24 +12,24 @@ so that I can steer close in and pick smart targets.
 
 Eric, 2026-11-18, verbatim (the sitting, `/gds-create-story 12-3` args): *"1) ships currently have cyan or red for their graphical linework, and I think I hate this. Change all the linework for all ships to black. | 2) the square brackets that we added around ships when zoomed out should be applied to all ships at all zoom levels whenever they are in visible sight. | 3) After removing the 12ths ladder the radar returns no longer get a decreased alpha as they approach close to one's ship, this needs to be investigated/fixed because it is making it difficult to know where to steer in close proximity to my ship. | 4) I'd like the player's name to never be bigger (sizewize/horizontally) than the square brackets from, so i'd like to scale the text to that. Between the name and the brackets, i'd like a smaller line of text that says the ship's condition … | 5) Special Shell effect area needs to be shown around my targeting cursor while I am aiming it. ||| Lets attack those first and then discuss the HUD."*
 
-He then reworked item 4 in chat: *"I want **some** indicator of the enemy ship's relative health in addition to the smoke and fire, so that I can make smart target selection decisions."* He picked **A2, a segmented bar** (*"Segmented bar is smart"*), *"80px cap. Still A2. Give the name, the boxes, and the brackets a **slight** glow in their color."* The approved look is the bench page https://claude.ai/artifact/4W7YtZfCvKp5nBpmP9VsLx (v3, the A2 row at the 80 px cap). Its reference code is the `ship()` / `bar()` / `bracket()` / `fitName()` functions on that page.
+He then reworked item 4 in chat: *"I want **some** indicator of the enemy ship's relative health in addition to the smoke and fire, so that I can make smart target selection decisions."* He picked **A2, a segmented bar** (*"Segmented bar is smart"*), *"80px cap. Still A2. Give the name, the boxes, and the brackets a **slight** glow in their color."* He then ruled the name minimum (*"I want to see the names always but the smallest it can be is a 4x8 size"*, then *"5x7 font minimum?"* → *"I like it"*) and the line color (*"Instead of flat black, how about dark gray? Say, #212121?"*). **Approved** (*"This is correct. Approved."*): the bench page https://claude.ai/artifact/4W7YtZfCvKp5nBpmP9VsLx **v12**: one zoomable scene, only the picked look. Its reference code is `ship()` / `bar()` / `bracket()` / `fitName()` / `pixelText()` / the `PIX` 5×7 glyph table on that page.
 
 Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyone has ever. Armor is the only mechanic behind which you get tougher, but that is Effective HP, not an actual boost to max HP."* So the bar is hull points out of 1,000. There is no "percent vs absolute" question.
 
 ## Scope
 
-- **Part A, this build (ruled):** items 1–5 below.
+- **Part A, this build (ruled and approved on the bench):** items 1–5 below.
 - **Part B, the HUD redesign (`[unruled]`):** Eric: "then discuss the HUD". A separate sitting renders candidates from the real HUD code, Eric picks, and DESIGN.md is updated to the pick. It is built as a follow-up cycle on this story, never inside the Part A PR.
 - **Zoom / panning:** Eric listed no zoom or panning tweak at the sitting, so none is built. Item 2 changes the brackets, not the camera.
 - **Deferred radar stories 11.4 / 11.10 stay deferred** (epic-12 amendment 1(e)). Item 3 is a regression fix, not a revival.
 
 ## Acceptance Criteria
 
-### 1. Black hull linework
+### 1. Dark-gray hull linework
 
-1. Every line of every ship's hull art draws in black (`CLIENT_CONFIG.colors.black`, 0x000000), on your own hull and on every other hull alike. That covers the bold outline, the deck lines, the turrets and barrels, and the torpedo launchers: everything `deckContext` / `outlineContext` / `turretContext` / `launcherContext` (`client/src/render/hullArt/pixiArt.ts`) strokes. Fills stay the hull's skin (`CLIENT_CONFIG.skins`), unchanged.
+1. Every line of every ship's hull art draws in dark gray **#212121** (a new token, e.g. `CLIENT_CONFIG.colors.hullLine` 0x212121; Eric changed it from flat black), on your own hull and on every other hull alike. That covers the bold outline, the deck lines, the turrets and barrels, and the torpedo launchers: everything `deckContext` / `outlineContext` / `turretContext` / `launcherContext` (`client/src/render/hullArt/pixiArt.ts`) strokes. Fills stay the hull's skin (`CLIENT_CONFIG.skins`), unchanged.
 2. The relation colors (own cyan 0x00e8ff, enemy red 0xff2a2a) are **kept** on the corner brackets and the names (Eric: "Keep cyan own / red enemy"). They also stay unchanged on wakes, the kill feed, results, buoy markers and contact FX: Eric named only hull linework. `relationStroke` keeps its meaning. The hull simply stops reading it for its lines.
-3. The same black-line rule applies wherever the game draws a ship's hull art: in a match, the home-screen ambient scene (`ambient.ts`), and the DOM SVG hull art (`hullArt/svgArt.ts`, used by `ui/home.ts` and `ui/classSelect.ts`). **Reading of record, for Eric's veto:** "all the linework for all ships" is taken literally, so the menus change too.
+3. The same dark-gray line rule applies wherever the game draws a ship's hull art: in a match, the home-screen ambient scene (`ambient.ts`), and the DOM SVG hull art (`hullArt/svgArt.ts`, used by `ui/home.ts` and `ui/classSelect.ts`). **Reading of record, for Eric's veto:** "all the linework for all ships" is taken literally, so the menus change too.
 4. `FALLBACK_STYLE` (amber hollow outline for a roster miss) is unchanged.
 
 ### 2. Brackets on every ship in sight, at every zoom
@@ -47,11 +47,12 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
 ### 4. Name fitted to the bracket + the hull health bar (A2)
 
 11. **Stacking order, top to bottom:** name, then health bar, then the bracket's top edge. The bar sits 3 px above the bracket and the name's baseline 4 px above the bar.
-12. **Name size.** The name never draws wider than the bracket (`2 × half` px). Its font size is `min(14 px hud-micro, the size at which the tracked uppercase name fits the bracket width)`. **Below 9 px the name hides** (Eric's pick). The 14-character `NAME_MAX` cap and mid-ellipsis (`plateText`) are unchanged. Names keep the relation color's text-safe variant (`plateColor`).
+12. **Name size: always shown.** While it fits, the name is the hud-micro mono at `min(14 px, the size at which the tracked uppercase name fits the bracket width 2 × half)`. When that size would drop below **9 px**, the name switches to a **5×7 pixel font** (5×7 glyph in a 6×8 cell, 1 px gaps, one screen px per font pixel, centered, no smoothing). **That is the floor:** the name never gets smaller and **never hides**. At the floor it may be wider than the bracket (a 14-letter name is 83 px). Eric ruled names always visible, with "no smaller than 5×7" winning over "never wider than the bracket" (the bench v12 is the look). The 14-character `NAME_MAX` cap and mid-ellipsis (`plateText`) are unchanged. Names keep the relation color's text-safe variant (`plateColor`).
+    - **Glyph coverage (reading of record, for Eric's veto):** the 5×7 table covers A–Z, 0–9, `_`, `-`, space (the bench's `PIX` table; add `.` and `'` if cheap). Accented letters fold to their base letter (NFD, strip combining marks). A name that still holds a character outside the table (emoji, CJK, …) is drawn in the hud-micro mono at the 9 px floor instead (also allowed to be wider than the bracket). Callsigns allow any non-control text (`sanitizeName`, `ui/home.ts:140`).
 13. **The bar: 4 blocks.** It is `min(2 × half, 80)` px wide (Eric's 80 px cap) and centered on the hull. It is 4 px tall with 2 px gaps between blocks. The bar **stays visible when the name is hidden** (shown on the bench at the zoomed-out panel, which Eric approved).
 14. **Block count** from hull fraction `f = hp / maxHp` (maxHp is always 1000): `blocks = min(4, floor(4f) + 1)` while afloat. That gives 4 at ≥ 75 %, 3 at ≥ 50 %, 2 at ≥ 25 %, and 1 below 25 %. **The steps land exactly where wounded smoke and fire change** (`CONFIG.damageBands` amberBelow 0.5 / criticalBelow 0.25, both "frac < x"), so the bar drops to 2 the instant smoke starts and to 1 the instant fire starts. *(Reading of record for Eric's veto: the bench text said "rounded up", which differs only at exactly 750 / 500 / 250 hp. This rule matches the smoke's own thresholds instead.)*
 15. **A2 colors.** Filled blocks are pale while healthy (4 or 3 blocks; bench `#d8e0e4`), **amber** at 2 (`CLIENT_CONFIG.colors.amber` 0xffb800), and **bright red** at 1 (bench `#ff4b3e`, a new client color token). Lost blocks are 1 px pale outlines at 0.3 alpha. The bar wears the hull's alpha, like the bracket.
-16. **Slight glow** (Eric): the name, the filled blocks and the brackets each get a soft glow in their **own** color, about 4 px of blur (the bench's `shadowBlur 4`). It is a client knob in `CLIENT_CONFIG` and never pulses. Lost-block outlines do not glow.
+16. **Slight glow** (Eric): the name (both fonts), the filled blocks and the brackets each get a soft glow in their **own** color, about 4 px of blur (the bench's `shadowBlur 4`). It is a client knob in `CLIENT_CONFIG` and never pulses. Lost-block outlines do not glow.
 17. **Shown on every ship in sight**, yours included (Eric: "All ships in sight"). Your own count comes from `OwnShip.hp`, already on the wire. An enemy's count comes from the new contact field below.
 18. **The wire.** The health step is appended **last and optional** on the sighted `Contact` row (`shared/src/types.ts`, after `lu`), for example `hb?: 1 | 2 | 3 | 4`, computed server-side by one pure shared function (e.g. `hullBlocks(hp, maxHp)` in `shared/src/sim`, its block count `4` in `CONFIG`). It rides that row and therefore **that row's own visibility gate** (sight at class reach): never a radar paint, never the anonymous plain/fog channels, never any event. **Not a seventh exception** (the `tu` / `lu` precedent). The perception invariant tests are extended to assert it never reaches a client outside the contact row's gate. No exact hp, fraction or damage amount ever rides the wire.
 19. **This reverses an old rule on purpose.** Epic-4 amendment 41 ("two named conditions is a state, not a number") and the `signals.ts` comment "Enemy hp … stay hidden" are superseded **for sighted hulls only**, by Eric 2026-11-18 (epic-12 amendment 2). Wounded smoke (`sm`) is unchanged in shape, reach and tiers. Update those source comments in the same PR.
@@ -70,21 +71,21 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
     - the **Corner Brackets** row (:328): every zoom, frames the hull, glow;
     - the **Nameplate** row (:317): fitted to the bracket, 9 px floor, glow;
     - a new **Hull Health Bar** row;
-    - the relation-linework notes (:80, :228): hull lines black, brackets and names keep cyan / red.
+    - the relation-linework notes (:80, :228): hull lines dark gray #212121, brackets and names keep cyan / red.
 26. How-to-Play copy is Eric's. Do not add a health-bar sentence.
 
 ## Tasks / Subtasks
 
 - [ ] **T0 Setup.** `npm install --include=dev && npm run build -w shared` in the worktree. Fetch `origin/development` and merge it in before starting (parallel-cycle collisions).
-- [ ] **T1 Black linework** (AC 1–4)
-  - [ ] Hull art takes black for its line color: `ShipView.setColors` / contacts.ts:310-322 / main.ts:2287 / ambient.ts:311 still pass the relation style, but the stroke handed to `deckContext`/`outlineContext`/`turretContext`/`launcherContext` is black. Prefer one seam, a `hullLineColor()` in `relationColor.ts`, over editing every call site.
-  - [ ] `svgArt.ts:129` line color goes black.
-  - [ ] `ShipView.bracketSource` must still hand the brackets the **relation** color, not the hull's black stroke. Today `out.color = this.style.stroke`, so split the two.
+- [ ] **T1 Dark-gray linework** (AC 1–4)
+  - [ ] Hull art takes dark gray #212121 for its line color: `ShipView.setColors` / contacts.ts:310-322 / main.ts:2287 / ambient.ts:311 still pass the relation style, but the stroke handed to `deckContext`/`outlineContext`/`turretContext`/`launcherContext` is the `hullLine` token. Prefer one seam, a `hullLineColor()` in `relationColor.ts`, over editing every call site.
+  - [ ] `svgArt.ts:129` line color goes to the `hullLine` token.
+  - [ ] `ShipView.bracketSource` must still hand the brackets the **relation** color, not the hull's dark-gray stroke. Today `out.color = this.style.stroke`, so split the two.
   - [ ] Update `relationColor.ts` / `ships.ts` / `palette.ts` header comments; re-record golden frames with dated notes.
 - [ ] **T2 Brackets everywhere** (AC 5–7). In `brackets.ts` + `chartMarks.ts`: drop the bracket alpha band, size the half-box per hull per frame (the pooled Graphics is drawn once in white px units, so draw it per size or scale only the tick geometry; mind the "ONE POOL, NO RE-STROKE" note), and grow the ticks. `bandAlpha` stays for pegs and icons if they use it.
 - [ ] **T3 Radar near fade** (AC 8–10). `dimSlideU` against `innerU`; optional fan cast to `innerU`. Update `dimFogSlide.test.ts` and the `dimWedge` tests. Add a regression test: a rain fan whose reach ends at 3,000 u still yields the full radial 0.2 → 1 ramp.
 - [ ] **T4 Wire + shared** (AC 14, 18–20). Pure `hullBlocks()` in shared (unit-tested at the exact 750/500/250 boundaries, plus 1000, 1 and 0), `CONFIG` block count, `Contact.hb` appended last, filled in `signals.ts`'s contact row, invariant tests extended, PV bump, and the barrel export.
-- [ ] **T5 Plate + bar** (AC 11–17). Extend `NameplateLayer` (or add a sibling `HullBars` pool on the plate layer) to fit the name to the bracket width per frame. Pixi re-rasterizes Text on a style change, so quantize the font size (e.g. 0.5 px steps) and only write on change. Hide below 9 px, draw the A2 bar, glow. Glow: Text via a zero-distance `dropShadow` (blur ≈ 4, own color); Graphics (brackets, blocks) via the drops.ts precedent of wider, low-alpha strokes underneath. No per-object filters.
+- [ ] **T5 Plate + bar** (AC 11–17). Extend `NameplateLayer` (or add a sibling `HullBars` pool on the plate layer) to fit the name to the bracket width per frame. Pixi re-rasterizes Text on a style change, so quantize the font size (e.g. 0.5 px steps) and only write on change. Below 9 px, switch to the 5×7 pixel font. Put the glyph table + layout in a pure module (e.g. `render/pixelFont.ts`, unit-tested: widths, fold, fallback). Build each name's pixel texture ONCE at latch, NEAREST scale mode, never per frame. Then draw the A2 bar and the glow. Glow: Text via a zero-distance `dropShadow` (blur ≈ 4, own color); Graphics (brackets, blocks) via the drops.ts precedent of wider, low-alpha strokes underneath. No per-object filters.
 - [ ] **T6 Special-shell preview** (AC 22–23). Reproduce, diagnose, render the before/after for Eric, then fix.
 - [ ] **T7 Docs + records.** DESIGN.md rows (AC 25); epic-12 amendment(s) for any build-time readings; `spec-12-3-*.md` cycle record; ONE-LINE stamps in both trackers; VERSION / package.json +1 patch (numbers at PR time).
 - [ ] **T8 Gate.** `npm run lint` explicitly, then `npm run check`. Run the headless smokes (`matchSmoke`, `weaponsSmoke`) on your own booted server with `HC_DEV_OPTIONS=1`, then kill both the PID and its tsx child. Run `tickCost.mjs` old vs new: a contact-row field adds per-tick work (memory: full-match tick cost before merge). Every test run has a hard wall-clock bound.
@@ -94,7 +95,7 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
 ### Current state of the files this story touches
 
 - **`client/src/render/relationColor.ts`**: the one place own/enemy color lives. `relationStyle(r)` returns `{stroke, fill}`, and today that stroke is used as the hull line color AND the bracket and plate color. That shared use is the seam to split.
-- **`client/src/render/ships.ts`** (499 LOC, near the cap): `ShipView.setColors(stroke, fill)` rebuilds the shared `GraphicsContext`s keyed by `(hull, lineColor)` (`pixiArt.ts` `cached(...)`). With black for every hull, all views share ONE context set per hull, which is fewer contexts than today. `bracketSource()` (:477) reports the pose, length, color and alpha.
+- **`client/src/render/ships.ts`** (499 LOC, near the cap): `ShipView.setColors(stroke, fill)` rebuilds the shared `GraphicsContext`s keyed by `(hull, lineColor)` (`pixiArt.ts` `cached(...)`). With one line color for every hull, all views share ONE context set per hull, which is fewer contexts than today. `bracketSource()` (:477) reports the pose, length, color and alpha.
 - **`client/src/render/brackets.ts`**: `HullBrackets` pools Graphics drawn ONCE at 16 px half / 6 px ticks in white and tinted per frame. A variable size breaks the "draw once" assumption. Options: one pooled Graphics per bracket re-drawn only when its quantized half changes, or four tick Graphics positioned per frame. Keep it cheap: a zoom-in frame with 16 hulls must not re-tessellate every frame.
 - **`client/src/render/chartMarks.ts`**: `bracketAlpha` (:41) is the fade being removed; `screenScale(zoom)` gives px scale in the camera-transformed chart layer.
 - **`client/src/render/nameplates.ts`**: screen-space `Text` per hull, latched once (text and color), then position and alpha per frame. `PLATE_FONT_PX` is a constant 14 today; per-frame fit means a font-size write, so diff and quantize it. `plateScreenY` floats the plate above the hull's bounding circle. The new layout floats it above the **bracket's** top edge instead (half px).
@@ -121,7 +122,7 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
 
 ### Testing (Eric's pyramid, functional style)
 
-- **Unit:** `hullBlocks` boundaries; bracket half / tick sizing as a pure function of hull length × zoom; name-fit size + 9 px hide; bar width cap; A2 color per block count; `dimSlideU` against `innerU`.
+- **Unit:** `hullBlocks` boundaries; bracket half / tick sizing as a pure function of hull length × zoom; name-fit size + the 9 px → 5×7 switch; the pixel-font layout (cell width 6, accent fold, unsupported-char fallback); bar width cap; A2 color per block count; `dimSlideU` against `innerU`.
 - **Integration:** perception invariants (`hb` only on the sighted contact row); the contact-row encoder carries `hb` for a sighted hull at each step.
 - **No tests that pin Eric's numbers as intent** (memory: no intent tests, no word-police, no coincidence pins). Test that the mechanism follows the CONFIG / CLIENT_CONFIG value.
 - Smokes e2e as in T8.
@@ -129,7 +130,7 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
 ### References
 
 - Sitting + rulings: this conversation, recorded as epic-12 amendment 2 (`_bmad-output/implementation-artifacts/epic-12-context-amendments.md`).
-- Bench (approved look): https://claude.ai/artifact/4W7YtZfCvKp5nBpmP9VsLx v3.
+- Bench (approved look): https://claude.ai/artifact/4W7YtZfCvKp5nBpmP9VsLx v12.
 - Story 11.8 brackets: epic-11 amendment 14; `spec-11-8-the-free-camera.md`.
 - Story 11.2 radar dim keep: epic-11 amendment 4(m); `spec-11-2-the-hectometer-ruler-and-real-reach.md`.
 - Amendment 210 (rain/smoke unmutes the dim): epic-9 amendments; commit fbaa0bb7.
