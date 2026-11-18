@@ -662,7 +662,7 @@ Eric's playtest-feedback epic, built in the order he listed his thoughts: four c
 **Standing constraints:** every number is Eric's (every forge figure a `[dial]` for the bench page); the client draws nothing it wasn't sent; nothing below the observer's gain leaves the server; a performance verdict comes from staging, never a dev build; visual candidates shown to Eric before commit; no in-game copy unasked; a design gap at review is an AskUserQuestion before the PR.
 
 ### Epic 12: The Ledger *(was Epic 11 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E12)*
-The match-data store, now, strictly for Eric's trends, balance and bot tuning from real matches: Render managed Postgres per environment behind `@colyseus/database`, absence-gated on `DATABASE_URL`, mounted behind the `AccountWriter` port that already receives a complete `MatchRecord` at every match end; every row anonymous (no callsign, no account column yet); a readout script rendering the harness's report shapes over live matches.
+The match-data store, now, strictly for Eric's trends, balance and bot tuning from real matches: Render managed Postgres per environment behind `@colyseus/database`, absence-gated on `DATABASE_URL`, mounted behind the `AccountWriter` port that already receives a complete `MatchRecord` at every match end; every row anonymous (no callsign, no account column yet); a readout script rendering the harness's report shapes over live matches. *(2026-11-18 — `sprint-change-proposal-2026-11-18.md`: two stories added — Story 12.3 The In-Game UI Pass, a side story (minor tweaks to the radar, ship visuals and zoom / panning; the in-game HUD redesigned), and Story 12.4 Airdrops and Radio Beacons (a change to both, more than visual); build order 12.3 → 12.4 → 12.1 → 12.2.)*
 **FRs covered:** none new — the server-side match record half of the GDD's Account progression section, anonymously · **Also:** AR22–AR25 (store half), NFR25–NFR27
 **Standing constraints:** the ledger never takes the game down; nothing in a tick awaits it; `world.ts` / `match.ts` keep zero persistence imports; `databases:` lands with the code that reads it, never ahead; PII rule on every log line.
 
@@ -3080,6 +3080,47 @@ So that I tune from what people actually did.
 **Then** `server/scripts/ledgerReport.mjs` reads the store (`DATABASE_URL` or `HC_DEV_DB=pglite`) and renders the harness's existing shapes over live matches — win and placement share by hull and by gun, hands offered vs taken by line, consumable use, humans vs bots, match duration and end cause — filterable by game version, date range and mode; text output in the harness's register, no web UI, no admin console (that is 13.7)
 **And** the report functions are pure over plain rows (unit-tested on fixtures); the script is documented beside the balance-sim how-to; nothing runs unprompted
 **And** no code under `game/` changes; no PV change.
+
+### Story 12.3: The In-Game UI Pass *(side story — inserted 2026-11-18, `sprint-change-proposal-2026-11-18.md`, epic-12 amendment 1; built FIRST, before 12.1; DESIGN SITTING FIRST)*
+
+As a captain,
+I want the radar, the ships, the camera and the HUD to look and feel right,
+So that the battle reads cleanly.
+
+Eric, 2026-11-18, verbatim: *"Minor tweaks to the radar, ship visuals, and zoom/panning. Redesign of in-game HUD (again, as I am unhappy with it even though its getting close). Also a change to airdrops and radio beacons."*
+
+**Before this story is created, a sitting with Eric lists each tweak** — what changes on the radar, the ship visuals, zoom / panning and the HUD. The airdrop / radio beacon half of his list is Story 12.4. Every item below is `[unruled]` until he names it. Visual candidates are rendered to an artifact for his yes before any is committed; the HUD redesign is rendered as options from the real HUD code, he picks.
+
+**Acceptance Criteria:**
+
+**Given** Eric's sitting list
+**When** the story lands
+**Then** each radar tweak he lists is built as he rules it `[unruled]`
+**And** each ship-visual tweak he lists is built as he rules it `[unruled]`
+**And** each zoom / panning tweak he lists is built as he rules it `[unruled]`
+**And** the in-game HUD is redesigned to the candidate he picks `[unruled]`, and DESIGN.md is updated to it in the same PR
+**And** no in-game copy is added unasked; readable values stay ≥ 13 px at 1080p.
+
+### Story 12.4: Airdrops and Radio Beacons *(inserted 2026-11-18, `sprint-change-proposal-2026-11-18.md`, epic-12 amendment 1; split from 12.3 by Eric — "more than just visual"; built after 12.3, before 12.1; DESIGN SITTING FIRST)*
+
+As a captain,
+I want the airdrops and the radio beacons to work the way Eric means them to,
+So that they play the way he intends.
+
+Eric, 2026-11-18, verbatim: *"Also a change to airdrops and radio beacons."* / *"12.4 for the airdrop/radio beacon changes, as those are more than just visual."*
+
+**Before this story is created, a sitting with Eric names the change** — to the airdrops (Story 10.9, epic-10 amendment 18) and to the radio beacons (Story 10.8, epic-10 amendment 14; 11.7 placement, epic-11 amendment 15). Every item below is `[unruled]` until he names it; every number is his. Any visual part is rendered for his yes before it is committed.
+
+**Acceptance Criteria:**
+
+**Given** Eric's sitting ruling
+**When** the story lands
+**Then** the airdrop change is built as he rules it `[unruled]`
+**And** the radio beacon change is built as he rules it `[unruled]`
+**And** the sim change lives in `shared` and `CONFIG`; a wire or client-read CONFIG change bumps PROTOCOL_VERSION; any new spatial event goes through perception with its invariant line (no seventh exception)
+**And** bots stay functional on what the change touches
+**And** the GDD is stamped with only what he ruled; How-to-Play copy is Eric's
+**And** no in-game copy is added unasked.
 
 ## Epic 13: The Front Door *(was Epic 12 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E13)*
 
