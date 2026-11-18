@@ -228,6 +228,25 @@ services:
       # Leave it UNSET to run staging wide open; the whole gate is inert then.
       - key: HC_STAGING_KEY
         sync: false
+      # THE MATCH LEDGER'S DATABASE (Story 12.1). With this set, every finished
+      # match (hull, Shift, placement, kills, upgrade choices — never a callsign,
+      # never an IP) is written to the `hullcracker-dev-db` Postgres declared at
+      # the bottom of this file. Unset = the ledger is OFF and the server behaves
+      # exactly as before it existed. The server never fails to boot over this:
+      # an unreachable database logs one `ledger.disabled` line and the game
+      # carries on without it.
+      #
+      # `fromDatabase` hands the service the database's PRIVATE-NETWORK URL, so
+      # the value is never in this file and never crosses the public internet.
+      #
+      # DELIBERATELY ABSENT FROM THE `hullcracker` BLOCK ABOVE (Eric
+      # 2026-11-18): production gets its own database and its own DATABASE_URL
+      # in a later PR, after the ledger has been QA'd here. Until then
+      # production runs the same code with no URL, so its ledger stays OFF.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hullcracker-dev-db
+          property: connectionString
       #
       # WHAT IS DELIBERATELY ABSENT HERE IS THE POINT, and it is the same
       # argument the two production blocks above make for themselves:
@@ -256,3 +275,31 @@ services:
       # HC_DEV_OPTIONS is unset. It is tempting on a QA box, but on '1' it opens
       # direct arena joins and honours client-supplied room overrides — QA must
       # exercise the same gate production runs.
+
+# THE MATCH LEDGER'S STORE (Story 12.1) — STAGING ONLY. Render managed Postgres
+# for the `hullcracker-dev` service's DATABASE_URL (above). The server applies
+# its own checked-in migrations (server/drizzle/) at boot; nothing here creates
+# tables.
+#
+# CREATED BY THE NEXT development -> main RELEASE, not by the merge into
+# development: the Blueprint syncs from `main` (see the top of this file). Until
+# then staging has no DATABASE_URL and its ledger is simply off.
+#
+# COST: plan `0.1c-256mb` is Render's smallest PAID Postgres (Blueprint spec,
+# render.com/docs/blueprint-spec; ~$6/month on render.com/pricing) plus storage
+# at ~$0.30 per GB-month. `diskSizeGB` is left at Render's default for this
+# plan (15 GB, roughly $4.50/month more); it can be raised later but never
+# lowered, and `1` is the smallest it can be declared.
+#
+# `ipAllowList: []` blocks EVERY public-internet connection: only Render's
+# private network (the staging service) can reach it. `region` must match the
+# services' and can never change after creation; neither can `name`.
+#
+# PRODUCTION'S DATABASE IS DELIBERATELY NOT DECLARED (Eric 2026-11-18): it
+# comes in a later PR, after staging QA. Adding an entry here CREATES a billed
+# database at the next sync to `main`.
+databases:
+  - name: hullcracker-dev-db
+    plan: 0.1c-256mb
+    region: oregon
+    ipAllowList: []

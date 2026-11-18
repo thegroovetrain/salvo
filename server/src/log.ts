@@ -65,6 +65,23 @@ export function logDebug(event: string, fields: LogFields = {}): void {
   emit('debug', event, fields);
 }
 
+/**
+ * Render a thrown value into log fields WITHOUT ever throwing ourselves:
+ * `String(err)` itself throws for prototype-less values (`throw
+ * Object.create(null)`), and a throw here would escape the tick-error
+ * containment straight into core's bare setInterval. Errors keep their
+ * message and a separate stack field for forensics. (Moved here from
+ * ArenaRoom in Story 12.1 so the ledger renders errors the same way.)
+ */
+export function describeError(err: unknown): LogFields {
+  if (err instanceof Error) return { error: err.message, stack: err.stack };
+  try {
+    return { error: String(err) };
+  } catch {
+    return { error: 'unstringifiable' };
+  }
+}
+
 export interface Logger {
   info(event: string, fields?: LogFields): void;
   warn(event: string, fields?: LogFields): void;

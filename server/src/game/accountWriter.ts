@@ -1,8 +1,10 @@
 // THE ACCOUNT WRITER PORT (Story 8.21) — where a finished match's
-// `MatchRecord` goes. This story ships the port and the NullWriter only: no
-// store, no queue, no retry, no env var. Epic 9 branches `createAccountWriter()`
-// to a real writer, and AR33's FIFO + retry-once + flush-on-shutdown belong to
-// THAT writer (a NullWriter cannot fail, so there is nothing to retry).
+// `MatchRecord` goes. This file holds the port, the NullWriter and the
+// registry; it has no store and no env reads. The choice of writer is made
+// once at boot by `createAccountWriter()` in ledger/index.ts (Story 12.1),
+// which returns the ledger's writer (ledger/writer.ts: AR33's FIFO +
+// retry-once + time-bounded flush) when DATABASE_URL or HC_DEV_DB=pglite is
+// set and this NullWriter otherwise. game/ never imports ledger/.
 //
 // The room hands records over FIRE-AND-FORGET (ArenaRoom, under the
 // `match.end` latch): `recordMatch` is never awaited on the tick, and a
@@ -15,6 +17,9 @@ export interface AccountWriter {
   recordMatch(record: MatchRecord): Promise<void>;
   /** Drain anything in flight (graceful shutdown). */
   flush(): Promise<void>;
+  /** Release whatever the writer holds open, after `flush()` (graceful
+   *  shutdown). Optional: the NullWriter holds nothing. */
+  close?(): Promise<void>;
 }
 
 /** The writer that writes nothing: both calls resolve at once, nothing kept. */
@@ -51,10 +56,4 @@ export function getGameVersion(): string {
 
 export function setGameVersion(v: string): void {
   gameVersion = v;
-}
-
-/** THE BOOT FACTORY: the NullWriter today. Epic 9 branches here on its store
- *  configuration; nothing else in the server chooses a writer. */
-export function createAccountWriter(): AccountWriter {
-  return new NullWriter();
 }

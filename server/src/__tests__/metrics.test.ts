@@ -39,6 +39,9 @@ import {
   metricsEndpoint,
   recordMinesLive,
   recordCloudsLive,
+  recordLedgerWriteOk,
+  recordLedgerWriteFailed,
+  setLedgerQueueDepth,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -267,6 +270,7 @@ describe('metricsPayload counts', () => {
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
       world: { minesLivePeak: 0, cloudLivePeak: 0 },
+      ledger: { writeOk: 0, writeFailed: 0, queueDepth: 0 },
     });
   });
 });
@@ -346,5 +350,20 @@ describe('metricsEndpoint direct invocation', () => {
       tick: { samples: 1, max: 5 },
       messages: { total: 0 },
     });
+  });
+});
+
+// Story 12.1 — the match ledger's counters: two since-start counts and one
+// live gauge, zeroed by resetMetrics like every other group.
+describe('ledger group', () => {
+  it('counts writes, reports the live queue depth, and resets to zero', () => {
+    recordLedgerWriteOk();
+    recordLedgerWriteOk();
+    recordLedgerWriteFailed();
+    setLedgerQueueDepth(3);
+    setLedgerQueueDepth(1); // a gauge: the latest value, not a peak
+    expect(metricsPayload().ledger).toEqual({ writeOk: 2, writeFailed: 1, queueDepth: 1 });
+    resetMetrics();
+    expect(metricsPayload().ledger).toEqual({ writeOk: 0, writeFailed: 0, queueDepth: 0 });
   });
 });

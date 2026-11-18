@@ -2,7 +2,8 @@
 title: '12.1 The Match Ledger'
 type: 'feature'
 created: '2026-11-18'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '1de230e3'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/project-context.md'

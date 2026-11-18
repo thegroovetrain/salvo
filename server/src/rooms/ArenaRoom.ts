@@ -40,7 +40,7 @@ import {
   type MatchHooks,
   type MatchTimings,
 } from '../game/match.js';
-import { createLogger, type LogFields, type Logger } from '../log.js';
+import { createLogger, describeError, type Logger } from '../log.js';
 import { buildMatchRecord, handCount } from '../game/matchRecord.js';
 import { getAccountWriter, getGameVersion } from '../game/accountWriter.js';
 import {
@@ -107,22 +107,6 @@ export const ARENA_DIRECT_JOIN_ERROR = 'this room is not joinable directly — u
  * able to spin on a pathological pool.
  */
 const CALLSIGN_REDRAWS = 4;
-
-/**
- * Render a thrown value into log fields WITHOUT ever throwing ourselves:
- * `String(err)` itself throws for prototype-less values (`throw
- * Object.create(null)`), and a throw here would escape the tick-error
- * containment straight into core's bare setInterval. Errors keep their
- * message and a separate stack field for forensics.
- */
-function describeError(err: unknown): LogFields {
-  if (err instanceof Error) return { error: err.message, stack: err.stack };
-  try {
-    return { error: String(err) };
-  } catch {
-    return { error: 'unstringifiable' };
-  }
-}
 
 /**
  * Close codes that earn the reconnect grace window (story 0.2, finding F1).

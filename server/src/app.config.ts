@@ -20,7 +20,8 @@ import {
   stagingGateMiddleware,
 } from './stagingGate.js';
 import { logInfo } from './log.js';
-import { createAccountWriter, setAccountWriter, setGameVersion } from './game/accountWriter.js';
+import { getAccountWriter, setAccountWriter, setGameVersion } from './game/accountWriter.js';
+import { createAccountWriter } from './ledger/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -29,11 +30,13 @@ const pkg = JSON.parse(
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// THE ACCOUNT WRITER (Story 8.21): where a finished match's server-only
-// MatchRecord goes — the NullWriter until Epic 9 branches createAccountWriter().
-// Installed at boot beside the metrics/liveness wiring, with the build stamp
-// every record carries. (No graceful-shutdown hook exists in this server, so
-// `flush()` has no caller yet: Epic 9 wires it with the writer that can fail.)
+// THE ACCOUNT WRITER (Story 8.21, Story 12.1): where a finished match's
+// server-only MatchRecord goes — the match ledger when DATABASE_URL (or, in
+// local dev, HC_DEV_DB=pglite) is set, the NullWriter otherwise. The choice is
+// ledger/index.ts's createAccountWriter(); installed at boot beside the
+// metrics/liveness wiring, with the build stamp every record carries. Its
+// `flush()` + `close()` run in Colyseus's graceful shutdown (initializeGameServer
+// below), so a redeploy keeps the matches still waiting to be written.
 setAccountWriter(createAccountWriter());
 setGameVersion(pkg.version);
 
@@ -82,6 +85,17 @@ export default config({
     // The private lobby (cycle 167): the third door. It forms its arena the
     // way the queue does — through the matchmaker, never a room handle.
     gameServer.define('lobby', LobbyRoom);
+
+    // THE LEDGER'S SHUTDOWN (Story 12.1). Colyseus 0.18's own graceful
+    // shutdown (SIGINT/SIGTERM → Server.gracefullyShutdown, @colyseus/core
+    // 0.18.13 build/Server.mjs:51-52 + :174-192) disposes every room, then
+    // awaits this callback, then exits. The flush is time-bounded inside the
+    // writer, so a stuck database can delay the exit but never hang it.
+    gameServer.onShutdown(async () => {
+      const writer = getAccountWriter();
+      await writer.flush();
+      await writer.close?.();
+    });
   },
 
   initializeExpress: (app) => {

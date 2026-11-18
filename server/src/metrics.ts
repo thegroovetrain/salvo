@@ -75,6 +75,14 @@ export interface MetricsPayload {
    * to read.)
    */
   world: { minesLivePeak: number; cloudLivePeak: number };
+  /**
+   * THE MATCH LEDGER (Story 12.1). `writeOk` / `writeFailed` count finished
+   * matches since process start — a record that failed its retry, or was
+   * dropped because the queue was full, is one `writeFailed`. `queueDepth` is
+   * the records waiting to be written right now. All zero while the ledger is
+   * off (no DATABASE_URL). COUNTS ONLY — never a match id or a row value.
+   */
+  ledger: { writeOk: number; writeFailed: number; queueDepth: number };
 }
 
 interface MessageBucket {
@@ -136,6 +144,10 @@ let minesLivePeak = 0;
 /** Process-wide high-water mark of live COUNTERMEASURE clouds (Story 8.18 /
  *  9.3) — the minesLivePeak twin, same survival rule. */
 let cloudLivePeak = 0;
+/** Ledger counters (Story 12.1) — process-wide, like the peaks above. */
+let ledgerWriteOk = 0;
+let ledgerWriteFailed = 0;
+let ledgerQueueDepth = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;
 
@@ -226,12 +238,30 @@ export function recordCloudsLive(count: number): void {
   if (count > cloudLivePeak) cloudLivePeak = count;
 }
 
+/** One finished match written to the ledger (Story 12.1). */
+export function recordLedgerWriteOk(): void {
+  ledgerWriteOk++;
+}
+
+/** One finished match the ledger lost — failed twice, or dropped at the cap. */
+export function recordLedgerWriteFailed(): void {
+  ledgerWriteFailed++;
+}
+
+/** The ledger queue's current depth (a gauge, not a peak). */
+export function setLedgerQueueDepth(depth: number): void {
+  ledgerQueueDepth = depth;
+}
+
 /** Test-only: clear all registered rooms, retired totals, and first-record mark. */
 export function resetMetrics(): void {
   registry.clear();
   retiredMessageTotal = 0;
   minesLivePeak = 0;
   cloudLivePeak = 0;
+  ledgerWriteOk = 0;
+  ledgerWriteFailed = 0;
+  ledgerQueueDepth = 0;
   firstRecordSec = null;
 }
 
@@ -304,6 +334,7 @@ export function metricsPayload(): MetricsPayload {
       total: totalMessages(),
     },
     world: { minesLivePeak, cloudLivePeak },
+    ledger: { writeOk: ledgerWriteOk, writeFailed: ledgerWriteFailed, queueDepth: ledgerQueueDepth },
   };
   return payload;
 }
