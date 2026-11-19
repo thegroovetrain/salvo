@@ -3928,7 +3928,7 @@ function renderAimPreview(
     turrets: g.ownBattery.turrets, // Story 10.4: the predicted turrets the next salvo picks from
     launchers: g.ownLaunchers.states, // Story 10.6: the predicted launchers the next torpedo picks from
   });
-  g.aimPreview.update(model, previewTint(primedId, aimColorTint(settings.current.aimColor)));
+  g.aimPreview.update(model, previewTint(primedId, aimColorTint(settings.current.aimColor)), g.camera.zoom);
 }
 
 /**
