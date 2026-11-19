@@ -4,7 +4,7 @@ baseline_commit: f905edc19602674e1b2be528b8c285916d135c39
 
 # Story 12.3: The In-Game UI Pass
 
-Status: in-progress
+Status: review
 
 <!-- Created 2026-11-18 by gds-create-story from Eric's sitting in chat (epic-12 amendment 2). Part B (the HUD redesign) was designed 2026-11-19 in the same sitting and approved (epic-12 amendment 3): it is IN this story, built in the same cycle. -->
 
@@ -136,25 +136,25 @@ The bench's sizes, colors and type are the reference look. Its numbers (damage, 
 
 ## Tasks / Subtasks
 
-- [ ] **T0 Setup.** `npm install --include=dev && npm run build -w shared` in the worktree. Fetch `origin/development` and merge it in before starting (parallel-cycle collisions).
-- [ ] **T1 Dark-gray linework** (AC 1–4)
-  - [ ] Hull art takes dark gray #212121 for its line color: `ShipView.setColors` / contacts.ts:310-322 / main.ts:2287 / ambient.ts:311 still pass the relation style, but the stroke handed to `deckContext`/`outlineContext`/`turretContext`/`launcherContext` is the `hullLine` token. Prefer one seam, a `hullLineColor()` in `relationColor.ts`, over editing every call site.
-  - [ ] `svgArt.ts:129` line color goes to the `hullLine` token.
-  - [ ] `ShipView.bracketSource` must still hand the brackets the **relation** color, not the hull's dark-gray stroke. Today `out.color = this.style.stroke`, so split the two.
-  - [ ] Update `relationColor.ts` / `ships.ts` / `palette.ts` header comments; re-record golden frames with dated notes.
-- [ ] **T2 Brackets everywhere** (AC 5–7). In `brackets.ts` + `chartMarks.ts`: drop the bracket alpha band, size the half-box per hull per frame (the pooled Graphics is drawn once in white px units, so draw it per size or scale only the tick geometry; mind the "ONE POOL, NO RE-STROKE" note), and grow the ticks. `bandAlpha` stays for pegs and icons if they use it.
-- [ ] **T3 Radar near fade** (AC 8–10). `dimSlideU` against `innerU`; optional fan cast to `innerU`. Update `dimFogSlide.test.ts` and the `dimWedge` tests. Add a regression test: a rain fan whose reach ends at 3,000 u still yields the full radial 0.2 → 1 ramp.
-- [ ] **T4 Wire + shared** (AC 14, 18–20). Pure `hullBlocks()` in shared (unit-tested at the exact 750/500/250 boundaries, plus 1000, 1 and 0), `CONFIG` block count, `Contact.hb` appended last, filled in `signals.ts`'s contact row, invariant tests extended, PV bump, and the barrel export.
-- [ ] **T5 Plate + bar** (AC 11–17). Extend `NameplateLayer` (or add a sibling `HullBars` pool on the plate layer) to fit the name to the bracket width per frame. Pixi re-rasterizes Text on a style change, so quantize the font size (e.g. 0.5 px steps) and only write on change. Below 9 px, switch to the 5×7 pixel font. Put the glyph table + layout in a pure module (e.g. `render/pixelFont.ts`, unit-tested: widths, fold, fallback). Build each name's pixel texture ONCE at latch, NEAREST scale mode, never per frame. Then draw the A2 bar and the glow. Glow: Text via a zero-distance `dropShadow` (blur ≈ 4, own color); Graphics (brackets, blocks) via the drops.ts precedent of wider, low-alpha strokes underneath. No per-object filters.
-- [ ] **T6 Special-shell preview** (AC 22–23). Reproduce, diagnose, render the before/after for Eric, then fix.
-- [ ] **T9 The HUD bar** (AC 27–39). Replace `render/console/*` (layout spine, `shipConsole.ts`, `weaponsConsole.ts`) with the bar. Keep the pure readout model (`readouts.ts`) as the data source and re-point it at the bar + flyout.
+- [x] **T0 Setup.** `npm install --include=dev && npm run build -w shared` in the worktree. Fetch `origin/development` and merge it in before starting (parallel-cycle collisions).
+- [x] **T1 Dark-gray linework** (AC 1–4)
+  - [x] Hull art takes dark gray #212121 for its line color: `ShipView.setColors` / contacts.ts:310-322 / main.ts:2287 / ambient.ts:311 still pass the relation style, but the stroke handed to `deckContext`/`outlineContext`/`turretContext`/`launcherContext` is the `hullLine` token. Prefer one seam, a `hullLineColor()` in `relationColor.ts`, over editing every call site.
+  - [x] `svgArt.ts:129` line color goes to the `hullLine` token.
+  - [x] `ShipView.bracketSource` must still hand the brackets the **relation** color, not the hull's dark-gray stroke. Today `out.color = this.style.stroke`, so split the two.
+  - [x] Update `relationColor.ts` / `ships.ts` / `palette.ts` header comments; re-record golden frames with dated notes.
+- [x] **T2 Brackets everywhere** (AC 5–7). In `brackets.ts` + `chartMarks.ts`: drop the bracket alpha band, size the half-box per hull per frame (the pooled Graphics is drawn once in white px units, so draw it per size or scale only the tick geometry; mind the "ONE POOL, NO RE-STROKE" note), and grow the ticks. `bandAlpha` stays for pegs and icons if they use it.
+- [x] **T3 Radar near fade** (AC 8–10). `dimSlideU` against `innerU`; optional fan cast to `innerU`. Update `dimFogSlide.test.ts` and the `dimWedge` tests. Add a regression test: a rain fan whose reach ends at 3,000 u still yields the full radial 0.2 → 1 ramp.
+- [x] **T4 Wire + shared** (AC 14, 18–20). Pure `hullBlocks()` in shared (unit-tested at the exact 750/500/250 boundaries, plus 1000, 1 and 0), `CONFIG` block count, `Contact.hb` appended last, filled in `signals.ts`'s contact row, invariant tests extended, PV bump, and the barrel export.
+- [x] **T5 Plate + bar** (AC 11–17). Extend `NameplateLayer` (or add a sibling `HullBars` pool on the plate layer) to fit the name to the bracket width per frame. Pixi re-rasterizes Text on a style change, so quantize the font size (e.g. 0.5 px steps) and only write on change. Below 9 px, switch to the 5×7 pixel font. Put the glyph table + layout in a pure module (e.g. `render/pixelFont.ts`, unit-tested: widths, fold, fallback). Build each name's pixel texture ONCE at latch, NEAREST scale mode, never per frame. Then draw the A2 bar and the glow. Glow: Text via a zero-distance `dropShadow` (blur ≈ 4, own color); Graphics (brackets, blocks) via the drops.ts precedent of wider, low-alpha strokes underneath. No per-object filters.
+- [x] **T6 Special-shell preview** (AC 22–23). Reproduce, diagnose, render the before/after for Eric, then fix.
+- [x] **T9 The HUD bar** (AC 27–39). Replace `render/console/*` (layout spine, `shipConsole.ts`, `weaponsConsole.ts`) with the bar. Keep the pure readout model (`readouts.ts`) as the data source and re-point it at the bar + flyout.
   - Icons are pure geometry functions (unit-tested) drawn into fixed slot positions computed from the hull + mine kind, never from current counts.
   - Add the HUD-side setting and the Space-home offset (`camera.ts` `home()`).
   - Retire `offerPos`; re-lay the offer group (`ui/offerGroup.ts`) along the bottom with the new card look.
   - The flyout is DOM chrome (like the offer group) or Pixi: dev's choice, but it must never steal input from the canvas beyond its own box.
   - Show Eric the built bar on a rendered page or staging before the PR opens (no PR while a look waits on his yes).
-- [ ] **T7 Docs + records.** DESIGN.md rows (AC 25); epic-12 amendment(s) for any build-time readings; `spec-12-3-*.md` cycle record; ONE-LINE stamps in both trackers; VERSION / package.json +1 patch (numbers at PR time).
-- [ ] **T8 Gate.** `npm run lint` explicitly, then `npm run check`. Run the headless smokes (`matchSmoke`, `weaponsSmoke`) on your own booted server with `HC_DEV_OPTIONS=1`, then kill both the PID and its tsx child. Run `tickCost.mjs` old vs new: a contact-row field adds per-tick work (memory: full-match tick cost before merge). Every test run has a hard wall-clock bound.
+- [x] **T7 Docs + records.** DESIGN.md rows (AC 25); epic-12 amendment(s) for any build-time readings; `spec-12-3-*.md` cycle record; ONE-LINE stamps in both trackers; VERSION / package.json +1 patch (numbers at PR time).
+- [x] **T8 Gate.** `npm run lint` explicitly, then `npm run check`. Run the headless smokes (`matchSmoke`, `weaponsSmoke`) on your own booted server with `HC_DEV_OPTIONS=1`, then kill both the PID and its tsx child. Run `tickCost.mjs` old vs new: a contact-row field adds per-tick work (memory: full-match tick cost before merge). Every test run has a hard wall-clock bound.
 
 ## Dev Notes
 
@@ -219,10 +219,115 @@ The bench's sizes, colors and type are the reference look. Its numbers (damage, 
 
 ### Agent Model Used
 
+Claude Opus 5.5 (orchestrator) with subagents: Fable (wire field, health-range tightening, review gate), Opus (Part A, Part B HUD bar, special-shell preview, review fix pass), Sonnet (pre-PR checks); Codex gpt-5.6-sol cross-model review.
+
 ### Debug Log References
+
+- Special-shell preview reproduced live (own server :2767, muted Chromium): the circle drew on the cursor for all four shells, too faint (0.22 / 0.03) and with a world-unit stroke thinning with zoom. Fixed with a constant screen-px AREA register (amendment 7(d)).
+- Radar near fade: root cause as in Dev Notes (slide measured against the 4,545 u sight hole); fixed against `innerU`.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed: comprehensive developer guide created (Part A). Part B, the HUD redesign, awaits its sitting.
+- 2026-11-19 BUILT, Parts A + B (cycle 243, 0.20.1, PV 110 -> 111, epic-12 amendment 7). Eric rulings during dev: refill bars never resize (nothing moves with state); short / narrow screens scale uniformly; `hb` only within the name-tag reach; the special-shell draft look approved.
+- Review gate: Fable + Codex; every confirmed finding fixed with 17 regression tests that failed first.
+- Gates: `npm run check` green (shared 1471, server 3018, client 4462, hook 266); lint 0 errors; tickCost 4.67 vs 4.24 ms/tick mean (identical sim work counters — noise); glBudget PASS; playCheck PASS (Chromium + Firefox); matchSmoke + weaponsSmoke first try.
+- Readings of record for Eric's veto: amendment 7(e).
 
 ### File List
+
+- `client/src/__tests__/aimPreview.test.ts` (modified)
+- `client/src/__tests__/chartMarks.test.ts` (modified)
+- `client/src/__tests__/consoleHelm.test.ts` (modified)
+- `client/src/__tests__/consoleHull.test.ts` (modified)
+- `client/src/__tests__/consoleLayout.test.ts` (deleted)
+- `client/src/__tests__/consoleLevel.test.ts` (modified)
+- `client/src/__tests__/dimFogSlide.test.ts` (modified)
+- `client/src/__tests__/hudBar.test.ts` (new)
+- `client/src/__tests__/hudBarLayout.test.ts` (new)
+- `client/src/__tests__/hudBarReviewFixes.test.ts` (new)
+- `client/src/__tests__/hudBarSlots.test.ts` (new)
+- `client/src/__tests__/hudFlyout.test.ts` (new)
+- `client/src/__tests__/hullArt.test.ts` (modified)
+- `client/src/__tests__/hullPlate.test.ts` (new)
+- `client/src/__tests__/launcherArt.test.ts` (modified)
+- `client/src/__tests__/motion.test.ts` (modified)
+- `client/src/__tests__/nameplates.test.ts` (modified)
+- `client/src/__tests__/nameplatesAboveTerrain.test.ts` (modified)
+- `client/src/__tests__/offerGroup.test.ts` (modified)
+- `client/src/__tests__/radarViewport.test.ts` (modified)
+- `client/src/__tests__/relationColor.test.ts` (modified)
+- `client/src/__tests__/settings.test.ts` (modified)
+- `client/src/__tests__/shipConsole.test.ts` (deleted)
+- `client/src/__tests__/ships.test.ts` (modified)
+- `client/src/__tests__/tokens.test.ts` (modified)
+- `client/src/__tests__/twinMap.test.ts` (modified)
+- `client/src/__tests__/weaponsConsole.test.ts` (deleted)
+- `client/src/audio/twinMap.ts` (modified)
+- `client/src/config.ts` (modified)
+- `client/src/input/keyboard.ts` (modified)
+- `client/src/input/mouse.ts` (modified)
+- `client/src/main.ts` (modified)
+- `client/src/net/snapshots.ts` (modified)
+- `client/src/render/aimPreview.ts` (modified)
+- `client/src/render/brackets.ts` (modified)
+- `client/src/render/camera.ts` (modified)
+- `client/src/render/cameraZoom.ts` (modified)
+- `client/src/render/chartMarks.ts` (modified)
+- `client/src/render/console/barDraw.ts` (new)
+- `client/src/render/console/barGauges.ts` (new)
+- `client/src/render/console/barShip.ts` (new)
+- `client/src/render/console/barWeapons.ts` (new)
+- `client/src/render/console/flyout.ts` (new)
+- `client/src/render/console/helm.ts` (modified)
+- `client/src/render/console/hudBar.ts` (new)
+- `client/src/render/console/hull.ts` (modified)
+- `client/src/render/console/layout.ts` (modified)
+- `client/src/render/console/readouts.ts` (modified)
+- `client/src/render/console/shipConsole.ts` (deleted)
+- `client/src/render/console/skins.ts` (new)
+- `client/src/render/console/slots.ts` (new)
+- `client/src/render/console/weaponsConsole.ts` (deleted)
+- `client/src/render/contacts.ts` (modified)
+- `client/src/render/equipmentInfo.ts` (modified)
+- `client/src/render/helmGlyphs.ts` (deleted)
+- `client/src/render/hudBed.ts` (modified)
+- `client/src/render/hullArt/palette.ts` (modified)
+- `client/src/render/hullArt/pixiArt.ts` (modified)
+- `client/src/render/hullArt/svgArt.ts` (modified)
+- `client/src/render/hullBars.ts` (new)
+- `client/src/render/nameplates.ts` (modified)
+- `client/src/render/pixelFont.ts` (new)
+- `client/src/render/radar.ts` (modified)
+- `client/src/render/radarDim.ts` (modified)
+- `client/src/render/relationColor.ts` (modified)
+- `client/src/render/ships.ts` (modified)
+- `client/src/render/stage.ts` (modified)
+- `client/src/settings/store.ts` (modified)
+- `client/src/ui/hudFlyout.ts` (new)
+- `client/src/ui/offerGroup.ts` (modified)
+- `client/src/ui/settings.ts` (modified)
+- `server/src/__tests__/__snapshots__/goldenFrames.test.ts.snap` (modified)
+- `server/src/__tests__/frames.test.ts` (modified)
+- `server/src/__tests__/goldenFrames.test.ts` (modified)
+- `server/src/__tests__/perception.test.ts` (modified)
+- `server/src/__tests__/signals.test.ts` (modified)
+- `server/src/__tests__/sinkingWindow.test.ts` (modified)
+- `server/src/__tests__/spectator.test.ts` (modified)
+- `server/src/__tests__/starShells.test.ts` (modified)
+- `server/src/game/signals.ts` (modified)
+- `shared/src/__tests__/hullBlocks.test.ts` (new)
+- `shared/src/constants.ts` (modified)
+- `shared/src/index.ts` (modified)
+- `shared/src/sim/hullBlocks.ts` (new)
+- `shared/src/types.ts` (modified)
+- `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md` (modified)
+- `_bmad-output/implementation-artifacts/epic-12-context-amendments.md` (modified, amendment 7 appended)
+- `_bmad-output/implementation-artifacts/spec-12-3-the-in-game-ui-pass.md` (new)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (modified)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml` (modified)
+- `VERSION`, `package.json`, `package-lock.json` (0.20.0 -> 0.20.1)
+
+## Change Log
+
+- 2026-11-19: Story 12.3 built (Parts A + B), review fixes, Eric's dev-time rulings (amendment 7); 0.20.1, PV 111.
