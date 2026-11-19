@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintDiscCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, hullBlocks, paintDiscCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DropPickupEvent, type DropState, type DropView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { wirePaint } from './paintFixture.js';
 import type { MineState } from '../game/equipment/index.js';
@@ -14,6 +14,8 @@ import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
   dropPaint,
+  hullSightOf,
+  sightOf,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
@@ -176,7 +178,7 @@ describe('SIGNAL_REGISTRY — row shape', () => {
 // ---------- key-order guards (the load-bearing msgpack rule) -----------------
 
 describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () => {
-  it('contact row: [id,x,y,heading,speed,cls,tu] — a captain hull appends its turret angles LAST (Story 10.4)', () => {
+  it('contact row: [id,x,y,heading,speed,cls,tu,hb] — a captain hull appends its turret angles, then the health step LAST (Stories 10.4, 12.3)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 100, 0, 1.2);
@@ -185,7 +187,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls', 'tu']);
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls', 'tu', 'hb']);
     // ANGLES ONLY: one whole number per turret, the shared encoding — no reload.
     expect(wire.tu).toEqual(encodeTurretAngles(b.turrets, b.hullId));
     expect(wire.tu!.every((q) => Number.isInteger(q))).toBe(true);
@@ -201,7 +203,67 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(ctx, d)).toBe(true);
     const wire = row.materialize(ctx, d);
     expect('tu' in (wire as object)).toBe(false);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls']);
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls', 'hb']);
+  });
+
+  it('contact row: `hb` rides only within the observer\'s name-tag reach — a hull in the hazed band is the same row with the key ABSENT; a spectator gets it at any distance (Story 12.3, Eric 2026-11-19)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const nameReach = sightOf(a, w.now);
+    const hullReach = hullSightOf(a, w.now);
+    expect(hullReach).toBeGreaterThan(nameReach); // premise: there is a hazed band
+    const near = place(w, 'near', nameReach, 0); // AT the reach: boundary inclusive
+    const hazed = place(w, 'hazed', 0, (nameReach + hullReach) / 2);
+    const row = SIGNAL_REGISTRY.contact;
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, near)).toBe(true);
+    expect(row.visible(ctx, hazed)).toBe(true); // premise: both rows are sent
+    const nearWire = row.materialize(ctx, near);
+    const hazedWire = row.materialize(ctx, hazed);
+    expect(nearWire.hb).toBe(hullBlocks(near.hp, near.stats.maxHp));
+    expect(Object.keys(nearWire as object).at(-1)).toBe('hb');
+    expect('hb' in (hazedWire as object)).toBe(false); // absent, never a sentinel
+    expect(Object.keys(hazedWire as object)).toEqual(Object.keys(nearWire as object).filter((k) => k !== 'hb'));
+    // The observer's EFFECTIVE reach, not the stat: a whited-out eye names nobody.
+    a.dazzledUntil = w.now + FLASH_WINDOW_MS;
+    expect(sightOf(a, w.now)).toBeLessThan(nameReach);
+    expect('hb' in (row.materialize(foggedCtx(w, a), near) as object)).toBe(false);
+    // A spectator has no eye: the step rides every row.
+    expect(row.materialize(specCtx(w), hazed).hb).toBe(hullBlocks(hazed.hp, hazed.stats.maxHp));
+  });
+
+  it('contact row: `hb` is the shared step of the hull\'s hp over its own maxHp, at every step (Story 12.3)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 100, 0);
+    const ctx = foggedCtx(w, a);
+    const maxHp = b.stats.maxHp;
+    const blocks = CONFIG.hullBar.blocks;
+    const seen = new Set<number>();
+    for (let k = 0; k <= blocks; k += 1) {
+      // The middle of step k + 1's band (the full hull for k === blocks).
+      b.hp = k === blocks ? maxHp : (maxHp * (k + 0.5)) / blocks;
+      const wire = SIGNAL_REGISTRY.contact.materialize(ctx, b);
+      expect(wire.hb).toBe(hullBlocks(b.hp, maxHp));
+      expect(wire.hb).toBe(Math.min(blocks, k + 1));
+      // A STEP ONLY: nothing on the row is the hp itself.
+      expect(Object.values(wire as object)).not.toContain(b.hp);
+      seen.add(wire.hb!);
+    }
+    expect(seen.size).toBe(blocks); // every step rode the row
+  });
+
+  it('contact row: `hb` reads the hull\'s OWN maxHp, not a fixed pool (directed: maxHp doubled at the same hp)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 100, 0);
+    const ctx = foggedCtx(w, a);
+    const full = SIGNAL_REGISTRY.contact.materialize(ctx, b).hb;
+    b.stats = { ...b.stats, maxHp: b.stats.maxHp * 2 }; // hp unchanged: now half
+    const half = SIGNAL_REGISTRY.contact.materialize(ctx, b).hb;
+    expect(full).toBe(hullBlocks(b.hp, b.hp));
+    expect(half).toBe(hullBlocks(b.hp, b.hp * 2));
+    expect(half).toBeLessThan(full!);
   });
 
   it('contact row: `tu` follows the hull\'s live turrets (a traversed turret re-encodes)', () => {

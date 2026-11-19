@@ -16,7 +16,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { CanvasSource, Container, Texture, TextureSource } from 'pixi.js';
 import { CONFIG, fogDepthReachFan, fogFrameAt, fogMaxDepth, makeFogField } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { dimFanSlides, dimRadii, dimRampU, dimScaleAt, dimSlideU } from '../render/radarDim.js';
+import { dimCastU, dimFanSlides, dimRadii, dimRampU, dimScaleAt, dimSlideU } from '../render/radarDim.js';
 import { DIM_MASK_TEXTURE_SIZE, dimWedge } from '../render/textures.js';
 import { Radar, type EyeReachSource } from '../render/radar.js';
 import { FogFieldView } from '../render/fogField.js';
@@ -56,18 +56,34 @@ describe('dimScaleAt with a reach — the slide', () => {
     for (const d of sweepD()) expect(dimScaleAt(d, SIGHT, SIGHT)).toBe(dimScaleAt(d, SIGHT));
   });
 
-  it('fogLift 1: the floor holds to the reach R and full strength begins at R + (outer − inner)', () => {
+  it('fogLift 1: an eye ending at R inside the floor holds the floor to R and full strength from R + (outer − inner)', () => {
     DIM.fogLift = 1;
-    // A shortfall under the inner radius, so the slid floor still has room
-    // (Story 11.2: the inner radius is far inside sight now).
-    const R = SIGHT - INNER * 0.6;
+    // Story 12.3: the slide is measured against the ramp's inner radius, not sight.
+    const R = INNER * 0.4;
     const width = OUTER - INNER;
-    const floorEndU = INNER - (SIGHT - R);
-    expect(dimScaleAt(Math.max(0, floorEndU), SIGHT, R)).toBeCloseTo(FLOOR, 9);
-    expect(dimScaleAt(floorEndU + width, SIGHT, R)).toBe(1);
-    expect(dimScaleAt(floorEndU + width / 2, SIGHT, R)).toBeCloseTo(FLOOR + (1 - FLOOR) / 2, 9);
+    expect(dimScaleAt(R, SIGHT, R)).toBeCloseTo(FLOOR, 9);
+    expect(dimScaleAt(R + width, SIGHT, R)).toBe(1);
+    expect(dimScaleAt(R + width / 2, SIGHT, R)).toBeCloseTo(FLOOR + (1 - FLOOR) / 2, 9);
     // the translated curve, everywhere
-    for (const d of sweepD()) expect(dimScaleAt(d, SIGHT, R)).toBeCloseTo(dimScaleAt(d + (SIGHT - R), SIGHT), 9);
+    for (const d of sweepD()) expect(dimScaleAt(d, SIGHT, R)).toBeCloseTo(dimScaleAt(d + (INNER - R), SIGHT), 9);
+  });
+
+  it('REGRESSION (Story 12.3): a rain fan whose reach ends at 3,000 u keeps the full radial floor → 1 ramp', () => {
+    DIM.fogLift = 1;
+    const R = 3000;
+    expect(R, 'premise: the reach ends past the floor and short of sight').toBeGreaterThan(INNER);
+    expect(R).toBeLessThan(SIGHT);
+    expect(dimSlideU(SIGHT, R)).toBe(0);
+    for (const d of sweepD()) expect(dimScaleAt(d, SIGHT, R)).toBe(dimScaleAt(d, SIGHT));
+    expect(dimScaleAt(INNER, SIGHT, R)).toBe(FLOOR);
+    expect(dimScaleAt(OUTER, SIGHT, R)).toBe(1);
+    const fan = new Float32Array(RAYS).fill(R);
+    expect(dimFanSlides(fan, SIGHT)).toBe(false);
+    expect(dimRampU(SIGHT, R, { innerU: 0, outerU: 0 })).toEqual({ innerU: INNER, outerU: OUTER });
+  });
+
+  it('the fan is cast only out to the floor radius', () => {
+    expect(dimCastU(SIGHT)).toBe(INNER);
   });
 
   it("fogLift 0 is today's mask, fog or no fog", () => {
@@ -77,11 +93,11 @@ describe('dimScaleAt with a reach — the slide', () => {
 
   it('a partial lift slides by that share of the shortfall', () => {
     DIM.fogLift = 0.5;
-    expect(dimSlideU(SIGHT, SIGHT * 0.6)).toBeCloseTo(SIGHT * 0.2, 9);
+    expect(dimSlideU(SIGHT, INNER * 0.6)).toBeCloseTo(INNER * 0.2, 9);
   });
 
-  it('a non-finite, negative or beyond-sight reach reads as sight — no slide', () => {
-    for (const r of [Number.NaN, Number.POSITIVE_INFINITY, -1, SIGHT * 2]) {
+  it('a non-finite, negative or at-or-beyond-the-floor reach slides nothing', () => {
+    for (const r of [Number.NaN, Number.POSITIVE_INFINITY, -1, INNER, SIGHT, SIGHT * 2]) {
       expect(dimSlideU(SIGHT, r)).toBe(0);
       for (const d of sweepD()) expect(dimScaleAt(d, SIGHT, r)).toBe(dimScaleAt(d, SIGHT));
     }
@@ -90,15 +106,15 @@ describe('dimScaleAt with a reach — the slide', () => {
   it('dimRampU translates both radii by the slide and never changes the width', () => {
     DIM.fogLift = 1;
     const out = { innerU: 0, outerU: 0 };
-    dimRampU(SIGHT, SIGHT * 0.25, out);
+    dimRampU(SIGHT, INNER * 0.25, out);
     expect(out.outerU - out.innerU).toBeCloseTo(OUTER - INNER, 9);
-    expect(out.innerU).toBeCloseTo(INNER - SIGHT * 0.75, 9);
+    expect(out.innerU).toBeCloseTo(INNER * 0.25, 9);
   });
 
   it('dimFanSlides: an all-sight fan and fogLift 0 slide nothing; one short bearing slides', () => {
     const fan = new Float32Array(RAYS).fill(SIGHT);
     expect(dimFanSlides(fan, SIGHT)).toBe(false);
-    fan[7] = SIGHT / 2;
+    fan[7] = INNER / 2;
     expect(dimFanSlides(fan, SIGHT)).toBe(true);
     DIM.fogLift = 0;
     expect(dimFanSlides(fan, SIGHT)).toBe(false);
@@ -176,8 +192,8 @@ describe('the wedge bake (real bakeDimMaskTexture over a recording canvas)', () 
     const { bakeDimMaskTexture } = await actual();
     const rec = recording();
     const fan = new Float32Array(RAYS).fill(SIGHT);
-    fan[0] = SIGHT / 2;
-    fan[7] = SIGHT / 4;
+    fan[0] = INNER / 2;
+    fan[7] = INNER / 4;
     bakeDimMaskTexture(SIGHT, rec.tex, fan);
     expect(rec.log[0]).toMatch(new RegExp(`^fillRect 0,0,${SIZE},${SIZE} `));
     // the radial base (one gradient + one full-circle arc) and then exactly two wedges
@@ -202,11 +218,11 @@ describe('the wedge bake (real bakeDimMaskTexture over a recording canvas)', () 
 
   it("dimWedge: a fogged bearing's ramp starts at its slid inner radius and keeps the observer's width", () => {
     DIM.fogLift = 1;
-    const R = SIGHT - INNER * 0.4; // a shortfall the inner radius can absorb
+    const R = INNER * 0.6; // an eye ending inside the floor
     const fan = new Float32Array(RAYS).fill(SIGHT);
     fan[3] = R;
     const fogged = dimWedge(fan, 3, SIGHT, PX);
-    expect(fogged.r0).toBeCloseTo((INNER - (SIGHT - R)) * PX, 2);
+    expect(fogged.r0).toBeCloseTo(Math.fround(R) * PX, 2);
     expect(fogged.r1 - fogged.r0).toBeCloseTo((OUTER - INNER) * PX, 2);
     expect(fogged.inner).toBeCloseTo(FLOOR, 6);
     const clear = dimWedge(fan, 4, SIGHT, PX);
@@ -220,7 +236,7 @@ describe('the wedge bake (real bakeDimMaskTexture over a recording canvas)', () 
     const w = dimWedge(fan, 0, SIGHT, PX);
     expect(w.r0).toBeGreaterThanOrEqual(0);
     expect(w.inner).toBeCloseTo(dimScaleAt(w.r0 / PX, SIGHT, 0), 9);
-    expect(w.r1).toBeCloseTo(Math.max(w.r0 + 1, (OUTER - SIGHT) * PX), 6);
+    expect(w.r1).toBeCloseTo(Math.max(w.r0 + 1, (OUTER - INNER) * PX), 6);
   });
 });
 
@@ -282,7 +298,7 @@ describe('Radar: the fan is cast and baked on a cadence, never per frame', () =>
     radar.render({ x: 0, y: 0 }, REFRESH * 2, null);
     expect(src.calls).toBe(3);
     expect(bakes.fans, 'a changed entry bakes again').toHaveLength(2);
-    expect(bakes.fans[1]![5]).toBe(Math.fround(SIGHT / 2));
+    expect(bakes.fans[1]![5], 'cast out to the floor radius').toBe(Math.fround(dimCastU(SIGHT) / 2));
   });
 
   it('re-casts early on a move past reachRecastMoveU, not on a smaller one', () => {

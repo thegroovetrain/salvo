@@ -437,6 +437,9 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
       {
         id: 'b', x: b.state.x, y: b.state.y, heading: b.state.heading, speed: b.state.speed, cls: b.hullId, tu: encodeTurretAngles(b.turrets, b.hullId),
         ...(b.launchers.length > 0 ? { lu: encodeLauncherAngles(b.launchers) } : {}),
+        // ...and the health step (Story 12.3 `hb`): a sinking hull reads the
+        // LOWEST step, the same as any badly hurt afloat hull.
+        hb: 1,
       },
     ]);
     // NOTHING anywhere in the observer's frame names the window (amendment 16

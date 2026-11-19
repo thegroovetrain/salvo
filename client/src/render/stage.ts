@@ -156,7 +156,9 @@ export function applyCamera(camera: Camera, world: Container, chart: Container, 
   const z = camera.zoom;
   const inv = 1 / z;
   if (!(z > 0) || !Number.isFinite(z) || !Number.isFinite(inv)) return;
-  const c = camera.screenCenter;
+  // The FOCUS (Story 12.3 Part B): the drawn center lands in the middle of the
+  // open water beside the HUD bar, not the screen centre.
+  const c = camera.focus;
   const px = c.x - camera.center.x * z + camera.shake.x;
   const py = c.y - camera.center.y * z + camera.shake.y;
   world.scale.set(z);

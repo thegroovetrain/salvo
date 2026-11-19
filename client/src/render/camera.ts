@@ -26,6 +26,7 @@ import { anchorGlideT, anchorWeight, boardGlideT, clampToDisc, slideAnchor, slid
 import {
   detentSpanU,
   intelFitSpanU,
+  openWaterFitSpanU,
   revealZoomFactor,
   ringFitSpanU,
   spanFactor,
@@ -38,6 +39,7 @@ export {
   canUserZoom,
   detentSpanU,
   intelFitSpanU,
+  openWaterFitSpanU,
   revealZoomFactor,
   ringFitSpanU,
   spanFactor,
@@ -147,6 +149,11 @@ export class Camera {
   /** The HUD bar's top inset from the viewport floor in REAL px (amendment
    *  208), fed by setBottomInset(). 0 until fed. */
   private bottomInsetValue = 0;
+  /** SPACE-HOME's offset (Story 12.3 Part B, AC 28) in REAL px along x: the
+   *  screen point the drawn center lands on is the screen centre plus this,
+   *  so FOLLOW puts the hull in the middle of the open water beside the HUD
+   *  bar. Fed by setFocusOffset(); 0 = the screen centre. */
+  private focusOffsetValue = 0;
   /** The live storm ring (ruling 127/128), fed every alive frame by setRing().
    *  NaN span until the first feed = no ring known: the zoom-out limit is the
    *  default framing and nothing slides. */
@@ -238,7 +245,7 @@ export class Camera {
    */
   private zoomWith(screenX: number, screenY: number, apply: () => void): void {
     const known = Number.isFinite(screenX) && Number.isFinite(screenY);
-    const s = known ? { x: screenX, y: screenY } : this.screenCenter;
+    const s = known ? { x: screenX, y: screenY } : this.focus;
     const p = this.screenToWorld(s);
     // No cursor known (a key zoom before the pointer ever moved): FOLLOW
     // zooms about the anchor and stays FOLLOW (Story 11.8 review).
@@ -258,7 +265,7 @@ export class Camera {
   /** PANNED, with the anchor that draws world point `p` under screen point `s`
    *  at the current zoom (see `zoomWith`). */
   private aimAt(p: Point, s: Point): void {
-    const sc = this.screenCenter;
+    const sc = this.focus;
     const z = this.zoom;
     const want = {
       x: p.x - (s.x - sc.x - this.shake.x) / z - this.jump.x,
@@ -363,7 +370,7 @@ export class Camera {
    *  in, the whole-map fit out (the ring fit until the map radius is fed, the
    *  default framing until either is). */
   get userZoomLimits(): { min: number; max: number } {
-    const out = zoomOutSpanU(this.mapSpanValue, this.ringSpanValue);
+    const out = zoomOutSpanU(this.boardFitSpanU, this.ringSpanValue);
     return userZoomLimits(this.opts.defaultSpanU, this.opts.closeSpanU, out);
   }
 
@@ -375,6 +382,13 @@ export class Camera {
   /** The whole-map fit span (u across the short axis), NaN before setMapRadius. */
   get mapSpanU(): number {
     return this.mapSpanValue;
+  }
+
+  /** The whole-map fit as the ZOOM sees it (Story 12.3 review): widened so the
+   *  board, framed around the offset focus, fits the open water beside the
+   *  HUD bar (`openWaterFitSpanU`). The anchor clamp keeps the plain map fit. */
+  private get boardFitSpanU(): number {
+    return openWaterFitSpanU(this.mapSpanValue, this.viewW, this.viewH, this.focusOffsetValue);
   }
 
   /** The ring waypoint as a span (amendment 142): see `detentSpanU`. */
@@ -400,7 +414,7 @@ export class Camera {
   get intelSpanU(): number {
     const d = this.opts.defaultSpanU;
     const r = this.opts.intelRadiusU ?? NaN;
-    const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin);
+    const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin, this.focusOffsetValue);
     if (!usableSpan(fit)) return d;
     // AN INTEL DISC AS WIDE AS THE BOARD IS NO STOP (Story 11.2, R11): at the
     // 400 hm radar the intel fit reaches the whole-map fit, and a stop AT the
@@ -409,7 +423,7 @@ export class Camera {
     // At or past the map fit the waypoint is the default framing — the
     // pre-208 camera, whose slides run to the ring and then the map centre.
     // [reading: Story 11.2 — the smallest fix that restores the whole-board view]
-    if (usableSpan(this.mapSpanValue) && fit >= this.mapSpanValue) return d;
+    if (usableSpan(this.mapSpanValue) && fit >= this.boardFitSpanU) return d;
     return Math.max(d, fit);
   }
 
@@ -451,7 +465,7 @@ export class Camera {
   private rideableDetent(floorSpanU: number, detent: number): number {
     const ring = this.ringSpanValue;
     if (!usableSpan(ring) || ring <= floorSpanU) return NaN;
-    if (ring >= zoomOutSpanU(this.mapSpanValue, ring)) return NaN;
+    if (ring >= zoomOutSpanU(this.boardFitSpanU, ring)) return NaN;
     return detent;
   }
 
@@ -498,7 +512,7 @@ export class Camera {
   private slideFrame(): SlideFrame {
     return {
       ringSpanU: this.spectatingValue ? this.detentSpanU : this.aliveDetentSpanU,
-      boardSpanU: this.mapSpanValue,
+      boardSpanU: this.boardFitSpanU,
       ring: Number.isNaN(this.ringSpanValue) ? null : this.ring,
       floorSpanU: this.spectatingValue ? this.opts.defaultSpanU : this.intelSpanU,
     };
@@ -655,6 +669,43 @@ export class Camera {
   }
 
   /**
+   * THE FOCUS (Story 12.3 Part B, AC 28): the screen point (px) the drawn
+   * center maps to — the screen centre shifted by the focus offset, i.e. the
+   * centre of the open water beside the HUD bar. Every world <-> screen
+   * mapping goes through it, so FOLLOW (and Space-home) puts the hull there.
+   */
+  get focus(): Point {
+    return { x: this.viewW / 2 + this.focusOffsetValue, y: this.viewH / 2 };
+  }
+
+  /** The focus offset (real px along x) the camera currently holds. */
+  get focusOffsetPx(): number {
+    return this.focusOffsetValue;
+  }
+
+  /**
+   * Feed SPACE-HOME's offset (Story 12.3 Part B, AC 28): real px along x from
+   * the screen centre to the centre of the open water beside the HUD bar (+x
+   * with the bar on the left; 0 with no bar, e.g. spectating). Non-finite
+   * input is ignored.
+   *
+   * ONLY A CHANGE WHILE THE BAR SHOWS GLIDES (Story 12.3 review): a side
+   * switch (or a resize / UI-scale step) moves the picture through the eased
+   * event jump (ruling 10). From or to 0 — the bar appearing at a spawn, a
+   * respawn or the match start, or leaving with the hull — it lands at once:
+   * no sideways slide under a fresh hull.
+   */
+  setFocusOffset(px: number): void {
+    if (!Number.isFinite(px) || px === this.focusOffsetValue) return;
+    const z = this.zoom;
+    const d = px - this.focusOffsetValue;
+    const glides = this.focusOffsetValue !== 0 && px !== 0;
+    this.focusOffsetValue = px;
+    if (glides && this.easesSlide && z > 0 && Number.isFinite(z)) this.jump.x += d / z;
+    this.placeCenter();
+  }
+
+  /**
    * THE WORLD RECTANGLE CURRENTLY ON SCREEN: the camera centre plus half-extents
    * in world units (screen px ÷ 2 ÷ zoom). Composed from the live `zoom`, so it
    * answers correctly under the default framing, a spectator zoom-out and an
@@ -670,7 +721,9 @@ export class Camera {
   get worldView(): { x: number; y: number; halfW: number; halfH: number } {
     const z = this.zoom;
     return {
-      x: this.center.x,
+      // The screen's own centre in the world: the drawn center sits at the
+      // focus, `focusOffset` px right of it (Story 12.3 Part B).
+      x: this.center.x - this.focusOffsetValue / z,
       y: this.center.y,
       halfW: this.viewW / 2 / z,
       halfH: this.viewH / 2 / z,
@@ -817,7 +870,7 @@ export class Camera {
 
   /** World point -> screen point (px), including shake. */
   worldToScreen(p: Point): Point {
-    const c = this.screenCenter;
+    const c = this.focus;
     return {
       x: (p.x - this.center.x) * this.zoom + c.x + this.shake.x,
       y: (p.y - this.center.y) * this.zoom + c.y + this.shake.y,
@@ -843,7 +896,7 @@ export class Camera {
 
   /** Screen point (px) -> world point (inverse of worldToScreen). */
   screenToWorld(p: Point): Point {
-    const c = this.screenCenter;
+    const c = this.focus;
     return {
       x: (p.x - c.x - this.shake.x) / this.zoom + this.center.x,
       y: (p.y - c.y - this.shake.y) / this.zoom + this.center.y,

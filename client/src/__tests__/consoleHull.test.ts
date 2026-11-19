@@ -152,7 +152,7 @@ describe('the bar — fraction, pooled repair, segments', () => {
   it('the segments sum back to the fraction and the pool, each segment within itself', () => {
     for (const [frac, pending] of [[0, 0], [0.72, 0], [0.72, 0.15], [0.05, 0.9], [1, 0]]) {
       const segs = hullSegments(frac, pending);
-      expect(segs).toHaveLength(CLIENT_CONFIG.console.ship.segments);
+      expect(segs).toHaveLength(CLIENT_CONFIG.console.gauges.hull.segments);
       const n = segs.length;
       expect(segs.reduce((a, s) => a + s.fill, 0) / n).toBeCloseTo(frac, 9);
       expect(segs.reduce((a, s) => a + s.pending, 0) / n).toBeCloseTo(Math.min(1, frac + pending) - frac, 9);
@@ -160,7 +160,7 @@ describe('the bar — fraction, pooled repair, segments', () => {
     }
   });
 
-  it('fills left to right: no segment is lit past an unlit one', () => {
+  it('fills in order (bottom to top on the gauge): no segment is lit past an unlit one', () => {
     const segs = hullSegments(0.43, 0.2);
     for (let i = 1; i < segs.length; i++) expect(segs[i].fill + segs[i].pending).toBeLessThanOrEqual(segs[i - 1].fill + segs[i - 1].pending + 1e-12);
   });

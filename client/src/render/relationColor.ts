@@ -4,6 +4,10 @@
 // marker, contact FX — reads ONE relation to the viewer. Own = cyan, every other
 // captain or bot = red. The reserved amber, mine, lit-zone and hazard colors are untouched.
 //
+// STORY 12.3 (Eric 2026-11-18): the HULL'S OWN LINES left the rule — every hull
+// strokes in the one dark-gray `hullLine` (`hullLineColor`). The relation stroke
+// stays on everything else above, the corner brackets and the names included.
+//
 // Pure and leaf-level: no Pixi, no state. The one place the two colors and the
 // dark fill rule live, so a later skin story swaps one module.
 
@@ -50,4 +54,15 @@ const STYLES: Readonly<Record<Relation, ShipStyle>> = {
 /** The hull style of a relation (shared objects — never mutate). */
 export function relationStyle(r: Relation): ShipStyle {
   return STYLES[r];
+}
+
+/**
+ * THE HULL LINE COLOR (Story 12.3, Eric 2026-11-18): the color a hull's ART
+ * strokes its lines in, given the style's `stroke`. A relation stroke (own cyan,
+ * enemy red) maps to the one dark-gray `hullLine` — the relation colors stay on
+ * the corner brackets and the names, never on the hull itself. Any other stroke
+ * (the amber `FALLBACK_STYLE` of a roster miss) passes through unchanged.
+ */
+export function hullLineColor(stroke: number): number {
+  return stroke === C.relationOwn || stroke === C.relationEnemy ? C.hullLine : stroke;
 }

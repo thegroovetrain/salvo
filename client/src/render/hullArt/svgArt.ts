@@ -5,7 +5,9 @@
 // down — exactly the canvas at heading 0).
 //
 // Colors follow the two rules (epic-10 amendment 7(k)/(m)): fills from the
-// hull's Default skin, EVERY line in the relation color. Weights are SCREEN px
+// hull's Default skin, EVERY line in the dark-gray `hullLine` (Story 12.3, Eric
+// 2026-11-18 — "all the linework for all ships", the menus included; was the
+// relation color). Weights are SCREEN px
 // (`vector-effect="non-scaling-stroke"`): the hull line `hullPx`, the inner
 // lines a third of it, rails and cranes 1.5× the inner (amendment 7(o)) — so
 // the line weight holds whatever size the caller fits the art to.
@@ -18,7 +20,7 @@
 import { turretMounts, turretRest, turretStation, type ShipClassId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
 import { cssHex } from '../../util/color.js';
-import { relationStroke, type Relation } from '../relationColor.js';
+import { hullLineColor, relationStroke, type Relation } from '../relationColor.js';
 import { skinFill } from './palette.js';
 import { hullArt, turretArt, turretDrawOrder, type LineKey, type Prim } from './shapes.js';
 
@@ -115,7 +117,7 @@ function element(id: ShipClassId, p: Prim, line: string, hullPx: number): string
 
 /**
  * Pure: hull `id`'s art as an inline `<svg>` string, bow right, turrets at
- * rest, lines in `relation`'s color, `pxPerU` screen px per world unit, with a
+ * rest, lines in `hullLineColor` of `relation`'s stroke (dark gray), `pxPerU` screen px per world unit, with a
  * margin of half the hull line so the bold line is never clipped.
  */
 export function hullArtSvg(id: ShipClassId, relation: Relation, opts: HullArtSvgOpts): string {
@@ -126,7 +128,7 @@ export function hullArtSvg(id: ShipClassId, relation: Relation, opts: HullArtSvg
   const vy = b.minY - pad;
   const vw = b.maxX - b.minX + pad * 2;
   const vh = b.maxY - b.minY + pad * 2;
-  const line = cssHex(relationStroke(relation));
+  const line = cssHex(hullLineColor(relationStroke(relation)));
   const body = restingPrims(id).map((p) => element(id, p, line, hullPx)).join('');
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" data-hull="${id}" viewBox="${r3(vx)} ${r3(vy)} ${r3(vw)} ${r3(vh)}" ` +

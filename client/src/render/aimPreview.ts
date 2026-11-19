@@ -52,6 +52,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
+import { screenScale } from './chartMarks.js';
 import type { OwnFire } from './projectiles.js';
 import { isMineEquipment, isTorpedoItem, mainBatteryAim, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
@@ -136,19 +137,20 @@ export interface PreviewLine {
 /** A circle at the TRUE burst point. `blocked` = an island stops the shot short
  *  of it, so the circle renders dimmed rather than promising anything there.
  *
- *  `effect` marks a circle drawn in the quieter register because it is LARGE,
- *  not because it is harmless: the star shell's lit radius (which since Story
- *  8.17, amendment 130, is also its damage circle — the tier's damage to every
- *  hull inside it) and the FOULING SHELL's zone (which slows and deals none). It
- *  is typically many times a blast circle's size (the flare lights half a
- *  truesight bubble), and at damage-circle weight that much ink would bury the
- *  gun-blast circles the same aim UX draws. */
+ *  `area` marks a SPECIAL SHELL's effect area (Story 12.3, AC 23 — Eric
+ *  2026-11-18: "Special Shell effect area needs to be shown around my
+ *  targeting cursor while I am aiming it"): the star shell's lit circle, the
+ *  phosphor zone, the fouling zone and the flash burst. It is drawn in the AREA
+ *  register (`burstInk`): a SCREEN-px stroke at every zoom, at its own knobs.
+ *  The old quiet "effect" register (0.22 / 0.03 at a 1.2 u WORLD stroke) thinned
+ *  to a fraction of a pixel as the camera zoomed out to aim a long shell, which
+ *  is why the circle read as missing. */
 export interface PreviewBurst {
   x: number;
   y: number;
   r: number;
   blocked: boolean;
-  effect: boolean;
+  area: boolean;
   /** See PreviewLine.clamped — the arc-limit half of a broadside barrage. */
   clamped?: boolean;
 }
@@ -229,12 +231,10 @@ interface BurstSpec {
   /** u — LATERAL spacing between adjacent tracks (CONFIG.gun.barrelSpacingU).
    *  Irrelevant at one barrel; the straddle law handles the rest. */
   spacingU: number;
-  /** Draw the circle in the quieter EFFECT register — the star shell's lit
-   *  zone (a damage circle too since Story 8.17, amendment 130: the flare hits
-   *  every hull inside it for the tier's damage, but its size would swamp the
-   *  blast circles at full weight) and the FOULING SHELL's zone. Defaults to
-   *  false: every other circle here is drawn at damage weight. */
-  effect?: boolean;
+  /** Draw the circle in the AREA register (see PreviewBurst.area) — the four
+   *  special shells. Defaults to false: every other circle here is a blast
+   *  circle at damage weight. */
+  area?: boolean;
   /** The shell ARCS over islands (`ShellState.arcs === 'all'` on the server):
    *  never clipped, never drawn blocked by land. */
   overLand?: boolean;
@@ -298,7 +298,7 @@ function shellPreview(
     y: target.y,
     r: spec.burstRadius,
     blocked,
-    effect: spec.effect === true,
+    area: spec.area === true,
     clamped,
   });
 }
@@ -498,9 +498,8 @@ export function effectiveLitRadius(stats: EffectiveStats): number {
  * the circle is always drawn at the true destination, never island-blocked.
  * Since Story 8.17 (amendment 130) the same circle is also the
  * flare's damage area — the tier's damage (10 → 20) to every hull inside it at
- * burst. It is still drawn in the quieter EFFECT register (see
- * PreviewBurst.effect): the lit radius is ~7× a gun blast, and at damage weight
- * it would dominate every other circle on the water.
+ * burst. Drawn in the AREA register (see PreviewBurst.area), like every
+ * special shell.
  */
 function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
   return parallelVolley(inp, {
@@ -509,7 +508,7 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
     shellRadius: CONFIG.starShells.shellRadius,
     barrels: 1,
     spacingU: 0,
-    effect: true,
+    area: true,
     overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
@@ -519,8 +518,8 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
  * one 360° shell to the click at its own tiered reach (`rangeU`, ruling 125),
  * map-clamped and ARCING over islands (epic-11 amendment 8) — with the burst
  * ring at the owner's effective `zoneRadius`, which is both the burst's damage
- * circle and the burning zone it leaves. Drawn at DAMAGE weight (not the
- * flare's quieter effect register): a phosphor burst is a damage burst.
+ * circle and the burning zone it leaves. Drawn in the AREA register (see
+ * PreviewBurst.area), like every special shell.
  */
 function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
   const row = inp.stats.equipment.phosphorShells;
@@ -530,6 +529,7 @@ function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
     shellRadius: CONFIG.phosphorShells.shellRadius,
     barrels: 1,
     spacingU: 0,
+    area: true,
     overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
@@ -539,8 +539,8 @@ function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
  * preview pattern — one 360° shell to the click at its OWN reach (the row's
  * `rangeU`), with the foul zone's circle at the row's TIERED `radius` (Story
  * 10.5, 2026-11-05, epic-10 amendment 11 — R7: +25 u a tier; a slot weapon
- * reads its fold, never CONFIG). Drawn in the quieter EFFECT register like the
- * flare: the shell deals no damage.
+ * reads its fold, never CONFIG). Drawn in the AREA register (see
+ * PreviewBurst.area), like every special shell.
  */
 function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
   const row = inp.stats.equipment.foulingShell;
@@ -550,7 +550,7 @@ function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
     shellRadius: CONFIG.foulingShell.shellRadius,
     barrels: 1,
     spacingU: 0,
-    effect: true,
+    area: true,
     overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
@@ -559,7 +559,8 @@ function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
  * FLASH SHELLS (internal id `dazzleShells`): the FOULING SHELL's preview with
  * the flash's own burst — one 360° shell to the click at the row's `rangeU`,
  * with the one-time blinding burst at the row's TIERED `radius` (Story 10.5,
- * R7). Drawn in the quieter EFFECT register: the flash deals no damage.
+ * R7). Drawn in the AREA register (see PreviewBurst.area), like every special
+ * shell.
  */
 function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
   const row = inp.stats.equipment.dazzleShells;
@@ -569,7 +570,7 @@ function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
     shellRadius: CONFIG.flashShells.shellRadius,
     barrels: 1,
     spacingU: 0,
-    effect: true,
+    area: true,
     overLand: true, // arcs over islands (epic-11 amendment 8)
   });
 }
@@ -747,6 +748,37 @@ export function previewTint(_id: EquipmentId | null, aimTint: number = CLIENT_CO
   return aimTint;
 }
 
+/** How loud one burst circle is drawn: stroke width (layer units), stroke
+ *  alpha, fill alpha. */
+export interface BurstInk {
+  width: number;
+  alpha: number;
+  fillAlpha: number;
+}
+
+/**
+ * PURE: the ink for one burst circle at camera `zoom` (px per u).
+ *
+ *  - A BLAST circle keeps the damage register: `burstWidth` WORLD units,
+ *    `burstAlpha` / `burstFillAlpha`.
+ *  - A special shell's AREA circle (Story 12.3, AC 23) takes the AREA register:
+ *    `areaWidthPx` SCREEN px at any zoom (the `1 / zoom` scale the chart marks
+ *    use, render/chartMarks.ts `screenScale`), `areaAlpha` / `areaFillAlpha`.
+ *  - A BLOCKED path drops the stroke to `blockedAlpha` with no fill (the shot
+ *    does not get there), keeping its register's width.
+ *  - A CLAMPED broadside shell scales both alphas by `clampedAlphaScale`.
+ */
+export function burstInk(b: Pick<PreviewBurst, 'blocked' | 'area' | 'clamped'>, zoom: number): BurstInk {
+  const scale = b.clamped === true ? P.clampedAlphaScale : 1;
+  const width = b.area ? P.areaWidthPx * screenScale(zoom) : P.burstWidth;
+  if (b.blocked) return { width, alpha: P.blockedAlpha * scale, fillAlpha: 0 };
+  return {
+    width,
+    alpha: (b.area ? P.areaAlpha : P.burstAlpha) * scale,
+    fillAlpha: (b.area ? P.areaFillAlpha : P.burstFillAlpha) * scale,
+  };
+}
+
 /**
  * PURE: the oval fill's alpha at normalized ellipse radius `r` ∈ [0, 1] for a
  * bell whose edge sits at `sigmas` standard deviations — bench idea E "Bright
@@ -815,7 +847,9 @@ export class AimPreview {
     this.oval.visible = false;
   }
 
-  update(model: AimPreviewModel, tint: number): void {
+  /** `zoom` = the camera's px per u (`camera.zoom`): the AREA register's
+   *  stroke is SCREEN px, so it needs it (`burstInk`). Omitted = 1. */
+  update(model: AimPreviewModel, tint: number, zoom = 1): void {
     const g = this.g;
     g.clear();
     this.drawOval(model.oval, tint);
@@ -826,7 +860,7 @@ export class AimPreview {
     this.strokeLines(model.lines, tint, false, P.lineAlpha);
     this.strokeLines(model.lines, tint, true, P.lineAlpha * P.clampedAlphaScale);
     if (model.band) this.drawBand(model.band, tint);
-    for (const b of model.bursts) this.drawBurst(b, tint);
+    for (const b of model.bursts) this.drawBurst(b, tint, zoom);
     if (model.place) this.drawPlacement(model.place, tint);
   }
 
@@ -859,12 +893,10 @@ export class AimPreview {
    *  get there, and the circle must not claim it will. A CLAMPED broadside
    *  shell keeps its full geometry (it really does burst there) but scales down
    *  to say "this gun could not reach your click". */
-  private drawBurst(b: PreviewBurst, tint: number): void {
-    const scale = b.clamped === true ? P.clampedAlphaScale : 1;
-    const lit = (b.blocked ? P.blockedAlpha : b.effect ? P.effectAlpha : P.burstAlpha) * scale;
-    const fill = (b.blocked ? 0 : b.effect ? P.effectFillAlpha : P.burstFillAlpha) * scale;
-    this.g.circle(b.x, b.y, b.r).fill({ color: tint, alpha: fill });
-    this.g.circle(b.x, b.y, b.r).stroke({ width: P.burstWidth, color: tint, alpha: lit });
+  private drawBurst(b: PreviewBurst, tint: number, zoom: number): void {
+    const ink = burstInk(b, zoom);
+    this.g.circle(b.x, b.y, b.r).fill({ color: tint, alpha: ink.fillAlpha });
+    this.g.circle(b.x, b.y, b.r).stroke({ width: ink.width, color: tint, alpha: ink.alpha });
   }
 
   /** The homing acquisition corridor: two rails plus an interior wash, drawn as

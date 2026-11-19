@@ -35,16 +35,16 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   fireTorp: 'the torpedo itself + its wake trail on the water (render/projectiles, effects torpwake)',
   fireMine: 'the armed mine marker appearing on the chart (render/mines)',
   fireStarShells: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',
-  denied: '80ms denied-red edge pulse on the weapon arc/reticle and on the weapons console\'s row or ability button (render/deniedFire, render/console/weaponsConsole)',
-  damage: 'screen shake + the ship console\'s hull percent and bar dropping (render/shake, render/console/shipConsole)',
+  denied: '80ms denied-red edge pulse on the weapon arc/reticle and on the HUD bar\'s weapon or ability tile (render/deniedFire, render/console/hudBar)',
+  damage: 'screen shake + the HUD bar\'s hull percent and bar dropping (render/shake, render/console/hudBar)',
   kill: 'the kill-feed line naming your victim (ui/killFeed)',
-  point: 'the ship console\'s banked-level chip + the offer group\'s cards arriving in their corner (render/console/shipConsole, ui/offerGroup)',
-  fitCommon: 'the ◆ FITTED toast + the consoles\' readouts changing to the new values (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
-  fitRare: 'the ◆ FITTED toast + the consoles\' readouts changing to the new values (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
-  fitExclusive: 'the ◆ FITTED toast + the consoles\' readouts changing to the new values, plus the doctrine\'s on-water identity (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
+  point: 'the HUD bar\'s banked-level chip + the offer group\'s cards arriving along the bottom (render/console/hudBar, ui/offerGroup)',
+  fitCommon: 'the ◆ FITTED toast + the HUD bar\'s readouts changing to the new values (ui/upgradeToast, render/console/hudBar)',
+  fitRare: 'the ◆ FITTED toast + the HUD bar\'s readouts changing to the new values (ui/upgradeToast, render/console/hudBar)',
+  fitExclusive: 'the ◆ FITTED toast + the HUD bar\'s readouts changing to the new values, plus the doctrine\'s on-water identity (ui/upgradeToast, render/console/hudBar)',
   heal:
-    'the ship console\'s hull percent and bar climbing, the lighter pooled-repair segment draining into it (render/console/shipConsole)',
-  burn: 'the burning zone under your hull + the ship console\'s hull bar dropping (render/burnZones, render/console/shipConsole)',
+    'the HUD bar\'s hull percent and bar climbing, the lighter pooled-repair segment draining into it (render/console/hudBar)',
+  burn: 'the burning zone under your hull + the HUD bar\'s hull bar dropping (render/burnZones, render/console/hudBar)',
   hitCall:
     'the Hit Call bloom at the impact point, drawn above the fog so a connection you cannot see still shows (render/effects)',
   slowed: 'the SLOWED tell + its countdown under the chrome bar (render/hud)',
@@ -82,13 +82,13 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // stretching. Own smoke rides the ordinary `sm` row with no special case
   // (amendment 46), so the smoking captain really does see their own column.
   hpHurt:
-    'the ship console\'s hull gauge turning amber and starting to breathe (render/console/shipConsole), and your own light wounded-smoke plume beginning (render/smoke)',
+    'the HUD bar\'s hull gauge turning amber and starting to breathe (render/console/hudBar), and your own light wounded-smoke plume beginning (render/smoke)',
   hpCritical:
-    'the ship console\'s hull gauge turning crimson and its pulse accelerating toward the photosensitivity cap (render/console/shipConsole), and your own plume thickening to the heavy tier (render/smoke)',
+    'the HUD bar\'s hull gauge turning crimson and its pulse accelerating toward the photosensitivity cap (render/console/hudBar), and your own plume thickening to the heavy tier (render/smoke)',
   tick: 'the countdown seconds ticking down in the phase banner (ui/phase)',
   matchStart: 'the phase banner flipping from countdown to the live match (ui/phase)',
-  telegraphUp: 'the ordered detent stepping AHEAD on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
-  telegraphDown: 'the ordered detent stepping ASTERN on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
+  telegraphUp: 'the ordered detent stepping AHEAD on the HUD bar\'s throttle gauge (render/console/hudBar, input/telegraph)',
+  telegraphDown: 'the ordered detent stepping ASTERN on the HUD bar\'s throttle gauge (render/console/hudBar, input/telegraph)',
   // --- HULL CONTACT (Story 9.5, amendment 79) ---------------------------------
   // The scrape says "you are pressed against something and sliding" — which the
   // water already shows: the own hull drawn hard against the other hull or the
@@ -126,22 +126,22 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   steelHit:
     'the spark hit bloom at the connection, the contracting pierce ring on a punch-through, and the amber burst ring at a gun shell\'s blast point (render/effects)',
   ownHit:
-    'screen shake sized to the blow + the ship console\'s hull percent and bar dropping (render/shake, render/console/shipConsole)',
+    'screen shake sized to the blow + the HUD bar\'s hull percent and bar dropping (render/shake, render/console/hudBar)',
   burning:
-    'the burning zone under your hull + the ship console\'s hull bar dropping (render/burnZones, render/console/shipConsole)',
+    'the burning zone under your hull + the HUD bar\'s hull bar dropping (render/burnZones, render/console/hudBar)',
   repair:
-    'the ship console\'s hull percent and bar climbing, the lighter pooled-repair segment draining into it (render/console/shipConsole)',
+    'the HUD bar\'s hull percent and bar climbing, the lighter pooled-repair segment draining into it (render/console/hudBar)',
   smoke: 'the smoke cloud blooming on the water where it was laid (render/countermeasure)',
   beacon: 'the radio beacon markers surfacing on the water and the chart (render/beacons)',
   boostSurge:
-    'the ship console\'s boost state lighting + the wake lengthening behind your hull (render/console/shipConsole, render/wake)',
+    'the HUD bar\'s boost state lighting + the wake lengthening behind your hull (render/console/hudBar, render/wake)',
   sinkWitness:
     'the crimson sink ring expanding where the hull went down, plus the kill-feed line naming the loss (render/effects, ui/killFeed)',
   levelUp:
-    'the ship console\'s banked-level chip + the offer group\'s cards arriving in their corner (render/console/shipConsole, ui/offerGroup)',
+    'the HUD bar\'s banked-level chip + the offer group\'s cards arriving along the bottom (render/console/hudBar, ui/offerGroup)',
   countdownTick: 'the countdown seconds ticking down in the phase banner (ui/phase)',
   telegraph:
-    'the ordered detent stepping ahead or astern on the ship console\'s helm ladder (render/console/shipConsole, input/telegraph)',
+    'the ordered detent stepping ahead or astern on the HUD bar\'s throttle gauge (render/console/hudBar, input/telegraph)',
   ramGrind:
     'the own hull drawn pressed against the other hull or the coast, plus the strike sparks where it first touched (render/ships, contactFx)',
   propFouled: 'the SLOWED tell + its countdown under the chrome bar (render/hud)',
@@ -151,21 +151,21 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   airdropChime: 'the airdrop pickup\'s stat toast naming what you hauled aboard (ui/upgradeToast)',
   killSound: 'the kill-feed line naming your victim (ui/killFeed)',
   cardFitted:
-    'the ◆ FITTED toast + the consoles\' readouts changing to the new values (ui/upgradeToast, render/console/shipConsole, weaponsConsole)',
+    'the ◆ FITTED toast + the HUD bar\'s readouts changing to the new values (ui/upgradeToast, render/console/hudBar)',
   // `bounty` keeps its row above (same id).
   // THE KLAXON replaces the two hp stings and the own sink tone (their rows
   // above stay — they are its fallbacks): one blast / three blasts at the hull
   // gauge's two band edges, and the repeat while the own hull sinks.
   klaxon:
-    'the ship console\'s hull gauge turning amber, then crimson, at the band edges (render/console/shipConsole), and while sinking the sinking hull itself and the elimination modal (render/effects, ui/results)',
+    'the HUD bar\'s hull gauge turning amber, then crimson, at the band edges (render/console/hudBar), and while sinking the sinking hull itself and the elimination modal (render/effects, ui/results)',
   // The STORM BED is continuous, like the engine: it says you are inside the storm.
   stormBed:
-    'the storm ring closing in and its vignette while you are outside the safe water, plus the storm damage on the ship console\'s hull bar (render/zone, render/console/shipConsole)',
+    'the storm ring closing in and its vignette while you are outside the safe water, plus the storm damage on the HUD bar\'s hull bar (render/zone, render/console/hudBar)',
   // The ENGINE is continuous, not a cue: it follows your helm order and your
   // speed, both of which the console and the water already show — and another
   // ship's engine only while that hull is drawn close alongside.
   engine:
-    'the ordered detent on the ship console\'s helm ladder and the speed readout, plus the wake behind each hull drawn close alongside (render/console/shipConsole, render/wake, render/contacts)',
+    'the ordered detent on the HUD bar\'s throttle gauge and its actual-speed arrow, plus the wake behind each hull drawn close alongside (render/console/hudBar, render/wake, render/contacts)',
 };
 
 /** Pure: the visual twin named for a cue (the table is total over AudioCueId). */
