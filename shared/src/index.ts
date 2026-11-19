@@ -8,7 +8,8 @@
  *  new shared sim/hullBlocks.ts) appended LAST and optional on the sighted
  *  contact row, after `lu`. A step, never the hp or a fraction; it rides that
  *  row's own visibility gate (never a radar paint, never an event), so it is
- *  not a seventh perception exception. Supersedes epic-4 amendment 41 for
+ *  not a seventh perception exception. Sent ONLY within the observer's
+ *  name-tag reach, absent beyond it (Eric 2026-11-19, same unreleased bump). Supersedes epic-4 amendment 41 for
  *  sighted hulls only; wounded smoke (`sm`) is unchanged. New CONFIG.hullBar
  *  block (rides the welcome config snapshot).
  *  110 — ACOUSTIC HOMING STANDARD (2026-11-16, Eric; epic-11 amendment 20;

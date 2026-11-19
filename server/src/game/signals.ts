@@ -764,8 +764,10 @@ function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): G
  * (`hullSightOf` — `CONFIG.vision.hullSight`), and between its class-and-name
  * sight (`sightOf`) and that reach the hull FADES: a distance haze joins the
  * rain and the smoke in the one optical depth (`hullHeld`). The payload is
- * the full contact at every distance; identity-bearing EVENTS (the boom's
- * victim id, `sunk.seen`, the spawn row) stay on the class-and-name reach.
+ * the full contact at every distance EXCEPT the health step `hb`, which
+ * rides only within the class-and-name reach (`nameTagHeld`, Story 12.3);
+ * identity-bearing EVENTS (the boom's victim id, `sunk.seen`, the spawn row)
+ * stay on the class-and-name reach.
  */
 /** THE FOGGED CONTACT PREDICATE: the observer's own effective reaches (the
  *  one derivation) on the hull's center, the weather and the haze asked of
@@ -774,6 +776,28 @@ function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): G
 function fullContactSeen(ctx: FoggedSignalContext, ship: ShipRecord): boolean {
   const me = ctx.me;
   return hullHeld(ctx, me, ship, sightOf(me, ctx.now), hullSightOf(me, ctx.now)) || ownZoneCovers(ctx, ship.state);
+}
+
+/**
+ * THE NAME-TAG REACH (Story 12.3, Eric 2026-11-19): is `ship` where an honest
+ * client draws its nameplate — and with it the hull health bar? The server
+ * twin of the client's `plateInSight` (client/src/render/rainSight.ts): the
+ * hull's CENTER within the observer's effective class-and-name sight
+ * (`sightOf` — the shared whiteout-scaled `effectiveSight` the client's
+ * `RainEye.sightU` is), boundary INCLUSIVE, by plain distance. No island or
+ * weather term of its own: it only ever narrows a row `contactSignal.visible`
+ * already passed. An OWN LIT ZONE does not widen it — a zone-lit hull beyond
+ * the name reach draws no plate on the client either. A spectator has no eye
+ * (the client's null `RainEye`): every plate shows, so every row carries the
+ * step, as it carries every other identity-bearing field.
+ */
+function nameTagHeld(ctx: SignalContext, ship: ShipRecord): boolean {
+  if (ctx.mode === 'spectator') return true;
+  const me = ctx.me;
+  const reach = sightOf(me, ctx.now);
+  const dx = ship.state.x - me.state.x;
+  const dy = ship.state.y - me.state.y;
+  return dx * dx + dy * dy <= reach * reach;
 }
 
 const contactSignal: SignalSpec<ShipRecord, Contact> = {
@@ -814,13 +838,18 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     // seventh exception.
     const mounted = ship.launchers.length === 0 ? turreted : { ...turreted, lu: encodeLauncherAngles(ship.launchers) };
     // THE HULL HEALTH STEP (Story 12.3, Eric 2026-11-18, epic-12 amendment
-    // 2(e) + (g)): `hb` appended LAST, on EVERY contact row — the shared
-    // `hullBlocks` of this hull's hp over its own maxHp. A STEP ONLY: never
-    // the hp, a fraction or a damage amount. Under EXACTLY `tu` / `lu`'s
-    // gate — this row, which only runs once contactSignal.visible has passed
-    // — so not a seventh exception; a radar paint and every event stay
-    // health-blind. A SINKING hull reads 1, the step of any afloat hull under
-    // the last threshold, so the window stays undisclosed (amendment 16).
+    // 2(e) + (g); TIGHTENED by Eric 2026-11-19 — "only where drawn"): `hb`
+    // appended LAST, and ONLY within the observer's NAME-TAG reach
+    // (`nameTagHeld` — the reach the client draws the plate and its bar in).
+    // In the hazed band out to the hull sight the row OMITS the key (absent,
+    // never a sentinel): the hull fades there with no plate, so its health
+    // would be a number nothing draws. The shared `hullBlocks` of this hull's
+    // hp over its own maxHp — A STEP ONLY: never the hp, a fraction or a
+    // damage amount. Inside this row's own gate AND the name reach, so not a
+    // seventh exception; a radar paint and every event stay health-blind. A
+    // SINKING hull reads 1, the step of any afloat hull under the last
+    // threshold, so the window stays undisclosed (amendment 16).
+    if (!nameTagHeld(ctx, ship)) return mounted;
     return { ...mounted, hb: hullBlocks(ship.hp, ship.stats.maxHp) };
   },
 };
@@ -1998,9 +2027,9 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
  * with Story 10.5). Enemy hp, builds, boons,
  * level banks, and repairs all stay hidden by this one gate (levels / boon ids
  * ride ONLY on OwnShip, never on contacts/blips/booms). (Enemy hp: superseded
- * FOR SIGHTED HULLS ONLY by Eric 2026-11-18, epic-12 amendment 2 — a hull in
- * sight carries the `hb` health STEP on its contact row, never the hp or a
- * damage amount; wounded smoke `sm` is unchanged.) (The 'upg' row died
+ * FOR SIGHTED HULLS ONLY by Eric 2026-11-18, epic-12 amendment 2 — a hull
+ * within the NAME-TAG reach carries the `hb` health STEP on its contact row
+ * (absent beyond it — Eric 2026-11-19), never the hp or a damage amount; wounded smoke `sm` is unchanged.) (The 'upg' row died
  * with the legacy upgrade economy — Story 2.8's wholesale strip.)
  *
  * `spectatorPublic`: dmg alone passes through unfiltered to spectators (they

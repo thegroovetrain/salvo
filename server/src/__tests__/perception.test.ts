@@ -628,6 +628,9 @@ const OWN_MOUNTS_SEEN = { n: 0 };
 /** Story 12.3 non-vacuity: the distinct hull health steps (`hb`) the fuzz saw
  *  on contact rows. */
 const HB_SEEN = new Set<number>();
+/** ...and contact rows it proved carry NO `hb`: sent hulls beyond the
+ *  observer's name-tag reach (the hazed band, or zone-lit past it). */
+const HB_WITHHELD = { n: 0 };
 /** Story 11.1 non-vacuity: in-flight DISPERSED shells (main battery /
  *  secondaries) whose landing point the fuzz proved absent from a frame. */
 const LANDING_GUARDED = { n: 0 };
@@ -1140,7 +1143,12 @@ describe('perception — one hull tier: a full contact to the hull sight, fading
     place(w, 'a', 0, 0);
     const t = place(w, TARGET, SIGHT, 0, 1.5);
     t.state.speed = 7;
-    const row = (x: number): unknown => ({ id: TARGET, x, y: 0, heading: 1.5, speed: 7, cls: t.hullId, tu: encodeTurretAngles(t.turrets, t.hullId), hb: hullBlocks(t.hp, t.stats.maxHp) });
+    // ...except the health step `hb` (Story 12.3, Eric 2026-11-19): on the row
+    // out to the class reach (inclusive), ABSENT a hair beyond it.
+    const row = (x: number): unknown => ({
+      id: TARGET, x, y: 0, heading: 1.5, speed: 7, cls: t.hullId, tu: encodeTurretAngles(t.turrets, t.hullId),
+      ...(x <= SIGHT ? { hb: hullBlocks(t.hp, t.stats.maxHp) } : {}),
+    });
     for (const x of [SIGHT, SIGHT + 0.01, HAZE_D, HULL_SIGHT]) {
       t.state.x = x;
       const f = look(w, 'a');
@@ -1226,7 +1234,8 @@ describe('perception — one hull tier: a full contact to the hull sight, fading
     w.litZones.clear();
     injectZone(w, 'mine', 'a', t.state.x, 0);
     expect(look(w, 'a').contacts).toEqual([
-      { id: TARGET, x: t.state.x, y: 0, heading: 0.9, speed: 0, cls: t.hullId, tu: encodeTurretAngles(t.turrets, t.hullId), hb: hullBlocks(t.hp, t.stats.maxHp) },
+      // no `hb`: a zone-lit hull beyond the name-tag reach draws no plate (Story 12.3, Eric 2026-11-19)
+      { id: TARGET, x: t.state.x, y: 0, heading: 0.9, speed: 0, cls: t.hullId, tu: encodeTurretAngles(t.turrets, t.hullId) },
     ]);
   });
 
@@ -2348,7 +2357,8 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     const b = place(w, 'b', BEYOND_RADAR, 0, 2.1); // way outside sight AND radar
     injectZone(w, 'z1', 'a', BEYOND_RADAR, 0);
     expect(buildFrame(w, 'a').contacts).toEqual([
-      { id: 'b', x: BEYOND_RADAR, y: 0, heading: 2.1, speed: 0, cls: DEFAULT_CLASS_ID, tu: encodeTurretAngles(b.turrets, b.hullId), hb: hullBlocks(b.hp, b.stats.maxHp) },
+      // no `hb`: the zone gives the contact, not the name-tag reach (Story 12.3, Eric 2026-11-19)
+      { id: 'b', x: BEYOND_RADAR, y: 0, heading: 2.1, speed: 0, cls: DEFAULT_CLASS_ID, tu: encodeTurretAngles(b.turrets, b.hullId) },
     ]);
     // Zone expiry/removal drops the contact again (revealed only while lit).
     w.litZones.clear();
@@ -3065,17 +3075,31 @@ function bothLevels(level: boolean): { held: boolean; sec: boolean } {
 }
 
 /**
- * THE HULL HEALTH STEP (Story 12.3, epic-12 amendment 2): `hb` rides EVERY
- * contact row — whose own visibility gate is what the rest of the verifier
- * proves — appended LAST, and equals the shared step of THAT hull's hp over
- * its own maxHp. The row carries the step and nothing finer: no key of it
- * holds the hull's hp.
+ * THE HULL HEALTH STEP (Story 12.3, epic-12 amendment 2; tightened by Eric
+ * 2026-11-19 — "only where drawn"): `hb` rides a contact row IFF the hull's
+ * center is within the observer's NAME-TAG reach — its effective
+ * class-and-name sight, boundary inclusive, by plain distance (the reach the
+ * client's `plateInSight` draws the plate and its bar in; an own lit zone
+ * does NOT widen it). Present: appended LAST, and equal to the shared step of
+ * THAT hull's hp over its own maxHp. In the hazed band out to the hull sight
+ * (and on a zone-lit hull beyond the name reach) the key is ABSENT — never a
+ * sentinel. Either way the row carries nothing finer: no key of it holds the
+ * hull's hp.
  */
-function verifyHullStep(ship: ShipRecord, c: FrameMsg['contacts'][number]): void {
+function verifyHullStep(w: World, me: ShipRecord, ship: ShipRecord, c: FrameMsg['contacts'][number]): void {
+  expect(hasForbiddenKey(c, ['hp', 'maxHp'])).toBe(false);
+  const reach = effSight(w, me);
+  const dx = ship.state.x - me.state.x;
+  const dy = ship.state.y - me.state.y;
+  const named = dx * dx + dy * dy <= reach * reach;
+  expect('hb' in c, `${c.id} at ${Math.hypot(dx, dy)} u of ${me.id} (name reach ${reach})`).toBe(named);
+  if (!named) {
+    HB_WITHHELD.n += 1;
+    return;
+  }
   const keys = Object.keys(c);
   expect(keys[keys.length - 1]).toBe('hb');
   expect(c.hb).toBe(hullBlocks(ship.hp, ship.stats.maxHp));
-  expect(hasForbiddenKey(c, ['hp', 'maxHp'])).toBe(false);
   HB_SEEN.add(c.hb!);
 }
 
@@ -3111,7 +3135,7 @@ function verifyBatteryPrivacy(w: World, me: ShipRecord, f: FrameMsg, withoutYou:
       if ('tu' in c) expect(keys.indexOf('lu')).toBe(keys.indexOf('tu') + 1);
       LU_SEEN.n += 1;
     }
-    verifyHullStep(ship, c);
+    verifyHullStep(w, me, ship, c);
   }
   const withoutContacts = { ...withoutYou, contacts: undefined };
   // ...and `hb` (Story 12.3) on the same terms: a contact row and nothing
@@ -4995,6 +5019,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     TU_SEEN.n = 0;
     LU_SEEN.n = 0;
     HB_SEEN.clear();
+    HB_WITHHELD.n = 0;
     OWN_MOUNTS_SEEN.n = 0;
     LANDING_GUARDED.n = 0;
     OWN_END_BY_ARM.n = 0;
@@ -5579,6 +5604,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(LU_SEEN.n).toBeGreaterThan(0); // Story 10.6: the `lu` pin was exercised
     expect(OWN_MOUNTS_SEEN.n).toBeGreaterThan(0); // ...and the own launchers / racks pin
     expect(HB_SEEN.size).toBeGreaterThan(1); // Story 12.3: the `hb` pin met hulls at more than one health step
+    expect(HB_WITHHELD.n).toBeGreaterThan(0); // ...and sent hulls beyond the name-tag reach, proved to carry none
     expect(LANDING_GUARDED.n).toBeGreaterThan(0); // Story 11.1: in-flight dispersed landings were checked absent
     expect(OWN_END_BY_ARM.n).toBeGreaterThan(0); // epic-11 amendment 11: an own shell's end reached its owner past his eye
     expect(PARALLEL_PAIRS.n).toBeGreaterThan(0); // Story 11.1 review fix: salvo reveals were checked parallel

@@ -805,9 +805,16 @@ export interface Contact {
    * Steps exactly where wounded smoke (< 50 %) and fire (< 25 %) change.
    *
    * A STEP ONLY — never the exact hp, a fraction or a damage amount. It rides
-   * the sighted contact row and therefore that row's own visibility gate,
-   * exactly as `tu` / `lu` do: never a radar paint, never an event. Not a
-   * seventh exception. Supersedes epic-4 amendment 41 for sighted hulls only.
+   * the sighted contact row and therefore that row's own visibility gate:
+   * never a radar paint, never an event. Not a seventh exception. Supersedes
+   * epic-4 amendment 41 for sighted hulls only.
+   *
+   * ONLY WITHIN THE NAME-TAG REACH, ABSENT BEYOND IT (Eric 2026-11-19 —
+   * "only where drawn"): the server sends it only while the hull's center is
+   * within the observer's effective class-and-name sight (signals.ts
+   * `nameTagHeld`, the twin of the client's `plateInSight`). In the hazed
+   * band out to the hull sight the key is OMITTED, never a sentinel.
+   * Spectators (no eye) get it on every row.
    *
    * APPENDED AFTER `lu`, AND OPTIONAL (msgpack key order).
    */
@@ -1172,7 +1179,7 @@ export interface MuzzleEvent {
  * criticalBelow). Sending hp/maxHp would be a real HP gauge and is
  * FORBIDDEN — two named conditions is a state, not a number (amendment 41).
  * (Superseded FOR SIGHTED HULLS ONLY by Eric 2026-11-18, epic-12 amendment 2:
- * a hull in sight carries the `Contact.hb` step on its own contact row. This
+ * a hull within the name-tag reach carries the `Contact.hb` step on its own contact row. This
  * event is unchanged — shape, reach and tiers.)
  *
  * ANTI-CHEAT — deliberately omitted: EVERY identity channel, for EVERY

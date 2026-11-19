@@ -374,6 +374,16 @@
 // snapshot back byte for byte. `hb` is on contact rows only: no `you`, no
 // paint, no event carries it. No frame, tick, value, event or count moved;
 // the six exceptions and every proof are unchanged.
+//
+// RE-RECORDED 2026-11-19, again (Story 12.3, Eric 2026-11-19 — "only where
+// drawn"; PV stays 111, the same unreleased bump). `hb` now rides a contact
+// row only within the observer's NAME-TAG reach (signals.ts `nameTagHeld`).
+// SEVEN KEYS REMOVED, nothing else: 7 of the 174 lines moved, the 212 `hb`
+// rows became 205 (step 4: 201 → 196, step 1: 10 → 8, step 3: 1 → 1), and a
+// character walk proved the new snapshot is the old one with exactly those
+// seven `,"hb":n` tokens deleted — each a hull sent beyond the observer's
+// class-and-name sight (the hazed band, or lit by an own zone past it). No
+// frame, tick, value, event or count moved.
 
 import { describe, it, expect } from 'vitest';
 import {

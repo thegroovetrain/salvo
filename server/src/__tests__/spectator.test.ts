@@ -358,7 +358,10 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     // shape is enumerated rather than allowed loosely: a stray extra key
     // still fails.
     const keys = Object.keys(c).sort();
-    const base = ['cls', 'hb', 'heading', 'id', 'speed', 'x', 'y']; // `hb`: Story 12.3, on every contact row
+    // `hb` (Story 12.3, Eric 2026-11-19): present IFF the hull is within the
+    // observer's name-tag reach (these worlds never flash anybody).
+    const named = dist(me.state, target.state) <= SIGHT;
+    const base = [...(named ? ['hb'] : []), 'cls', 'heading', 'id', 'speed', 'x', 'y'].sort();
     const withTu = target.turrets.length > 0;
     expect(keys).toEqual(withTu ? [...base, 'tu'].sort() : base);
     if (withTu) expect(c.tu).toEqual(encodeTurretAngles(target.turrets, target.hullId));

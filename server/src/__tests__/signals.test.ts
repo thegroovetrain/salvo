@@ -14,6 +14,8 @@ import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
   dropPaint,
+  hullSightOf,
+  sightOf,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
@@ -202,6 +204,32 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const wire = row.materialize(ctx, d);
     expect('tu' in (wire as object)).toBe(false);
     expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls', 'hb']);
+  });
+
+  it('contact row: `hb` rides only within the observer\'s name-tag reach — a hull in the hazed band is the same row with the key ABSENT; a spectator gets it at any distance (Story 12.3, Eric 2026-11-19)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const nameReach = sightOf(a, w.now);
+    const hullReach = hullSightOf(a, w.now);
+    expect(hullReach).toBeGreaterThan(nameReach); // premise: there is a hazed band
+    const near = place(w, 'near', nameReach, 0); // AT the reach: boundary inclusive
+    const hazed = place(w, 'hazed', 0, (nameReach + hullReach) / 2);
+    const row = SIGNAL_REGISTRY.contact;
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, near)).toBe(true);
+    expect(row.visible(ctx, hazed)).toBe(true); // premise: both rows are sent
+    const nearWire = row.materialize(ctx, near);
+    const hazedWire = row.materialize(ctx, hazed);
+    expect(nearWire.hb).toBe(hullBlocks(near.hp, near.stats.maxHp));
+    expect(Object.keys(nearWire as object).at(-1)).toBe('hb');
+    expect('hb' in (hazedWire as object)).toBe(false); // absent, never a sentinel
+    expect(Object.keys(hazedWire as object)).toEqual(Object.keys(nearWire as object).filter((k) => k !== 'hb'));
+    // The observer's EFFECTIVE reach, not the stat: a whited-out eye names nobody.
+    a.dazzledUntil = w.now + FLASH_WINDOW_MS;
+    expect(sightOf(a, w.now)).toBeLessThan(nameReach);
+    expect('hb' in (row.materialize(foggedCtx(w, a), near) as object)).toBe(false);
+    // A spectator has no eye: the step rides every row.
+    expect(row.materialize(specCtx(w), hazed).hb).toBe(hullBlocks(hazed.hp, hazed.stats.maxHp));
   });
 
   it('contact row: `hb` is the shared step of the hull\'s hp over its own maxHp, at every step (Story 12.3)', () => {

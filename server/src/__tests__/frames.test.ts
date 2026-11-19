@@ -165,7 +165,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     });
   });
 
-  it('carries a hull beyond the class-and-name sight and inside the hull sight as the SAME full contact (one tier — Eric 2026-11-15); no `pc` channel', () => {
+  it('carries a hull beyond the class-and-name sight and inside the hull sight as the SAME contact, minus the health step (one tier — Eric 2026-11-15); no `pc` channel', () => {
     const w = makeWorld();
     place(w, 'far', CONFIG.vision.sight + 50, 0);
     w.step();
@@ -175,8 +175,8 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     expect(Math.hypot(far.state.x, far.state.y)).toBeLessThan(CONFIG.vision.hullSight); // ...inside the hull reach
     expect(f.contacts.map((c) => c.id).sort()).toEqual(['b', 'far']);
     expect(f.contacts.find((c) => c.id === 'far')).toEqual({
-      id: 'far', x: far.state.x, y: far.state.y, heading: far.state.heading, speed: far.state.speed, cls: far.hullId, tu: encodeTurretAngles(far.turrets, far.hullId), hb: hullBlocks(far.hp, far.stats.maxHp),
-    });
+      id: 'far', x: far.state.x, y: far.state.y, heading: far.state.heading, speed: far.state.speed, cls: far.hullId, tu: encodeTurretAngles(far.turrets, far.hullId),
+    }); // ...minus the health step `hb`, which stays on the name-tag reach (Story 12.3, Eric 2026-11-19)
     expect('pc' in f).toBe(false);
   });
 
