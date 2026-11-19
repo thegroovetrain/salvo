@@ -798,6 +798,20 @@ export interface Contact {
    * APPENDED AFTER `tu`, AND OPTIONAL (msgpack key order).
    */
   lu?: number[];
+  /**
+   * THE HULL HEALTH STEP (Story 12.3, Eric 2026-11-18, epic-12 amendment 2(e)
+   * + (g)): `hullBlocks(hp, maxHp)` (sim/hullBlocks.ts), 1..CONFIG.hullBar.
+   * blocks while afloat — the A2 four-block bar over every hull in sight.
+   * Steps exactly where wounded smoke (< 50 %) and fire (< 25 %) change.
+   *
+   * A STEP ONLY — never the exact hp, a fraction or a damage amount. It rides
+   * the sighted contact row and therefore that row's own visibility gate,
+   * exactly as `tu` / `lu` do: never a radar paint, never an event. Not a
+   * seventh exception. Supersedes epic-4 amendment 41 for sighted hulls only.
+   *
+   * APPENDED AFTER `lu`, AND OPTIONAL (msgpack key order).
+   */
+  hb?: 1 | 2 | 3 | 4;
 }
 
 // --- GameEvent union (discriminated on `k`) --------------------------------

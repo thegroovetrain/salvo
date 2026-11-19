@@ -1,6 +1,10 @@
+---
+baseline_commit: f905edc19602674e1b2be528b8c285916d135c39
+---
+
 # Story 12.3: The In-Game UI Pass
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Created 2026-11-18 by gds-create-story from Eric's sitting in chat (epic-12 amendment 2). Part B (the HUD redesign) was designed 2026-11-19 in the same sitting and approved (epic-12 amendment 3): it is IN this story, built in the same cycle. -->
 
