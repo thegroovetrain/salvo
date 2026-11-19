@@ -141,8 +141,13 @@ export function interactionLine(
  * 105), so `slotTier` (and, below, `tierSuffix`) reads it off the fold's own
  * row instead of off a catalog line's raw copy count. Replaces the single-id
  * `GUN_EQUIPMENT_ID` the deck gun alone once needed.
+ *
+ * THE MAIN BATTERY (a captain's slot 0 since Story 10.4) joins it (Story 12.3
+ * Part B, AC 40 — every weapon row wears a tier mark): its fold row carries a
+ * `tier` like theirs. No ladder hosts on it today, so it reads its fold's
+ * tier I. [reading: Story 12.3 Part B — the main battery's tier]
  */
-const GUN_FAMILY: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak']);
+const GUN_FAMILY: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak', 'mainBattery']);
 
 /** `TIER n` for a slot standing on a rung, '' otherwise — an unfitted-but-
  *  somehow-present weapon reads 0, which prints nothing rather than a fake

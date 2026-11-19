@@ -19,8 +19,11 @@
 // A SHORT LOGICAL VIEWPORT (the 125 % tier at 1080p, a small window at the
 // 0.75 clamp) cannot hold the whole bar between its 132 px top and 18 px
 // bottom: the section gaps close to `sectionGapMin`, the gauges shrink toward
-// `gauges.hMin`, and only then does the bar's top rise above 132 (never above
-// `edge`). The text never shrinks. [reading: Story 12.3 Part B — short viewports]
+// `gauges.hMin`, and only then does the bar's top rise above 132. Below the
+// bar's least height (`BAR_MIN_H` + its insets — about 845 logical px, e.g. a
+// window under ~634 px tall at the 0.75 clamp) the top runs off the screen
+// rather than overlapping a section: the text never shrinks and no section
+// ever covers another. [reading: Story 12.3 Part B — short viewports]
 
 import { INDEX_IDS, type IndexId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
@@ -47,28 +50,44 @@ export type WeaponRowKind = (typeof WEAPON_ROW_KINDS)[number];
 export const ABILITY_KINDS = ['repair', 'smoke', 'shift'] as const;
 export type AbilityKind = (typeof ABILITY_KINDS)[number];
 
-/** A weapon tile: line 1 (NAME · tier · key chip) and its body (icons or bar). */
-export interface WeaponTileRect extends Rect {
+/** THE TIER MARK's column and the key-chip slot right of it (AC 40): the same
+ *  x on every row from MAIN BATTERY to INTEL. */
+export interface MarkColumn {
+  /** The tier mark: the numeral, then the five dots, right-aligned in it. */
+  tierMark: Rect;
+  /** The fixed-width key-chip slot (empty on the ship rows). */
+  chipSlot: Rect;
+}
+
+/** A refill bar with READY / the seconds at its right end (AC 29 / 31). */
+export interface RefillRect {
+  track: Rect;
+  state: Rect;
+}
+
+/** A weapon tile: line 1 (NAME · tier mark · key chip) and its body (icons or
+ *  bar); the special's body splits into its refill bar and state. */
+export interface WeaponTileRect extends Rect, MarkColumn {
   kind: WeaponRowKind;
   line1: Rect;
   body: Rect;
+  refill: RefillRect;
 }
 
-/** An ability tile: line 1 (NAME · READY / seconds · key chip) and the
- *  progress line along its bottom. */
-export interface AbilityTileRect extends Rect {
+/** An ability tile: line 1 (NAME · tier mark · key chip) and its refill bar
+ *  with READY / the seconds at its right end. */
+export interface AbilityTileRect extends Rect, MarkColumn {
   kind: AbilityKind;
   line1: Rect;
-  progress: Rect;
+  body: Rect;
+  refill: RefillRect;
 }
 
-/** A ship row: the index name, its value, and the five-pip tier ladder. */
-export interface ShipRowRect extends Rect {
+/** A ship row: the index name, its value, the tier mark, the empty chip slot. */
+export interface ShipRowRect extends Rect, MarkColumn {
   id: IndexId;
   label: Rect;
   value: Rect;
-  ladder: Rect;
-  bars: Rect[];
 }
 
 /** A section's bed and its head line. */
@@ -154,11 +173,14 @@ function sectionH(rowHs: readonly number[]): number {
 }
 
 const WEAPONS_H = sectionH(WEAPON_ROW_KINDS.map((k) => tileH(WEAPON_BODY_H[k])));
-const ABILITY_TILE_H = tileH(B.progressH);
+const ABILITY_TILE_H = tileH(B.trackH);
 const ABILITIES_H = sectionH(ABILITY_KINDS.map(() => ABILITY_TILE_H));
 const SHIP_H = sectionH(INDEX_IDS.map(() => B.statRowH));
 /** The three sections' summed height (the footer and the gaps aside). */
 export const SECTIONS_H = WEAPONS_H + ABILITIES_H + SHIP_H;
+
+/** The bar's least height: the closed gaps and the shortest gauges. */
+export const BAR_MIN_H = SECTIONS_H + 3 * B.sectionGapMin + G.padTop + G.hMin + G.gap + G.labelH + G.gap + G.valueH + G.padBottom;
 
 /** Pure: the footer's height around gauges `gaugeH` tall. */
 export function footerH(gaugeH: number): number {
@@ -196,10 +218,35 @@ function rowTops(sec: SectionRect, heights: readonly number[]): number[] {
   });
 }
 
-function tileFrame(x: number, y: number, h: number): Rect & { line1: Rect } {
+/**
+ * Pure: THE TIER MARK's column on a row whose content ends at `right`,
+ * centred on `cy` (AC 40) — the chip slot flush right, the mark `line1Gap`
+ * left of it. A function of the row's right edge alone, so every tile and ship
+ * row (all sharing one right edge) puts it at the same x.
+ */
+export function markColumn(right: number, cy: number): MarkColumn {
+  const chipSlot = { x: right - B.chipSlotW, y: cy - B.keyChip / 2, w: B.chipSlotW, h: B.keyChip };
+  const mx = chipSlot.x - B.line1Gap - B.tierMark.w;
+  return { chipSlot, tierMark: { x: mx, y: cy - B.keyChip / 2, w: B.tierMark.w, h: B.keyChip } };
+}
+
+/** Pure: a refill bar across `body` with its READY / seconds slot at the right end. */
+export function refillRect(body: Rect): RefillRect {
+  const stateX = body.x + body.w - B.stateW;
+  return { track: { x: body.x, y: body.y, w: stateX - B.stateGap - body.x, h: body.h }, state: { x: stateX, y: body.y, w: B.stateW, h: body.h } };
+}
+
+/** The content's right edge inside a row starting at `x` (a tile's outline
+ *  and padding, or a ship row's identical inset). */
+function contentRight(x: number): number {
+  return x + B.w - 2 * B.secPad - LINE - B.rowPadX;
+}
+
+function tileFrame(x: number, y: number, h: number): Rect & MarkColumn & { line1: Rect } {
   const w = B.w - 2 * B.secPad;
   const ix = x + LINE + B.rowPadX;
-  return { x, y, w, h, line1: { x: ix, y: y + LINE + B.rowPadY, w: w - 2 * (LINE + B.rowPadX), h: B.line1H } };
+  const line1 = { x: ix, y: y + LINE + B.rowPadY, w: contentRight(x) - ix, h: B.line1H };
+  return { x, y, w, h, line1, ...markColumn(contentRight(x), line1.y + line1.h / 2) };
 }
 
 function weaponTiles(sec: SectionRect): WeaponTileRect[] {
@@ -208,7 +255,7 @@ function weaponTiles(sec: SectionRect): WeaponTileRect[] {
   return WEAPON_ROW_KINDS.map((kind, i) => {
     const t = tileFrame(sec.bed.x + B.secPad, tops[i], hs[i]);
     const body = { x: t.line1.x, y: t.line1.y + B.line1H + B.lineGap, w: t.line1.w, h: WEAPON_BODY_H[kind] };
-    return { kind, ...t, body };
+    return { kind, ...t, body, refill: refillRect(body) };
   });
 }
 
@@ -216,18 +263,9 @@ function abilityTiles(sec: SectionRect): AbilityTileRect[] {
   const tops = rowTops(sec, ABILITY_KINDS.map(() => ABILITY_TILE_H));
   return ABILITY_KINDS.map((kind, i) => {
     const t = tileFrame(sec.bed.x + B.secPad, tops[i], ABILITY_TILE_H);
-    const progress = { x: t.line1.x, y: t.line1.y + B.line1H + B.lineGap, w: t.line1.w, h: B.progressH };
-    return { kind, ...t, progress };
+    const body = { x: t.line1.x, y: t.line1.y + B.line1H + B.lineGap, w: t.line1.w, h: B.trackH };
+    return { kind, ...t, body, refill: refillRect(body) };
   });
-}
-
-/** Five pips, right-aligned at `right`, centred on `cy`. */
-function pips(right: number, cy: number): { ladder: Rect; bars: Rect[] } {
-  const P = B.pip;
-  const w = B.pips * P.w + (B.pips - 1) * P.gap;
-  const x = right - w;
-  const y = cy - P.h / 2;
-  return { ladder: { x, y, w, h: P.h }, bars: Array.from({ length: B.pips }, (_, i) => ({ x: x + i * (P.w + P.gap), y, w: P.w, h: P.h })) };
 }
 
 function shipRows(sec: SectionRect): ShipRowRect[] {
@@ -237,10 +275,10 @@ function shipRows(sec: SectionRect): ShipRowRect[] {
   return INDEX_IDS.map((id, i) => {
     const y = tops[i];
     const cy = y + B.statRowH / 2;
-    const { ladder, bars } = pips(x + w - B.rowPadX, cy);
-    const label = { x: x + B.rowPadX, y, w: B.statLabelW, h: B.statRowH };
+    const col = markColumn(contentRight(x), cy);
+    const label = { x: x + LINE + B.rowPadX, y, w: B.statLabelW, h: B.statRowH };
     const vx = label.x + label.w + B.statGap;
-    return { id, x, y, w, h: B.statRowH, label, value: { x: vx, y, w: ladder.x - B.statGap - vx, h: B.statRowH }, ladder, bars };
+    return { id, x, y, w, h: B.statRowH, label, value: { x: vx, y, w: col.tierMark.x - B.line1Gap - vx, h: B.statRowH }, ...col };
   });
 }
 
@@ -272,7 +310,9 @@ export function barLayout(screenW: number, screenH: number, side: HudSide = 'lef
   const bottom = screenH - B.bottom;
   const { gap, gaugeH } = barFit(bottom - B.top);
   const content = SECTIONS_H + 3 * gap + footerH(gaugeH);
-  const top = Math.max(B.edge, Math.min(B.top, bottom - content));
+  // Never overlapped: where even the closed gaps and the shortest gauges do not
+  // fit, the column keeps its size and its top runs off the screen's top edge.
+  const top = Math.min(B.top, bottom - content);
   const x = barX(screenW, side);
   const weapons = section(x, top, WEAPONS_H);
   const abilities = section(x, top + WEAPONS_H + gap, ABILITIES_H);

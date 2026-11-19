@@ -1,5 +1,6 @@
-// THE CONSOLES' VIEW MODEL (Story 10.10, R9 / R17 / R18 / R19; plan O4–O8) —
-// pure, no Pixi, no DOM. Every number either console prints comes out of here.
+// THE HUD BAR'S VIEW MODEL (Story 10.10, R9 / R17 / R18 / R19; plan O4–O8;
+// re-pointed at the HUD bar and its flyout by Story 12.3 Part B) — pure, no
+// Pixi, no DOM. Every number the bar and its flyout print comes out of here.
 //
 //   • `consoleReadouts` — EVERY number on both consoles as `{ key, label,
 //     value, raw }`, off one `effectiveStats()` fold. Never re-derived: the
@@ -316,7 +317,7 @@ function indexReadouts(stats: EffectiveStats, cards: readonly string[], window: 
   for (const id of INDEX_IDS) {
     const v = shiftedIndex(stats, id, window);
     out.push({ key: READOUT_KEY.index(id), label: indexWord(id), value: String(v), raw: v, role: 'index' });
-    const held = Math.min(lineTier(cards, id), CLIENT_CONFIG.console.bar.pips);
+    const held = Math.min(lineTier(cards, id), CLIENT_CONFIG.console.bar.tierMark.dots);
     out.push({ key: READOUT_KEY.held(id), label: '', value: String(held), raw: held, role: 'held' });
   }
   return out;

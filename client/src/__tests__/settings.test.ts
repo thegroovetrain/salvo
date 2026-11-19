@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
-  OFFER_POSITIONS,
+  HUD_SIDES,
   SettingsStore,
   coerceVolume,
   effectiveScale,
@@ -31,8 +31,8 @@ import {
   CLOSE_BUTTON_ID,
   AIM_COLOR_LABEL,
   AIM_SIZE_LABEL,
-  OFFER_POS_LABEL,
-  OFFER_POS_OPTIONS,
+  HUD_SIDE_LABEL,
+  HUD_SIDE_OPTIONS,
   RESET_BUTTON_ID,
   SettingsOverlay,
   bindingRows,
@@ -83,10 +83,21 @@ describe('sanitizeSettings — every field falls back independently', () => {
     expect(sanitizeSettings({ uiScale: 90 }).uiScale).toBe(90);
   });
 
-  it('the OFFER POSITION (R26) keeps right / left / bottom and sanitizes anything else to right', () => {
-    for (const pos of OFFER_POSITIONS) expect(sanitizeSettings({ offerPos: pos }).offerPos).toBe(pos);
-    for (const bad of ['top', '', 3, null, undefined, { pos: 'left' }]) expect(sanitizeSettings({ offerPos: bad }).offerPos).toBe('right');
-    expect(DEFAULT_SETTINGS.offerPos).toBe('right');
+  it('the HUD SIDE keeps left / right and sanitizes anything else to the default', () => {
+    for (const side of HUD_SIDES) expect(sanitizeSettings({ hudSide: side }).hudSide).toBe(side);
+    for (const bad of ['top', 'bottom', '', 3, null, undefined, { side: 'left' }]) {
+      expect(sanitizeSettings({ hudSide: bad }).hudSide).toBe(DEFAULT_SETTINGS.hudSide);
+    }
+  });
+
+  it('MIGRATES the retired OFFER POSITION: a stored offerPos never breaks a load, keeps the rest, and is dropped', () => {
+    for (const offerPos of ['right', 'left', 'bottom', 'garbage', 42]) {
+      const s = sanitizeSettings({ offerPos, motion: 'reduced', aimSize: 3 });
+      expect(s.motion).toBe('reduced');
+      expect(s.aimSize).toBe(3);
+      expect(s.hudSide).toBe(DEFAULT_SETTINGS.hudSide);
+      expect(Object.keys(s)).not.toContain('offerPos');
+    }
   });
 
   it('clamps + rounds volumes into 0..100', () => {
@@ -492,17 +503,17 @@ describe('SettingsOverlay — DOM shell', () => {
     for (const r of bindingRows()) expect(t, r.keys).toContain(r.action);
   });
 
-  it('carries the OFFER POSITION choice row — three options, the stored one selected — and a pick writes through', () => {
+  it('carries the HUD SIDE choice row — its options, the stored one selected — and a pick writes through', () => {
     overlay.open();
-    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === OFFER_POS_LABEL);
+    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === HUD_SIDE_LABEL);
     expect(row).toBeDefined();
     const buttons = [...row!.querySelectorAll<HTMLButtonElement>('button')];
-    expect(buttons.map((b) => b.dataset.value)).toEqual(OFFER_POS_OPTIONS.map((o) => o.value));
-    expect(buttons).toHaveLength(3);
-    expect(buttons.find((b) => b.dataset.value === 'right')!.style.color).toContain('amber');
-    buttons.find((b) => b.dataset.value === 'bottom')!.click();
-    expect(store.current.offerPos).toBe('bottom');
-    expect(loadSettings().offerPos).toBe('bottom');
+    expect(buttons.map((b) => b.dataset.value)).toEqual(HUD_SIDE_OPTIONS.map((o) => o.value));
+    const other = HUD_SIDE_OPTIONS.find((o) => o.value !== store.current.hudSide)!.value;
+    expect(buttons.find((b) => b.dataset.value === store.current.hudSide)!.style.color).toContain('amber');
+    buttons.find((b) => b.dataset.value === other)!.click();
+    expect(store.current.hudSide).toBe(other);
+    expect(loadSettings().hudSide).toBe(other);
   });
 
   it('toggle() closes an open overlay (the ESC toggle path)', () => {

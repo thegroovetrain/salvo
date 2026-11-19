@@ -2,14 +2,17 @@
 // section's five tiles, a thin Pixi painter over the pure model (readouts.ts),
 // the spine (layout.ts) and the fixed icon slots (slots.ts):
 //
-//   MAIN BATTERY II        [LMB]   one shell per turret, filling from the
-//   ▯ ▯ ▯ ▯                         bottom with the seconds inside
-//   SECONDARIES            [RMB]   the heat bar
-//   HEAVY TORPEDO II       [ Q ]   four tubes in two pairs (fore, aft);
-//   ▯▯  ▯▯                          locked tubes dashed gray, in place
-//   NAVAL MINES I          [ E ]   two racks: a wedge ring + its fixed slots
+//   MAIN BATTERY      II ●●○○○ [LMB]  every row: NAME, the TIER MARK (AC 40)
+//   ▯ ▯ ▯ ▯                            in ONE column, the key chip in its
+//                                      fixed slot; one shell per turret,
+//                                      filling from the bottom, seconds inside
+//   SECONDARIES                [RMB]   the heat bar (untiered: no mark)
+//   HEAVY TORPEDO     II ●●○○○ [ Q ]   four tubes in two pairs (fore, aft);
+//   ▯▯  ▯▯                             locked tubes dashed gray, in place
+//   NAVAL MINES        I ●○○○○ [ E ]   two racks: a wedge ring + fixed slots
 //   ◔ ✳✳✳✳   ◔ ✳✳✳✳
-//   STAR SHELLS III   READY [ R ]  one shot: a refill bar, READY / seconds
+//   STAR SHELLS      III ●●●○○ [ R ]   one shot: a refill bar with READY /
+//   ▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭▭  READY      the seconds at its right end
 //
 // Each tile wears today's outline (cooling silver, ready phosphor + glow,
 // ARMED amber, denied red) and, under a hovered card that changes it, the
@@ -20,9 +23,8 @@
 import { BlurFilter, Container, Graphics, type Text } from 'pixi.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import type { MotionLevel } from '../../settings/store.js';
-import { monoTextWidth } from '../../util/monoMeasure.js';
-import { clockText, dashedPoly, drawBox, drawChip, monoText, place, pooled, setFill } from './barDraw.js';
-import { HOVER_WASH, rowSkin, tierLabel } from './skins.js';
+import { clockText, dashedPoly, drawBox, drawChip, drawRefill, drawTierMark, monoText, place, pooled } from './barDraw.js';
+import { HOVER_WASH, rowSkin, tierMarkModel } from './skins.js';
 import {
   clipBelow,
   fillLine,
@@ -46,11 +48,10 @@ import {
   type SlotState,
 } from './slots.js';
 import type { Rect, WeaponTileRect } from './layout.js';
-import { ABILITY_READY_WORD, type MountClock, type PreviewMarks, type Readout, type WeaponRowModel } from './readouts.js';
+import { ABILITY_READY_WORD, READOUT_KEY, type MountClock, type PreviewMarks, type Readout, type WeaponRowModel } from './readouts.js';
 
 const C = CLIENT_CONFIG.colors;
 const K = CLIENT_CONFIG.console;
-const B = K.bar;
 const T = K.type;
 
 /** Fill alphas: a loading icon / wedge, a full (ready) icon / disc, the heat. */
@@ -60,8 +61,6 @@ const HEAT_ALPHA = 0.85;
 /** A locked outline's alpha (dashed gray); an empty slot's muted outline. */
 const LOCKED_ALPHA = 0.6;
 const EMPTY_ALPHA = 0.8;
-/** A cooling special's refill bar alpha (the bench's .45). */
-const REFILL_ALPHA = 0.45;
 /** An empty tile's name alpha. */
 const EMPTY_NAME_ALPHA = 0.5;
 /** Where a countdown sits up an icon (the bench's 0.66 of its height). */
@@ -152,31 +151,25 @@ export class WeaponTiles {
     const denied = v.denied[i] === true;
     drawBox(this.gfx, this.glow, rect, rowSkin(row.state, denied, v.motion, v.previewRow === row.kind), v.hoverRow === row.kind ? HOVER_WASH : 0);
     this.numeralN = 0;
-    this.drawLine1(row, rect.line1, tt, denied, v.preview);
-    this.drawBody(row, rect.body, tt, f);
+    this.drawLine1(row, rect, tt, denied, v.preview);
+    if (row.kind === 'special') this.drawSpecial(row, rect, tt);
+    else this.drawBody(row, rect.body, tt, f);
     for (let k = this.numeralN; k < tt.numerals.length; k++) tt.numerals[k].visible = false;
   }
 
-  /** Line 1: NAME, the tier numeral `tierGap` after it, the special's READY /
-   *  seconds before the chip, the key chip right. */
-  private drawLine1(row: WeaponRowModel, l: Rect, tt: TileTexts, denied: boolean, preview: PreviewMarks | null): void {
+  /** Line 1 (AC 29 / 40): NAME left, the tier mark in its column, the key
+   *  chip in its fixed slot. */
+  private drawLine1(row: WeaponRowModel, r: WeaponTileRect, tt: TileTexts, denied: boolean, preview: PreviewMarks | null): void {
+    const l = r.line1;
     const cy = l.y + l.h / 2;
     place(tt.name, row.name, l.x, cy, this.uiScale);
     tt.name.alpha = row.state === 'empty' ? EMPTY_NAME_ALPHA : 1;
-    const chipX = drawChip(this.gfx, tt.chip, row.keyGlyph, l.x + l.w, cy, { armed: row.readied, denied, uiScale: this.uiScale });
-    const state = specialState(row);
-    setFill(tt.state, state.ready ? C.phosphor : C.textPrimary);
-    place(tt.state, state.text, chipX - B.tierGap, cy, this.uiScale);
-    const x = l.x + monoTextWidth(row.name, T.name) + B.tierGap;
-    const stateW = state.text === '' ? 0 : monoTextWidth(state.text, T.state) + B.tierGap;
-    const tier = tierLabel(row, preview, chipX - B.tierGap - stateW - x);
-    setFill(tt.tier, tier.color);
-    place(tt.tier, tier.text, x, cy, this.uiScale);
+    drawChip(this.gfx, tt.chip, row.keyGlyph, r.chipSlot.x + r.chipSlot.w, cy, { armed: row.readied, denied, uiScale: this.uiScale });
+    drawTierMark(this.gfx, tt.tier, r.tierMark, tierMarkModel(row.tier, preview?.get(READOUT_KEY.tier(row.kind)), row.kind !== 'secondaries'), this.uiScale);
   }
 
   private drawBody(row: WeaponRowModel, body: Rect, tt: TileTexts, f: Frame): void {
     if (row.kind === 'secondaries') this.drawTrack(body, row.heat?.heat ?? 0, 1, HEAT_ALPHA);
-    else if (row.kind === 'special') this.drawSpecial(row, body);
     else if (row.kind === 'mainBattery') this.drawIcons(shellSlots(body, f.view.turrets), shellStates(row.clocks, f.view.turrets), tt);
     else if (row.kind === 'torpedo') this.drawIcons(tubeSlots(body), tubeStates(row.clocks, f.now, f.next), tt);
     else this.drawRacks(row, body, tt, f);
@@ -193,15 +186,17 @@ export class WeaponTiles {
     if (p > 0) g.rect(l.x, l.y, l.w * p, l.h).fill({ color: C.phosphor, alpha: fillAlpha });
   }
 
-  /** SPECIAL SHELL (AC 29): ONE shot, a refill bar — full when ready, filling
-   *  at .45 while it reloads; dashed with no special fitted. */
-  private drawSpecial(row: WeaponRowModel, body: Rect): void {
+  /** SPECIAL SHELL (AC 29): ONE shot, a refill bar with READY / the seconds
+   *  at its right end; dashed with no special fitted. */
+  private drawSpecial(row: WeaponRowModel, r: WeaponTileRect, tt: TileTexts): void {
     const c = row.clocks[0];
+    const state = specialState(row);
     if (row.state === 'empty' || c === undefined) {
-      this.drawTrack(body, 0, 1, 0, true);
+      this.drawTrack(r.refill.track, 0, 1, 0, true);
+      tt.state.visible = false;
       return;
     }
-    this.drawTrack(body, c.ready ? 1 : c.progress, 1, c.ready ? HEAT_ALPHA : REFILL_ALPHA);
+    drawRefill(this.gfx, tt.state, r.refill, c.progress, c.ready, state.text, this.uiScale);
   }
 
   private drawIcons(slots: readonly IconSlot[], states: readonly SlotState[], tt: TileTexts): void {

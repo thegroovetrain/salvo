@@ -2164,13 +2164,21 @@ export const CLIENT_CONFIG = {
      *  viewport), each on its own bed (`cardScrim` at `bedAlpha`, the 1 px
      *  hairline), `secPad` inside it, a `headH` section head, rows `rowGap`
      *  apart. A tile: `rowPadX` / `rowPadY` inside its 1 px outline, line 1
-     *  (`line1H`: NAME · tier · key chip), `lineGap`, then its body: the
-     *  icons, the `trackH` heat / refill bar, or the `progressH` line. Icon
+     *  (`line1H`: NAME · the tier mark · the key chip), `lineGap`, then its
+     *  body: the icons, or the `trackH` heat / refill bar (the special's and
+     *  the abilities' carry READY / the seconds in a FIXED `stateW` slot at
+     *  its right end, `stateGap` after it — sized for the widest readout,
+     *  READY, so no state ever resizes the bar; Eric 2026-11-19). Icon
      *  boxes are the bench's (0.85 × its SVGs): `shell`, `torp`, `mine`, the
      *  `rack` wedge ring; `iconGap` inside a group, `itemGap` between the
      *  row's items, a `groupGap` spacer between two groups. A ship row is
-     *  `statRowH` tall: the name in `statLabelW`, the index value, the five
-     *  `pip`s right-aligned. `dash` is a locked outline's dash period. */
+     *  `statRowH` tall: the name in `statLabelW`, `statGap`, the index value.
+     *  THE TIER MARK (AC 40, epic-12 amendment 4) sits in ONE column on every
+     *  row from MAIN BATTERY to INTEL: `tierMark.w` wide, right-aligned
+     *  `line1Gap` left of a fixed `chipSlotW` key-chip slot (empty on the ship
+     *  rows) — the numeral (right-aligned in `numeralW`), `gap`, then `dots`
+     *  round dots `dot` px across, `dotGap` apart. `dash` is a locked
+     *  outline's dash period. */
     bar: {
       w: 300,
       edge: 18,
@@ -2187,7 +2195,9 @@ export const CLIENT_CONFIG = {
       line1H: 18,
       lineGap: 4,
       keyChip: 18,
-      tierGap: 8,
+      chipSlotW: 44,
+      line1Gap: 6,
+      tierMark: { w: 66, numeralW: 22, gap: 5, dot: 5, dotGap: 3, dots: 5 },
       iconGap: 3,
       itemGap: 5,
       groupGap: 8,
@@ -2196,12 +2206,11 @@ export const CLIENT_CONFIG = {
       mine: { w: 19, h: 19 },
       rack: 34,
       trackH: 12,
-      progressH: 2,
+      stateW: 48,
+      stateGap: 8,
       statRowH: 26,
       statLabelW: 84,
-      statGap: 10,
-      pip: { w: 20, h: 10, gap: 4 },
-      pips: 5,
+      statGap: 6,
       dash: 6,
       /** TORPEDO (AC 29): always this many PAIRS (fore, aft) of this many tubes. */
       tubePairs: 2,
@@ -2282,8 +2291,8 @@ export const CLIENT_CONFIG = {
       deniedFloorMs: 300,
     },
     /** Type sizes (px) per bar register (AC 27 / 39, the bench): section
-     *  heads 13; names 14 / 600; key chips 12 / 600; values 15 to 17 / 600;
-     *  tier numerals 13; the countdown inside an icon 13 with a dark outline
+     *  heads 13; names 14 / 600; key chips 12 / 600 (the only 12 px register,
+     *  AC 39); values 15 to 17 / 600; tier numerals 13 / 600; the countdown inside an icon 13 with a dark outline
      *  `clockStroke` px wide. */
     type: {
       head: 13,

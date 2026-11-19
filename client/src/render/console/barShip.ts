@@ -1,34 +1,32 @@
-// THE BAR'S ABILITY TILES AND SHIP ROWS (Story 12.3 Part B, AC 31 / 32 / 36).
+// THE BAR'S ABILITY TILES AND SHIP ROWS (Story 12.3 Part B, AC 31 / 32 / 36 /
+// 40; epic-12 amendments 3 / 4).
 //
 //   ABILITIES  one tile each — HULL REPAIR (C), SMOKE (V), the fitted Shift:
-//              NAME · READY or the seconds · key chip, and a thin progress
-//              line along the bottom while cooling. The ACTIVE (Shift window)
-//              outline breathes as today. A hovered HULL REPAIR / SMOKE card
-//              prints its incoming cooldown amber in place of the word.
+//              line 1 NAME · the tier mark (HULL REPAIR and SMOKE are five-tier
+//              ladders; the Shift has none, its slot stays empty) · the key
+//              chip; line 2 a refill bar with READY or the seconds at its right
+//              end — ONE fixed bar and readout slot in every state (Eric
+//              2026-11-19: the bar NEVER changes size). The ACTIVE (Shift
+//              window) outline breathes as today.
 //   SHIP       one row per index — ARMOR · POWER · RELOAD · ENGINES · INTEL:
-//              the name, the 100-point index value BETWEEN the name and the
-//              five pips, the tier ladder. A hovered ship-stat card turns the
-//              value amber `new▲` and outlines the new pip amber — no box.
+//              the name, the 100-point index value, the tier mark in the same
+//              column as every tile's, an EMPTY chip slot. A hovered ship-stat
+//              card turns the value amber `new▲`, the numeral amber `IV▲` and
+//              outlines the next dot amber — no box.
 
 import { BlurFilter, Container, Graphics, type Text } from 'pixi.js';
 import { INDEX_IDS } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
 import type { MotionLevel } from '../../settings/store.js';
 import { indexWord } from '../../ui/boonCopy.js';
-import { drawBox, drawChip, monoText, place, setFill } from './barDraw.js';
-import { HOVER_WASH, abilitySkin, indexValueText, markedValue } from './skins.js';
-import type { AbilityTileRect, Rect, ShipRowRect } from './layout.js';
+import { drawBox, drawChip, drawRefill, drawTierMark, monoText, place, setFill } from './barDraw.js';
+import { HOVER_WASH, abilitySkin, indexValueText, tierMarkModel } from './skins.js';
+import type { AbilityTileRect, ShipRowRect } from './layout.js';
 import { READOUT_KEY, type AbilityModel, type PreviewMarks, type Readout } from './readouts.js';
 
 const C = CLIENT_CONFIG.colors;
 const K = CLIENT_CONFIG.console;
-const B = K.bar;
 const T = K.type;
-
-/** An empty pip's outline alpha (the bench's .7). */
-const PIP_EDGE = 0.7;
-/** The amber preview pip's glow alpha. */
-const PIP_GLOW = 0.6;
 
 export interface AbilityTilesView {
   abilities: readonly AbilityModel[];
@@ -43,17 +41,23 @@ export interface AbilityTilesView {
 
 interface AbilityTexts {
   name: Text;
+  tier: Text;
   state: Text;
   chip: Text;
 }
 
-/** Pure: an ability tile's state text and colour — READY, the seconds, or
- *  under a hovered C / V card its incoming cooldown (amber). */
-export function abilityStateText(ab: AbilityModel, preview: PreviewMarks | null): { text: string; color: number } {
-  const mark = ab.kind === 'shift' ? undefined : preview?.get(READOUT_KEY.cooldown(ab.kind));
-  const word = markedValue(ab.stateWord === '' ? ab.numeral : ab.stateWord, mark);
-  if (word.amber) return { text: word.text, color: C.amber };
-  return { text: word.text, color: ab.state === 'ready' ? C.phosphor : C.textPrimary };
+/** Pure: an ability tile's state text — READY, or the seconds (cooling, or
+ *  the Shift window's time left). Its slot is fixed (layout.ts `refillRect`):
+ *  a hovered C / V card's new cooldown shows in the flyout, never here, so
+ *  the readout never outgrows its slot. */
+export function abilityStateText(ab: AbilityModel): string {
+  return ab.stateWord === '' ? ab.numeral : ab.stateWord;
+}
+
+/** Pure: the tier mark an ability tile carries (none for the Shift). */
+function abilityMark(ab: AbilityModel, preview: PreviewMarks | null): ReturnType<typeof tierMarkModel> {
+  if (ab.kind === 'shift') return null;
+  return tierMarkModel(ab.tier, preview?.get(READOUT_KEY.abilityTier(ab.kind)));
 }
 
 export class AbilityTiles {
@@ -82,10 +86,11 @@ export class AbilityTiles {
     while (this.texts.length <= i) {
       const at: AbilityTexts = {
         name: monoText(T.name, '600', C.textPrimary),
+        tier: monoText(T.tier, '600', C.phosphor, 1),
         state: monoText(T.state, '600', C.phosphor, 1),
         chip: monoText(T.keyChip, '600', C.phosphor, 0.5),
       };
-      this.root.addChild(at.name, at.state, at.chip);
+      this.root.addChild(at.name, at.tier, at.state, at.chip);
       this.texts.push(at);
     }
     return this.texts[i];
@@ -96,22 +101,11 @@ export class AbilityTiles {
     const denied = v.denied[i] === true;
     const skin = abilitySkin(ab.state, denied, v.motion, v.breath, v.previewAbility === ab.kind);
     drawBox(this.gfx, this.glow, r, skin, v.hoverAbility === ab.kind ? HOVER_WASH : 0);
-    const l = r.line1;
-    const cy = l.y + l.h / 2;
-    place(at.name, ab.name, l.x, cy, v.uiScale);
-    const chipX = drawChip(this.gfx, at.chip, ab.keyGlyph, l.x + l.w, cy, { armed: false, denied, uiScale: v.uiScale });
-    const state = abilityStateText(ab, v.preview);
-    setFill(at.state, state.color);
-    place(at.state, state.text, chipX - B.tierGap, cy, v.uiScale);
-    this.drawProgress(ab, r.progress);
-  }
-
-  /** The thin progress line along the tile's bottom while cooling. */
-  private drawProgress(ab: AbilityModel, p: Rect): void {
-    if (ab.state !== 'cooling') return;
-    this.gfx.rect(p.x, p.y, p.w, p.h).fill({ color: C.hairline, alpha: 1 });
-    const f = Math.min(1, Math.max(0, ab.progress));
-    if (f > 0) this.gfx.rect(p.x, p.y, p.w * f, p.h).fill({ color: C.phosphor, alpha: 1 });
+    const cy = r.line1.y + r.line1.h / 2;
+    place(at.name, ab.name, r.line1.x, cy, v.uiScale);
+    drawTierMark(this.gfx, at.tier, r.tierMark, abilityMark(ab, v.preview), v.uiScale);
+    drawChip(this.gfx, at.chip, ab.keyGlyph, r.chipSlot.x + r.chipSlot.w, cy, { armed: false, denied, uiScale: v.uiScale });
+    drawRefill(this.gfx, at.state, r.refill, ab.progress, ab.state !== 'cooling', abilityStateText(ab), v.uiScale);
   }
 }
 
@@ -127,18 +121,12 @@ export function indexAt(readouts: readonly Readout[], i: number): { value: numbe
   return { value, held };
 }
 
-/** Pure: one pip's look — held (filled), preview (the amber outline a hovered
- *  card would fill), or empty. */
-export function pipState(k: number, held: number, next: number): 'held' | 'preview' | 'empty' {
-  if (k < held) return 'held';
-  return k < next ? 'preview' : 'empty';
-}
-
 export class ShipRows {
   readonly root = new Container();
   private readonly gfx = new Graphics();
   private readonly labels: Text[];
   private readonly values: Text[];
+  private readonly tiers: Text[];
 
   constructor() {
     this.labels = INDEX_IDS.map(() => monoText(T.statLabel, '400', C.textSecondary));
@@ -146,7 +134,8 @@ export class ShipRows {
       this.labels[i].text = indexWord(id);
     });
     this.values = INDEX_IDS.map(() => monoText(T.indexValue, '600', C.phosphor));
-    this.root.addChild(this.gfx, ...this.labels, ...this.values);
+    this.tiers = INDEX_IDS.map(() => monoText(T.tier, '600', C.phosphor, 1));
+    this.root.addChild(this.gfx, ...this.labels, ...this.values, ...this.tiers);
   }
 
   update(readouts: readonly Readout[], preview: PreviewMarks | null, rows: readonly ShipRowRect[], uiScale: number): void {
@@ -158,20 +147,8 @@ export class ShipRows {
       const mark = preview?.get(INDEX_KEYS[i]);
       setFill(this.values[i], mark === undefined ? C.phosphor : C.amber);
       place(this.values[i], indexValueText(value, mark), row.value.x, cy, uiScale);
-      const next = preview?.get(HELD_KEYS[i])?.raw ?? held;
-      row.bars.forEach((b, k) => this.drawPip(b, pipState(k, held, next)));
+      drawTierMark(this.gfx, this.tiers[i], row.tierMark, tierMarkModel(held, preview?.get(HELD_KEYS[i])), uiScale);
     });
-  }
-
-  private drawPip(b: Rect, state: 'held' | 'preview' | 'empty'): void {
-    const g = this.gfx;
-    if (state === 'held') {
-      g.rect(b.x, b.y, b.w, b.h).fill({ color: C.phosphor, alpha: 1 });
-      return;
-    }
-    if (state === 'preview') g.rect(b.x - 2, b.y - 2, b.w + 4, b.h + 4).fill({ color: C.amber, alpha: PIP_GLOW * 0.25 });
-    const color = state === 'preview' ? C.amber : C.silver;
-    g.rect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1).stroke({ width: K.lineW, color, alpha: state === 'preview' ? 1 : PIP_EDGE });
   }
 
   /** The value text a row prints (test seam). */
@@ -181,5 +158,10 @@ export class ShipRows {
 
   valueColor(i: number): number {
     return this.values[i].style.fill as number;
+  }
+
+  /** The tier numeral a row prints (test seam). */
+  tierText(i: number): string {
+    return this.tiers[i].visible ? this.tiers[i].text : '';
   }
 }

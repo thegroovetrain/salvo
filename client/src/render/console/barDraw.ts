@@ -9,7 +9,7 @@ import { CLIENT_CONFIG } from '../../config.js';
 import { traceDashed, type PolyPoint } from '../../util/poly.js';
 import { drawHudBed } from '../hudBed.js';
 import { keyChipGlyphColor } from '../keyChip.js';
-import { consoleChipWidth, floorScale, type ConsoleSkin } from './skins.js';
+import { consoleChipWidth, floorScale, type ConsoleSkin, type TierMarkModel } from './skins.js';
 import type { Rect } from './layout.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -100,3 +100,50 @@ export function pooled(pool: Text[], k: number, make: () => Text, add: (t: Text)
   t.visible = true;
   return t;
 }
+
+/** A dot's outline alpha (the bench's .6) and the amber glow's. */
+const DOT_EDGE = 0.6;
+const DOT_GLOW = 0.35;
+
+/**
+ * THE TIER MARK (AC 40) in its column `r`: the five dots flush right, the
+ * numeral right-aligned `gap` before them. A null model (an untiered line)
+ * leaves the slot empty.
+ */
+export function drawTierMark(g: Graphics, t: Text, r: Rect, m: TierMarkModel | null, uiScale: number): void {
+  const M = K.bar.tierMark;
+  const cy = r.y + r.h / 2;
+  if (m === null) {
+    t.visible = false;
+    return;
+  }
+  const dotsW = m.dots.length * M.dot + (m.dots.length - 1) * M.dotGap;
+  const x0 = r.x + r.w - dotsW;
+  setFill(t, m.color);
+  place(t, m.numeral, x0 - M.gap, cy, uiScale);
+  const rad = M.dot / 2;
+  m.dots.forEach((d, k) => {
+    const cx = x0 + k * (M.dot + M.dotGap) + rad;
+    if (d === 'on') g.circle(cx, cy, rad).fill({ color: C.phosphor, alpha: 1 });
+    else if (d === 'next') {
+      g.circle(cx, cy, rad + 2).fill({ color: C.amber, alpha: DOT_GLOW });
+      g.circle(cx, cy, rad - 0.5).stroke({ width: K.lineW, color: C.amber, alpha: 1 });
+    } else g.circle(cx, cy, rad - 0.5).stroke({ width: K.lineW, color: C.silver, alpha: DOT_EDGE });
+  });
+}
+
+/** A refill bar (AC 29 / 31): silver outline, phosphor fill to `frac` (full
+ *  and bright when ready, dimmer while it refills), READY / the seconds at its
+ *  right end. */
+export function drawRefill(g: Graphics, t: Text, r: { track: Rect; state: Rect }, frac: number, ready: boolean, text: string, uiScale: number): void {
+  const tr = r.track;
+  g.rect(tr.x, tr.y, tr.w, tr.h).stroke({ width: K.lineW, color: C.silver, alpha: 1 });
+  const p = ready ? 1 : Math.min(1, Math.max(0, Number.isFinite(frac) ? frac : 0));
+  if (p > 0) g.rect(tr.x, tr.y, tr.w * p, tr.h).fill({ color: C.phosphor, alpha: ready ? REFILL_READY : REFILL_LOADING });
+  setFill(t, ready ? C.phosphor : C.textPrimary);
+  place(t, text, r.state.x + r.state.w, r.state.y + r.state.h / 2, uiScale);
+}
+
+/** The refill bar's fill alphas: ready, and refilling (the bench's .45). */
+const REFILL_READY = 0.85;
+const REFILL_LOADING = 0.45;

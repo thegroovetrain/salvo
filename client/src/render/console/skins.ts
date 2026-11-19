@@ -14,8 +14,8 @@
 import { CLIENT_CONFIG } from '../../config.js';
 import { motionIntensity, motionScaled, type MotionLevel } from '../../settings/store.js';
 import { monoTextWidth } from '../../util/monoMeasure.js';
-import { tierRampColor } from '../../ui/tierRamp.js';
-import type { AbilityState, PreviewMark, PreviewMarks, RowState, WeaponRowModel } from './readouts.js';
+import { romanTier, tierRampColor } from '../../ui/tierRamp.js';
+import type { AbilityState, PreviewMark, RowState } from './readouts.js';
 
 const C = CLIENT_CONFIG.colors;
 const K = CLIENT_CONFIG.console;
@@ -133,16 +133,31 @@ export function indexValueText(value: number, mark: PreviewMark | undefined): st
   return markedValue(String(value), mark).text;
 }
 
+/** One of the tier mark's five dots: filled up to the tier, the next one a
+ *  hovered card would fill outlined amber, the rest outlined. */
+export type DotState = 'on' | 'next' | 'off';
+
+/** THE TIER MARK (AC 40, epic-12 amendment 4): the numeral and its five dots. */
+export interface TierMarkModel {
+  numeral: string;
+  color: number;
+  dots: DotState[];
+}
+
 /**
- * Pure: the tier numeral line 1 prints in `room` px — the ramp numeral, or
- * under a marked tier the amber hover form: `II→III` where it fits, else
- * `III▲`, else the bare amber `III` (the text never shrinks, the form
- * shortens). `room` defaults to unbounded.
+ * Pure: a row's tier mark — the numeral I–V in its tier-ramp colour and five
+ * dots filled to the tier; under a hovered card's mark on the tier (AC 36)
+ * the numeral turns amber `IV▲` and the dots it would fill outline amber.
+ * Null for an UNTIERED line (the Shift, the secondaries — `tiered` false)
+ * with no card raising it: the slot stays empty. A tiered line at tier 0 (a
+ * ladder not yet picked, an empty weapon slot) shows five outlined dots and no
+ * numeral. [reading: Story 12.3 Part B — the tier-0 mark]
  */
-export function tierLabel(row: WeaponRowModel, preview: PreviewMarks | null, room = Infinity): { text: string; color: number } {
-  const mark = preview?.get(`row.${row.kind}.tier`);
-  if (mark === undefined) return { text: row.tierNumeral, color: tierRampColor(row.tier) };
-  const forms = [...(row.tierNumeral === '' ? [] : [`${row.tierNumeral}→${mark.value}`]), `${mark.value}▲`, mark.value];
-  const text = forms.find((f) => monoTextWidth(f, T.tier) <= room) ?? mark.value;
-  return { text, color: C.amber };
+export function tierMarkModel(tier: number, mark: PreviewMark | undefined, tiered = true, dots: number = K.bar.tierMark.dots): TierMarkModel | null {
+  const held = Number.isFinite(tier) ? Math.max(0, Math.floor(tier)) : 0;
+  if (!tiered && mark === undefined) return null;
+  const next = mark === undefined ? held : mark.raw;
+  const states = Array.from({ length: dots }, (_, k): DotState => (k < held ? 'on' : k < next ? 'next' : 'off'));
+  if (mark === undefined) return { numeral: held > 0 ? romanTier(held) : '', color: tierRampColor(held), dots: states };
+  return { numeral: `${romanTier(next)}${PREVIEW_ARROW[mark.direction]}`, color: C.amber, dots: states };
 }

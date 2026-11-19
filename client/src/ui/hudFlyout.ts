@@ -89,6 +89,8 @@ export class HudFlyout {
     const box = document.createElement('div');
     box.id = BOX_ID;
     box.style.cssText = ROOT_CSS;
+    // Display only, whatever a parser made of the declarations above.
+    box.style.pointerEvents = 'none';
     box.setAttribute('role', 'tooltip');
     document.body.appendChild(box);
     this.box = box;
