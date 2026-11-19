@@ -94,7 +94,7 @@ import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './r
 import {
   ABILITY_KINDS,
   WEAPON_ROW_KINDS,
-  barHover,
+  barHoverAt,
   consoleHit,
   consoleLayout,
   openWaterOffset,
@@ -2217,6 +2217,7 @@ function endSession(g: Game): void {
   destroyResultsAd(); // ...nor the ad column beside it (this exit has no reload)
   hideBanner();
   g.offerGroup.hide();
+  g.flyout.hide();
   g.settingsOverlay.close();
 }
 
@@ -2947,6 +2948,8 @@ function buildGame(
   g.disposers.push(() => {
     g.whiteout.destroy();
     g.flashBursts.clear();
+    // The HUD bar's flyout is DOM on document.body too (Story 12.3 review).
+    g.flyout.destroy();
   });
   // Story 11.8 review: the chart marks' pooled / spare Graphics and the pegs'
   // shared contexts, which an app destroy (children) would not reach.
@@ -3417,10 +3420,11 @@ function updateConsoles(
   const frame: ConsoleFrame = { status, pose, readouts, preview, ringUrgent, freeze, nowSec, nowMs };
   const rows = weaponRowModels(weaponsInput(g, frame));
   const abilities = abilityModels(abilitiesInput(g, status));
-  const hover = g.consolesShown ? barHover(layout.bar, hudPoint(g, g.mouse.screenPos)) : null;
+  const hover = barHoverAt(layout.bar, hudPoint(g, g.mouse.screenPos), { shown: g.consolesShown, inside: g.mouse.pointerInside, onCanvas: g.mouse.pointerOnCanvas });
   g.hudBar.update(hudBarView(g, frame, rows, abilities, hover), layout.bar);
   g.consolesShown = true;
-  g.camera.setFocusOffset(openWaterOffset(layout.side) * g.uiScale);
+  // Space-home at the centre of the open water beside the SCALED bar (fix 10).
+  g.camera.setFocusOffset(openWaterOffset(layout.side, layout.bar.scale) * g.uiScale);
   updateFlyout(g, layout, flyoutNow(g, status, rows, abilities, hover));
 }
 
@@ -3612,7 +3616,8 @@ function updateFlyout(g: Game, layout: ConsoleLayout, f: FlyoutAt | null): void 
     g.flyout.hide();
     return;
   }
-  g.flyout.show(f.model, { x: layout.bar.openEdge, y: tile.y, side: layout.side }, g.uiScale, g.stage.app.screen.height);
+  // The tile's top is in bar space: × the bar's fit factor to the logical screen.
+  g.flyout.show(f.model, { x: layout.bar.openEdge, y: tile.y * layout.bar.scale, side: layout.side }, g.uiScale, g.stage.app.screen.height);
 }
 
 /** The five rows' inputs (readouts.ts `WeaponsInput`). */

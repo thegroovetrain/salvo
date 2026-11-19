@@ -11,10 +11,10 @@ import { CLIENT_CONFIG } from '../config.js';
 import { monoTextWidth } from '../util/monoMeasure.js';
 import {
   ABILITY_KINDS,
-  BAR_MIN_H,
   WEAPON_ROW_KINDS,
   barHover,
   barLayout,
+  barScreenRect,
   consoleHit,
   consoleLayout,
   inRect,
@@ -35,7 +35,8 @@ const K = CLIENT_CONFIG.console;
 const B = K.bar;
 
 /** Logical viewports: the reference, the floor laptop at the 0.75 clamp, the
- *  125 % tier at 1080p, a 1440p screen, and a short window. */
+ *  125 % tier at 1080p, a 1440p screen, and a short window (the last three
+ *  scale the bar, layout.ts `barScale`). */
 const VIEWPORTS = [
   { w: 1920, h: 1080 },
   { w: 1821, h: 1024 },
@@ -61,12 +62,12 @@ describe('the bar — one column on the player`s side', () => {
     every((vp, side) => {
       const l = barLayout(vp.w, vp.h, side);
       const screen = { x: 0, y: 0, w: vp.w, h: vp.h };
+      const frame = barScreenRect(l, l.frame);
       expect(l.frame.w).toBe(B.w);
-      expect(side === 'left' ? l.frame.x : vp.w - (l.frame.x + l.frame.w)).toBe(B.edge);
-      expect(vp.h - (l.frame.y + l.frame.h)).toBe(B.bottom);
+      expect(side === 'left' ? frame.x : vp.w - (frame.x + frame.w)).toBeCloseTo(B.edge, 9);
+      expect(vp.h - (frame.y + frame.h)).toBeCloseTo(B.bottom, 9);
       const bs = beds(l);
-      const fits = vp.h >= BAR_MIN_H + B.bottom;
-      for (const b of bs) expect((!fits || inside(b, screen)) && inside(b, l.frame), `${vp.w}x${vp.h} ${side}`).toBe(true);
+      for (const b of bs) expect(inside(barScreenRect(l, b), screen) && inside(b, l.frame), `${vp.w}x${vp.h} ${side}`).toBe(true);
       for (let i = 1; i < bs.length; i++) {
         expect(bs[i].y).toBeGreaterThanOrEqual(bs[i - 1].y + bs[i - 1].h);
         expect(apart(bs[i], bs[i - 1])).toBe(true);
@@ -74,13 +75,15 @@ describe('the bar — one column on the player`s side', () => {
     });
   });
 
-  it('starts at the configured top wherever the viewport holds it, rises only when it cannot, and never overlaps itself', () => {
+  it('starts at the configured top on every viewport — a short one scales the bar instead of raising it', () => {
     every((vp, side) => {
       const l = barLayout(vp.w, vp.h, side);
-      expect(l.frame.y).toBeLessThanOrEqual(B.top);
-      if (vp.h >= BAR_MIN_H + B.bottom) expect(l.frame.y).toBeGreaterThanOrEqual(0);
+      expect(barScreenRect(l, l.frame).y).toBeCloseTo(B.top, 9);
+      expect(l.scale).toBeGreaterThan(0);
+      expect(l.scale).toBeLessThanOrEqual(1);
     });
     expect(barLayout(1920, 1080).frame.y).toBe(B.top);
+    expect(barLayout(1920, 1080).scale).toBe(1);
   });
 
   it('pins the footer to the bottom of the bar', () => {
@@ -186,29 +189,31 @@ describe('SPACE-HOME and the open water (AC 28)', () => {
     expect(openWaterOffset('right')).toBe(-openWaterOffset('left'));
   });
 
-  it('the screen centre plus the offset IS the centre of the open water beside the bar', () => {
+  it('the screen centre plus the offset IS the centre of the open water beside the (scaled) bar', () => {
     every((vp, side) => {
-      const water = openWater(vp.w, vp.h, side);
-      expect(vp.w / 2 + openWaterOffset(side)).toBeCloseTo(water.x + water.w / 2, 9);
-      const bar = barLayout(vp.w, vp.h, side).frame;
-      expect(water.x >= bar.x + bar.w || water.x + water.w <= bar.x).toBe(true);
+      const l = barLayout(vp.w, vp.h, side);
+      const water = openWater(vp.w, vp.h, side, l.scale);
+      expect(vp.w / 2 + openWaterOffset(side, l.scale)).toBeCloseTo(water.x + water.w / 2, 9);
+      const bar = barScreenRect(l, l.frame);
+      expect(water.x >= bar.x + bar.w - 1e-9 || water.x + water.w <= bar.x + 1e-9).toBe(true);
     });
   });
 });
 
 describe('THE OFFER GROUP along the bottom (AC 35)', () => {
-  it('centres its cards in the open water beside the bar, for both sides, clear of the bar', () => {
+  it('centres its four cards in the open water beside the bar, for both sides, clear of the bar', () => {
     every((vp, side) => {
       for (const countdown of [false, true]) {
-        const o = offerLayout(vp.w, vp.h, side, countdown);
-        const water = openWater(vp.w, vp.h, side);
+        const l = consoleLayout(vp.w, vp.h, { side, countdown });
+        const o = l.offer;
+        const water = openWater(vp.w, vp.h, side, l.bar.scale);
         const items = [...o.cards, ...(o.redraw === null ? [] : [o.redraw])];
-        const left = Math.min(...items.map((r) => r.x));
-        const right = Math.max(...items.map((r) => r.x + r.w));
+        const left = o.cards[0].x;
+        const right = o.cards[3].x + o.cards[3].w;
         expect((left + right) / 2).toBeCloseTo(water.x + water.w / 2, 9);
-        const bar = barLayout(vp.w, vp.h, side).frame;
-        for (const r of items) expect(r.x >= bar.x + bar.w || r.x + r.w <= bar.x, `${vp.w} ${side}`).toBe(true);
-        expect(o.band.y + o.band.h).toBe(vp.h);
+        const bar = barScreenRect(l.bar, l.bar.frame);
+        for (const r of items) expect(r.x >= bar.x + bar.w - 1e-9 || r.x + r.w <= bar.x + 1e-9, `${vp.w} ${side}`).toBe(true);
+        expect(o.band.y + o.band.h).toBeCloseTo(vp.h, 9);
         for (const r of [o.header, ...items]) expect(inside(r, o.band)).toBe(true);
       }
     });
@@ -230,10 +235,11 @@ describe('hit testing — a press routes to the element under it', () => {
   it('a tile returns its slot, an ability tile its ability, a bed swallows, the water is null', () => {
     every((vp, side) => {
       const l = consoleLayout(vp.w, vp.h, { side });
-      for (const t of l.bar.weapons.tiles) expect(consoleHit(l, centre(t))).toEqual({ kind: 'slot', row: t.kind, slot: rowSlot(t.kind) });
-      for (const a of l.bar.abilities.tiles) expect(consoleHit(l, centre(a))).toEqual({ kind: 'ability', ability: a.kind });
-      expect(consoleHit(l, centre(l.bar.ship.rows[0]))).toEqual({ kind: 'ship' });
-      expect(consoleHit(l, centre(l.bar.footer.bed))).toEqual({ kind: 'ship' });
+      const at = (r: Rect): { x: number; y: number } => centre(barScreenRect(l.bar, r));
+      for (const t of l.bar.weapons.tiles) expect(consoleHit(l, at(t))).toEqual({ kind: 'slot', row: t.kind, slot: rowSlot(t.kind) });
+      for (const a of l.bar.abilities.tiles) expect(consoleHit(l, at(a))).toEqual({ kind: 'ability', ability: a.kind });
+      expect(consoleHit(l, at(l.bar.ship.rows[0]))).toEqual({ kind: 'ship' });
+      expect(consoleHit(l, at(l.bar.footer.bed))).toEqual({ kind: 'ship' });
       expect(consoleHit(l, { x: vp.w / 2, y: vp.h / 2 })).toBeNull();
     });
   });

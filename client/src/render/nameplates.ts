@@ -30,8 +30,11 @@
 //
 // Latch discipline: a plate's text + color are resolved ONCE — the moment the
 // roster name lands — then latched. A human contact whose name hasn't synced
-// gets NO plate (we never render a session id); once latched, the plate
-// persists even if the player later leaves the roster. Per-frame work is
+// gets NO name (we never render a session id); once latched, the name
+// persists even if the player later leaves the roster. THE HULL BAR DOES NOT
+// WAIT ON THE NAME (Story 12.3 review): any placed hull with a known hull step
+// gets its bar at once, and the name joins above it when it resolves — the
+// stack is fixed to the bracket, so the bar never moves when it does. Per-frame work is
 // position + alpha writes, plus a font-size write or a bar redraw only when
 // the snapped size or the block count actually changed.
 
@@ -42,7 +45,7 @@ import { textSafe } from '../util/color.js';
 import { ellipsizeName, NAME_MAX } from '../util/text.js';
 import { bracketHalfPx, glowPasses } from './brackets.js';
 import { drawHullBar, hullBarWidthPx } from './hullBars.js';
-import { GLYPH_H, pixelCells, pixelFontCovers, pixelRing, pixelTextWidth } from './pixelFont.js';
+import { GLYPH_H, foldName, pixelCells, pixelFontCovers, pixelRing, pixelTextWidth } from './pixelFont.js';
 
 const NP = CLIENT_CONFIG.nameplate;
 const HB = CLIENT_CONFIG.hullBar;
@@ -161,6 +164,8 @@ const DEFAULT_LOOK: PlateLook = { halfPx: CM.bracketHalfPx, zoom: 1, blocks: nul
  *  name has a character outside the table), the bar, and what was last drawn. */
 interface Plate {
   text: Text;
+  /** The name has latched (`set`); until then only the bar draws. */
+  named: boolean;
   pixel: Graphics | null;
   bar: Graphics;
   px: number;
@@ -173,7 +178,9 @@ interface Plate {
 function paintPixelName(g: Graphics, name: string, color: number): void {
   g.clear();
   const cells = pixelCells(name);
-  const left = -Math.round(pixelTextWidth([...name].length) / 2);
+  // Centred on the FOLDED width — the glyphs pixelCells actually lays out (a
+  // decomposed accent folds away; counting raw code points pushed it left).
+  const left = -Math.round(pixelTextWidth([...foldName(name)].length) / 2);
   const top = -GLYPH_H;
   const rings = glowPasses().map(([reach, alpha]) => [Math.round(reach), alpha] as const);
   for (let r = 0; r < rings.length; r++) {
@@ -199,9 +206,25 @@ export class NameplateLayer {
 
   constructor(private readonly layer: Container) {}
 
-  /** True once a plate has been created (latched) for this id. */
+  /** True once a plate's NAME has latched for this id. */
   has(id: string): boolean {
-    return this.plates.has(id);
+    return this.plates.get(id)?.named === true;
+  }
+
+  /** The id's plate, created lazily (the bar, and its Text holding `text` —
+   *  '' until the name latches). */
+  private ensure(id: string, text = ''): Plate {
+    const had = this.plates.get(id);
+    if (had) return had;
+    const t = new Text({ text, style: PLATE_STYLE });
+    t.anchor.set(0.5, 1); // bottom-center: the name floats above the bar
+    t.visible = false;
+    const bar = new Graphics();
+    this.layer.addChild(bar);
+    this.layer.addChild(t);
+    const p: Plate = { text: t, named: false, pixel: null, bar, px: PLATE_FONT_PX, barW: Number.NaN, barBlocks: Number.NaN };
+    this.plates.set(id, p);
+    return p;
   }
 
   /** Create (lazily) + latch a plate's text/color — called ONCE by the driver
@@ -209,18 +232,9 @@ export class NameplateLayer {
    *  re-rasterizes on assignment); fill is a cheap per-plate style write. The
    *  pixel-font name is built here, once. */
   set(id: string, text: string, color: number): void {
-    let p = this.plates.get(id);
-    if (!p) {
-      const t = new Text({ text, style: PLATE_STYLE });
-      t.anchor.set(0.5, 1); // bottom-center: the name floats above the bar
-      const bar = new Graphics();
-      this.layer.addChild(bar);
-      this.layer.addChild(t);
-      p = { text: t, pixel: null, bar, px: PLATE_FONT_PX, barW: Number.NaN, barBlocks: Number.NaN };
-      this.plates.set(id, p);
-    } else if (p.text.text !== text) {
-      p.text.text = text;
-    }
+    const p = this.ensure(id, text);
+    if (p.text.text !== text) p.text.text = text;
+    p.named = true;
     p.text.style.fill = color;
     p.text.style.dropShadow = { ...PLATE_STYLE.dropShadow, color };
     this.latchPixel(p, text, color);
@@ -244,14 +258,17 @@ export class NameplateLayer {
   /**
    * Per frame: the hull's screen x, the bracket's TOP EDGE (screen y), the
    * plate's alpha, and its look (bracket half, zoom, hull blocks). No
-   * text/color churn. A no-op for an id without a latched plate.
+   * text/color churn. An id with neither a latched name nor a known hull step
+   * draws nothing; one with a step gets its bar whether or not its name has
+   * latched (the name joins above it, the bar never moves).
    */
   place(id: string, x: number, bracketTopY: number, alpha: number, look: PlateLook = DEFAULT_LOOK): void {
-    const p = this.plates.get(id);
-    if (!p) return;
+    const known = this.plates.get(id);
+    if (!known && look.blocks === null) return;
+    const p = known ?? this.ensure(id);
     const shown = alpha > 0;
     const { barTop, nameBottom } = plateStack(bracketTopY);
-    this.placeName(p, x, nameBottom, alpha, shown, look.zoom);
+    this.placeName(p, x, nameBottom, alpha, shown && p.named, look.zoom);
     this.placeBar(p, x, barTop, alpha, shown && look.blocks !== null, look);
   }
 

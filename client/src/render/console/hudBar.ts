@@ -8,6 +8,9 @@
 //   SHIP       the five index rows (barShip.ts)
 //   footer     HULL · THROTTLE · LEVEL (barGauges.ts), pinned to the bottom
 //
+// A short viewport scales the whole bar uniformly (layout.ts `barScale`; Eric
+// 2026-11-19, "Scale."): its root carries the fit factor on top of the HUD's.
+//
 // It lives on `stage.layers.hud` (UI-scaled with every HUD surface), the same
 // tech as the consoles it replaced: the canvas draws it, and presses / hovers
 // route by the spine's rects (layout.ts `consoleHit` / `barHover`), never Pixi
@@ -23,7 +26,7 @@ import { Container, Graphics, type Text } from 'pixi.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import type { MotionLevel } from '../../settings/store.js';
 import { AbilityTiles, ShipRows, type AbilityTilesView } from './barShip.js';
-import { Gauges, type GaugesView } from './barGauges.js';
+import { Gauges, type GaugesView, type LevelMarks } from './barGauges.js';
 import { WeaponTiles, type WeaponTilesView } from './barWeapons.js';
 import { monoTextWidth } from '../../util/monoMeasure.js';
 import { drawBed, monoText } from './barDraw.js';
@@ -134,8 +137,11 @@ export class HudBar {
     this.gauges.update(v, layout.footer);
   }
 
-  /** The beds and the section heads (with the hairline rule after each). */
+  /** The beds and the section heads (with the hairline rule after each). The
+   *  rects are in BAR SPACE: the root carries the bar's fit factor, so a short
+   *  viewport scales the whole bar — geometry and text — uniformly. */
   private relayout(l: BarLayout): void {
+    this.root.scale.set(l.scale);
     this.beds.clear();
     for (const r of [l.weapons.bed, l.abilities.bed, l.ship.bed, l.footer.bed]) drawBed(this.beds, r);
     this.headRules.clear();
@@ -198,6 +204,16 @@ export class HudBar {
 
   get chipVisible(): boolean {
     return this.gauges.chipVisible;
+  }
+
+  /** The fit factor the bar is drawn at (test seam). */
+  get drawScale(): number {
+    return this.root.scale.x;
+  }
+
+  /** Where `LV n` and the bank chip sit (test seam). */
+  get levelMarks(): LevelMarks {
+    return this.gauges.levelMarks;
   }
 
   indexValueText(i: number): string {

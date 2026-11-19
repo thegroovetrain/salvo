@@ -16,17 +16,28 @@
 // so a caller passes `screen / factor`. Every size comes from
 // `CLIENT_CONFIG.console`; this module mints none.
 //
-// A SHORT LOGICAL VIEWPORT (the 125 % tier at 1080p, a small window at the
-// 0.75 clamp) cannot hold the whole bar between its 132 px top and 18 px
-// bottom: the section gaps close to `sectionGapMin`, the gauges shrink toward
-// `gauges.hMin`, and only then does the bar's top rise above 132. Below the
-// bar's least height (`BAR_MIN_H` + its insets — about 845 logical px, e.g. a
-// window under ~634 px tall at the 0.75 clamp) the top runs off the screen
-// rather than overlapping a section: the text never shrinks and no section
-// ever covers another. [reading: Story 12.3 Part B — short viewports]
+// A SHORT LOGICAL VIEWPORT SCALES THE BAR (Eric 2026-11-19, verbatim: "On
+// short screens just scale it accordingly. ... Its fine if the text gets
+// small. Scale."). Where the bar's natural content (`BAR_CONTENT_H`: the three
+// sections, the ruled gaps, the full gauges) does not fit between its 132 px
+// top and 18 px bottom, the WHOLE bar — geometry and text together — is
+// scaled down uniformly by `barScale` (≤ 1; the HUD scale clamp stays the
+// upper bound). Nothing inside it reflows. The bar's rects are then in BAR
+// SPACE (logical px ÷ `BarLayout.scale`): the HUD bar draws them under a
+// container scaled by it, the hit tests divide a logical point by it, and
+// `barScreenRect` maps one back to the logical screen. At scale 1 the two
+// spaces are one (1920 × 1080 and up). The insets themselves stay logical,
+// so the top still clears the kill feed.
+//
+// THE OFFER GROUP SCALES THE SAME WAY in a narrow open water: the four cards
+// and the REDRAW slot (always reserved, so nothing moves at the countdown)
+// must fit the water beside the bar with a bar-edge margin each side, or the
+// whole group shrinks uniformly (`OfferLayout.scale`) — it never overlaps
+// the bar.
 
 import { INDEX_IDS, type IndexId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
+import { monoTextWidth } from '../../util/monoMeasure.js';
 import type { HudSide } from '../../settings/store.js';
 
 const K = CLIENT_CONFIG.console;
@@ -103,22 +114,36 @@ export interface GaugeRect {
   value: Rect;
 }
 
+/** THE LEVEL gauge: its value line holds two FIXED slots side by side, the
+ *  pair centred in the column — `LV n` (sized for `LV 99`, right-aligned to
+ *  its slot's right edge) and the bank chip's slot, reserved whether or not a
+ *  level is banked (Eric 2026-11-19: nothing moves with state). */
+export interface LevelGaugeRect extends GaugeRect {
+  lv: Rect;
+  bankChip: Rect;
+}
+
 export interface FooterRect {
   bed: Rect;
   hull: GaugeRect;
   throttle: GaugeRect;
-  level: GaugeRect;
+  level: LevelGaugeRect;
 }
 
 export interface BarLayout {
   side: HudSide;
-  /** The bar's whole column, top to bottom. */
+  /** THE FIT FACTOR (≤ 1): bar space × this = logical px. 1 wherever the
+   *  bar's natural height fits (see the header). */
+  scale: number;
+  /** The bar's whole column, top to bottom (bar space, like every rect here
+   *  but `openEdge`). */
   frame: Rect;
   weapons: SectionRect & { tiles: WeaponTileRect[] };
   abilities: SectionRect & { tiles: AbilityTileRect[] };
   ship: SectionRect & { rows: ShipRowRect[] };
   footer: FooterRect;
-  /** The x of the bar's edge facing the open water (the flyout's anchor). */
+  /** The x of the bar's edge facing the open water (the flyout's anchor),
+   *  in LOGICAL px. */
   openEdge: number;
 }
 
@@ -130,8 +155,12 @@ export interface OfferLayout {
   header: Rect;
   /** The four cards, one row, left to right. */
   cards: Rect[];
-  /** REDRAW after the cards at the countdown, else null. */
+  /** REDRAW after the cards at the countdown, else null — its slot is held
+   *  whether or not it shows, so the cards never move. */
   redraw: Rect | null;
+  /** THE FIT FACTOR (≤ 1) the whole group is drawn at; every rect above is
+   *  already in logical px at this scale. */
+  scale: number;
 }
 
 export interface ConsoleLayout {
@@ -179,23 +208,33 @@ const SHIP_H = sectionH(INDEX_IDS.map(() => B.statRowH));
 /** The three sections' summed height (the footer and the gaps aside). */
 export const SECTIONS_H = WEAPONS_H + ABILITIES_H + SHIP_H;
 
-/** The bar's least height: the closed gaps and the shortest gauges. */
-export const BAR_MIN_H = SECTIONS_H + 3 * B.sectionGapMin + G.padTop + G.hMin + G.gap + G.labelH + G.gap + G.valueH + G.padBottom;
+/** The footer's height around its `gauges.h` gauges. */
+export const FOOTER_H = G.padTop + G.h + G.gap + G.labelH + G.gap + G.valueH + G.padBottom;
 
-/** Pure: the footer's height around gauges `gaugeH` tall. */
-export function footerH(gaugeH: number): number {
-  return G.padTop + gaugeH + G.gap + G.labelH + G.gap + G.valueH + G.padBottom;
+/** The bar's NATURAL content height: the sections, the ruled gaps (one above
+ *  the footer at least) and the full footer. */
+export const BAR_CONTENT_H = SECTIONS_H + 3 * B.sectionGap + FOOTER_H;
+
+/** Pure: THE BAR'S FIT FACTOR for a logical viewport `screenH` tall — 1 where
+ *  the natural content fits between the top and bottom insets, else the
+ *  uniform shrink that makes it fit (see the header). A degenerate height
+ *  leaves it at 1. */
+export function barScale(screenH: number): number {
+  const avail = screenH - B.top - B.bottom;
+  if (!Number.isFinite(avail)) return 1;
+  return Math.min(1, Math.max(1, avail) / BAR_CONTENT_H);
 }
 
-/** Pure: the section gap and the gauge height that fit `avail` px — the ruled
- *  sizes where they fit, else the gaps closed, then the gauges shrunk toward
- *  `hMin` (see the header). */
-export function barFit(avail: number): { gap: number; gaugeH: number } {
-  const need = (gap: number, gh: number): number => SECTIONS_H + 3 * gap + footerH(gh);
-  if (need(B.sectionGap, G.h) <= avail) return { gap: B.sectionGap, gaugeH: G.h };
-  const gap = B.sectionGapMin;
-  const over = need(gap, G.h) - avail;
-  return { gap, gaugeH: over > 0 ? Math.max(G.hMin, G.h - over) : G.h };
+/** Pure: a BAR-SPACE rect on the logical screen (× the bar's fit factor). */
+export function barScreenRect(bar: BarLayout, r: Rect): Rect {
+  const s = bar.scale;
+  return s === 1 ? r : { x: r.x * s, y: r.y * s, w: r.w * s, h: r.h * s };
+}
+
+/** Pure: a LOGICAL point in the bar's own space (÷ its fit factor). */
+function toBarSpace(bar: BarLayout, p: { x: number; y: number }): { x: number; y: number } {
+  const s = bar.scale;
+  return s === 1 ? p : { x: p.x / s, y: p.y / s };
 }
 
 // --- the sections ------------------------------------------------------------------
@@ -282,88 +321,121 @@ function shipRows(sec: SectionRect): ShipRowRect[] {
   });
 }
 
-function gauge(colX: number, colW: number, top: number, gaugeW: number, gaugeH: number): GaugeRect {
-  const g = { x: colX + (colW - gaugeW) / 2, y: top, w: gaugeW, h: gaugeH };
-  const label = { x: colX, y: top + gaugeH + G.gap, w: colW, h: G.labelH };
+function gauge(colX: number, colW: number, top: number, gaugeW: number): GaugeRect {
+  const g = { x: colX + (colW - gaugeW) / 2, y: top, w: gaugeW, h: G.h };
+  const label = { x: colX, y: top + G.h + G.gap, w: colW, h: G.labelH };
   return { gauge: g, label, value: { x: colX, y: label.y + G.labelH + G.gap, w: colW, h: G.valueH } };
 }
 
-function footer(x: number, y: number, gaugeH: number): FooterRect {
+/** The widest `LV n` the level slot is sized for. */
+const LV_WIDEST = 'LV 99';
+
+/** THE LEVEL gauge with its two fixed value slots (`LevelGaugeRect`). */
+function levelGauge(colX: number, colW: number, top: number): LevelGaugeRect {
+  const r = gauge(colX, colW, top, G.xpW);
+  const lvW = monoTextWidth(LV_WIDEST, K.type.gaugeValue);
+  const x0 = r.value.x + (r.value.w - (lvW + G.gap + G.bankChip)) / 2;
+  const cy = r.value.y + r.value.h / 2;
+  const lv = { x: x0, y: r.value.y, w: lvW, h: r.value.h };
+  const bankChip = { x: x0 + lvW + G.gap, y: cy - G.bankChip / 2, w: G.bankChip, h: G.bankChip };
+  return { ...r, lv, bankChip };
+}
+
+function footer(x: number, y: number): FooterRect {
   const ix = x + G.padX;
   const colW = (B.w - 2 * G.padX) / 3;
   const top = y + G.padTop;
   return {
-    bed: { x, y, w: B.w, h: footerH(gaugeH) },
-    hull: gauge(ix, colW, top, G.hull.w, gaugeH),
-    throttle: gauge(ix + colW, colW, top, G.throttle.w, gaugeH),
-    level: gauge(ix + 2 * colW, colW, top, G.xpW, gaugeH),
+    bed: { x, y, w: B.w, h: FOOTER_H },
+    hull: gauge(ix, colW, top, G.hull.w),
+    throttle: gauge(ix + colW, colW, top, G.throttle.w),
+    level: levelGauge(ix + 2 * colW, colW, top),
   };
 }
 
-/** Pure: the bar's x for a side. */
-export function barX(screenW: number, side: HudSide): number {
-  return side === 'left' ? B.edge : screenW - B.edge - B.w;
-}
-
-/** Pure: the whole bar for a logical viewport and a side. */
+/** Pure: the whole bar for a logical viewport and a side — in BAR SPACE at
+ *  its fit factor (see the header). */
 export function barLayout(screenW: number, screenH: number, side: HudSide = 'left'): BarLayout {
-  const bottom = screenH - B.bottom;
-  const { gap, gaugeH } = barFit(bottom - B.top);
-  const content = SECTIONS_H + 3 * gap + footerH(gaugeH);
-  // Never overlapped: where even the closed gaps and the shortest gauges do not
-  // fit, the column keeps its size and its top runs off the screen's top edge.
-  const top = Math.min(B.top, bottom - content);
-  const x = barX(screenW, side);
+  const s = barScale(screenH);
+  const top = B.top / s;
+  const bottom = (screenH - B.bottom) / s;
+  const x = side === 'left' ? B.edge / s : (screenW - B.edge) / s - B.w;
   const weapons = section(x, top, WEAPONS_H);
-  const abilities = section(x, top + WEAPONS_H + gap, ABILITIES_H);
-  const ship = section(x, abilities.bed.y + ABILITIES_H + gap, SHIP_H);
+  const abilities = section(x, top + WEAPONS_H + B.sectionGap, ABILITIES_H);
+  const ship = section(x, abilities.bed.y + ABILITIES_H + B.sectionGap, SHIP_H);
   return {
     side,
+    scale: s,
     frame: { x, y: top, w: B.w, h: bottom - top },
     weapons: { ...weapons, tiles: weaponTiles(weapons) },
     abilities: { ...abilities, tiles: abilityTiles(abilities) },
     ship: { ...ship, rows: shipRows(ship) },
-    footer: footer(x, bottom - footerH(gaugeH), gaugeH),
-    openEdge: side === 'left' ? x + B.w : x,
+    footer: footer(x, bottom - FOOTER_H),
+    openEdge: side === 'left' ? barTaken(s) : screenW - barTaken(s),
   };
 }
 
 // --- the open water and Space-home ---------------------------------------------
 
-/**
- * Pure: SPACE-HOME's offset (AC 28) — how far, in LOGICAL px, the centre of the
- * open water beside the bar sits from the screen centre: half the bar width +
- * its edge, toward the open side (+x with the bar on the left). The camera
- * puts the followed hull there; a caller multiplies by the HUD factor.
- */
-export function openWaterOffset(side: HudSide): number {
-  return ((side === 'left' ? 1 : -1) * (B.w + B.edge)) / 2;
+/** Pure: the logical px the bar and its edge take from the screen at fit
+ *  factor `scale`. */
+function barTaken(scale: number): number {
+  return B.edge + B.w * scale;
 }
 
-/** Pure: the open water beside the bar — the screen less the bar and its edge. */
-export function openWater(screenW: number, screenH: number, side: HudSide): Rect {
-  const taken = B.edge + B.w;
+/**
+ * Pure: SPACE-HOME's offset (AC 28) — how far, in LOGICAL px, the centre of the
+ * open water beside the bar sits from the screen centre: half the (SCALED)
+ * bar width + its edge, toward the open side (+x with the bar on the left).
+ * The camera puts the followed hull there; a caller multiplies by the HUD
+ * factor.
+ */
+export function openWaterOffset(side: HudSide, scale = 1): number {
+  return ((side === 'left' ? 1 : -1) * barTaken(scale)) / 2;
+}
+
+/** Pure: the open water beside the bar — the screen less the (scaled) bar and
+ *  its edge. */
+export function openWater(screenW: number, screenH: number, side: HudSide, scale = 1): Rect {
+  const taken = barTaken(scale);
   return { x: side === 'left' ? taken : 0, y: 0, w: screenW - taken, h: screenH };
 }
 
 // --- the offer group ------------------------------------------------------------
 
+/** The four cards' row width (natural px). */
+const CARDS_W = 4 * O.cardW + 3 * O.gap;
+/** How far the row reaches right of the cards' centre with the REDRAW slot
+ *  hanging off its end (natural px) — the half-width the fit must hold. */
+const OFFER_REACH = CARDS_W / 2 + O.gap + O.redrawW;
+
+/** Pure: THE OFFER GROUP'S FIT FACTOR in an open water `waterW` wide — 1 where
+ *  the cards (centred) and the REDRAW slot fit with a bar-edge margin each
+ *  side, else the uniform shrink that makes them fit (see the header). */
+export function offerScale(waterW: number): number {
+  const room = waterW / 2 - B.edge;
+  if (!Number.isFinite(room)) return 1;
+  return Math.min(1, Math.max(1, room) / OFFER_REACH);
+}
+
 /**
- * Pure: the offer group (AC 35) — ALWAYS along the bottom, centred in the open
- * water beside the bar, over the dark band: the four cards in one row
- * `padBottom` above the bottom edge, the header above them, REDRAW after them
- * at the countdown.
+ * Pure: the offer group (AC 35) — ALWAYS along the bottom, the four cards
+ * centred on THEIR OWN width in the open water beside the (scaled) bar, over
+ * the dark band: one row `padBottom` above the bottom edge, the header above
+ * them, REDRAW in a fixed slot hanging off the row's end at the countdown.
+ * The cards never move between the countdown and the match (Eric
+ * 2026-11-19). Every rect is logical px at the group's fit factor.
  */
-export function offerLayout(screenW: number, screenH: number, side: HudSide = 'left', countdown = false): OfferLayout {
-  const water = openWater(screenW, screenH, side);
-  const band = { x: water.x, y: screenH - O.bandH, w: water.w, h: O.bandH };
-  const rowW = 4 * O.cardW + 3 * O.gap + (countdown ? O.gap + O.redrawW : 0);
-  const x0 = band.x + (band.w - rowW) / 2;
-  const y = screenH - O.padBottom - O.cardH;
-  const cards = Array.from({ length: 4 }, (_, i) => ({ x: x0 + i * (O.cardW + O.gap), y, w: O.cardW, h: O.cardH }));
-  const redraw = countdown ? { x: x0 + 4 * (O.cardW + O.gap), y: y + (O.cardH - O.redrawH) / 2, w: O.redrawW, h: O.redrawH } : null;
-  const header = { x: band.x, y: y - O.headerGap - O.headerH, w: band.w, h: O.headerH };
-  return { band, header, cards, redraw };
+export function offerLayout(screenW: number, screenH: number, side: HudSide = 'left', countdown = false, barFit = 1): OfferLayout {
+  const water = openWater(screenW, screenH, side, barFit);
+  const o = offerScale(water.w);
+  const band = { x: water.x, y: screenH - O.bandH * o, w: water.w, h: O.bandH * o };
+  const x0 = water.x + (water.w - CARDS_W * o) / 2;
+  const y = screenH - (O.padBottom + O.cardH) * o;
+  const cards = Array.from({ length: 4 }, (_, i) => ({ x: x0 + i * (O.cardW + O.gap) * o, y, w: O.cardW * o, h: O.cardH * o }));
+  const redraw = countdown ? { x: x0 + (CARDS_W + O.gap) * o, y: y + ((O.cardH - O.redrawH) / 2) * o, w: O.redrawW * o, h: O.redrawH * o } : null;
+  const header = { x: band.x, y: y - (O.headerGap + O.headerH) * o, w: band.w, h: O.headerH * o };
+  return { band, header, cards, redraw, scale: o };
 }
 
 // --- the whole spine -----------------------------------------------------------
@@ -371,12 +443,13 @@ export function offerLayout(screenW: number, screenH: number, side: HudSide = 'l
 /** Pure: every bar and offer rect for a logical viewport. */
 export function consoleLayout(screenW: number, screenH: number, opts: ConsoleLayoutOpts = {}): ConsoleLayout {
   const side = opts.side ?? 'left';
+  const bar = barLayout(screenW, screenH, side);
   return {
     screen: { w: screenW, h: screenH },
     side,
-    bar: barLayout(screenW, screenH, side),
-    offer: offerLayout(screenW, screenH, side, opts.countdown === true),
-    centerClear: screenW - 2 * (B.edge + B.w),
+    bar,
+    offer: offerLayout(screenW, screenH, side, opts.countdown === true, bar.scale),
+    centerClear: screenW - 2 * barTaken(bar.scale),
   };
 }
 
@@ -416,11 +489,29 @@ export function inRect(p: { x: number; y: number }, r: Rect): boolean {
 }
 
 /** Pure: the tile under a LOGICAL point, or null. */
-export function barHover(bar: BarLayout, p: { x: number; y: number }): BarHover | null {
+export function barHover(bar: BarLayout, at: { x: number; y: number }): BarHover | null {
+  const p = toBarSpace(bar, at);
   const tile = bar.weapons.tiles.find((r) => inRect(p, r));
   if (tile !== undefined) return { kind: 'weapon', row: tile.kind };
   const ab = bar.abilities.tiles.find((r) => inRect(p, r));
   return ab === undefined ? null : { kind: 'ability', ability: ab.kind };
+}
+
+/** What the per-frame hover reads beside the point: is the bar on screen, is
+ *  the pointer inside the window, and is it over the game canvas (not a DOM
+ *  overlay above the bar)? */
+export interface HoverGate {
+  shown: boolean;
+  inside: boolean;
+  onCanvas: boolean;
+}
+
+/** Pure: THE FRAME'S HOVER (AC 34) — the tile under the pointer, or null:
+ *  nothing while the bar is hidden, once the pointer leaves the window, or
+ *  while it is over DOM chrome above the bar (the settings overlay) — so the
+ *  flyout and the hover wash can never hang open. */
+export function barHoverAt(bar: BarLayout, p: { x: number; y: number }, gate: HoverGate): BarHover | null {
+  return gate.shown && gate.inside && gate.onCanvas ? barHover(bar, p) : null;
 }
 
 /** Pure: the bar element under a LOGICAL point, or null (the water). */
@@ -430,5 +521,6 @@ export function consoleHit(layout: ConsoleLayout, p: { x: number; y: number }): 
   if (hover?.kind === 'weapon') return { kind: 'slot', row: hover.row, slot: rowSlot(hover.row) };
   if (hover?.kind === 'ability') return { kind: 'ability', ability: hover.ability };
   const beds = [bar.weapons.bed, bar.abilities.bed, bar.ship.bed, bar.footer.bed];
-  return beds.some((b) => inRect(p, b)) ? { kind: 'ship' } : null;
+  const q = toBarSpace(bar, p);
+  return beds.some((b) => inRect(q, b)) ? { kind: 'ship' } : null;
 }

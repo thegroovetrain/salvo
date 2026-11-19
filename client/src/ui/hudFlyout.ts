@@ -84,6 +84,16 @@ export class HudFlyout {
     if (this.box) this.box.style.display = 'none';
   }
 
+  /** Take the box off the page (the session's teardown, beside the other DOM
+   *  chrome): a later show() builds a fresh one, so #hud-flyout never doubles. */
+  destroy(): void {
+    this.box?.remove();
+    this.box = null;
+    this.shown = false;
+    this.sig = '';
+    this.placeKey = '';
+  }
+
   private ensure(): HTMLDivElement {
     if (this.box) return this.box;
     const box = document.createElement('div');

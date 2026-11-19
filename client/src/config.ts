@@ -2218,9 +2218,9 @@ export const CLIENT_CONFIG = {
      *  usual lines on both sides (killFeed.test.ts reads the clearance). */
     killFeed: { top: 16, clearance: 150, gap: 12 },
     /** THE BAR. `w` wide, `edge` from its side of the screen, from `top` below
-     *  the top edge to `bottom` above the bottom edge. The sections sit
-     *  `sectionGap` apart (closing to `sectionGapMin` on a short logical
-     *  viewport), each on its own bed (`cardScrim` at `bedAlpha`, the 1 px
+     *  the top edge to `bottom` above the bottom edge (a short logical
+     *  viewport SCALES the whole bar to fit, layout.ts `barScale`; Eric
+     *  2026-11-19). The sections sit `sectionGap` apart, each on its own bed (`cardScrim` at `bedAlpha`, the 1 px
      *  hairline), `secPad` inside it, a `headH` section head, rows `rowGap`
      *  apart. A tile: `rowPadX` / `rowPadY` inside its 1 px outline, line 1
      *  (`line1H`: NAME · the tier mark · the key chip), `lineGap`, then its
@@ -2244,7 +2244,6 @@ export const CLIENT_CONFIG = {
       top: 132,
       bottom: 18,
       sectionGap: 10,
-      sectionGapMin: 4,
       bedAlpha: 0.78,
       secPad: 5,
       headH: 17,
@@ -2278,7 +2277,7 @@ export const CLIENT_CONFIG = {
       racks: 2,
     },
     /** THE FOOTER (AC 33): three vertical gauges side by side, each in a third
-     *  of the footer — `h` tall (`hMin` on a short logical viewport), the
+     *  of the footer — `h` tall, the
      *  label line (`labelH`) and the value line (`valueH`) under it, `gap`
      *  apart. HULL: `segments` boxes `segGap` apart, `w` wide. THROTTLE: the
      *  nine detents `inset` inside the gauge's height on a spine at `tickX`,
@@ -2291,7 +2290,6 @@ export const CLIENT_CONFIG = {
       padX: 6,
       padBottom: 6,
       h: 112,
-      hMin: 80,
       gap: 4,
       labelH: 17,
       valueH: 18,

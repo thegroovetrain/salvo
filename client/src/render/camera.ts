@@ -26,6 +26,7 @@ import { anchorGlideT, anchorWeight, boardGlideT, clampToDisc, slideAnchor, slid
 import {
   detentSpanU,
   intelFitSpanU,
+  openWaterFitSpanU,
   revealZoomFactor,
   ringFitSpanU,
   spanFactor,
@@ -38,6 +39,7 @@ export {
   canUserZoom,
   detentSpanU,
   intelFitSpanU,
+  openWaterFitSpanU,
   revealZoomFactor,
   ringFitSpanU,
   spanFactor,
@@ -368,7 +370,7 @@ export class Camera {
    *  in, the whole-map fit out (the ring fit until the map radius is fed, the
    *  default framing until either is). */
   get userZoomLimits(): { min: number; max: number } {
-    const out = zoomOutSpanU(this.mapSpanValue, this.ringSpanValue);
+    const out = zoomOutSpanU(this.boardFitSpanU, this.ringSpanValue);
     return userZoomLimits(this.opts.defaultSpanU, this.opts.closeSpanU, out);
   }
 
@@ -380,6 +382,13 @@ export class Camera {
   /** The whole-map fit span (u across the short axis), NaN before setMapRadius. */
   get mapSpanU(): number {
     return this.mapSpanValue;
+  }
+
+  /** The whole-map fit as the ZOOM sees it (Story 12.3 review): widened so the
+   *  board, framed around the offset focus, fits the open water beside the
+   *  HUD bar (`openWaterFitSpanU`). The anchor clamp keeps the plain map fit. */
+  private get boardFitSpanU(): number {
+    return openWaterFitSpanU(this.mapSpanValue, this.viewW, this.viewH, this.focusOffsetValue);
   }
 
   /** The ring waypoint as a span (amendment 142): see `detentSpanU`. */
@@ -405,7 +414,7 @@ export class Camera {
   get intelSpanU(): number {
     const d = this.opts.defaultSpanU;
     const r = this.opts.intelRadiusU ?? NaN;
-    const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin);
+    const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin, this.focusOffsetValue);
     if (!usableSpan(fit)) return d;
     // AN INTEL DISC AS WIDE AS THE BOARD IS NO STOP (Story 11.2, R11): at the
     // 400 hm radar the intel fit reaches the whole-map fit, and a stop AT the
@@ -414,7 +423,7 @@ export class Camera {
     // At or past the map fit the waypoint is the default framing — the
     // pre-208 camera, whose slides run to the ring and then the map centre.
     // [reading: Story 11.2 — the smallest fix that restores the whole-board view]
-    if (usableSpan(this.mapSpanValue) && fit >= this.mapSpanValue) return d;
+    if (usableSpan(this.mapSpanValue) && fit >= this.boardFitSpanU) return d;
     return Math.max(d, fit);
   }
 
@@ -456,7 +465,7 @@ export class Camera {
   private rideableDetent(floorSpanU: number, detent: number): number {
     const ring = this.ringSpanValue;
     if (!usableSpan(ring) || ring <= floorSpanU) return NaN;
-    if (ring >= zoomOutSpanU(this.mapSpanValue, ring)) return NaN;
+    if (ring >= zoomOutSpanU(this.boardFitSpanU, ring)) return NaN;
     return detent;
   }
 
@@ -503,7 +512,7 @@ export class Camera {
   private slideFrame(): SlideFrame {
     return {
       ringSpanU: this.spectatingValue ? this.detentSpanU : this.aliveDetentSpanU,
-      boardSpanU: this.mapSpanValue,
+      boardSpanU: this.boardFitSpanU,
       ring: Number.isNaN(this.ringSpanValue) ? null : this.ring,
       floorSpanU: this.spectatingValue ? this.opts.defaultSpanU : this.intelSpanU,
     };
@@ -677,16 +686,22 @@ export class Camera {
   /**
    * Feed SPACE-HOME's offset (Story 12.3 Part B, AC 28): real px along x from
    * the screen centre to the centre of the open water beside the HUD bar (+x
-   * with the bar on the left; 0 with no bar, e.g. spectating). A change moves
-   * the picture through the eased event jump (ruling 10), so a side switch or
-   * the bar leaving glides instead of cutting. Non-finite input is ignored.
+   * with the bar on the left; 0 with no bar, e.g. spectating). Non-finite
+   * input is ignored.
+   *
+   * ONLY A CHANGE WHILE THE BAR SHOWS GLIDES (Story 12.3 review): a side
+   * switch (or a resize / UI-scale step) moves the picture through the eased
+   * event jump (ruling 10). From or to 0 — the bar appearing at a spawn, a
+   * respawn or the match start, or leaving with the hull — it lands at once:
+   * no sideways slide under a fresh hull.
    */
   setFocusOffset(px: number): void {
     if (!Number.isFinite(px) || px === this.focusOffsetValue) return;
     const z = this.zoom;
     const d = px - this.focusOffsetValue;
+    const glides = this.focusOffsetValue !== 0 && px !== 0;
     this.focusOffsetValue = px;
-    if (this.easesSlide && z > 0 && Number.isFinite(z)) this.jump.x += d / z;
+    if (glides && this.easesSlide && z > 0 && Number.isFinite(z)) this.jump.x += d / z;
     this.placeCenter();
   }
 

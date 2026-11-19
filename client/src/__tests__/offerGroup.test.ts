@@ -52,6 +52,12 @@ function redrawBtn(): HTMLButtonElement | undefined {
   return [...document.querySelectorAll('#offer-group button')].find((b) => b.textContent === REDRAW_LABEL) as HTMLButtonElement | undefined;
 }
 
+/** A card's FACE — the edge, panel, glow and lift live on it, never on the
+ *  button (its hit box; Story 12.3 review). */
+function face(b: HTMLElement): HTMLElement {
+  return b.querySelector('[data-part="face"]') as HTMLElement;
+}
+
 function panel(): HTMLElement {
   return document.getElementById('offer-group')!;
 }
@@ -134,10 +140,10 @@ describe('OfferGroup — the corner group (O3)', () => {
       expect(foot.firstElementChild).toBe(tier);
       expect(foot.lastElementChild).toBe(chip);
       expect(chip.textContent?.startsWith('TAB')).toBe(true);
-      expect(b.style.borderStyle).toBe('solid');
-      expect(px(b.style.borderWidth)).toBe(CLIENT_CONFIG.console.offer.border);
-      expect(b.style.boxShadow).not.toBe('none'); // the outer + inner glow at rest
-      expect(b.style.backgroundColor).not.toBe('transparent'); // an opaque panel
+      expect(face(b).style.borderStyle).toBe('solid');
+      expect(px(face(b).style.borderWidth)).toBe(CLIENT_CONFIG.console.offer.border);
+      expect(face(b).style.boxShadow).not.toBe('none'); // the outer + inner glow at rest
+      expect(face(b).style.backgroundColor).not.toBe('transparent'); // an opaque panel
     }
   });
 
@@ -145,12 +151,12 @@ describe('OfferGroup — the corner group (O3)', () => {
     const g = new OfferGroup(hooks());
     g.update(view(ownShip()), LIVE, 1);
     const b = cards()[0];
-    const rest = b.style.boxShadow;
+    const rest = face(b).style.boxShadow;
     b.dispatchEvent(new MouseEvent('mouseenter'));
-    expect(b.style.transform).toContain('translateY');
-    expect(b.style.boxShadow).not.toBe(rest);
+    expect(face(b).style.transform).toContain('translateY');
+    expect(face(b).style.boxShadow).not.toBe(rest);
     b.dispatchEvent(new MouseEvent('mouseleave'));
-    expect(b.style.transform).toBe('none');
+    expect(face(b).style.transform).toBe('none');
     expect(cardGlow('red', true)).not.toBe(cardGlow('red', false));
   });
 
@@ -270,11 +276,11 @@ describe('OfferGroup — the corner group (O3)', () => {
     const full = ['gun', 'boost', 'lightTorpedo', 'navalMines', 'starShells', ...Array.from({ length: SLOT_COUNT - 5 }, () => null)] as const;
     const you = ownShip({ offer: ['heavyTorpedo', 'intel'], cards: ['lightTorpedo'] });
     g.update(offerView(you, false, false, false, full), LIVE, 1);
-    const rest = cards()[0].style.boxShadow;
+    const rest = face(cards()[0]).style.boxShadow;
     cards()[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(h.hovers).toEqual([]);
-    expect(cards()[0].style.boxShadow).toBe(rest);
-    expect(cards()[0].style.transform).toBe('none');
+    expect(face(cards()[0]).style.boxShadow).toBe(rest);
+    expect(face(cards()[0]).style.transform).toBe('none');
     cards()[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(h.hovers).toEqual(['intel']);
   });
@@ -288,7 +294,7 @@ describe('OfferGroup — the corner group (O3)', () => {
     cards()[1].dispatchEvent(new MouseEvent('mouseenter'));
     g.update(view(ownShip({ pts: 1 })), LIVE, 1); // the bank moved: the cards rebuild
     expect(h.hovers.at(-1)).toBe(OFFER[1]);
-    expect(cards()[1].style.transform).toContain('translateY');
+    expect(face(cards()[1]).style.transform).toContain('translateY');
     under = null;
     cards()[1].dispatchEvent(new MouseEvent('mouseleave'));
     expect(h.hovers.at(-1)).toBeNull();

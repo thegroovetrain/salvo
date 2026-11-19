@@ -92,7 +92,11 @@ export interface OfferGroupHooks {
 }
 
 interface CardEls {
+  /** The HIT BOX: never transformed, so a lift can never slide it out from
+   *  under the pointer (the hover flicker, Story 12.3 review). */
   root: HTMLButtonElement;
+  /** The visible card inside it: the edge, the panel, the glow and the lift. */
+  face: HTMLDivElement;
   tone: string;
   greyed: boolean;
 }
@@ -125,11 +129,20 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, css: string): HTMLEle
   return e;
 }
 
-function place(e: HTMLElement, r: Rect, origin: Rect): void {
-  e.style.left = `${r.x - origin.x}px`;
-  e.style.top = `${r.y - origin.y}px`;
-  e.style.width = `${r.w}px`;
-  e.style.height = `${r.h}px`;
+/** Place `e` at the logical rect `r`, relative to the band's corner, in the
+ *  group's own (natural) px: ÷ the group's fit factor `k`, which the root's
+ *  transform puts back. */
+function place(e: HTMLElement, r: Rect, origin: Rect, k: number): void {
+  e.style.left = `${(r.x - origin.x) / k}px`;
+  e.style.top = `${(r.y - origin.y) / k}px`;
+  e.style.width = `${r.w / k}px`;
+  e.style.height = `${r.h / k}px`;
+}
+
+/** The group's fit factor (layout.ts `OfferLayout.scale`), guarded. */
+function fitOf(layout: OfferLayout): number {
+  const k = layout.scale;
+  return Number.isFinite(k) && k > 0 ? k : 1;
 }
 
 const ROOT_CSS = [
@@ -166,20 +179,34 @@ const HEADER_CSS = [
 ].join(';');
 const HINT_CSS = [`color:${MUTED}`, 'font-weight:400', 'letter-spacing:.06em', 'margin-left:14px'].join(';');
 
-/** The card box; its parts sit at fixed offsets inside it. */
+/** The card's HIT BOX: a bare button at the card's rect, never transformed. */
 const CARD_CSS = [
   'position:absolute',
   'box-sizing:border-box',
   'margin:0',
   'padding:0',
+  'border:none',
+  'background:transparent',
+  'cursor:pointer',
+  'pointer-events:auto',
+  'text-align:left',
+  'font-family:var(--hc-font-mono)',
+].join(';');
+
+/** The card's FACE inside the hit box: the edge, the panel and the glow, and
+ *  the hover lift; its parts sit at fixed offsets inside it. */
+const FACE_CSS = [
+  'position:absolute',
+  'left:0',
+  'top:0',
+  'width:100%',
+  'height:100%',
+  'box-sizing:border-box',
   `border-width:${O.border}px`,
   'border-style:solid',
   'border-radius:0',
-  'cursor:pointer',
-  'pointer-events:auto',
   'overflow:hidden',
-  'text-align:left',
-  'font-family:var(--hc-font-mono)',
+  'pointer-events:none',
   'transition:transform 80ms ease-out',
 ].join(';');
 
@@ -315,17 +342,20 @@ export class OfferGroup {
   }
 
   /** The group's anchor in CSS px (the band × the UI scale), written only when
-   *  it moved. */
+   *  it moved. A narrow open water shrinks the whole group uniformly (its fit
+   *  factor on the root's transform; Eric 2026-11-19, "Scale."). */
   private position(root: HTMLDivElement, layout: OfferLayout, uiScale: number): void {
     const s = Number.isFinite(uiScale) && uiScale > 0 ? uiScale : 1;
+    const k = fitOf(layout);
     const b = layout.band;
-    const key = `${b.x}|${b.y}|${b.w}|${b.h}|${s}|${layout.redraw === null ? 0 : 1}|${layout.cards[0]?.x ?? 0}`;
+    const key = `${b.x}|${b.y}|${b.w}|${b.h}|${s}|${k}|${layout.redraw === null ? 0 : 1}|${layout.cards[0]?.x ?? 0}`;
     if (key === this.lastPlace) return;
     this.lastPlace = key;
     root.style.left = `${b.x * s}px`;
     root.style.top = `${b.y * s}px`;
-    root.style.width = `${b.w}px`;
-    root.style.height = `${b.h}px`;
+    root.style.width = `${b.w / k}px`;
+    root.style.height = `${b.h / k}px`;
+    root.style.transform = k === 1 ? 'scale(var(--hc-ui-scale, 1))' : `scale(calc(var(--hc-ui-scale, 1) * ${k}))`;
     this.sig = ''; // the children are placed off the layout: rebuild them
   }
 
@@ -362,8 +392,9 @@ export class OfferGroup {
 
   private renderHeader(view: OfferView, layout: OfferLayout): void {
     const h = this.header!;
-    place(h, layout.header, layout.band);
-    h.style.lineHeight = `${layout.header.h}px`;
+    const k = fitOf(layout);
+    place(h, layout.header, layout.band, k);
+    h.style.lineHeight = `${layout.header.h / k}px`;
     const hint = el('span', HINT_CSS);
     hint.dataset.part = 'hint';
     hint.textContent = OFFER_HINT;
@@ -373,12 +404,15 @@ export class OfferGroup {
   private makeCard(card: OfferCard, choice: number, locked: boolean, layout: OfferLayout): CardEls {
     const btn = el('button', CARD_CSS);
     btn.type = 'button';
-    place(btn, layout.cards[choice], layout.band);
+    place(btn, layout.cards[choice], layout.band, fitOf(layout));
     const tone = cardTone(card);
     const foot = el('div', FOOT_CSS);
     foot.append(tierEl(card, tone), keyChip(choice));
-    btn.append(nameEl(card), foot);
-    const els: CardEls = { root: btn, tone, greyed: card.greyed };
+    const face = el('div', FACE_CSS);
+    face.dataset.part = 'face';
+    face.append(nameEl(card), foot);
+    btn.append(face);
+    const els: CardEls = { root: btn, face, tone, greyed: card.greyed };
     paintCard(els, false);
     if (locked) btn.style.opacity = String(O.lockedAlpha);
     else if (card.greyed) btn.style.opacity = String(O.greyedAlpha);
@@ -416,7 +450,7 @@ export class OfferGroup {
     const btn = el('button', REDRAW_CSS);
     btn.dataset.part = 'redraw';
     btn.type = 'button';
-    place(btn, layout.redraw!, layout.band);
+    place(btn, layout.redraw!, layout.band, fitOf(layout));
     btn.style.borderColor = AMBER;
     btn.style.color = AMBER;
     btn.style.boxShadow = REDRAW_GLOW;
@@ -476,7 +510,7 @@ export class OfferGroup {
   /** The control a pick's denial paints: the card, or REDRAW for the redraw sentinel. */
   private deniedTarget(choice: number): HTMLElement | null {
     if (choice === MULLIGAN_CHOICE) return this.redrawBtn;
-    return this.cards[choice]?.root ?? null;
+    return this.cards[choice]?.face ?? null;
   }
 
   private clearDenied(choice: number): void {
@@ -520,12 +554,15 @@ export class OfferGroup {
   }
 }
 
-/** The card's edge, panel, glow and lift — at rest, or hot under the pointer. */
+/** The card's edge, panel, glow and lift — at rest, or hot under the pointer.
+ *  All on the FACE: the button (the hit box) never moves, so the lift cannot
+ *  pull it from under the pointer and flicker the hover. */
 function paintCard(c: CardEls, hot: boolean): void {
-  c.root.style.borderColor = c.tone;
-  c.root.style.backgroundColor = hot ? CARD_BG_HOT : CARD_BG;
-  c.root.style.boxShadow = cardGlow(c.tone, hot);
-  c.root.style.transform = hot ? `translateY(-${O.lift}px)` : 'none';
+  const f = c.face.style;
+  f.borderColor = c.tone;
+  f.backgroundColor = hot ? CARD_BG_HOT : CARD_BG;
+  f.boxShadow = cardGlow(c.tone, hot);
+  f.transform = hot ? `translateY(-${O.lift}px)` : 'none';
 }
 
 function nameEl(card: OfferCard): HTMLDivElement {

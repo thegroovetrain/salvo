@@ -19,10 +19,9 @@
 import { Container, Graphics, type Text } from 'pixi.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import { motionScaled, settings } from '../../settings/store.js';
-import { monoTextWidth } from '../../util/monoMeasure.js';
 import { easeHold } from '../zone.js';
 import { monoText, place, setFill } from './barDraw.js';
-import type { FooterRect, GaugeRect, Rect } from './layout.js';
+import type { FooterRect, GaugeRect, LevelGaugeRect, Rect } from './layout.js';
 import {
   DETENT_LABELS,
   DETENTS,
@@ -249,32 +248,32 @@ class ThrottleGauge {
 class LevelGauge {
   private readonly track = new Graphics();
   private readonly chipBox = new Graphics();
-  private readonly lv = monoText(T.gaugeValue, '600', C.textPrimary, 0.5);
+  /** `LV n`, right-aligned to its fixed slot's right edge (it grows left). */
+  private readonly lv = monoText(T.gaugeValue, '600', C.textPrimary, 1);
   private readonly count = monoText(T.keyChip, '600', C.phosphor, 0.5);
   private readonly label = label('LEVEL');
-  private rect: GaugeRect | null = null;
+  private rect: LevelGaugeRect | null = null;
   private chip: XpChipState = XP_CHIP_IDLE;
   private freezeBlend = 0;
   private lastFreezeMs = -1;
   private lastXpQ = -1;
   private lastChipKey = '';
+  private readonly chipAt = { x: Number.NaN, y: Number.NaN };
 
   constructor(root: Container) {
     root.addChild(this.track, this.chipBox, this.label, this.lv, this.count);
   }
 
-  update(v: GaugesView, r: GaugeRect): void {
+  /** `LV n` and the bank chip each in their FIXED slot (layout.ts
+   *  `LevelGaugeRect`): the chip's slot is reserved with or without a banked
+   *  level, so neither moves with state (Eric 2026-11-19). */
+  update(v: GaugesView, r: LevelGaugeRect): void {
     const relaid = r !== this.rect;
     this.rect = r;
     if (relaid) this.label.position.set(r.label.x + r.label.w / 2, r.label.y + r.label.h / 2);
     this.paintTrack(r.gauge, xpFillFraction(v.xp), relaid);
-    const tag = levelTag(v.lvl);
-    const cy = r.value.y + r.value.h / 2;
-    const cx = r.value.x + r.value.w / 2;
-    const chipShown = v.pts > 0;
-    const shift = chipShown ? (G.bankChip + G.gap) / 2 : 0;
-    place(this.lv, tag, cx - shift, cy, v.uiScale);
-    this.paintChip(v, cx - shift + monoTextWidth(tag, T.gaugeValue) / 2 + G.gap, cy, chipShown);
+    place(this.lv, levelTag(v.lvl), r.lv.x + r.lv.w, r.lv.y + r.lv.h / 2, v.uiScale);
+    this.paintChip(v, r.bankChip, v.pts > 0);
   }
 
   private paintTrack(g: Rect, frac: number, relaid: boolean): void {
@@ -288,7 +287,7 @@ class LevelGauge {
   }
 
   /** The banked-level chip beside `LV n`: its breath and Tier-3 freeze. */
-  private paintChip(v: GaugesView, x: number, cy: number, shown: boolean): void {
+  private paintChip(v: GaugesView, slot: Rect, shown: boolean): void {
     this.chip = nextChipState(this.chip, v.pts, v.nowSec);
     const dtMs = this.lastFreezeMs < 0 ? 0 : v.nowMs - this.lastFreezeMs;
     this.lastFreezeMs = v.nowMs;
@@ -296,7 +295,11 @@ class LevelGauge {
     this.chipBox.visible = shown;
     this.count.visible = shown;
     if (!shown) return;
-    const s = G.bankChip;
+    const s = slot.w;
+    const x = slot.x;
+    const cy = slot.y + slot.h / 2;
+    this.chipAt.x = x;
+    this.chipAt.y = slot.y;
     const key = `${x}|${cy}`;
     if (key !== this.lastChipKey) {
       this.lastChipKey = key;
@@ -323,6 +326,20 @@ class LevelGauge {
   get chipVisible(): boolean {
     return this.chipBox.visible;
   }
+
+  /** Where `LV n` and the bank chip were last placed (test seam). */
+  get marks(): LevelMarks {
+    return { lvX: this.lv.x, lvY: this.lv.y, lvAnchorX: this.lv.anchor.x, chipX: this.chipAt.x, chipY: this.chipAt.y };
+  }
+}
+
+/** Where the LEVEL gauge's `LV n` and bank chip sit (test seam). */
+export interface LevelMarks {
+  lvX: number;
+  lvY: number;
+  lvAnchorX: number;
+  chipX: number;
+  chipY: number;
 }
 
 // --- the footer --------------------------------------------------------------------
@@ -369,5 +386,9 @@ export class Gauges {
 
   get chipVisible(): boolean {
     return this.level.chipVisible;
+  }
+
+  get levelMarks(): LevelMarks {
+    return this.level.marks;
   }
 }

@@ -10,7 +10,7 @@
 // pure helpers, which is what these tests pin.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Container } from 'pixi.js';
+import { Graphics, type Container } from 'pixi.js';
 import { CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, type Contact, type HullId } from '@salvo/shared';
 import { textSafe } from '../util/color.js';
 import { relationStroke, type Relation } from '../render/relationColor.js';
@@ -340,5 +340,56 @@ describe('NameplateLayer — Pixi Text lifecycle state machine', () => {
     expect(layer.has('a')).toBe(true);
     expect(textLog).toHaveLength(2);
     expect(textLog[1].text).toBe('Y');
+  });
+});
+
+// STORY 12.3 REVIEW FIX PASS — the hull bar never waits on the name, and the
+// pixel-font name is centred on its FOLDED width.
+describe('the plate stack without a name, and the pixel name`s centre (12.3 review)', () => {
+  /** A layer that keeps what is added to it, so the Graphics can be read. */
+  function keepingLayer(): { layer: Container; kids: unknown[] } {
+    const kids: unknown[] = [];
+    return { layer: { addChild: (c: unknown) => kids.push(c), removeChild() {} } as unknown as Container, kids };
+  }
+  const isGraphics = (o: unknown): o is Graphics => o instanceof Graphics;
+
+  it('an in-sight hull with a known step gets its hull bar before its name resolves; the name joining never moves it', () => {
+    const { layer, kids } = keepingLayer();
+    const plates = new NameplateLayer(layer);
+    const look = { halfPx: 20, zoom: MONO_ZOOM, blocks: 3 };
+    plates.place('a', 200, 300, 1, look);
+    expect(plates.has('a'), 'no name latched yet').toBe(false);
+    const bars = kids.filter(isGraphics);
+    expect(bars).toHaveLength(1);
+    const bar = bars[0];
+    expect(bar.visible).toBe(true);
+    expect({ x: bar.x, y: bar.y }).toEqual({ x: 200, y: plateStack(300).barTop });
+    plates.set('a', 'ACE', 0x1);
+    plates.place('a', 200, 300, 1, look);
+    expect(plates.has('a')).toBe(true);
+    expect(kids.filter(isGraphics)[0]).toBe(bar);
+    expect({ x: bar.x, y: bar.y }).toEqual({ x: 200, y: plateStack(300).barTop });
+  });
+
+  it('a hull with no known step and no name draws nothing', () => {
+    const { layer, kids } = keepingLayer();
+    const plates = new NameplateLayer(layer);
+    plates.place('a', 200, 300, 1, { halfPx: 20, zoom: MONO_ZOOM, blocks: null });
+    expect(kids.filter(isGraphics).every((g) => !g.visible)).toBe(true);
+  });
+
+  it('a decomposed name (base letter + combining mark) is centred on its folded width', () => {
+    const { layer, kids } = keepingLayer();
+    const plates = new NameplateLayer(layer);
+    const name = 'ÉVE'; // É decomposed: four code points, three glyphs
+    plates.set('a', name, 0xffffff);
+    const PIXEL_ZOOM = 1e-4;
+    expect(nameFitAt(PIXEL_ZOOM).pixel, 'premise: the pixel font shows at this zoom').toBe(true);
+    plates.place('a', 100, 300, 1, { halfPx: 4, zoom: PIXEL_ZOOM, blocks: null });
+    const pixel = kids.filter(isGraphics).find((g) => g.visible)!;
+    expect(pixel).toBeDefined();
+    const b = pixel.getLocalBounds();
+    // integer pixels: an odd drawn width centres to the half pixel, no further
+    expect(Math.abs(pixel.x + b.x + b.width / 2 - 100)).toBeLessThanOrEqual(0.5);
   });
 });
