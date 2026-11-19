@@ -365,6 +365,15 @@
 // reload 30 000 → 40 000 ms: two later rows' (shooter `a`) `you.ammo[2]` /
 // `launchers[0].tubes[0]` reload clocks (28 560 → 38 080 at t 16 200; at
 // t 47 400 the tube is still reloading, 6 880 ms left). Nothing else moved.
+//
+// RE-RECORDED 2026-11-19 (Story 12.3, the hull health step; Eric 2026-11-18,
+// epic-12 amendment 2; PV 110 → 111). ONE KEY ADDED, nothing else:
+// structurally diffed line by line (169 lines before and after, 122 moved),
+// every contact row now ends in `hb` (212 rows — 201 at step 4, 10 at step
+// 1, 1 at step 3), and deleting that one key from each row gives the old
+// snapshot back byte for byte. `hb` is on contact rows only: no `you`, no
+// paint, no event carries it. No frame, tick, value, event or count moved;
+// the six exceptions and every proof are unchanged.
 
 import { describe, it, expect } from 'vitest';
 import {

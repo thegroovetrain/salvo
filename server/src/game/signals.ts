@@ -97,6 +97,7 @@ import {
   bearing,
   encodeTurretAngles,
   encodeLauncherAngles,
+  hullBlocks,
   isAfloat,
   isSinking,
   islandBlocksSegment,
@@ -811,8 +812,16 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     // a reload or a readiness bit. Under EXACTLY `tu`'s gate — this row,
     // which only runs once contactSignal.visible has passed — so not a
     // seventh exception.
-    if (ship.launchers.length === 0) return turreted;
-    return { ...turreted, lu: encodeLauncherAngles(ship.launchers) };
+    const mounted = ship.launchers.length === 0 ? turreted : { ...turreted, lu: encodeLauncherAngles(ship.launchers) };
+    // THE HULL HEALTH STEP (Story 12.3, Eric 2026-11-18, epic-12 amendment
+    // 2(e) + (g)): `hb` appended LAST, on EVERY contact row — the shared
+    // `hullBlocks` of this hull's hp over its own maxHp. A STEP ONLY: never
+    // the hp, a fraction or a damage amount. Under EXACTLY `tu` / `lu`'s
+    // gate — this row, which only runs once contactSignal.visible has passed
+    // — so not a seventh exception; a radar paint and every event stay
+    // health-blind. A SINKING hull reads 1, the step of any afloat hull under
+    // the last threshold, so the window stays undisclosed (amendment 16).
+    return { ...mounted, hb: hullBlocks(ship.hp, ship.stats.maxHp) };
   },
 };
 
@@ -1988,7 +1997,10 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
  * HULL REPAIR press — Eric rulings 2026-08-04; the drone-drop `dp` row left
  * with Story 10.5). Enemy hp, builds, boons,
  * level banks, and repairs all stay hidden by this one gate (levels / boon ids
- * ride ONLY on OwnShip, never on contacts/blips/booms). (The 'upg' row died
+ * ride ONLY on OwnShip, never on contacts/blips/booms). (Enemy hp: superseded
+ * FOR SIGHTED HULLS ONLY by Eric 2026-11-18, epic-12 amendment 2 — a hull in
+ * sight carries the `hb` health STEP on its contact row, never the hp or a
+ * damage amount; wounded smoke `sm` is unchanged.) (The 'upg' row died
  * with the legacy upgrade economy — Story 2.8's wholesale strip.)
  *
  * `spectatorPublic`: dmg alone passes through unfiltered to spectators (they

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, SLOT_COUNT, abilityReadyAt, encodeTurretAngles } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, SLOT_COUNT, abilityReadyAt, encodeTurretAngles, hullBlocks } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -160,7 +160,8 @@ describe('buildFrame — contacts (fogged via perception)', () => {
       heading: b.state.heading,
       speed: b.state.speed,
       cls: DEFAULT_CLASS_ID,
-      tu: encodeTurretAngles(b.turrets, b.hullId), // Story 10.4: angles, last
+      tu: encodeTurretAngles(b.turrets, b.hullId), // Story 10.4: angles
+      hb: hullBlocks(b.hp, b.stats.maxHp), // Story 12.3: the health step, last
     });
   });
 
@@ -174,7 +175,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     expect(Math.hypot(far.state.x, far.state.y)).toBeLessThan(CONFIG.vision.hullSight); // ...inside the hull reach
     expect(f.contacts.map((c) => c.id).sort()).toEqual(['b', 'far']);
     expect(f.contacts.find((c) => c.id === 'far')).toEqual({
-      id: 'far', x: far.state.x, y: far.state.y, heading: far.state.heading, speed: far.state.speed, cls: far.hullId, tu: encodeTurretAngles(far.turrets, far.hullId),
+      id: 'far', x: far.state.x, y: far.state.y, heading: far.state.heading, speed: far.state.speed, cls: far.hullId, tu: encodeTurretAngles(far.turrets, far.hullId), hb: hullBlocks(far.hp, far.stats.maxHp),
     });
     expect('pc' in f).toBe(false);
   });

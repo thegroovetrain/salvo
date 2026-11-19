@@ -1216,6 +1216,20 @@ export const CONFIG = {
   },
 
   /**
+   * THE HULL HEALTH BAR (Story 12.3, Eric 2026-11-18, epic-12 amendment 2(e)
+   * + (g)) — how many steps of a sighted hull's health cross the wire
+   * (`Contact.hb`, `hullBlocks()` in sim/hullBlocks.ts). Gameplay-load-
+   * bearing, not a feel knob: it is how much enemy health an observer learns.
+   * A step, never the hp or a fraction. At four blocks the steps land on
+   * `damageBands` (the bar reads 2 the instant smoke starts, 1 the instant
+   * fire starts); the wire type `Contact.hb` is the literal union 1..4, so a
+   * different count is a wire-contract change (PROTOCOL_VERSION).
+   */
+  hullBar: {
+    blocks: 4,
+  },
+
+  /**
    * Wounded smoke (Story 4.4) — the SERVER emission cadence, and nothing
    * else. Reach is deliberately NOT here: it is CONFIG.vision.muzzleFlash
    * (350 hm since Story 11.2, R18) reused verbatim, never forked into a

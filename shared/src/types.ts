@@ -1171,6 +1171,9 @@ export interface MuzzleEvent {
  * fraction below CONFIG.damageBands.amberBelow), 2 = heavy (below
  * criticalBelow). Sending hp/maxHp would be a real HP gauge and is
  * FORBIDDEN — two named conditions is a state, not a number (amendment 41).
+ * (Superseded FOR SIGHTED HULLS ONLY by Eric 2026-11-18, epic-12 amendment 2:
+ * a hull in sight carries the `Contact.hb` step on its own contact row. This
+ * event is unchanged — shape, reach and tiers.)
  *
  * ANTI-CHEAT — deliberately omitted: EVERY identity channel, for EVERY
  * observer without exception — enemies, the smoking ship's OWN captain, and

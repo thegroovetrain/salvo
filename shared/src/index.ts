@@ -3,6 +3,14 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  111 — THE HULL HEALTH STEP (2026-11-18, Eric; epic-12 amendment 2(e) + (g);
+ *  Story 12.3): `Contact.hb` (1..CONFIG.hullBar.blocks, `hullBlocks()` in the
+ *  new shared sim/hullBlocks.ts) appended LAST and optional on the sighted
+ *  contact row, after `lu`. A step, never the hp or a fraction; it rides that
+ *  row's own visibility gate (never a radar paint, never an event), so it is
+ *  not a seventh perception exception. Supersedes epic-4 amendment 41 for
+ *  sighted hulls only; wounded smoke (`sm`) is unchanged. New CONFIG.hullBar
+ *  block (rides the welcome config snapshot).
  *  110 — ACOUSTIC HOMING STANDARD (2026-11-16, Eric; epic-11 amendment 20;
  *  cycle 242, 0.19.36): boon-catalog content — the light / heavy / captive
  *  homing tier steps are gone (they home from Tier I at the CONFIG reference
@@ -1122,7 +1130,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 110;
+export const PROTOCOL_VERSION = 111;
 
 // Tunables
 export * from './constants.js';
@@ -1176,6 +1184,7 @@ export * from './sim/shell.js';
 export * from './sim/attenuation.js';
 export * from './sim/dispersion.js';
 export * from './sim/hm.js';
+export * from './sim/hullBlocks.js';
 export * from './sim/map.js';
 export * from './sim/nav.js';
 export * from './sim/noise.js';

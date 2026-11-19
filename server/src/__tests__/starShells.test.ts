@@ -10,7 +10,7 @@
 // real weapon flow.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SLOT_BOOST, encodeLauncherAngles, encodeTurretAngles, familySlotFor, type InputMsg } from '@salvo/shared';
+import { CONFIG, SLOT_BOOST, encodeLauncherAngles, encodeTurretAngles, familySlotFor, hullBlocks, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -238,6 +238,7 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
       id: 'e', x: hidden.state.x, y: hidden.state.y, heading: hidden.state.heading, speed: 0, cls: hidden.hullId,
       tu: encodeTurretAngles(hidden.turrets, hidden.hullId), // Story 10.4: a sighted hull's turret angles ride its row
       ...(hidden.launchers.length > 0 ? { lu: encodeLauncherAngles(hidden.launchers) } : {}), // Story 10.6: ...and its launcher angles
+      hb: hullBlocks(hidden.hp, hidden.stats.maxHp), // Story 12.3: ...and its health step
     });
     expect(fa.litZones).toEqual([
       { id: 'z1', x: Z, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
