@@ -14,6 +14,7 @@
 // pierces, so those are not adapted — the weapon they described is gone.
 
 import { describe, it, expect } from 'vitest';
+import { CLIENT_CONFIG } from '../config.js';
 import { Container, type Graphics } from 'pixi.js';
 import {
   CATALOG,
@@ -49,6 +50,7 @@ import {
 } from '@salvo/shared';
 import {
   AimPreview,
+  burstInk,
   clipAtIslands,
   computeAimPreview,
   effectiveLitRadius,
@@ -822,13 +824,13 @@ describe('mine placement — both rings at the drop point', () => {
 // reveal is the entire cost of guessing, and the lit circle is the only thing
 // that makes the aim a decision rather than a hope.
 describe('star shells — the lit radius is the preview', () => {
-  it('draws the lit circle at the burst point, in the quieter EFFECT register', () => {
+  it('draws the lit circle at the burst point, in the AREA register', () => {
     const inp = input({ id: 'starShells', aimDist: 300 });
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(1);
     expect(m.bursts[0].x).toBeCloseTo(300, 6);
     expect(m.bursts[0].r).toBe(inp.stats.equipment.starShells.litRadius);
-    expect(m.bursts[0].effect).toBe(true); // the quieter register (a damage circle since 8.17, drawn light for its size)
+    expect(m.bursts[0].area).toBe(true); // a special shell's effect area (Story 12.3, AC 23)
     expect(m.lines).toHaveLength(1); // ...and it keeps its travel line
   });
 
@@ -919,7 +921,7 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
 // star-shell pattern — one shell to the click, clamped at the radar rung, with
 // the burst ring at the circle it will act on.
 describe('phosphor + fouling shells — the star-shell preview pattern', () => {
-  it('PHOSPHOR draws its (tiered) zone at the burst point, at DAMAGE weight', () => {
+  it('PHOSPHOR draws its (tiered) zone at the burst point, in the AREA register', () => {
     const s = stats('phosphorShells', 'phosphorShells');
     const m = computeAimPreview(input({ id: 'phosphorShells', stats: s, aimDist: 300 }));
     expect(m.bursts).toHaveLength(1);
@@ -927,7 +929,7 @@ describe('phosphor + fouling shells — the star-shell preview pattern', () => {
     expect(m.bursts[0].x).toBeCloseTo(300, 6);
     expect(m.bursts[0].r).toBe(s.equipment.phosphorShells.zoneRadius);
     expect(m.bursts[0].r).toBeGreaterThan(stats().equipment.phosphorShells.zoneRadius); // tier II widens it
-    expect(m.bursts[0].effect).toBe(false); // a damage burst, not an effect radius
+    expect(m.bursts[0].area).toBe(true); // a special shell's effect area (Story 12.3, AC 23)
   });
 
   it('PHOSPHOR clamps at its own row range — its tiered dial, never radar (ruling 125)', () => {
@@ -937,12 +939,12 @@ describe('phosphor + fouling shells — the star-shell preview pattern', () => {
     expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.equipment.phosphorShells.rangeU, 6);
   });
 
-  it('the FOULING SHELL draws its row\'s zone in the EFFECT register, to its row\'s reach (Story 10.5)', () => {
+  it('the FOULING SHELL draws its row\'s zone in the AREA register, to its row\'s reach (Story 10.5)', () => {
     const inp = input({ id: 'foulingShell', aimDist: 99999 });
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(1);
     expect(m.bursts[0].r).toBe(inp.stats.equipment.foulingShell.radius);
-    expect(m.bursts[0].effect).toBe(true); // it slows, it deals no damage
+    expect(m.bursts[0].area).toBe(true); // a special shell's effect area
     expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.equipment.foulingShell.rangeU, 6);
   });
 
@@ -955,12 +957,12 @@ describe('phosphor + fouling shells — the star-shell preview pattern', () => {
     }
   });
 
-  it('FLASH SHELLS draws its own burst in the EFFECT register, at the FOULING SHELL\'s reach (Story 10.9, ruling 2)', () => {
+  it('FLASH SHELLS draws its own burst in the AREA register, at the FOULING SHELL\'s reach (Story 10.9, ruling 2)', () => {
     const flash = computeAimPreview(input({ id: 'dazzleShells', aimDist: 99999 }));
     const foul = computeAimPreview(input({ id: 'foulingShell', aimDist: 99999 }));
     expect(flash.bursts).toHaveLength(1);
     expect(flash.bursts[0].r).toBe(stats().equipment.dazzleShells.radius);
-    expect(flash.bursts[0].effect).toBe(true); // it blinds, it deals no damage
+    expect(flash.bursts[0].area).toBe(true); // a special shell's effect area
     // ONE reach dial for the two click-aimed shells — the same clamp point.
     expect(flash.bursts[0].x).toBeCloseTo(foul.bursts[0].x, 9);
     expect(flash.bursts[0].y).toBeCloseTo(foul.bursts[0].y, 9);
@@ -1234,5 +1236,81 @@ describe('ovalAlpha — bench idea E, the bunching bell', () => {
         expect(ovalAlpha(r, sig) / ovalAlpha(0, sig)).toBeCloseTo(Math.exp(-((r * sig) ** 2) / 2), 12);
       }
     }
+  });
+});
+
+// STORY 12.3, AC 22-23 (Eric 2026-11-18: "Special Shell effect area needs to be
+// shown around my targeting cursor while I am aiming it"). Reproduced live: the
+// circle WAS computed at the cursor, but drawn at a 1.2 u WORLD stroke and
+// 0.22 / 0.03 alpha, so it thinned to a fraction of a pixel as the camera zoomed
+// out to aim a long shell. The AREA register's stroke is SCREEN px.
+describe('special-shell AREA register — the effect area reads at every zoom', () => {
+  const P = CLIENT_CONFIG.aimPreview;
+  const SPECIALS = ['starShells', 'phosphorShells', 'foulingShell', 'dazzleShells'] as const;
+
+  it('every special shell marks its circle as an AREA, centered on the aim point inside reach', () => {
+    for (const id of SPECIALS) {
+      const [b] = computeAimPreview(input({ id, aimDist: 300 })).bursts;
+      expect(b.area, id).toBe(true);
+      expect(b.x, id).toBeCloseTo(300, 6);
+      expect(b.y, id).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('past reach the AREA circle still sits where the shell really bursts (the truth rule is unchanged)', () => {
+    for (const id of SPECIALS) {
+      const inp = input({ id, aimDist: 99999 });
+      const [b] = computeAimPreview(inp).bursts;
+      const truth = burstPointAlong(inp.ship, inp.aimDist, inp.mapRadius, inp.stats.equipment[id].rangeU, inp.aim);
+      expect(b.x, id).toBeCloseTo(truth.x, 9);
+      expect(b.y, id).toBeCloseTo(truth.y, 9);
+    }
+  });
+
+  it('a blast circle is NOT an area (the gun, the flak gun, the broadside keep the damage register)', () => {
+    expect(computeAimPreview(input({ id: 'gun', aimDist: 300 })).bursts.every((b) => !b.area)).toBe(true);
+    expect(computeAimPreview(input({ id: 'flak', aimDist: 300 })).bursts.every((b) => !b.area)).toBe(true);
+    const side = computeAimPreview(input({ id: 'broadside', aim: Math.PI / 2, aimDist: 300 })).bursts;
+    expect(side.length).toBeGreaterThan(0);
+    expect(side.every((b) => !b.area)).toBe(true);
+  });
+
+  it('burstInk: an AREA stroke holds areaWidthPx on screen at any zoom, at the area knobs', () => {
+    for (const zoom of [0.05, 0.25, 0.8182, 2]) {
+      const ink = burstInk({ blocked: false, area: true }, zoom);
+      expect(ink.width * zoom).toBeCloseTo(P.areaWidthPx, 9);
+      expect(ink.alpha).toBe(P.areaAlpha);
+      expect(ink.fillAlpha).toBe(P.areaFillAlpha);
+    }
+  });
+
+  it('burstInk: a BLAST circle is unchanged — world-unit burstWidth at the damage knobs', () => {
+    for (const zoom of [0.25, 1]) {
+      expect(burstInk({ blocked: false, area: false }, zoom)).toEqual({
+        width: P.burstWidth, alpha: P.burstAlpha, fillAlpha: P.burstFillAlpha,
+      });
+    }
+  });
+
+  it('burstInk: blocked drops to blockedAlpha with no fill, clamped scales by clampedAlphaScale', () => {
+    expect(burstInk({ blocked: true, area: true }, 0.5)).toEqual({ width: P.areaWidthPx / 0.5, alpha: P.blockedAlpha, fillAlpha: 0 });
+    const c = burstInk({ blocked: false, area: false, clamped: true }, 1);
+    expect(c.alpha).toBeCloseTo(P.burstAlpha * P.clampedAlphaScale, 12);
+    expect(c.fillAlpha).toBeCloseTo(P.burstFillAlpha * P.clampedAlphaScale, 12);
+  });
+
+  it('the adapter strokes an AREA circle at burstInk for the zoom it is handed', () => {
+    const layer = new Container();
+    const preview = new AimPreview(layer);
+    const zoom = 0.25;
+    const [b] = computeAimPreview(input({ id: 'foulingShell', aimDist: 300 })).bursts;
+    preview.update({ lines: [], bursts: [b], place: null, band: null }, 0xffaa00, zoom);
+    const g = (preview as unknown as { g: Graphics }).g;
+    const strokes = g.context.instructions.filter((i) => i.action === 'stroke');
+    expect(strokes).toHaveLength(1);
+    const style = (strokes[0].data as { style: { width: number; alpha: number } }).style;
+    const ink = burstInk(b, zoom);
+    expect(style.width).toBeCloseTo(ink.width, 9);
+    expect(style.alpha).toBeCloseTo(ink.alpha, 9);
   });
 });

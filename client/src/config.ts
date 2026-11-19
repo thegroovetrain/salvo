@@ -839,14 +839,18 @@ export const CLIENT_CONFIG = {
     burstAlpha: 0.4,
     burstFillAlpha: 0.05,
     /**
-     * The EFFECT register (star-shell lit radius): the same circle, quieter.
-     * An effect radius is not a threat — and the flare's is ~7× a gun blast, so
-     * at damage weight one aim would wash the chart. Implementer-drafted (Eric
-     * ruling R7 asked for the radius, not for a loudness): roughly half the
-     * damage register's ink.
+     * The AREA register (Story 12.3, AC 23 — Eric 2026-11-18: "Special Shell
+     * effect area needs to be shown around my targeting cursor while I am
+     * aiming it"): the circle a primed SPECIAL SHELL (star, phosphor, fouling,
+     * flash) will cover, around the aim point. Its stroke is SCREEN px at every
+     * zoom (`areaWidthPx`, divided by the camera zoom at draw time), because a
+     * long shell is aimed zoomed out and the retired quiet "effect" register
+     * (0.22 / 0.03 at a 1.2 u WORLD stroke) thinned to a fraction of a pixel
+     * there. Implementer-drafted values, shown to Eric before/after.
      */
-    effectAlpha: 0.22,
-    effectFillAlpha: 0.03,
+    areaWidthPx: 2,
+    areaAlpha: 0.85,
+    areaFillAlpha: 0.08,
     /** A path an island blocks short of the burst point: the line clips at the
      *  rock and the circle drops to this alpha — the "this shot does not get
      *  there" tell (never a new color; the red register is denial only). */
