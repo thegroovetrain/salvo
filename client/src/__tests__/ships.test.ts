@@ -23,7 +23,7 @@ import {
   setHullFlashGate,
   ShipView,
 } from '../render/ships.js';
-import { relationStyle } from '../render/relationColor.js';
+import { hullLineColor, relationStyle } from '../render/relationColor.js';
 import { WorldFlashGate } from '../render/effects.js';
 import { createFlashBudget } from '../render/flashBudget.js';
 import { settings } from '../settings/store.js';
@@ -38,10 +38,12 @@ describe('ShipView.setColors — the recolor path', () => {
     const own = relationStyle('own');
     view.setColors(own.stroke, own.fill);
     // Story 10.4 wave 2c: EVERY line of a captain hull is the one line color
-    // (amendment 7(m)) — deck detail, the outline and every turret.
-    expect(new Set(strokeColorsOf(view))).toEqual(new Set([own.stroke]));
-    expect(strokesOf(view.outline)).toEqual([own.stroke]);
-    for (let i = 0; i < count; i++) expect(new Set(turretStrokes(view, i))).toEqual(new Set([own.stroke]));
+    // (amendment 7(m)) — deck detail, the outline and every turret; since Story
+    // 12.3 that color is the hull line, not the relation stroke.
+    const line = hullLineColor(own.stroke);
+    expect(new Set(strokeColorsOf(view))).toEqual(new Set([line]));
+    expect(strokesOf(view.outline)).toEqual([line]);
+    for (let i = 0; i < count; i++) expect(new Set(turretStrokes(view, i))).toEqual(new Set([line]));
     expect(view.turretCount).toBe(count);
     view.setColors(C.amber, null); // back to the fallback linework
     expect(new Set(strokeColorsOf(view))).toEqual(new Set([C.amber]));

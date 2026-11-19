@@ -4,7 +4,7 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { decodeLauncherAngle, decodeTurretAngle, hullEnvelope, type Contact, type HullId } from '@salvo/shared';
+import { CONFIG, decodeLauncherAngle, decodeTurretAngle, hullEnvelope, type Contact, type HullId } from '@salvo/shared';
 import { SnapshotBuffer } from './snapshotBuffer.js';
 
 export { MAX_EXTRAPOLATION_MS, RETENTION_MS, SnapshotBuffer, type Snapshot } from './snapshotBuffer.js';
@@ -35,6 +35,9 @@ export class ContactStore {
    * Absent while the hull holds no torpedo (no `lu`).
    */
   private launcherAngles = new Map<string, number[]>();
+  /** THE CONTACT'S HULL BAR STEP (Story 12.3): the latest frame's `Contact.hb`
+   *  (1..CONFIG.hullBar.blocks). Absent while the row carries none. */
+  private hullBlocks = new Map<string, number>();
 
   /** Ingest one frame's contact list at server time `t`. */
   pushFrame(t: number, contacts: readonly Contact[]): void {
@@ -51,6 +54,7 @@ export class ContactStore {
       const known = (hullEnvelope(c.cls) as unknown) !== undefined;
       pushAngles(this.turretAngles, c.id, known ? c.tu : undefined, (i, q) => decodeTurretAngle(c.cls, i, q));
       pushAngles(this.launcherAngles, c.id, known ? c.lu : undefined, (i, q) => decodeLauncherAngle(c.cls, i, q));
+      pushBlocks(this.hullBlocks, c.id, c.hb);
     }
   }
 
@@ -61,6 +65,7 @@ export class ContactStore {
     this.classes.delete(id);
     this.turretAngles.delete(id);
     this.launcherAngles.delete(id);
+    this.hullBlocks.delete(id);
   }
 
   /** The contact's turret angles (hull-relative rad, bow to stern) as of its
@@ -73,6 +78,12 @@ export class ContactStore {
    *  of its last frame, or undefined when it carried none (no torpedo held). */
   launcherAnglesOf(id: string): readonly number[] | undefined {
     return this.launcherAngles.get(id);
+  }
+
+  /** The contact's hull bar step (`Contact.hb`) as of its last frame, or
+   *  undefined when it carried none or is pruned. */
+  hullBlocksOf(id: string): number | undefined {
+    return this.hullBlocks.get(id);
   }
 
   get(id: string): SnapshotBuffer | undefined {
@@ -131,4 +142,11 @@ function pushAngles(
   }
   out.length = wire.length;
   for (let i = 0; i < wire.length; i++) out[i] = decode(i, wire[i]);
+}
+
+/** Record one frame's `hb` for `id` — an integer in 1..CONFIG.hullBar.blocks,
+ *  anything else (absent, malformed) clears it, so a bad row never draws a bar. */
+function pushBlocks(into: Map<string, number>, id: string, hb: unknown): void {
+  if (typeof hb === 'number' && Number.isInteger(hb) && hb >= 1 && hb <= CONFIG.hullBar.blocks) into.set(id, hb);
+  else into.delete(id);
 }

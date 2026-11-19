@@ -17,7 +17,7 @@ import {
 import { launcherArt } from '../render/hullArt/shapes.js';
 import { launcherContext } from '../render/hullArt/pixiArt.js';
 import { ShipView } from '../render/ships.js';
-import { relationStyle } from '../render/relationColor.js';
+import { hullLineColor, relationStyle } from '../render/relationColor.js';
 import { ContactStore } from '../net/snapshots.js';
 
 describe('launcherArt — tubes for the own hull, one housing for an observed one', () => {
@@ -88,15 +88,15 @@ describe('ShipView.setLaunchers — one child per launcher at its shared station
     expect(v.launcherView(0)).toBe(first);
     v.setLaunchers([0.5], 2);
     expect(v.launcherView(0)).not.toBe(first);
-    expect(v.launcherView(0)!.context).toBe(launcherContext('yamato', 2, relationStyle('own').stroke));
+    expect(v.launcherView(0)!.context).toBe(launcherContext('yamato', 2, hullLineColor(relationStyle('own').stroke)));
     v.setLaunchers([], 2);
     expect(v.launcherCount).toBe(0);
   });
 
-  it('an observed hull wears the generic housing in the enemy line', () => {
+  it('an observed hull wears the generic housing in the hull line', () => {
     const v = new ShipView(relationStyle('enemy'), 'bismarck');
     v.setLaunchers([0], null);
-    expect(v.launcherView(0)!.context).toBe(launcherContext('bismarck', null, relationStyle('enemy').stroke));
+    expect(v.launcherView(0)!.context).toBe(launcherContext('bismarck', null, hullLineColor(relationStyle('enemy').stroke)));
   });
 });
 

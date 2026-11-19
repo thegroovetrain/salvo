@@ -53,7 +53,12 @@ import type { Relation } from '../render/relationColor.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
 import { hullSightSoftness } from '../render/fog.js';
-import { NameplateLayer } from '../render/nameplates.js';
+import { NameplateLayer, nameFitAt, plateStack } from '../render/nameplates.js';
+
+/** A zoom (px per u) at which every name draws in the mono Text (the stub
+ *  these tests read), not the 5×7 pixel font. */
+const MONO_ZOOM = 4;
+const MONO_LOOK = { halfPx: 0, zoom: MONO_ZOOM, blocks: null };
 import { offerView, type OfferView } from '../ui/offerCore.js';
 import { OfferGroup } from '../ui/offerGroup.js';
 import { consoleLayout } from '../render/console/layout.js';
@@ -411,15 +416,16 @@ describe('NameplateLayer.place writes the composed alpha', () => {
     plates.place('ahab', 100, 50, alpha);
     expect(textLog[0].alpha).toBe(alpha);
     expect(textLog[0].position.x).toBe(100);
-    expect(textLog[0].position.y).toBe(50);
+    expect(textLog[0].position.y).toBe(plateStack(50).nameBottom); // stacked above the bracket top it is handed
   });
 
   it('sets `visible = alpha > 0`: a fully faded plate goes off, a rim contact '
     + 'plate stays on', () => {
     const plates = layerWithPlate();
-    plates.place('ahab', 0, 0, hullSightSoftness(SIGHT, SIGHT));
+    expect(nameFitAt(MONO_ZOOM).pixel, 'premise: the mono shows at this zoom').toBe(false);
+    plates.place('ahab', 0, 0, hullSightSoftness(SIGHT, SIGHT), MONO_LOOK);
     expect(textLog[0].visible, 'the rim is not gone').toBe(true);
-    plates.place('ahab', 0, 0, 0);
+    plates.place('ahab', 0, 0, 0, MONO_LOOK);
     expect(textLog[0].visible, 'the fader ran out').toBe(false);
   });
 
@@ -449,7 +455,7 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
     worldToScreen: (p: { x: number; y: number }) => ({ x: p.x * 3 + 1000, y: p.y * 3 - 500 }),
     zoom: 1,
   };
-  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera };
   const relationOf = (): Relation => 'enemy';
 
   const drive = (softnessValue: number) => {
@@ -520,8 +526,8 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
 // partials: "if the bow is sticking out of the smoke I want to see it").
 describe('a nameplate under thick countermeasure paint is hidden; the hull never is', () => {
   const WORLD = { x: 40, y: -20 };
-  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
-  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
+  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: MONO_ZOOM };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera };
   const HIDE = CLIENT_CONFIG.countermeasure.plateHideAlpha;
 
   const drive = (cover: number) => {
@@ -565,8 +571,8 @@ describe('a nameplate under thick countermeasure paint is hidden; the hull never
 // center is within the observer's effective class-and-name sight (the eye's
 // `sightU`); beyond it the hull still draws, fading in the distance haze.
 describe('a nameplate beyond the class-and-name sight is hidden; the hull still draws', () => {
-  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
-  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera, pad: 8 };
+  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: MONO_ZOOM };
+  const plateFrame = { nameOf: (): string | null => 'RIVAL', camera };
   const SIGHT = CONFIG.vision.sight;
   const eye = { frame: null, smoke: [], sightU: SIGHT, hullSightU: CONFIG.vision.hullSight, x: 0, y: 0 };
 

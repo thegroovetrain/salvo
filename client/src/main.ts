@@ -26,6 +26,7 @@ import {
   effectiveSight,
   effectiveStats,
   equipmentReloadMs,
+  hullBlocks,
   hullEnvelope,
   hullSilhouette,
   abilityFromCode,
@@ -57,7 +58,7 @@ import { ShipView, setHullFlashGate } from './render/ships.js';
 import { relationOf, relationStroke, relationStyle, type Relation } from './render/relationColor.js';
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
-import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
+import { NameplateLayer, latchPlate, type PlateLook } from './render/nameplates.js';
 import { Projectiles, ownReachFromStats, type OwnFire } from './render/projectiles.js';
 import { FiringUX, type BroadsideArcs, type MainBatteryView } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint, type PreviewShip } from './render/aimPreview.js';
@@ -66,7 +67,7 @@ import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
 import { Drops } from './render/drops.js';
-import { HullBrackets } from './render/brackets.js';
+import { HullBrackets, bracketHalfPx } from './render/brackets.js';
 import { SplashPegs } from './render/pegs.js';
 import { renderChartMarks } from './render/chartMarks.js';
 import { Beacons, BEACON_COLOR } from './render/beacons.js';
@@ -1399,8 +1400,17 @@ function updateOwnPlate(g: Game, pose: RenderPose): void {
     g.ownPlated = r.latched;
   }
   const sc = g.camera.worldToScreen(pose);
-  g.nameplates.place(id, sc.x, plateScreenY(sc.y, g.ownClass, g.camera.zoom, CLIENT_CONFIG.nameplate.padPx), 1);
+  // Story 12.3: name + hull bar stack on the own bracket's top edge; the own
+  // bar's blocks come from `OwnShip.hp` through the shared `hullBlocks`.
+  const you = g.state.net.you;
+  OWN_PLATE_LOOK.zoom = g.camera.zoom;
+  OWN_PLATE_LOOK.halfPx = bracketHalfPx(g.ownView.drawnLengthU() * g.camera.zoom);
+  OWN_PLATE_LOOK.blocks = you ? hullBlocks(you.hp, g.ownStats.maxHp) : null;
+  g.nameplates.place(id, sc.x, sc.y - OWN_PLATE_LOOK.halfPx, 1, OWN_PLATE_LOOK);
 }
+
+/** The own plate's look scratch (Story 12.3), rewritten per frame. */
+const OWN_PLATE_LOOK: PlateLook = { halfPx: 0, zoom: 1, blocks: null };
 
 /** The engine telegraph's click (Story 10.13): one recipe, pitched up for
  *  ringing ahead and down for astern; the legacy tone keeps its own pair. */
@@ -5025,10 +5035,10 @@ function tickAiming(g: Game, aim: number, aimDist: number, primedSlot: number): 
 }
 
 function makeCallbacks(g: Game): LoopCallbacks {
-  // Story 1.13: hoist the per-contact nameplate frame — camera + pad are stable
+  // Story 1.13: hoist the per-contact nameplate frame — the camera is stable
   // and nameOf closes over g, so build it ONCE and reuse it every render frame
   // (no per-frame object/closure allocation in the render hot path).
-  const plateFrame: PlateFrame = { nameOf: (id) => rosterNameOrNull(g, id), camera: g.camera, pad: CLIENT_CONFIG.nameplate.padPx };
+  const plateFrame: PlateFrame = { nameOf: (id) => rosterNameOrNull(g, id), camera: g.camera };
   return {
     simTick: () => {
       // RULING: a dead (or post-match) client stops sending inputs entirely —

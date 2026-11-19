@@ -198,7 +198,7 @@ import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './
 import { wakeLitFloor } from './radarSources.js';
 import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './cloudReturnGate.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
-import { dimFanSlides } from './radarDim.js';
+import { dimCastU, dimFanSlides } from './radarDim.js';
 import { maskPassRect, usableScreen, viewAsScreen } from './maskPass.js';
 import { ClutterTrack, clutterReachU, type ClutterFrameSource } from './radarClutter.js';
 import { RAIN_CLUTTER_DEFAULTS } from './rainClutter.js';
@@ -1268,13 +1268,15 @@ export class Radar {
   }
 
   /** Cast the eye-reach fan from `own` into the preallocated `reachFan`, or null
-   *  when there is no source, no finite pose or no fog. */
+   *  when there is no source, no finite pose or no fog. Cast only out to the dim
+   *  floor's radius (`dimCastU`, Story 12.3): a bearing whose eye reaches past it
+   *  slides nothing, so the march stops there (~9× shorter than the sight reach). */
   private castReach(own: OwnPoint | null, sightU: number, serverNow: number): Float32Array | null {
     if (this.reachSource === null || own === null || !Number.isFinite(own.x + own.y)) return null;
     this.castX = own.x;
     this.castY = own.y;
     this.castT = serverNow;
-    return this.reachSource.eyeReachFan(own.x, own.y, sightU, serverNow, this.reachFan);
+    return this.reachSource.eyeReachFan(own.x, own.y, dimCastU(sightU), serverNow, this.reachFan);
   }
 
   /**

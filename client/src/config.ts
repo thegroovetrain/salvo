@@ -154,6 +154,16 @@ const COLORS = {
   // rule; the dark interior fill is derived there (`CLIENT_CONFIG.ship.relationFillValue`).
   relationOwn: 0x00e8ff,
   relationEnemy: 0xff2a2a,
+  // HULL LINEWORK (Story 12.3, Eric 2026-11-18: "Instead of flat black, how
+  // about dark gray? Say, #212121?"). Every line of every ship's hull art —
+  // own and enemy alike, in a match, the ambient scene and the menu SVGs —
+  // draws in this; the relation colors above stay on the brackets and names
+  // (render/relationColor.ts `hullLineColor` is the one seam).
+  hullLine: 0x212121,
+  // THE HULL HEALTH BAR (Story 12.3, A2 — the approved bench v13): filled
+  // blocks pale while healthy (4 or 3 blocks), `amber` at 2, this bright red at 1.
+  hullBarPale: 0xd8e0e4,
+  hullBarCritical: 0xff4b3e,
   // legacy carry-overs — byte-identical to pre-1.11 literals, owned by a later
   // story (deleted when that story lands its real color). NOT ratified roles.
   // (ownHull/enemyHull/ownAssetGreen retired by Story 1.12 — hulls, wake, and
@@ -1091,16 +1101,31 @@ export const CLIENT_CONFIG = {
    * brackets.ts, pegs.ts).
    */
   chartMarks: {
-    /** Corner brackets show on a hull whose on-screen LENGTH is under this. */
-    bracketThresholdPx: 24,
-    /** The fade band, as a fraction of a threshold, centered on it (brackets
-     *  and chart icons alike): 24 → full ≤ 20.4, zero ≥ 27.6. */
+    /** The chart icons' fade band, as a fraction of `iconPx`, centered on it.
+     *  (Story 12.3: the corner brackets no longer fade — they frame the own
+     *  hull and every in-sight hull at EVERY zoom.) */
     bandFrac: 0.3,
-    /** Half-box of the four corner ticks (24 / 2 + 4 → a 32 px square). */
+    /** The bracket's SMALLEST half-box (a 32 px square), held while the hull
+     *  is short on screen. */
     bracketHalfPx: 16,
-    /** Length of each corner tick's two arms. */
+    /** Story 12.3, the bracket frames the whole hull: half = max(bracketHalfPx,
+     *  on-screen hull length / 2 + this). */
+    bracketHullPadPx: 4,
+    /** The bracket half is snapped to this step, so a pooled bracket is
+     *  re-drawn only when its snapped size changes (never at a steady zoom). */
+    bracketQuantPx: 0.5,
+    /** The SHORTEST tick arm; arms grow to `bracketTickGrowth × half`, capped at half. */
     bracketTickPx: 6,
+    bracketTickGrowth: 0.22,
     bracketLinePx: 1.5,
+    /** THE SLIGHT GLOW (Story 12.3, Eric: "a slight glow in their color") on
+     *  the brackets, the hull bar's filled blocks and the name — static, never
+     *  pulses. About `glowPx` of blur (the bench's shadowBlur 4): the name is a
+     *  zero-distance Text drop shadow of this blur; the Graphics marks take the
+     *  drops.ts precedent of wider low-alpha passes underneath — the full reach
+     *  (glowPx / 2 a side) at glowAlpha / 2, then half of it at glowAlpha. */
+    glowPx: 4,
+    glowAlpha: 0.3,
     /** Mines, airdrops and salvage wrecks draw their own look at this fixed
      *  size while their true drawing would be smaller (the beacon handover). */
     iconPx: 10,
@@ -1354,10 +1379,40 @@ export const CLIENT_CONFIG = {
    *  above each hull (render/nameplates.ts). The text renders at a constant
    *  screen size (hud-micro 9px) at any zoom; only this gap scales with zoom. */
   nameplate: {
-    /** Gap (screen px) between the hull's projected bounding circle and the
-     *  plate's bottom edge. ~mid of the 6–10px range floated the plate clear of
-     *  the largest hull's bow arc without drifting off it at spectate zoom. */
-    padPx: 8,
+    /** STORY 12.3 (Eric 2026-11-18, bench v13): the name is fitted to the
+     *  corner bracket. Every name at one zoom shares ONE size — the size at
+     *  which a NAME_MAX-character name fits the bracket width (2 × half),
+     *  capped at the hud-micro size. Below `floorPx` every name switches to
+     *  the 5×7 pixel font (render/pixelFont.ts), which never hides. */
+    floorPx: 9,
+    /** The font size snaps to this step, so a Text re-rasterizes only when
+     *  the snapped size changes. */
+    sizeQuantPx: 0.5,
+    /** The plate mono's advance per character, in em (Geist Mono: 600/1000) —
+     *  the fit measures a NAME_MAX name by it (no canvas metrics per frame). */
+    advanceEm: 0.6,
+    /** Screen px from the hull bar's top to the name's bottom. */
+    nameGapPx: 4,
+  },
+
+  /**
+   * THE HULL HEALTH BAR (Story 12.3, Eric's A2 — the approved bench v13):
+   * `CONFIG.hullBar.blocks` blocks above the corner bracket of every hull in
+   * sight, the own hull's included. Screen px.
+   */
+  hullBar: {
+    /** Eric: "80px cap" — the bar is min(bracket width, this) wide. */
+    capPx: 80,
+    heightPx: 4,
+    gapPx: 2,
+    /** Gap between the bracket's top edge and the bar's bottom. */
+    padPx: 3,
+    /** A lost block: a 1 px pale outline at this alpha. */
+    lostLinePx: 1,
+    lostAlpha: 0.3,
+    /** The filled-block colors by count: at or above `paleAtBlocks` pale,
+     *  then amber, then (at 1) the bright critical red. */
+    paleAtBlocks: 3,
   },
 
   /** Pre-join home chrome + class-select (Story 1.14). Two groups: absolute pip
@@ -3527,10 +3582,10 @@ export const CLIENT_CONFIG = {
         /**
          * THE FOG SLIDE (epic-9 amendment 210, Eric 2026-10-21) — ERIC'S STAGING
          * DIAL, 0..1. On a bearing where the observer's eye (through rain and smoke) ends at
-         * `reach` < sight (since Story 11.6, where the rain's + the held smoke's optical depth reaches the sight threshold `fogMaxDepth` — render/rainSight.ts `eyeReachFanInto`), the whole ramp slides
-         * inward by `(sight − reach) × fogLift`: 1 = the floor ends exactly where
-         * the fogged eye ends (with the shipped innerFactor 1; in general the floor
-         * ends at innerU − (sight − reach)) and full strength begins one ramp-width later, so a
+         * `reach` < the floor radius innerU (since Story 11.6, where the rain's + the held smoke's optical depth reaches the sight threshold `fogMaxDepth` — render/rainSight.ts `eyeReachFanInto`), the whole ramp slides
+         * inward by `max(0, innerU − reach) × fogLift` (Story 12.3: against the ramp,
+         * no longer the full sight reach): 1 = the floor ends exactly where
+         * the fogged eye ends and full strength begins one ramp-width later, so a
          * return the eye cannot see is NOT muted; 0 = today's radial mask, fog or
          * no fog. Covers both of Eric's cases with one rule — the observer inside
          * a bank, and a clear observer looking into one. Shipped at 1; Eric tunes

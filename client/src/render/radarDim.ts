@@ -44,11 +44,13 @@
 // `fogDepthReach` under `fogMaxDepth`, ≤ sight, = sight with no rain) — scaled
 // by Eric's staging dial
 // `dim.fogLift`:
-//     scale(θ, d) = radial(d + (sight − reach(θ)) × fogLift)
-// where `radial` is the curve above. The ramp's WIDTH never changes, only where
-// it starts; the floor and the two factors are untouched. With no fog (every
-// reach = sight) or fogLift 0 the expression IS today's curve, so the radial
-// bake is the no-fog case rather than a second look.
+//     scale(θ, d) = radial(d + max(0, inner − reach(θ)) × fogLift)
+// where `radial` is the curve above and `inner` its floor radius (Story 12.3:
+// measured against the ramp itself, no longer the full sight reach — see
+// `dimSlideU`). The ramp's WIDTH never changes, only where it starts; the floor
+// and the two factors are untouched. With no fog near the ship (every reach ≥
+// inner) or fogLift 0 the expression IS today's curve, so the radial bake is the
+// no-fog case rather than a second look.
 
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -98,18 +100,36 @@ function fogLift(): number {
 /**
  * How far (u) the ramp slides INWARD on a bearing whose eye (through rain and smoke) ends at
  * `reachU`, for an observer with `sightU` of effective truesight:
- * `(sightU − reachU) × fogLift`. A reach that is non-finite, negative or not
- * below the bubble (at float32 precision — the fan's storage — so a clear
- * bearing of a non-dyadic sight is clear) reads as `sightU` — no slide — so a bad fan fails toward
- * today's radial mask, never toward an unmuted scope.
+ * `max(0, innerU − reachU) × fogLift`, with `innerU` = `dimRadii(sightU).innerU`.
+ *
+ * MEASURED AGAINST THE RAMP, NOT THE SIGHT REACH (Story 12.3, Eric's item 3).
+ * Since Story 11.2 `sightU` is the 200 hm class-and-name sight while the ramp
+ * kept its absolute 500 → 750 u radii (epic-11 amendment 4(m)); the old
+ * `(sightU − reachU)` slide therefore pushed the whole ramp off the disc on any
+ * bearing whose eye ended inside ~3,800 u, and rain is on all match — the
+ * near-ship fade was gone. Amendment 210's lift is kept: only a bearing whose
+ * eye ends INSIDE the floor's radius unmutes, by exactly that shortfall.
+ *
+ * A reach that is non-finite, negative or not below `innerU` (at float32
+ * precision — the fan's storage — so a clear bearing of a non-dyadic radius is
+ * clear) slides nothing, so a bad fan fails toward the radial mask, never
+ * toward an unmuted scope.
  */
 export function dimSlideU(sightU: number, reachU: number): number {
   if (!(sightU > 0) || !Number.isFinite(sightU)) return 0;
-  // The fan is a Float32Array holding `fround(sight)` on a clear bearing; a sight that is not
-  // float32-representable must still read that bearing as clear, or every cadence re-bakes.
-  const clearU = Math.min(sightU, Math.fround(sightU));
+  const { innerU } = dimRadii(sightU);
+  // The fan is a Float32Array; a radius that is not float32-representable must
+  // still read a bearing cast out to it as clear, or every cadence re-bakes.
+  const clearU = Math.min(innerU, Math.fround(innerU));
   if (!Number.isFinite(reachU) || reachU < 0 || reachU >= clearU) return 0;
-  return (sightU - reachU) * fogLift();
+  return (innerU - reachU) * fogLift();
+}
+
+/** The radius (u) the eye-reach fan needs to be cast out to for an observer
+ *  with `sightU`: the dim floor's `innerU` — a bearing whose eye reaches past
+ *  it slides nothing (`dimSlideU`), so marching further buys nothing. */
+export function dimCastU(sightU: number): number {
+  return dimRadii(sightU).innerU;
 }
 
 /** Does any bearing of the fan `reach` actually move the ramp? False for an

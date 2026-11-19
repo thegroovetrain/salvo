@@ -3,9 +3,11 @@
 // hull id: every pickable class renders its battleship art.
 //
 // Story 10.4 (Eric's ruling R6): the personal hue wheel is gone. Every captain
-// hull — own AND contact — draws in its RELATION color (render/relationColor.ts:
-// own cyan, everyone else red) as one stroke over that color's dark interior.
-// The style is per-view and swappable (setColors).
+// hull — own AND contact — carries its RELATION style (render/relationColor.ts:
+// own cyan, everyone else red). Story 12.3 (Eric 2026-11-18): the hull ART's
+// lines no longer read it — every line is the one dark-gray `hullLine`
+// (`hullLineColor`); the relation stroke stays on the corner brackets
+// (`bracketSource`) and the names. The style is per-view and swappable (setColors).
 //
 // THE BATTLESHIP ART (Story 10.4 wave 2c — render/hullArt/*): a captain hull
 // is three layers in the view's container — the DECK Graphics (skin fill,
@@ -13,9 +15,9 @@
 // cranes, barbette rings), one Graphics per main turret of its shared
 // `battery` at `turretStation(hullId, i)` rotated by its hull-relative angle
 // (`setTurretAngles`), and the OUTLINE Graphics on top (the one bold relation
-// line). Fills are the hull's skin, every line the relation color (epic-10
-// amendment 7(m)). The geometry lives in shared Pixi `GraphicsContext`s built
-// once per (hull, line color) and borrowed by every view — per frame only
+// line). Fills are the hull's skin, every line dark gray (Story 12.3; was the
+// relation color, epic-10 amendment 7(m)). The geometry lives in shared Pixi
+// `GraphicsContext`s built once per (hull, line color) and borrowed by every view — per frame only
 // rotations and the container's pose / tint / alpha / scale are written.
 // Children inherit the hull's pose, settle, sight fade and hit-flash tint for
 // free.
@@ -53,7 +55,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
-import type { ShipStyle } from './relationColor.js';
+import { hullLineColor, type ShipStyle } from './relationColor.js';
 import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
 import { turretDrawOrder } from './hullArt/shapes.js';
 import { LauncherMounts } from './launcherViews.js';
@@ -260,8 +262,8 @@ export class ShipView {
     this.buildTurrets();
   }
 
-  /** Swap the hull colors: stroke = the linework (every line — the relation
-   *  color), fill = the style's interior. The hull's fills are its skin, so
+  /** Swap the hull colors: stroke = the relation stroke (the brackets' color;
+   *  the art's lines map it through `hullLineColor`), fill = the style's interior. The hull's fills are its skin, so
    *  only the stroke moves its art. Swaps
    *  contexts in place; nothing is redrawn unless the style changed. */
   setColors(stroke: number, fill: number | null): void {
@@ -305,7 +307,7 @@ export class ShipView {
   setLaunchers(angles: readonly number[], tubes: number | null): void {
     this.launcherAngles = angles;
     this.launcherTubes = tubes;
-    this.launchers.set(artClass(this.hullId), angles, tubes, this.style.stroke);
+    this.launchers.set(artClass(this.hullId), angles, tubes, this.line);
   }
 
   /** How many launcher children this view carries (tests/debug). */
@@ -318,17 +320,23 @@ export class ShipView {
     return this.launchers.view(i);
   }
 
+  /** The art's line color — the dark-gray `hullLine` for a relation style
+   *  (Story 12.3), never the relation stroke the brackets and names keep. */
+  private get line(): number {
+    return hullLineColor(this.style.stroke);
+  }
+
   /** Point the deck and outline Graphics at this hull's shared cached art. */
   private draw(): void {
     const cls = artClass(this.hullId);
-    this.hull.context = deckContext(cls, this.style.stroke);
-    this.outline.context = outlineContext(cls, this.style.stroke);
+    this.hull.context = deckContext(cls, this.line);
+    this.outline.context = outlineContext(cls, this.line);
   }
 
   /** Re-point every turret at the shared context for the current stroke. */
   private skinTurrets(): void {
     const cls = artClass(this.hullId);
-    for (let i = 0; i < this.turrets.length; i++) this.turrets[i].context = turretContext(cls, i, this.style.stroke);
+    for (let i = 0; i < this.turrets.length; i++) this.turrets[i].context = turretContext(cls, i, this.line);
   }
 
   /** One turret Graphics per mount, borrowing its shared art context, seated
@@ -342,7 +350,7 @@ export class ShipView {
     const cls = artClass(this.hullId);
     const mounts = turretMounts(cls);
     for (let i = 0; i < mounts.length; i++) {
-      const g = new Graphics(turretContext(cls, i, this.style.stroke));
+      const g = new Graphics(turretContext(cls, i, this.line));
       const p = turretStation(cls, i);
       g.position.set(p.x, p.y);
       g.rotation = turretRest(mounts[i]);
@@ -479,10 +487,16 @@ export class ShipView {
     const p = this.gfx.position;
     out.x = p.x;
     out.y = p.y;
-    out.lengthU = CONFIG.shipClasses[artClass(this.hullId)].hull.length * this.gfx.scale.x;
+    out.lengthU = this.drawnLengthU();
     out.color = this.style.stroke;
     out.alpha = this.gfx.alpha * (this.dissolve.active ? this.rainMean : 1);
     return true;
+  }
+
+  /** The hull's drawn LENGTH (u), through the settle's shrink — what the
+   *  corner bracket frames and the plate (Story 12.3) floats above. */
+  drawnLengthU(): number {
+    return CONFIG.shipClasses[artClass(this.hullId)].hull.length * this.gfx.scale.x;
   }
 
   private applyLook(): void {
