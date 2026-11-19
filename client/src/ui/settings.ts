@@ -20,7 +20,7 @@ import {
   scaleTierEnabled,
   scaleTierNote,
   type MotionLevel,
-  type OfferPos,
+  type HudSide,
   type Settings,
   type SettingsStore,
   type UiScale,
@@ -52,11 +52,11 @@ export const MOTION_OPTIONS: readonly OptionModel<MotionLevel>[] = [
   { value: 'off', label: 'OFF', enabled: true, note: '' },
 ];
 
-/** THE OFFER POSITION row (epic-10 amendment 18 R26, Eric 2026-11-10: "a
- *  toggle in settings so the player can choose if they want the offer to
- *  appear on the right, left, or bottom"). The row's four words are new
- *  in-game copy, put to Eric `[Eric may reword]`. */
-export const OFFER_POS_LABEL = 'OFFER POSITION';
+/** THE HUD SIDE row (Story 12.3 Part B, Eric 2026-11-19: the bar's
+ *  "Position (left or right) should be user-selectable in options"). It
+ *  replaced the retired OFFER POSITION row and reuses that row's LEFT / RIGHT
+ *  words; the label is new copy `[Eric may reword]`. */
+export const HUD_SIDE_LABEL = 'HUD SIDE';
 /** THE AIM ROWS (Story 11.1, R15 / R18): the reticle + oval color picker and
  *  the reticle's size slider. The two labels are the only new copy (R17). */
 export const AIM_COLOR_LABEL = 'AIM COLOR';
@@ -67,10 +67,9 @@ export function aimSizeReadout(v: number): string {
   return `${v}×`;
 }
 
-export const OFFER_POS_OPTIONS: readonly OptionModel<OfferPos>[] = [
-  { value: 'right', label: 'RIGHT', enabled: true, note: '' },
+export const HUD_SIDE_OPTIONS: readonly OptionModel<HudSide>[] = [
   { value: 'left', label: 'LEFT', enabled: true, note: '' },
-  { value: 'bottom', label: 'BOTTOM', enabled: true, note: '' },
+  { value: 'right', label: 'RIGHT', enabled: true, note: '' },
 ];
 
 /**
@@ -676,7 +675,7 @@ export class SettingsOverlay {
       makeSection(
         'DISPLAY',
         this.makeScaleRow(s),
-        makeChoiceRow(OFFER_POS_LABEL, OFFER_POS_OPTIONS, s.offerPos, (v) => this.set({ offerPos: v })),
+        makeChoiceRow(HUD_SIDE_LABEL, HUD_SIDE_OPTIONS, s.hudSide, (v) => this.set({ hudSide: v })),
         makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v })),
         // Story 11.1 (R15 / R18): both write through WITHOUT a repaint, like
         // the volume sliders — a rebuild would destroy the control in use.

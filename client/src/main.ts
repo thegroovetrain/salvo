@@ -15,6 +15,7 @@ import {
   EQUIPMENT_IS_WEAPON,
   MSG,
   SLOT_BOOST,
+  turretMounts,
   abilityCode,
   MULLIGAN_CHOICE,
   NO_CARDS,
@@ -92,9 +93,12 @@ import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './r
 import {
   ABILITY_KINDS,
   WEAPON_ROW_KINDS,
+  barHover,
   consoleHit,
   consoleLayout,
+  openWaterOffset,
   rowSlot,
+  type BarHover,
   type ConsoleHit,
   type ConsoleLayout,
 } from './render/console/layout.js';
@@ -110,13 +114,15 @@ import {
   NO_SHIFT_WINDOW,
   shiftWindowFor,
   weaponRowModels,
+  type AbilityModel,
   type PreviewMarks,
   type Readout,
   type ShiftWindow,
+  type WeaponRowModel,
 } from './render/console/readouts.js';
-import { ShipConsole, type ShipConsoleView } from './render/console/shipConsole.js';
-import { WeaponsConsole, type WeaponsConsoleLayout, type WeaponsConsoleView } from './render/console/weaponsConsole.js';
-import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
+import { HudBar, type HudBarView } from './render/console/hudBar.js';
+import { abilityFlyout, cardFlyout, previewTarget, weaponFlyout, type FlyoutModel, type PreviewTarget } from './render/console/flyout.js';
+import { HudFlyout } from './ui/hudFlyout.js';
 import {
   followSpectateTarget,
   pickSpectateTarget,
@@ -381,14 +387,14 @@ interface Game {
   zone: Zone;
   hud: Hud;
   /**
-   * THE BATTLE CONSOLES (Story 10.10, epic-10 amendments 16 / 17) — the SHIP
-   * console on the left edge (hull, the six indices, the helm, the level) and
-   * the WEAPONS console on the right (five row-buttons, then C · V · Shift).
-   * They replaced the bottom-centre HUD bar. Shown only while conning a hull.
+   * THE HUD BAR (Story 12.3 Part B, epic-12 amendment 3) — ONE vertical bar on
+   * the player's HUD SIDE: WEAPONS, ABILITIES, SHIP, then the HULL · THROTTLE
+   * · LEVEL gauges. It replaced Story 10.10's ship and weapons consoles. Shown
+   * only while conning a hull. Its weapon / ability stats open in `flyout`.
    */
-  shipConsole: ShipConsole;
-  weaponsConsole: WeaponsConsole;
-  /** Are the consoles on screen this frame (they route presses only then)? */
+  hudBar: HudBar;
+  flyout: HudFlyout;
+  /** Is the bar on screen this frame (it routes presses only then)? */
   consolesShown: boolean;
   /** THE OFFER GROUP (ui/offerGroup.ts) — the always-live corner cards that
    *  replaced the Tab refit band. No lockout: it suspends nothing (R3). */
@@ -761,13 +767,14 @@ interface ConsoleCache {
   window: ShiftWindow;
   readouts: readonly Readout[];
   layout: ConsoleLayout | null;
-  weapons: WeaponsConsoleLayout | null;
   layoutKey: string;
   previewLine: string | null;
   previewStats: EffectiveStats | null;
   previewWindow: ShiftWindow;
   preview: PreviewMarks | null;
-  /** The weapons console's denied flags, reused frame to frame. */
+  /** The tile the hover marks point at (`previewTarget`), with them. */
+  target: PreviewTarget | null;
+  /** The bar's denied flags, reused frame to frame. */
   denied: { rows: boolean[]; abilities: boolean[] };
 }
 
@@ -778,12 +785,12 @@ function freshConsoleCache(): ConsoleCache {
     window: NO_SHIFT_WINDOW,
     readouts: [],
     layout: null,
-    weapons: null,
     layoutKey: '',
     previewLine: null,
     previewStats: null,
     previewWindow: NO_SHIFT_WINDOW,
     preview: null,
+    target: null,
     denied: { rows: WEAPON_ROW_KINDS.map(() => false), abilities: ABILITY_KINDS.map(() => false) },
   };
 }
@@ -2306,24 +2313,22 @@ function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
 
 /**
  * THE live-helm predicate: the player is conning a ship right now (own ship
- * present and alive, not spectating). ONE gate, shared by both pieces of helm
- * feedback — the telegraph bell (silent while spectating, where W/S pans the
- * camera, or dead-awaiting-respawn: those taps never reach a live engine room)
- * and the helm-glyph fade counters (a spectate pan or a dead-man's mash must
- * never burn a coach mark). The pure test lives in render/helmGlyphs.ts so it is
- * testable apart from this bootstrap glue.
+ * present and alive, not spectating) — the telegraph bell's gate (silent while
+ * spectating, where W/S pans the camera, or dead-awaiting-respawn: those taps
+ * never reach a live engine room). A MISSING own ship (`conningNow` undefined —
+ * pre-join, pre-first-frame, between lives) is NOT live. (The helm-glyph fade
+ * it also gated left the HUD with the coach marks, Story 12.3 Part B.)
  */
 function conningLive(g: Game | null): boolean {
   const s = g?.state;
   // A SINKING hull is still being conned (Story 5.2, amendment 16): the helm is
   // live all the way down — decayed by the ritardando, never cut — so the
-  // telegraph bell rings and a W/S/A/D input still retires its coach mark.
+  // telegraph bell rings.
   //
   // A HELD HULL IS NOT (Story 6.1, amendment 8), and this is the same rule read
   // the other way: the bell reports an order the engine room ACCEPTED, so it
-  // must not ring against `helmAxes`'s dead helm, and a press nobody heard must
-  // not burn one of the three inputs that retire the W/S coach mark for good.
-  return s !== undefined && !atStartLine(g) && helmInputCounts(s.spectating, conningNow(g));
+  // must not ring against `helmAxes`'s dead helm.
+  return s !== undefined && !atStartLine(g) && !s.spectating && conningNow(g) === true;
 }
 
 /**
@@ -2428,18 +2433,10 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
   return {
     // Each throttle detent step clicks the telegraph — pitch distinguishes
     // ringing up (ahead) from down (astern); an end-stop tap is silent.
-    onDetent: (dir, changed, labeled) => {
-      if (!changed) return; // an end-stop tap is neither a click nor a learned input
-      const live = conningLive(getG());
-      // A step that MOVED the order on a LABELED key (W/S — not an arrow) while
-      // conning a live ship is a successful W/S input: three of them retire the
-      // helm key glyphs for good (Story 2.4, amendment 26).
-      if (labeled) recordHelmInput('ws', live);
-      if (live) audio.playCue('telegraph', telegraphCue(dir));
+    onDetent: (dir, changed) => {
+      if (!changed) return; // an end-stop tap is not a click
+      if (conningLive(getG())) audio.playCue('telegraph', telegraphCue(dir));
     },
-    // Every labeled rudder press that reaches a LIVE helm counts toward the A/D
-    // pair's fade (suppressed presses never arrive here at all).
-    onRudder: () => recordHelmInput('ad', conningLive(getG())),
     isAbilitySlot: (slot) => {
       const g = getG();
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
@@ -2862,8 +2859,8 @@ function buildGame(
     radarDisplay: new RadarDisplay(stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
-    shipConsole: new ShipConsole(stage.layers.hud),
-    weaponsConsole: new WeaponsConsole(stage.layers.hud),
+    hudBar: new HudBar(stage.layers.hud),
+    flyout: new HudFlyout(),
     consolesShown: false,
     offerGroup: new OfferGroup(offerGroupHooks(() => gRef), flashBudget),
     hoverLine: null,
@@ -3379,12 +3376,14 @@ function renderOwn(
 }
 
 /**
- * THE BATTLE CONSOLES, one call (Story 10.10). They show while the player is
- * CONNING a hull in-match — the held start line and the dev/sandbox ready room
- * included (the weapons console dimmed at the line, see `dim`) and the WHOLE
- * sinking window: amendment 10 keeps every fitted slot activatable all the way
- * down, so the surfaces those slots live on stay on screen. They die with the
- * hull at FOUNDER (spectate / reveal) and on return to port.
+ * THE HUD BAR, one call (Story 12.3 Part B; the consoles' contract, Story
+ * 10.10). It shows while the player is CONNING a hull in-match — the held start
+ * line and the dev/sandbox ready room included (the weapons and abilities
+ * dimmed at the line, see `dim`) and the WHOLE sinking window: amendment 10
+ * keeps every fitted slot activatable all the way down, so the surface those
+ * slots live on stays on screen. It dies with the hull at FOUNDER (spectate /
+ * reveal) and on return to port. SPACE-HOME follows it (AC 28): the camera's
+ * focus is the centre of the open water beside the bar while it shows.
  *
  * Called after renderFiring so this frame's denied pulses are resolved.
  */
@@ -3406,12 +3405,16 @@ function updateConsoles(
   const readouts = consoleReadoutsNow(g, shiftWin);
   const preview = hoverMarksNow(g, shiftWin);
   const frame: ConsoleFrame = { status, pose, readouts, preview, ringUrgent, freeze, nowSec, nowMs };
-  g.shipConsole.update(shipConsoleView(g, frame), layout.ship);
-  g.weaponsConsole.update(weaponsConsoleView(g, frame), g.consoleCache.weapons!);
+  const rows = weaponRowModels(weaponsInput(g, frame));
+  const abilities = abilityModels(abilitiesInput(g, status));
+  const hover = g.consolesShown ? barHover(layout.bar, hudPoint(g, g.mouse.screenPos)) : null;
+  g.hudBar.update(hudBarView(g, frame, rows, abilities, hover), layout.bar);
   g.consolesShown = true;
+  g.camera.setFocusOffset(openWaterOffset(layout.side) * g.uiScale);
+  updateFlyout(g, layout, flyoutNow(g, status, rows, abilities, hover));
 }
 
-/** One frame's shared console inputs. */
+/** One frame's shared bar inputs. */
 interface ConsoleFrame {
   status: OwnStatus;
   pose: RenderPose;
@@ -3423,20 +3426,21 @@ interface ConsoleFrame {
   nowMs: number;
 }
 
-/** Both consoles gone with the hull (founder / spectate / port). */
+/** The bar gone with the hull (founder / spectate / port); the camera's focus
+ *  back on the screen centre. */
 function hideConsoles(g: Game): void {
-  g.shipConsole.hide();
-  g.weaponsConsole.hide();
+  g.hudBar.hide();
+  g.flyout.hide();
   g.consolesShown = false;
+  g.camera.setFocusOffset(0);
 }
 
-/** A TRANSIENT pose gap: both consoles hidden, their breathing state kept. */
+/** A TRANSIENT pose gap: the bar hidden, its breathing state (and the focus) kept. */
 function hideConsolesTransient(g: Game): void {
-  g.shipConsole.hideTransient();
-  g.weaponsConsole.hideTransient();
+  g.hudBar.hideTransient();
+  g.flyout.hide();
   g.consolesShown = false;
 }
-
 /**
  * EVERY CONSOLE NUMBER (O7), off the own fold — memoised on the fold's
  * identity (`applyOwnStats` swaps `ownStats` / `ownSlots` together whenever the
@@ -3471,30 +3475,30 @@ function shiftWindowNow(g: Game): ShiftWindow {
 
 /**
  * THE LAYOUT (the pure spine), recomputed only when the logical viewport,
- * the countdown flag (REDRAW in the offer group) or the offer position changes — the consoles and
- * the offer group draw from, and the press gate hit-tests against, this ONE
- * object.
+ * the countdown flag (REDRAW in the offer group) or the HUD SIDE changes — the
+ * bar, its flyout and the offer group draw from, and the press gate hit-tests
+ * against, this ONE object.
  */
 function consoleLayoutNow(g: Game): ConsoleLayout {
   const c = g.consoleCache;
   const w = hudWidth(g);
   const h = hudHeight(g);
   const countdown = (publicState(g).matchPhase ?? 'waiting') === 'countdown';
-  // The player's OFFER POSITION (R26) is in the key: a settings change re-lays.
-  const offerPos = settings.current.offerPos;
-  const key = `${w}|${h}|${countdown ? 1 : 0}|${offerPos}`;
+  // The player's HUD SIDE (AC 28) is in the key: a settings change re-lays.
+  const side = settings.current.hudSide;
+  const key = `${w}|${h}|${countdown ? 1 : 0}|${side}`;
   if (c.layout !== null && key === c.layoutKey) return c.layout;
   c.layoutKey = key;
-  c.layout = consoleLayout(w, h, { countdown, offerPos });
-  c.weapons = { ...c.layout.weapons, abilities: c.layout.abilities };
+  c.layout = consoleLayout(w, h, { countdown, side });
   return c.layout;
 }
 
-/** THE HOVER PREVIEW (R18): the hovered offer card's marks — a REAL re-fold of
- *  `effectiveStats` with the card (`hoverPreview`), memoised on (line, fold).
- *  A REFUSED card (the shared `pickRefusal` over the replayed slot ids — the
- *  refusal `offerView` greys it on) previews nothing: no amber lie. Both
- *  re-folds carry the same Shift window, so an open window marks nothing. */
+/** THE HOVER PREVIEW (R18 / AC 36): the hovered offer card's marks — a REAL
+ *  re-fold of `effectiveStats` with the card (`hoverPreview`), memoised on
+ *  (line, fold), and the tile they point at (`previewTarget`). A REFUSED card
+ *  (the shared `pickRefusal` over the replayed slot ids — the refusal
+ *  `offerView` greys it on) previews nothing: no amber lie. Both re-folds
+ *  carry the same Shift window, so an open window marks nothing. */
 function hoverMarksNow(g: Game, shiftWin: ShiftWindow): PreviewMarks | null {
   const c = g.consoleCache;
   if (c.previewLine === g.hoverLine && c.previewStats === g.ownStats && c.previewWindow === shiftWin) return c.preview;
@@ -3503,16 +3507,17 @@ function hoverMarksNow(g: Game, shiftWin: ShiftWindow): PreviewMarks | null {
   c.previewWindow = shiftWin;
   const you = g.state.net.you;
   c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT, window: shiftWin }, g.hoverLine, g.ownSlots) : null;
+  c.target = previewTarget(c.preview);
   return c.preview;
 }
 
-/** The ship console's frame — the sources the HP globe, the helm globe and the
- *  XP strip read, unchanged: the hull off `status`, the helm off the predicted
- *  pose and the helm axes, the level verbatim off `you`. */
-function shipConsoleView(g: Game, f: ConsoleFrame): ShipConsoleView {
+/** The bar's frame — the sources the consoles read, unchanged: the hull off
+ *  `status`, the throttle off the predicted pose and the helm axes, the level
+ *  verbatim off `you`, the rows and buttons off the loadout and the PREDICTED
+ *  turrets / launchers / heat. */
+function hudBarView(g: Game, f: ConsoleFrame, rows: readonly WeaponRowModel[], abilities: readonly AbilityModel[], hover: BarHover | null): HudBarView {
   const { status, pose } = f;
   const you = g.state.net.you;
-  const axes = helmAxes(g);
   const frac = hullFraction(status.hp, status.stats.maxHp);
   // THE AMBER COROLLARY's hull half: held lit when the ring outranks it.
   const hullWins = amberPulseWinner({ ring: f.ringUrgent, hullGauge: hullAmberChannel(frac) }) === 'hullGauge';
@@ -3521,12 +3526,8 @@ function shipConsoleView(g: Game, f: ConsoleFrame): ShipConsoleView {
     maxHp: status.stats.maxHp,
     repairHp: status.repairHp,
     hullHold: hullHoldsLit(frac, hullWins),
-    readouts: f.readouts,
-    preview: f.preview,
-    headingRad: pose.heading,
     speed: pose.speed,
-    orderedDetent: detentIndexOf(axes.throttle),
-    rudder: axes.rudder,
+    orderedDetent: detentIndexOf(helmAxes(g).throttle),
     // The boost's cap through the ONE shared mutator, as the predictor steps it.
     kin: helmKinematics(status.stats.kinematics, CONFIG.boost.factor, status.boostActive),
     lvl: you?.lvl ?? 0,
@@ -3536,27 +3537,72 @@ function shipConsoleView(g: Game, f: ConsoleFrame): ShipConsoleView {
     nowSec: f.nowSec,
     nowMs: f.nowMs,
     uiScale: g.uiScale,
-  };
-}
-
-/** The weapons console's frame — the sources the hotbar read: the loadout and
- *  pools off `status`, the PREDICTED turrets / launchers / heat, the own racks
- *  and cooldown stamps (never predicted) against the server-clock estimate. */
-function weaponsConsoleView(g: Game, f: ConsoleFrame): WeaponsConsoleView {
-  const { status } = f;
-  return {
-    rows: weaponRowModels(weaponsInput(g, f)),
-    abilities: abilityModels(abilitiesInput(g, status)),
+    rows,
+    abilities,
+    readouts: f.readouts,
     preview: f.preview,
-    nowSec: f.nowSec,
-    nowMs: f.nowMs,
-    motion: settings.current.motion,
-    uiScale: g.uiScale,
+    previewTarget: g.consoleCache.target,
+    hover,
+    turrets: turretMounts(status.cls).length,
     denied: consoleDenied(g, status),
+    motion: settings.current.motion,
     // The held start line (and a focused overlay): the controls dim, keys AND
     // clicks off — NEVER an offer (R3).
     dim: combatLocked(g),
   };
+}
+
+/** Where the flyout opens: the model, the tile's index and its section. */
+interface FlyoutAt {
+  model: FlyoutModel;
+  row: number;
+  ability: boolean;
+}
+
+/** What the flyout shows this frame and where (AC 34 / 36), or null: a hovered
+ *  card that changes a weapon or ability tile opens its changes there; else
+ *  the tile under the pointer opens its stats. A ship-stat card opens nothing. */
+function flyoutNow(
+  g: Game,
+  status: OwnStatus,
+  rows: readonly WeaponRowModel[],
+  abilities: readonly AbilityModel[],
+  hover: BarHover | null,
+): FlyoutAt | null {
+  const card = g.hoverLine === null ? null : g.offerGroup.hoveredCard();
+  if (card !== null) return cardFlyoutAt(g.consoleCache.target, card.name, card.rows);
+  if (hover === null) return null;
+  if (hover.kind === 'ability') {
+    const i = ABILITY_KINDS.indexOf(hover.ability);
+    return { model: abilityFlyout(abilities[i], status.stats, g.state.net.you?.shift ?? DEFAULT_SHIFT), row: i, ability: true };
+  }
+  const i = WEAPON_ROW_KINDS.indexOf(hover.row);
+  const model = rows[i] === undefined ? null : weaponFlyout(rows[i]);
+  return model === null ? null : { model, row: i, ability: false };
+}
+
+/** A hovered card's flyout at the tile it changes (none for a ship card). */
+function cardFlyoutAt(t: PreviewTarget | null, name: string, rows: Parameters<typeof cardFlyout>[1]): FlyoutAt | null {
+  if (t === null || t.kind === 'ship') return null;
+  const model = cardFlyout(name, rows);
+  if (model === null) return null;
+  return t.kind === 'row'
+    ? { model, row: WEAPON_ROW_KINDS.indexOf(t.row), ability: false }
+    : { model, row: ABILITY_KINDS.indexOf(t.ability), ability: true };
+}
+
+/** Open the flyout beside the bar, level with its row — or close it. */
+function updateFlyout(g: Game, layout: ConsoleLayout, f: FlyoutAt | null): void {
+  if (f === null) {
+    g.flyout.hide();
+    return;
+  }
+  const tile = f.ability ? layout.bar.abilities.tiles[f.row] : layout.bar.weapons.tiles[f.row];
+  if (tile === undefined) {
+    g.flyout.hide();
+    return;
+  }
+  g.flyout.show(f.model, { x: layout.bar.openEdge, y: tile.y, side: layout.side }, g.uiScale, g.stage.app.screen.height);
 }
 
 /** The five rows' inputs (readouts.ts `WeaponsInput`). */

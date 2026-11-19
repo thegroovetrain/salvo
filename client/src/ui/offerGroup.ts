@@ -1,93 +1,64 @@
-// THE OFFER GROUP (Story 10.10, plan O3; R3 / R9 / R10 / R15 / R26) — the
-// always-live compact card group, where the player's OFFER POSITION puts it
-// (right edge under the kill feed, left edge under the chrome bar, or one row
-// along the bottom). It replaced the Tab refit band and the level-up toast:
+// THE OFFER GROUP (Story 10.10, plan O3; R3 / R9 / R10 / R15; RE-LAID by Story
+// 12.3 Part B, AC 35 / 36, epic-12 amendment 3) — the always-live card row,
+// ALWAYS along the bottom, centred in the open water beside the HUD bar, over a
+// dark gradient band so the cards stand out against the ocean. The OFFER
+// POSITION setting (R26: right / left / bottom) is retired.
 //
 //   • NO LOCKOUT (R3): it opens nothing and suspends nothing. While a level is
 //     banked it simply IS on screen; a card is picked by a CLICK or by TAB + its
 //     digit (input/keyboard.ts), both through main.ts's one pick path;
 //   • its ARRIVAL is the level-up cue (R10 — the toast is gone);
-//   • HOVER previews the card on the consoles (R9 / R18): the card's line id is
-//     handed to `onHover`, which main.ts keeps as `g.hoverLine` and re-folds;
-//   • at the COUNTDOWN it carries REDRAW (R10) where the spine puts it.
+//   • HOVER previews the card on the bar (AC 36): the card's line id is handed
+//     to `onHover`, which main.ts keeps as `g.hoverLine` and re-folds;
+//   • at the COUNTDOWN it carries REDRAW (R10) after the cards.
 //
-// THE ARRANGEMENT is the spine's (R22 stack / R26 row): this module lays every
-// card, the header and REDRAW from the layout's rects, whatever their shape.
+// THE HEADER reads `n LEVELS` and `TAB + 1–4` (AC 35). THE CARD (the approved
+// bench): 236 × 88, an opaque panel, a 2 px border in the colour of the tier
+// it GRANTS (amendment 12(o); gold for a one-off) with an outer + inner glow;
+// on hover a stronger glow and a 3 px lift. The face keeps the NAME, the tier
+// mark (`II → III`, or the one-off's gold square) and the `TAB` `n` chip. A
+// refused card is dimmed and sends nothing; a pick in flight dims the group.
 //
-// THE CARD FACE is the MERGED face (Eric 2026-11-10: "original narrow width"),
-// unchanged: a 28 px glyph box top-left, the NAME (14/600, two lines allowed)
-// beside it, the tier numeral (14/600) bottom-left in the colour of the tier
-// the card GRANTS (amendment 12(o): `II → III`; a one-off add-on is a GOLD
-// square with no numeral), the two-token key chip `TAB` `n` (12) bottom-right,
-// a 1 px tier-colour outline, the tier glow on hover. Every size honours THE
-// TEXT RULE (labels ≥ 14 px, chips ≥ 12 px at the 1920 reference, before the
-// viewport factor). A refused card is dimmed and sends nothing; a pick in
-// flight dims the whole group. The whole group sits on ONE dark-glass bed
-// (R24) behind the header and the cards.
-//
-// DOM chrome over the canvas (z-index 1000, as the band was). Pointer events
-// live only on the cards and the button, so the water stays clickable around
-// it, and a card click never reaches the gun (MouseInput counts canvas-target
-// clicks only). Every rect comes from the pure spine (`OfferLayout`, logical
-// px) × the UI scale, exactly as the band was positioned — the column is the
-// spine's, never re-derived here.
+// DOM chrome over the canvas (z-index 1000). Pointer events live only on the
+// cards and the button — the band itself catches nothing — so the water stays
+// clickable around them, and a card click never reaches the gun (MouseInput
+// counts canvas-target clicks only). Every rect comes from the pure spine
+// (`OfferLayout`, logical px) × the UI scale.
 //
 // The pure core — the view, the greyed refusal, the latch — is ui/offerCore.ts.
 
 import { MULLIGAN_CHOICE } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { cssRgba } from '../util/color.js';
+import { cssHex, cssRgba } from '../util/color.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
-import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 import type { OfferLayout, Rect } from '../render/console/layout.js';
-import { hudBedCss } from '../render/hudBed.js';
 import { tierTint } from './tierRamp.js';
 import type { OfferCard, OfferView } from './offerCore.js';
 
 const K = CLIENT_CONFIG.console;
 const O = K.offer;
+const TY = K.type;
+const C = CLIENT_CONFIG.colors;
 const PANEL_ID = 'offer-group';
 
-const TY = K.type;
-
-/**
- * THE MERGED CARD FACE (R26; R23's text rule), in logical px at the 1920
- * reference. The type sizes and the face box are the console config's
- * (`console.type.offer*` / `redraw`, `console.offer`); the one-off's gold
- * square is this module's alone.
- */
-const F = {
-  header: TY.offerHeader,
-  name: TY.offerName,
-  tier: TY.offerTier,
-  redraw: TY.redraw,
-  chip: TY.offerChip,
-  glyphBox: O.glyphBox,
-  glyph: O.glyph,
-  pad: O.pad,
-  footH: O.footH,
-  oneOff: 8,
-} as const;
-
-const PHOSPHOR = 'var(--hc-phosphor)';
 const AMBER = 'var(--hc-amber)';
 const DENIED = 'var(--hc-denied)';
 const TEXT = 'var(--hc-text-primary)';
-const CHIP_EDGE = cssRgba(CLIENT_CONFIG.colors.textMuted, 0.6);
-const GLYPH_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.22);
-const REDRAW_GLOW = `0 0 12px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.3)}`;
-/** The resting card edge: its tier colour at the sitting's 55 %. */
-const EDGE_MIX = 55;
-/** The hovered card's glow (the sitting's `.ocard.hot`), in the card's tier colour. */
-const HOT_GLOW = 12;
+const MUTED = 'var(--hc-text-muted)';
+const CHIP_EDGE = cssRgba(C.textMuted, 0.6);
+const REDRAW_GLOW = `0 0 12px ${cssRgba(C.amber, 0.3)}`;
+const CARD_BG = cssHex(O.cardBg);
+const CARD_BG_HOT = cssHex(O.cardBgHot);
 
 /** The ratified word on the countdown button (amendment 60). */
 export const REDRAW_LABEL = 'REDRAW';
 /** The key chip's modifier token (O13). */
 export const TAB_TOKEN = 'TAB';
+/** The header's key hint (AC 35, Eric's ruled text). */
+export const OFFER_HINT = 'TAB + 1–4';
 
-/** Pure: the header — the banked count (`2 LEVELS`, `1 LEVEL`). */
+/** Pure: the header's count — the banked levels (`2 LEVELS`, `1 LEVEL`). */
 export function offerHeaderText(pts: number): string {
   return pts === 1 ? '1 LEVEL' : `${pts} LEVELS`;
 }
@@ -103,13 +74,20 @@ export function cardTierMark(card: OfferCard): string | null {
   return card.tierStep === null ? null : card.tier;
 }
 
+/** Pure: a card's glow (AC 35) in its tier colour — the outer + inner glow at
+ *  rest, the stronger pair under the pointer. */
+export function cardGlow(tone: string, hot: boolean): string {
+  const [outer, inner, o, i] = hot ? [O.glowHot, O.insetGlowHot, 70, 25] : [O.glow, O.insetGlow, 45, 14];
+  return `0 0 ${outer}px color-mix(in srgb, ${tone} ${o}%, transparent), inset 0 0 ${inner}px color-mix(in srgb, ${tone} ${i}%, transparent)`;
+}
+
 /** What the group hands back to main.ts. */
 export interface OfferGroupHooks {
   /** A live card was clicked — main.ts's pick path (the same one Tab+digit takes). */
   onPick: (choice: number) => void;
   /** The countdown REDRAW was pressed — main.ts's `tryMulligan`. */
   onRedraw: () => void;
-  /** A card's line id under the pointer, or null when it left (R18). */
+  /** A card's line id under the pointer, or null when it left (AC 36). */
   onHover: (line: string | null) => void;
 }
 
@@ -164,34 +142,37 @@ const ROOT_CSS = [
   'font-family:var(--hc-font-mono)',
 ].join(';');
 
-/** The ONE bed behind the header and the stack (R24), at the spine's
- *  `offer.bed` rect; under everything, catching no pointer. */
-const BED_CSS = [
+/** THE BAND (AC 35): the dark gradient behind the header and the cards, under
+ *  everything, catching no pointer. */
+const BAND_CSS = [
   'position:absolute',
+  'left:0',
+  'top:0',
+  'width:100%',
+  'height:100%',
   'pointer-events:none',
-  hudBedCss(),
+  `background:linear-gradient(to top, ${cssRgba(C.cardScrim, 0.92)}, ${cssRgba(C.cardScrim, 0.75)} 60%, ${cssRgba(C.cardScrim, 0)})`,
 ].join(';');
 
-// A BLOCK, not a flex row: a flex row trims the space between the count and
-// its word (`2 LEVELS` read `2LEVELS`).
 const HEADER_CSS = [
   'position:absolute',
   'display:block',
-  `font-size:${F.header}px`,
+  'text-align:center',
+  `font-size:${TY.offerHeader}px`,
   'font-weight:600',
   'letter-spacing:.18em',
   'text-transform:uppercase',
   'white-space:nowrap',
 ].join(';');
+const HINT_CSS = [`color:${MUTED}`, 'font-weight:400', 'letter-spacing:.06em', 'margin-left:14px'].join(';');
 
-/** The card box; its parts sit at fixed offsets inside it (the merged face). */
+/** The card box; its parts sit at fixed offsets inside it. */
 const CARD_CSS = [
   'position:absolute',
   'box-sizing:border-box',
   'margin:0',
   'padding:0',
-  'background-color:transparent',
-  'border-width:1px',
+  `border-width:${O.border}px`,
   'border-style:solid',
   'border-radius:0',
   'cursor:pointer',
@@ -199,67 +180,50 @@ const CARD_CSS = [
   'overflow:hidden',
   'text-align:left',
   'font-family:var(--hc-font-mono)',
+  'transition:transform 80ms ease-out',
 ].join(';');
 
-const GLYPH_BOX_CSS = [
-  'position:absolute',
-  `left:${F.pad}px`,
-  `top:${F.pad}px`,
-  `width:${F.glyphBox}px`,
-  `height:${F.glyphBox}px`,
-  'box-sizing:border-box',
-  'border-width:1px',
-  'border-style:solid',
-  'display:flex',
-  'align-items:center',
-  'justify-content:center',
-].join(';');
-
-/** The NAME beside the glyph box, the box's height, centred; it may wrap to
- *  TWO lines (never shrinks). */
+/** The NAME, top-left; it may wrap to TWO lines (never shrinks). */
 const NAME_CSS = [
   'position:absolute',
-  `left:${F.pad + F.glyphBox + F.pad}px`,
-  `right:${F.pad}px`,
-  `top:${F.pad}px`,
-  `height:${F.glyphBox}px`,
-  'display:flex',
-  'align-items:center',
-  `font-size:${F.name}px`,
+  `left:${O.cardPadX}px`,
+  `right:${O.cardPadX}px`,
+  `top:${O.cardPadY}px`,
+  `font-size:${TY.offerName}px`,
   'font-weight:600',
-  `line-height:${F.name}px`,
-  'letter-spacing:.03em',
+  `line-height:${TY.offerName + 3}px`,
+  'letter-spacing:.04em',
   'text-transform:uppercase',
   'overflow:hidden',
 ].join(';');
 
-/** The foot line: the tier numeral bottom-left, the key chip bottom-right. */
+/** The foot line: the tier mark bottom-left, the key chip bottom-right. */
 const FOOT_CSS = [
   'position:absolute',
-  `left:${F.pad}px`,
-  `right:${F.pad}px`,
-  `bottom:${F.pad}px`,
-  `height:${F.footH}px`,
+  `left:${O.cardPadX}px`,
+  `right:${O.cardPadX - 2}px`,
+  `bottom:${O.cardPadY}px`,
+  `height:${O.footH}px`,
   'display:flex',
   'align-items:center',
   'justify-content:space-between',
 ].join(';');
 
-const TIER_CSS = [`font-size:${F.tier}px`, 'font-weight:600', 'letter-spacing:.04em', 'white-space:nowrap'].join(';');
-const ONE_OFF_CSS = ['display:inline-block', `width:${F.oneOff}px`, `height:${F.oneOff}px`].join(';');
+const TIER_CSS = [`font-size:${TY.offerTier}px`, 'font-weight:600', 'letter-spacing:.04em', 'white-space:nowrap'].join(';');
+const ONE_OFF_CSS = ['display:inline-block', `width:${O.oneOff}px`, `height:${O.oneOff}px`].join(';');
 const CHIP_CSS = [
   'display:inline-flex',
   'align-items:center',
-  `height:${F.footH}px`,
+  `height:${O.footH}px`,
   'box-sizing:border-box',
   'border-width:1px',
   'border-style:solid',
   // Never under the 9 px mono floor: at the smallest HUD factor (0.75 × the
   // 90 % tier) 12 px would paint at 8.1 px, so the chip lifts there only.
-  `font-size:max(${F.chip}px, calc(9px / var(--hc-ui-scale, 1)))`,
+  `font-size:max(${TY.offerChip}px, calc(9px / var(--hc-ui-scale, 1)))`,
   'letter-spacing:.04em',
 ].join(';');
-const CHIP_TOKEN_CSS = ['padding:0 4px', `line-height:${F.footH - 2}px`].join(';');
+const CHIP_TOKEN_CSS = ['padding:0 4px', `line-height:${O.footH - 2}px`].join(';');
 
 const REDRAW_CSS = [
   'position:absolute',
@@ -269,11 +233,11 @@ const REDRAW_CSS = [
   'align-items:center',
   'justify-content:center',
   'gap:10px',
-  'background-color:transparent',
+  `background-color:${CARD_BG}`,
   'border-width:1px',
   'border-style:solid',
   'border-radius:0',
-  `font-size:${F.redraw}px`,
+  `font-size:${TY.redraw}px`,
   'font-weight:600',
   'font-family:var(--hc-font-mono)',
   'letter-spacing:.16em',
@@ -298,10 +262,10 @@ function viewSig(v: OfferView): string {
 export class OfferGroup {
   private root: HTMLDivElement | null = null;
   private header: HTMLDivElement | null = null;
-  private bed: HTMLDivElement | null = null;
   private redrawBtn: HTMLButtonElement | null = null;
   private redrawPip: HTMLElement | null = null;
   private cards: CardEls[] = [];
+  private options: readonly OfferCard[] = [];
   private sig = '';
   private shown = false;
   private hovered: number | null = null;
@@ -338,31 +302,30 @@ export class OfferGroup {
     if (this.root) return this.root;
     const root = el('div', ROOT_CSS);
     root.id = PANEL_ID;
-    const bed = el('div', BED_CSS);
-    bed.dataset.part = 'bed';
+    const band = el('div', BAND_CSS);
+    band.dataset.part = 'band';
     const header = el('div', HEADER_CSS);
     header.dataset.part = 'header';
-    header.style.color = TEXT;
-    root.append(bed, header);
+    header.style.color = AMBER;
+    root.append(band, header);
     document.body.appendChild(root);
     this.root = root;
     this.header = header;
-    this.bed = bed;
     return root;
   }
 
-  /** The group's anchor in CSS px (the logical frame × the UI scale), written
-   *  only when it moved. */
+  /** The group's anchor in CSS px (the band × the UI scale), written only when
+   *  it moved. */
   private position(root: HTMLDivElement, layout: OfferLayout, uiScale: number): void {
     const s = Number.isFinite(uiScale) && uiScale > 0 ? uiScale : 1;
-    const key = `${layout.frame.x}|${layout.frame.y}|${layout.frame.w}|${layout.frame.h}|${s}|${layout.redraw === null ? 0 : 1}`;
+    const b = layout.band;
+    const key = `${b.x}|${b.y}|${b.w}|${b.h}|${s}|${layout.redraw === null ? 0 : 1}|${layout.cards[0]?.x ?? 0}`;
     if (key === this.lastPlace) return;
     this.lastPlace = key;
-    root.style.left = `${layout.frame.x * s}px`;
-    root.style.top = `${layout.frame.y * s}px`;
-    root.style.width = `${layout.frame.w}px`;
-    root.style.height = `${layout.frame.h}px`;
-    place(this.bed!, layout.bed, layout.frame);
+    root.style.left = `${b.x * s}px`;
+    root.style.top = `${b.y * s}px`;
+    root.style.width = `${b.w}px`;
+    root.style.height = `${b.h}px`;
     this.sig = ''; // the children are placed off the layout: rebuild them
   }
 
@@ -376,6 +339,7 @@ export class OfferGroup {
     this.redrawBtn = null;
     this.redrawPip = null;
     this.renderHeader(view, layout);
+    this.options = view.options;
     this.cards = view.options.map((card, i) => this.makeCard(card, i, view.locked, layout));
     for (const c of this.cards) root.appendChild(c.root);
     if (layout.redraw !== null && view.redraw !== 'hidden') this.makeRedraw(view, layout);
@@ -398,22 +362,22 @@ export class OfferGroup {
 
   private renderHeader(view: OfferView, layout: OfferLayout): void {
     const h = this.header!;
-    place(h, layout.header, layout.frame);
+    place(h, layout.header, layout.band);
     h.style.lineHeight = `${layout.header.h}px`;
-    const count = el('b', `color:${PHOSPHOR};font-weight:600`);
-    count.textContent = String(view.pts);
-    const rest = offerHeaderText(view.pts).slice(String(view.pts).length);
-    h.replaceChildren(count, document.createTextNode(rest));
+    const hint = el('span', HINT_CSS);
+    hint.dataset.part = 'hint';
+    hint.textContent = OFFER_HINT;
+    h.replaceChildren(document.createTextNode(offerHeaderText(view.pts)), hint);
   }
 
   private makeCard(card: OfferCard, choice: number, locked: boolean, layout: OfferLayout): CardEls {
     const btn = el('button', CARD_CSS);
     btn.type = 'button';
-    place(btn, layout.cards[choice], layout.frame);
+    place(btn, layout.cards[choice], layout.band);
     const tone = cardTone(card);
     const foot = el('div', FOOT_CSS);
     foot.append(tierEl(card, tone), keyChip(choice));
-    btn.append(glyphBox(card, tone), nameEl(card), foot);
+    btn.append(nameEl(card), foot);
     const els: CardEls = { root: btn, tone, greyed: card.greyed };
     paintCard(els, false);
     if (locked) btn.style.opacity = String(O.lockedAlpha);
@@ -430,7 +394,7 @@ export class OfferGroup {
   private wireCard(els: CardEls, line: string, choice: number): void {
     const btn = els.root;
     btn.addEventListener('mouseenter', () => {
-      // A refused card is INERT: no glow, no preview (it would be an amber lie).
+      // A refused card is INERT: no lift, no glow, no preview (an amber lie).
       if (els.greyed) return;
       paintCard(els, true);
       this.hovered = choice;
@@ -452,7 +416,7 @@ export class OfferGroup {
     const btn = el('button', REDRAW_CSS);
     btn.dataset.part = 'redraw';
     btn.type = 'button';
-    place(btn, layout.redraw!, layout.frame);
+    place(btn, layout.redraw!, layout.band);
     btn.style.borderColor = AMBER;
     btn.style.color = AMBER;
     btn.style.boxShadow = REDRAW_GLOW;
@@ -529,13 +493,19 @@ export class OfferGroup {
     if (card) paintCard(card, this.hovered === choice);
   }
 
+  /** The card under the pointer (its face's rows feed the flyout, AC 36), or
+   *  null. */
+  hoveredCard(): OfferCard | null {
+    return this.shown && this.hovered !== null ? (this.options[this.hovered] ?? null) : null;
+  }
+
   /** True while a denied pulse is lit (test seam). */
   deniedActive(): boolean {
     return this.deniedChoice !== null;
   }
 
   /** Hide, and drop the hover with it (no mouseleave ever reaches a hidden
-   *  card, so the consoles' preview would otherwise strand). */
+   *  card, so the bar's preview would otherwise strand). */
   hide(): void {
     if (this.root) this.root.style.display = 'none';
     this.shown = false;
@@ -550,23 +520,12 @@ export class OfferGroup {
   }
 }
 
-/** The resting / hovered card edge: its tier colour at 55 %, or full with the
- *  tier-coloured glow (amendment 12 R26 — the card glows in its own colour). */
+/** The card's edge, panel, glow and lift — at rest, or hot under the pointer. */
 function paintCard(c: CardEls, hot: boolean): void {
-  c.root.style.borderColor = hot ? c.tone : `color-mix(in srgb, ${c.tone} ${EDGE_MIX}%, transparent)`;
-  c.root.style.boxShadow = hot
-    ? `0 0 ${HOT_GLOW}px color-mix(in srgb, ${c.tone} 55%, transparent), inset 0 0 ${HOT_GLOW}px color-mix(in srgb, ${c.tone} 22%, transparent)`
-    : 'none';
-}
-
-function glyphBox(card: OfferCard, tone: string): HTMLDivElement {
-  const box = el('div', GLYPH_BOX_CSS);
-  box.style.borderColor = GLYPH_EDGE;
-  box.style.color = tone;
-  box.dataset.part = 'glyph';
-  const svg = equipmentGlyphSvg(card.id, F.glyph);
-  if (svg !== null) box.appendChild(svg);
-  return box;
+  c.root.style.borderColor = c.tone;
+  c.root.style.backgroundColor = hot ? CARD_BG_HOT : CARD_BG;
+  c.root.style.boxShadow = cardGlow(c.tone, hot);
+  c.root.style.transform = hot ? `translateY(-${O.lift}px)` : 'none';
 }
 
 function nameEl(card: OfferCard): HTMLDivElement {
@@ -593,7 +552,7 @@ function tierEl(card: OfferCard, tone: string): HTMLSpanElement {
   return tier;
 }
 
-/** The two-token key chip `TAB` `n` (the sitting's `.kc2`). */
+/** The two-token key chip `TAB` `n`. */
 function keyChip(choice: number): HTMLSpanElement {
   const chip = el('span', CHIP_CSS);
   chip.dataset.part = 'chip';

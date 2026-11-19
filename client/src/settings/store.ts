@@ -21,13 +21,16 @@ export type MotionLevel = 'full' | 'reduced' | 'off';
 /** The three committed UI-scale tiers (percent). */
 export type UiScale = 90 | 100 | 125;
 
-/** Where the offer group sits (epic-10 amendment 18 R26, Eric 2026-11-10:
- *  "a toggle in settings so the player can choose if they want the offer to
- *  appear on the right, left, or bottom"). */
-export type OfferPos = 'right' | 'left' | 'bottom';
+/** Which screen edge the HUD bar sits on (Story 12.3 Part B, Eric
+ *  2026-11-19: "A single, vertical HUD bar at the left or right side of the
+ *  screen (user's choice)"). The offer group follows it along the bottom of
+ *  the open water, and Space-home centres the hull in that water. The old
+ *  OFFER POSITION setting (epic-10 amendment 18 R26) is RETIRED: a stored
+ *  `offerPos` key is ignored on load and dropped on the next save. */
+export type HudSide = 'left' | 'right';
 
-/** The three offer positions, in the settings row's order. */
-export const OFFER_POSITIONS: readonly OfferPos[] = ['right', 'left', 'bottom'];
+/** The two HUD sides, in the settings row's order. */
+export const HUD_SIDES: readonly HudSide[] = ['left', 'right'];
 
 /** The complete, committed v1 settings set (Story 2.3 AC — exactly these). */
 export interface Settings {
@@ -45,8 +48,8 @@ export interface Settings {
   monoAudio: boolean;
   /** Master mute — ONE persisted value, shared with the M key. */
   muted: boolean;
-  /** Where the offer group sits (R26); the right edge by default. */
-  offerPos: OfferPos;
+  /** The HUD bar's edge (Story 12.3 Part B); the left edge by default. */
+  hudSide: HudSide;
   /** AIM COLOR (Story 11.1 R15 / R18): `#rrggbb`, tints the reticle AND the
    *  main-battery oval; the palette amber by default. */
   aimColor: string;
@@ -63,7 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
   effectsVolume: 100,
   monoAudio: false,
   muted: false,
-  offerPos: 'right',
+  hudSide: 'left',
   aimColor: CLIENT_CONFIG.reticle.defaultColor,
   aimSize: CLIENT_CONFIG.reticle.defaultSize,
 };
@@ -76,8 +79,8 @@ function coerceMotion(v: unknown): MotionLevel {
   return MOTION_LEVELS.includes(v as MotionLevel) ? (v as MotionLevel) : DEFAULT_SETTINGS.motion;
 }
 
-function coerceOfferPos(v: unknown): OfferPos {
-  return OFFER_POSITIONS.includes(v as OfferPos) ? (v as OfferPos) : DEFAULT_SETTINGS.offerPos;
+function coerceHudSide(v: unknown): HudSide {
+  return HUD_SIDES.includes(v as HudSide) ? (v as HudSide) : DEFAULT_SETTINGS.hudSide;
 }
 
 /** AIM COLOR coercion: a `#rrggbb` hex (lower-cased), else the default. */
@@ -142,7 +145,7 @@ export function sanitizeSettings(raw: unknown, legacyMuted = false): Settings {
     effectsVolume: coerceVolume(o.effectsVolume, DEFAULT_SETTINGS.effectsVolume),
     monoAudio: coerceBool(o.monoAudio, DEFAULT_SETTINGS.monoAudio),
     muted: coerceBool(o.muted, legacyMuted),
-    offerPos: coerceOfferPos(o.offerPos),
+    hudSide: coerceHudSide(o.hudSide),
     aimColor: coerceAimColor(o.aimColor),
     aimSize: coerceAimSize(o.aimSize),
   };
@@ -341,7 +344,7 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.effectsVolume === b.effectsVolume &&
     a.monoAudio === b.monoAudio &&
     a.muted === b.muted &&
-    a.offerPos === b.offerPos &&
+    a.hudSide === b.hudSide &&
     a.aimColor === b.aimColor &&
     a.aimSize === b.aimSize
   );

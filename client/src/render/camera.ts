@@ -147,6 +147,11 @@ export class Camera {
   /** The HUD bar's top inset from the viewport floor in REAL px (amendment
    *  208), fed by setBottomInset(). 0 until fed. */
   private bottomInsetValue = 0;
+  /** SPACE-HOME's offset (Story 12.3 Part B, AC 28) in REAL px along x: the
+   *  screen point the drawn center lands on is the screen centre plus this,
+   *  so FOLLOW puts the hull in the middle of the open water beside the HUD
+   *  bar. Fed by setFocusOffset(); 0 = the screen centre. */
+  private focusOffsetValue = 0;
   /** The live storm ring (ruling 127/128), fed every alive frame by setRing().
    *  NaN span until the first feed = no ring known: the zoom-out limit is the
    *  default framing and nothing slides. */
@@ -238,7 +243,7 @@ export class Camera {
    */
   private zoomWith(screenX: number, screenY: number, apply: () => void): void {
     const known = Number.isFinite(screenX) && Number.isFinite(screenY);
-    const s = known ? { x: screenX, y: screenY } : this.screenCenter;
+    const s = known ? { x: screenX, y: screenY } : this.focus;
     const p = this.screenToWorld(s);
     // No cursor known (a key zoom before the pointer ever moved): FOLLOW
     // zooms about the anchor and stays FOLLOW (Story 11.8 review).
@@ -258,7 +263,7 @@ export class Camera {
   /** PANNED, with the anchor that draws world point `p` under screen point `s`
    *  at the current zoom (see `zoomWith`). */
   private aimAt(p: Point, s: Point): void {
-    const sc = this.screenCenter;
+    const sc = this.focus;
     const z = this.zoom;
     const want = {
       x: p.x - (s.x - sc.x - this.shake.x) / z - this.jump.x,
@@ -655,6 +660,37 @@ export class Camera {
   }
 
   /**
+   * THE FOCUS (Story 12.3 Part B, AC 28): the screen point (px) the drawn
+   * center maps to — the screen centre shifted by the focus offset, i.e. the
+   * centre of the open water beside the HUD bar. Every world <-> screen
+   * mapping goes through it, so FOLLOW (and Space-home) puts the hull there.
+   */
+  get focus(): Point {
+    return { x: this.viewW / 2 + this.focusOffsetValue, y: this.viewH / 2 };
+  }
+
+  /** The focus offset (real px along x) the camera currently holds. */
+  get focusOffsetPx(): number {
+    return this.focusOffsetValue;
+  }
+
+  /**
+   * Feed SPACE-HOME's offset (Story 12.3 Part B, AC 28): real px along x from
+   * the screen centre to the centre of the open water beside the HUD bar (+x
+   * with the bar on the left; 0 with no bar, e.g. spectating). A change moves
+   * the picture through the eased event jump (ruling 10), so a side switch or
+   * the bar leaving glides instead of cutting. Non-finite input is ignored.
+   */
+  setFocusOffset(px: number): void {
+    if (!Number.isFinite(px) || px === this.focusOffsetValue) return;
+    const z = this.zoom;
+    const d = px - this.focusOffsetValue;
+    this.focusOffsetValue = px;
+    if (this.easesSlide && z > 0 && Number.isFinite(z)) this.jump.x += d / z;
+    this.placeCenter();
+  }
+
+  /**
    * THE WORLD RECTANGLE CURRENTLY ON SCREEN: the camera centre plus half-extents
    * in world units (screen px ÷ 2 ÷ zoom). Composed from the live `zoom`, so it
    * answers correctly under the default framing, a spectator zoom-out and an
@@ -670,7 +706,9 @@ export class Camera {
   get worldView(): { x: number; y: number; halfW: number; halfH: number } {
     const z = this.zoom;
     return {
-      x: this.center.x,
+      // The screen's own centre in the world: the drawn center sits at the
+      // focus, `focusOffset` px right of it (Story 12.3 Part B).
+      x: this.center.x - this.focusOffsetValue / z,
       y: this.center.y,
       halfW: this.viewW / 2 / z,
       halfH: this.viewH / 2 / z,
@@ -817,7 +855,7 @@ export class Camera {
 
   /** World point -> screen point (px), including shake. */
   worldToScreen(p: Point): Point {
-    const c = this.screenCenter;
+    const c = this.focus;
     return {
       x: (p.x - this.center.x) * this.zoom + c.x + this.shake.x,
       y: (p.y - this.center.y) * this.zoom + c.y + this.shake.y,
@@ -843,7 +881,7 @@ export class Camera {
 
   /** Screen point (px) -> world point (inverse of worldToScreen). */
   screenToWorld(p: Point): Point {
-    const c = this.screenCenter;
+    const c = this.focus;
     return {
       x: (p.x - c.x - this.shake.x) / this.zoom + this.center.x,
       y: (p.y - c.y - this.shake.y) / this.zoom + this.center.y,
