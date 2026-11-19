@@ -1,4 +1,4 @@
-// THE HULL GAUGE'S PURE CORE (Story 10.10, O6 (1)) — the ship console's
+// THE HULL GAUGE'S PURE CORE (Story 10.10, O6 (1); the HUD bar's footer since Story 12.3) — the
 // percent numeral + 10-segment bar.
 //
 // MOVED, NOT REWRITTEN: every gate and the whole breathing envelope are the HP
@@ -130,7 +130,7 @@ export interface HullSegment {
  * the pool. Continuous (a segment fills smoothly, never in whole steps), and
  * fill + pending never exceeds the segment.
  */
-export function hullSegments(frac: number, pending: number, n: number = CLIENT_CONFIG.console.ship.segments): HullSegment[] {
+export function hullSegments(frac: number, pending: number, n: number = CLIENT_CONFIG.console.gauges.hull.segments): HullSegment[] {
   const f = clamp01(frac);
   const top = clamp01(f + Math.max(0, pending));
   return Array.from({ length: n }, (_, i) => {

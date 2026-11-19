@@ -53,7 +53,7 @@ describe('the LV tag and the bank chip label', () => {
   });
 
   it('no chip label is wider than the chip it sits in', () => {
-    for (const pts of [1, 9, 10, 1000]) expect(monoTextWidth(chipLabel(pts), K.type.bankCount)).toBeLessThanOrEqual(K.ship.bankChip);
+    for (const pts of [1, 9, 10, 1000]) expect(monoTextWidth(chipLabel(pts), K.type.keyChip)).toBeLessThanOrEqual(K.gauges.bankChip);
   });
 });
 

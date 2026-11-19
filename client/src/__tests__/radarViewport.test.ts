@@ -140,7 +140,7 @@ function camera(userZoom: number): Camera {
 
 /** main.ts's `applyCamera`, verbatim — the transform the chart really carries. */
 function applyCamera(cam: Camera, chart: Container): void {
-  const c = cam.screenCenter;
+  const c = cam.focus;
   chart.scale.set(cam.zoom);
   chart.position.set(
     c.x - cam.center.x * cam.zoom + cam.shake.x,

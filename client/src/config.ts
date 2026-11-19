@@ -2198,191 +2198,182 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE BATTLE CONSOLES (Story 10.10, Eric 2026-11-09, epic-10 amendments 16 /
-   * 17; the orchestrator plan's O2–O6) — the SHIP console on the left edge,
-   * the WEAPONS console on the right edge and the OFFER GROUP between the kill
-   * feed and the weapons console. They replace the bottom-centre HUD bar, the
-   * Tab refit band and the level-up toast.
+   * THE HUD BAR (Story 12.3 Part B, Eric 2026-11-19, epic-12 amendment 3; the
+   * approved bench v2, "This is the HUD.") — ONE vertical bar on the left or
+   * right edge (the player's HUD SIDE setting), style B tiles: WEAPONS,
+   * ABILITIES, SHIP, then the gauge footer (HULL · THROTTLE · LEVEL) pinned to
+   * the bottom; the weapon / ability stats in a FLYOUT beside it on hover; the
+   * OFFER GROUP along the bottom of the open water. It replaced Story 10.10's
+   * ship and weapons consoles.
    *
-   * Every size is LOGICAL px (pre-UI-scale, authored at 1080p, fixed — the
-   * bar's rule). The pure spine `render/console/layout.ts` turns these into
-   * rects; nothing else in the game reads a console number from anywhere but
-   * here. The `hull` / `chip` / `tick` / `helmGlyphs` sub-blocks carry the
-   * ratified timing and gates the retired `vitals` / `xpRail` / `hudBar`
-   * blocks held (deleted in Story 10.10's W3), by REFERENCE where the old
-   * block referenced a shared number.
+   * Every size is LOGICAL px (pre-UI-scale, authored at 1080p — the bench's
+   * sizes). The pure spine `render/console/layout.ts` (and its icon slots,
+   * `render/console/slots.ts`) turns these into rects; nothing else reads a
+   * bar number from anywhere but here. The `hull` / `chip` sub-blocks carry
+   * the ratified timing and gates the retired `vitals` / `xpRail` blocks held.
    */
   console: {
-    /** The ship console's and the offer group's content width. */
-    width: 280,
-    /** Gap from the viewport's left / right edges to a console's BED edge. */
-    sideInset: 18,
-    /** Gap from the viewport's bottom edge to a console's BED edge — both
-     *  consoles are bottom-anchored. */
-    bottomInset: 18,
-    /** THE BED (epic-10 amendment 18 R24, Eric 2026-11-10: "all these areas
-     *  at least need some translucent backgrounds so I can read them over the
-     *  radar returns"): every console sits on the dark-glass bed of
-     *  `CLIENT_CONFIG.hudBed`, reaching this far past its content on every
-     *  side (render/console/layout.ts `bedOf`). */
-    bedPad: 10,
-    /** The least clear water between the two consoles' beds (O14), held at
-     *  the three reference screens at the 100 % tier. */
-    centerClearMin: 700,
-    /** The kill feed's clearance above the offer group: its `top:16px`, up to
-     *  six lines (~150 px), then a 12 px gap — the offer's BED top edge is
-     *  16 + 150 + 12 = 178. */
+    /** The kill feed's clearance (top right): its `top:16px`, up to six lines
+     *  (~150 px), then a 12 px gap. The bar's 132 px top clears the feed's
+     *  usual lines on both sides (killFeed.test.ts reads the clearance). */
     killFeed: { top: 16, clearance: 150, gap: 12 },
-    /** THE OFFER GROUP (R22; R26, Eric's pick 2026-11-10: the merged card
-     *  face at the "original narrow width", and "a toggle in settings so the
-     *  player can choose if they want the offer to appear on the right, left,
-     *  or bottom"). The face: `cardW` x `cardH` cards — a `glyphBox` px glyph
-     *  box at (`pad`, `pad`), the NAME beside it (two lines allowed), the tier
-     *  numeral bottom-left and the `TAB` `n` chip bottom-right on a `footH`
-     *  line `pad` above the bottom edge.
-     *
-     *  RIGHT / LEFT — the STACK: a `header` px header line (`n LEVELS`), at
-     *  the countdown REDRAW (`redrawW` x `redrawH`) on its own full-width line
-     *  under it (`headerGap` apart), then the four cards stacked `gap` apart.
-     *  RIGHT sits under the kill feed's clearance; LEFT at `ship.topClearance`
-     *  (the chrome bar's). BOTTOM — the ROW: the four cards in one row `gap`
-     *  apart, centred on the screen, bed `bottomInset` off the bottom edge;
-     *  the header in a `bar.headW` slot at its left and REDRAW at its right,
-     *  `bar.gapIn` apart. `clearGap` is the least water kept between the
-     *  offer's bed and a console's. Where a chosen stack cannot keep it (a
-     *  short logical viewport) the group FALLS BACK TO THE BOTTOM ROW (Eric
-     *  2026-11-10, round 3 — the O15 top-left dock is gone). */
+    /** THE BAR. `w` wide, `edge` from its side of the screen, from `top` below
+     *  the top edge to `bottom` above the bottom edge. The sections sit
+     *  `sectionGap` apart (closing to `sectionGapMin` on a short logical
+     *  viewport), each on its own bed (`cardScrim` at `bedAlpha`, the 1 px
+     *  hairline), `secPad` inside it, a `headH` section head, rows `rowGap`
+     *  apart. A tile: `rowPadX` / `rowPadY` inside its 1 px outline, line 1
+     *  (`line1H`: NAME · the tier mark · the key chip), `lineGap`, then its
+     *  body: the icons, or the `trackH` heat / refill bar (the special's and
+     *  the abilities' carry READY / the seconds in a FIXED `stateW` slot at
+     *  its right end, `stateGap` after it — sized for the widest readout,
+     *  READY, so no state ever resizes the bar; Eric 2026-11-19). Icon
+     *  boxes are the bench's (0.85 × its SVGs): `shell`, `torp`, `mine`, the
+     *  `rack` wedge ring; `iconGap` inside a group, `itemGap` between the
+     *  row's items, a `groupGap` spacer between two groups. A ship row is
+     *  `statRowH` tall: the name in `statLabelW`, `statGap`, the index value.
+     *  THE TIER MARK (AC 40, epic-12 amendment 4) sits in ONE column on every
+     *  row from MAIN BATTERY to INTEL: `tierMark.w` wide, right-aligned
+     *  `line1Gap` left of a fixed `chipSlotW` key-chip slot (empty on the ship
+     *  rows) — the numeral (right-aligned in `numeralW`), `gap`, then `dots`
+     *  round dots `dot` px across, `dotGap` apart. `dash` is a locked
+     *  outline's dash period. */
+    bar: {
+      w: 300,
+      edge: 18,
+      top: 132,
+      bottom: 18,
+      sectionGap: 10,
+      sectionGapMin: 4,
+      bedAlpha: 0.78,
+      secPad: 5,
+      headH: 17,
+      rowGap: 3,
+      rowPadX: 7,
+      rowPadY: 4,
+      line1H: 18,
+      lineGap: 4,
+      keyChip: 18,
+      chipSlotW: 44,
+      line1Gap: 6,
+      tierMark: { w: 66, numeralW: 22, gap: 5, dot: 5, dotGap: 3, dots: 5 },
+      iconGap: 3,
+      itemGap: 5,
+      groupGap: 8,
+      shell: { w: 22, h: 37 },
+      torp: { w: 20, h: 41 },
+      mine: { w: 19, h: 19 },
+      rack: 34,
+      trackH: 12,
+      stateW: 48,
+      stateGap: 8,
+      statRowH: 26,
+      statLabelW: 84,
+      statGap: 6,
+      dash: 6,
+      /** TORPEDO (AC 29): always this many PAIRS (fore, aft) of this many tubes. */
+      tubePairs: 2,
+      tubesPerPair: 2,
+      /** MINES (AC 29): always this many racks. */
+      racks: 2,
+    },
+    /** THE FOOTER (AC 33): three vertical gauges side by side, each in a third
+     *  of the footer — `h` tall (`hMin` on a short logical viewport), the
+     *  label line (`labelH`) and the value line (`valueH`) under it, `gap`
+     *  apart. HULL: `segments` boxes `segGap` apart, `w` wide. THROTTLE: the
+     *  nine detents `inset` inside the gauge's height on a spine at `tickX`,
+     *  ticks `tick` long (`stopTick` at STOP), labels `labelGap` left of the
+     *  spine, the ordered `box`, the actual-speed `arrow` `arrowGap` right of
+     *  the spine, the end glyphs right-aligned at `endX`. LEVEL: the `xpW`
+     *  XP track and the `bankChip` beside `LV n`. */
+    gauges: {
+      padTop: 8,
+      padX: 6,
+      padBottom: 6,
+      h: 112,
+      hMin: 80,
+      gap: 4,
+      labelH: 17,
+      valueH: 18,
+      hull: { w: 28, segGap: 3, segments: 10 },
+      throttle: {
+        w: 96,
+        inset: 8,
+        tickX: 70,
+        tick: 14,
+        stopTick: 22,
+        labelGap: 18,
+        box: { w: 26, h: 10 },
+        arrow: { w: 8, h: 10 },
+        arrowGap: 15,
+        endX: 92,
+      },
+      xpW: 14,
+      bankChip: 18,
+    },
+    /** THE FLYOUT (AC 34 / 36): `gap` beside the bar, at least `minW` wide. */
+    flyout: { gap: 10, minW: 230, padX: 12, padY: 10, lineH: 22, bgAlpha: 0.94, edgeGlow: 0.12 },
+    /** THE OFFER GROUP (AC 35): along the bottom of the open water over a
+     *  `bandH` dark gradient band; the header `headerGap` above the cards,
+     *  the cards `padBottom` above the bottom edge, `cardW` x `cardH`, `gap`
+     *  apart; at the countdown REDRAW (`redrawW` x `redrawH`) after them. A
+     *  card: `cardPadY` / `cardPadX` inside its `border` px tier-colour edge,
+     *  an outer `glow` + inner `insetGlow` (`glowHot` / `insetGlowHot` and a
+     *  `lift` px rise on hover), the `cardBg` / `cardBgHot` panel. The one-off's
+     *  gold square is `oneOff` px. `greyedAlpha` / `lockedAlpha` / the denied
+     *  pulse's life and same-source floor are carried over from Story 10.10. */
     offer: {
-      header: 22,
-      headerGap: 6,
-      cardW: 136,
-      cardH: 64,
-      gap: 6,
-      redrawH: 30,
+      bandH: 170,
+      padBottom: 22,
+      headerH: 18,
+      headerGap: 10,
+      cardW: 236,
+      cardH: 88,
+      gap: 12,
       redrawW: 112,
-      clearGap: 12,
-      bar: { headW: 100, gapIn: 12 },
-      /** The card face (ui/offerGroup.ts) — the merged face. */
-      glyphBox: 28,
-      glyph: 20,
-      pad: 6,
+      redrawH: 30,
+      cardPadX: 12,
+      cardPadY: 10,
       footH: 16,
-      /** Carried over from the retired band's `refit` block, unchanged: a
-       *  refused card's face alpha, the whole group's alpha while a pick is in
-       *  flight, and the denied pulse's life and same-source floor. */
+      border: 2,
+      glow: 14,
+      insetGlow: 18,
+      glowHot: 24,
+      insetGlowHot: 22,
+      lift: 3,
+      cardBg: 0x0d1512,
+      cardBgHot: 0x13201b,
+      oneOff: 8,
       greyedAlpha: 0.55,
       lockedAlpha: 0.38,
       deniedPulseMs: 80,
       deniedFloorMs: 300,
     },
-    /** ONE WEAPON CELL-BUTTON — W2, Eric's pick (R26) with the never-wrap
-     *  clocks (R27, Eric 2026-11-10: "If they are all on cooldown, they get
-     *  pushed to new lines. That doesn't work."). Every cell is `w` wide; the
-     *  box is 2 x `w` + `colGap`. Top to bottom inside a cell, FIXED heights:
-     *  `padY`; line 1 (`headerH`) NAME · tier numeral · key chip; the MOUNT
-     *  line (`mountH`) — `clock` px rings with the seconds numeral INSIDE
-     *  (`clockTracking` px on a three-character numeral), `clockGap` apart,
-     *  four to the line and nothing else on it; the mines' racks one ring
-     *  each with that rack's `rackPip`s in a short column `rackGap` right of
-     *  it; the secondaries' `heatH` bar instead; then `statLines` stat lines
-     *  of `statLineH` (the left cells print `leftStatLines`), ONE STAT PER
-     *  LINE; `padY`. The cell height H is DERIVED from these (layout.ts
-     *  `CELL_H`) — never grown at runtime. No state word: ready = the solid
-     *  rings, armed = the amber outline + wash + filled chip, locked = the
-     *  denied hatched heat bar + red outline (Eric 2026-11-10, round 3).
-     *  `tierGap` is the seam either side of line 1's tier numeral. */
-    cell: {
-      w: 200,
-      colGap: 8,
-      rowGap: 8,
-      padX: 8,
-      padY: 6,
-      headerH: 20,
-      mountH: 44,
-      statLineH: 20,
-      statLines: 4,
-      leftStatLines: 3,
-      clock: 40,
-      clockGap: 6,
-      clockTracking: -0.6,
-      tierGap: 4,
-      keyChip: 18,
-      rackPip: { w: 10, h: 10, gap: 1 },
-      rackGap: 4,
-      heatH: 12,
-    },
-    /** THE THREE ABILITY BUTTONS (O5, R23) spanning the weapons box's full
-     *  width beneath both columns, equal widths, `gap` apart; `topGap` is the
-     *  seam between the columns and the buttons. */
-    abilities: { h: 56, gap: 8, topGap: 8, progressH: 2 },
-    /** THE SHIP CONSOLE (O6; R21, Eric 2026-11-10: "You put WAY too much
-     *  margin between the elements … Takes up *way* too much real estate"):
-     *  COMPACT — fixed spacing, its height the sum of these parts,
-     *  bottom-anchored with the water above. Top to bottom: the hull numeral
-     *  line over the 10-segment bar; six index rows each with a five-bar TIER
-     *  LADDER (R20, right-aligned); the helm block; the level block — the
-     *  sections `sectionGap` apart. `topClearance` is the top-centre chrome
-     *  bar's row plus a gap: nothing of the consoles reaches above it. */
-    ship: {
-      topClearance: 60,
-      sectionGap: 14,
-      hullLine: 44,
-      hullBarGap: 6,
-      hullBarH: 14,
-      segments: 10,
-      segmentGap: 2,
-      indexRowH: 30,
-      indexRowGap: 4,
-      indexLabelW: 88,
-      tierBars: 5,
-      tierBar: { w: 20, h: 10, gap: 4 },
-      helmReadoutH: 24,
-      helmGap: 6,
-      ladderW: 200,
-      ladderH: 16,
-      rudderRowH: 12,
-      rudderTrack: 48,
-      levelRowH: 28,
-      trackGap: 4,
-      trackH: 8,
-      bankChip: 28,
-    },
-    /** The helm ladder's marks (O6 (3)): plain / STOP tick lengths, the hollow
-     *  ordered rung, the solid actual needle and the rudder's position tick. */
-    tick: { len: 6, stopLen: 10, rungW: 7, rungH: 10, needleW: 2, rudderW: 2, rudderH: 8 },
-    /** Type sizes (px) per console register — THE TEXT RULE (epic-10
-     *  amendment 18 R23, Eric 2026-11-10: "How many times do I need to call
-     *  you out for the tiny text? Every time? Stop it!"), authored at the
-     *  1920×1080 reference before the viewport factor: every readable VALUE
-     *  ≥ 17 px / 600 (the hull numeral bigger), every LABEL ≥ 14 px, key chips
-     *  and tier numerals ≥ 12 px. Never shrunk to fit — the box grows. */
+    /** Type sizes (px) per bar register (AC 27 / 39, the bench): section
+     *  heads 13; names 14 / 600; key chips 12 / 600 (the only 12 px register,
+     *  AC 39); values 15 to 17 / 600; tier numerals 13 / 600; the countdown inside an icon 13 with a dark outline
+     *  `clockStroke` px wide. */
     type: {
-      // values
-      statValue: 17,
-      clock: 17,
-      abilityState: 17,
-      abilityNumeral: 17,
-      hull: 40,
-      hullUnit: 17,
-      indexValue: 20,
-      hdg: 20,
-      kts: 17,
-      lv: 22,
-      bankCount: 17,
-      // labels
+      head: 13,
       name: 14,
-      statLabel: 14,
-      abilityName: 14,
-      label: 14,
-      indexLabel: 14,
-      offerHeader: 14,
-      offerName: 14,
-      offerTier: 14,
-      redraw: 14,
-      // chips and tier numerals
-      tier: 12,
+      tier: 13,
       keyChip: 12,
+      state: 15,
+      clock: 13,
+      clockStroke: 3,
+      statLabel: 14,
+      indexValue: 17,
+      gaugeLabel: 13,
+      gaugeValue: 14,
+      throttleLabel: 13,
+      flyTitle: 14,
+      flyLabel: 14,
+      flyValue: 16,
+      offerHeader: 14,
+      offerName: 15,
+      offerTier: 14,
       offerChip: 12,
+      redraw: 14,
     },
     /** THE HULL GAUGE's bands and breath — the HP globe's, carried over. The
      *  bands REFERENCE shared `CONFIG.damageBands` (exactly one set of band
@@ -2401,25 +2392,18 @@ export const CLIENT_CONFIG = {
     /** THE BANK CHIP's breath — the XP strip's, carried over unchanged: a 2.4 s
      *  cycle that decays to a static chip after 10 s unspent. */
     chip: { breathSec: 2.4, unspentSec: 10, chipAlpha: 0.85, pulseAmp: 0.15 },
-    /** Below this many ms a reload clock's numeral prints tenths (`1.2`);
-     *  above it whole seconds rounded UP (the cooldown wipe's grammar). */
+    /** Below this many ms a countdown prints tenths (`1.2`); above it whole
+     *  seconds rounded UP (the cooldown wipe's grammar). */
     tenthsBelowMs: 2000,
-    /** Carried over from the retired `hudBar` block, unchanged: the alpha the
-     *  weapons console drops to while the start line is held, the Gaussian
-     *  blur reach (px) of the one glow filter under the row-buttons (epic-9
-     *  amendment 39: no emulated shadow glow), a key chip's horizontal glyph
-     *  padding, and the hairline width of every 1 px rule. */
+    /** Carried over from Story 10.10, unchanged: the alpha the weapons and
+     *  abilities drop to while the start line is held, the Gaussian blur reach
+     *  (px) of the one glow filter under the tiles (epic-9 amendment 39: no
+     *  emulated shadow glow), a key chip's horizontal glyph padding, and the
+     *  hairline width of every 1 px rule. */
     dimAlpha: 0.38,
     glowBlurPx: 8,
     chipPadX: 3,
     lineW: 1,
-    /** HELM KEY GLYPHS (amendment 26 — carried over from the retired `vitals`
-     *  block, unchanged): the W/S and A/D chips at the helm's ends fade
-     *  PERMANENTLY, per pair, after `fadeCount` successful inputs, over
-     *  `fadeSec` (instant at motion=off). Progress lives under its own
-     *  standalone localStorage `key` — deliberately NOT in the settings store,
-     *  so RESET SETTINGS cannot resurrect learned anatomy. */
-    helmGlyphs: { fadeCount: 3, fadeSec: 0.6, key: 'hullcracker.helm' },
     /** THE VIEWPORT FACTOR (epic-10 amendment 18 R25, Eric 2026-11-10: "on my
      *  13" macbook pro, all of the UI elements are far too big"): the whole HUD
      *  is authored at the `refW` × `refH` reference and scales by

@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { ShakeDriver, shakeMagnitude } from '../render/shake.js';
 import { vignetteAlpha } from '../render/zone.js';
 import { effectPeakAlpha, isJuiceEffect } from '../render/effects.js';
-import { rowSkin } from '../render/console/weaponsConsole.js';
+import { rowSkin } from '../render/console/skins.js';
 import { hullFillAlpha, hullPulseHz } from '../render/console/hull.js';
 import { motionIntensity, motionScaled } from '../settings/store.js';
 import { hullLook } from '../render/ships.js';

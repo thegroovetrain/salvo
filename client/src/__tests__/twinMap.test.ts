@@ -73,13 +73,13 @@ describe('every audio cue has a visual twin', () => {
       ['fitRare', [/ui\/upgradeToast/, /render\/console\//]],
       ['fitExclusive', [/ui\/upgradeToast/, /render\/console\//]],
       ['bounty', [/ui\/upgradeToast/, /ui\/chromeBar/]],
-      ['hpHurt', [/render\/console\/shipConsole/, /render\/smoke/]],
-      ['hpCritical', [/render\/console\/shipConsole/, /render\/smoke/]],
+      ['hpHurt', [/render\/console\/hudBar/, /render\/smoke/]],
+      ['hpCritical', [/render\/console\/hudBar/, /render\/smoke/]],
       ['foghorn', [/render\/foghorn/, /render\/effects/]],
       // Story 10.13: own hit = the shake + the hull readout; the engine = the
       // helm order and speed + the hulls drawn close alongside.
-      ['ownHit', [/render\/shake/, /render\/console\/shipConsole/]],
-      ['engine', [/render\/console\/shipConsole/, /render\/contacts/]],
+      ['ownHit', [/render\/shake/, /render\/console\/hudBar/]],
+      ['engine', [/render\/console\/hudBar/, /render\/contacts/]],
     ];
     for (const [id, patterns] of surfaces) for (const re of patterns) expect(toneTwin(id), id).toMatch(re);
   });
@@ -88,12 +88,12 @@ describe('every audio cue has a visual twin', () => {
     for (const id of ['gunReport', 'impact', 'splash', 'sunkWitness', 'mainBatteryWorld', 'steelHit', 'sinkWitness'] as const) {
       expect(toneTwin(id), id).toMatch(/render\/effects/);
     }
-    expect(toneTwin('point')).toMatch(/render\/console\/shipConsole/);
-    expect(toneTwin('heal')).toMatch(/render\/console\/shipConsole/);
-    for (const id of ['damage', 'burn'] as const) expect(toneTwin(id), id).toMatch(/render\/console\/shipConsole\)/);
+    expect(toneTwin('point')).toMatch(/render\/console\/hudBar/);
+    expect(toneTwin('heal')).toMatch(/render\/console\/hudBar/);
+    for (const id of ['damage', 'burn'] as const) expect(toneTwin(id), id).toMatch(/render\/console\/hudBar\)/);
     for (const id of ['telegraphUp', 'telegraphDown'] as const) {
-      expect(toneTwin(id), id).toMatch(/render\/console\/shipConsole/);
+      expect(toneTwin(id), id).toMatch(/render\/console\/hudBar/);
     }
-    expect(toneTwin('denied')).toMatch(/render\/console\/weaponsConsole/);
+    expect(toneTwin('denied')).toMatch(/render\/console\/hudBar/);
   });
 });
