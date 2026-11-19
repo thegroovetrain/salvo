@@ -1,6 +1,9 @@
+---
+baseline_commit: 49a4b654
+---
 # Story 12.4: Airdrops and Radio Beacons
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Created 2026-11-19 by gds-create-story from Eric's sitting (the `/gds-create-story 12-4` args + two AskUserQuestion rounds), recorded as epic-12 amendment 5. Build order: after 12.3 (epic-12 amendment 1(d)). -->
 
