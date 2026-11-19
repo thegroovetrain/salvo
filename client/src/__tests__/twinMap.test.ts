@@ -94,6 +94,6 @@ describe('every audio cue has a visual twin', () => {
     for (const id of ['telegraphUp', 'telegraphDown'] as const) {
       expect(toneTwin(id), id).toMatch(/render\/console\/hudBar/);
     }
-    expect(toneTwin('denied')).toMatch(/render\/console\/weaponsConsole/);
+    expect(toneTwin('denied')).toMatch(/render\/console\/hudBar/);
   });
 });

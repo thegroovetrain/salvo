@@ -119,6 +119,7 @@ export function drawTierMark(g: Graphics, t: Text, r: Rect, m: TierMarkModel | n
   }
   const dotsW = m.dots.length * M.dot + (m.dots.length - 1) * M.dotGap;
   const x0 = r.x + r.w - dotsW;
+  t.anchor.set(1, 0.5); // right-aligned against the dots, whatever its width
   setFill(t, m.color);
   place(t, m.numeral, x0 - M.gap, cy, uiScale);
   const rad = M.dot / 2;

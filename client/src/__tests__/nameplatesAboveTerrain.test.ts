@@ -259,10 +259,10 @@ describe('a plate can never obscure the chrome — both mechanisms, pinned', () 
 });
 
 describe("applyCamera puts the plate layer BACK into screen space", () => {
-  // Only the four fields applyCamera reads. A stub rather than a real Camera on
+  // Only the four fields applyCamera reads (the focus, Story 12.3 Part B). A stub rather than a real Camera on
   // purpose: the subject here is the inverse arithmetic, not Camera's clamps.
   const cam = (zoom: number, shake = { x: 0, y: 0 }): Camera => ({
-    screenCenter: { x: 800, y: 450 },
+    focus: { x: 800, y: 450 },
     center: { x: 1234.5, y: -678.25 },
     zoom,
     shake,

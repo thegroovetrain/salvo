@@ -134,7 +134,7 @@ export class WeaponTiles {
     while (this.texts.length <= i) {
       const tt: TileTexts = {
         name: monoText(T.name, '600', C.textPrimary),
-        tier: monoText(T.tier, '600', C.phosphor),
+        tier: monoText(T.tier, '600', C.phosphor, 1),
         state: monoText(T.state, '600', C.phosphor, 1),
         chip: monoText(T.keyChip, '600', C.phosphor, 0.5),
         numerals: [],
