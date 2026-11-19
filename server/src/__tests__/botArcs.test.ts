@@ -35,17 +35,16 @@ import {
 import { circleIsland } from './islandFixture.js';
 import { ARC_OPEN_MARGIN_RAD, ARC_OPEN_TOLERANCE_RAD, allTurretsBear, bowSide, openArcBearing } from '../game/ai/arcs.js';
 import { COMBAT_BRAIN, readyShotReaches, situationOf } from '../game/ai/tactics.js';
-import { avoidBeacons, avoidHulls, avoidReachU } from '../game/ai/navigate.js';
-import { beaconStandoffU } from '../game/ai/beacons.js';
+import { avoidReachU } from '../game/ai/navigate.js';
 import { ownReachU, pullBand } from '../game/ai/utility.js';
 import { gunBand, kiteHoldOf } from '../game/ai/doctrine.js';
 import { barRangeU } from '../game/ai/hitChance.js';
 import { leadPoint } from '../game/ai/tacticKit.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { navCacheFor } from '../game/navCache.js';
-import type { BotBeacon, BotPosture, RememberedContact } from '../game/ai/types.js';
+import type { BotPosture, RememberedContact } from '../game/ai/types.js';
 import type { ShipRecord } from '../game/world.js';
-import { fakePort, holdTarget, mkBot, mkMind, ocean, sail, track, trainOn, type FakePort } from './botHelmFixture.js';
+import { fakePort, holdTarget, mkBot, mkMind, ocean, sail, track, type FakePort } from './botHelmFixture.js';
 
 const HULLS: readonly ShipClassId[] = SHIP_CLASS_IDS;
 /** u — the fixture island's radius, and the shore band the nav grid keeps
@@ -400,123 +399,5 @@ describe('COMBAT_BRAIN — the arc opening on the posture bearing (R2)', () => {
     expect(clicksInTheTurn).toBeGreaterThan(0); // ... and clicks made while the hull was swinging
     // Every turret got its salvo away: the aft ones only could once the arcs opened.
     expect(clicks).toBeGreaterThanOrEqual(turretMounts(rec.hullId).length);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// FARM WITH A TARGET (the helm half of R4)
-// ---------------------------------------------------------------------------
-
-describe('COMBAT_BRAIN — a beacon farmer with a target (R4, the helm half)', () => {
-  /** A hull ON STATION at a beacon at the origin (its standoff point). */
-  function stationed(hullId: ShipClassId, seed: number): Rig & { mind: ReturnType<typeof mkMind> } {
-    const w = ocean(seed);
-    const r = beaconStandoffU();
-    const rec = mkBot(w, hullId, r, 0, 0);
-    rec.state.speed = 0;
-    const mind = mkMind('siege');
-    mind.beaconGoal = { x: 0, y: 0, bearing: 0, standoff: { x: r, y: 0 }, centerSide: false, paying: true };
-    return { rec, port: fakePort(w), mind };
-  }
-
-  it('ON STATION with a target in reach: dead in the water (no lane nudge, no arc opening) — and it still CLICKS when a turret is on target', () => {
-    const { rec, port, mind } = stationed('iowa', 1220);
-    const target = { x: rec.state.x + inBar(rec, port), y: 0 }; // dead ahead: the aft turrets are masked; inside the hit bar (Story 11.9)
-    holdTarget(mind, track(port.now, target), 'farm');
-    trainOn(rec, target.x, target.y);
-    const d = COMBAT_BRAIN.decide(rec, mind, port, false);
-    expect(d.throttle).toBe(0);
-    expect(d.rudder).toBe(0);
-    expect(d.fireSlot).toBe(SLOT_GUN);
-    expect(Math.abs(angleDiff(bearing(rec.state, target), d.aim))).toBeLessThan(0.1);
-  });
-
-  it('ON STATION with every turret reloading: still parked, the aim HELD on the target', () => {
-    const { rec, port, mind } = stationed('yamato', 1221);
-    const reach = ownReachU(situationOf(rec, mind, port));
-    const target = { x: rec.state.x, y: reach * 0.6 };
-    holdTarget(mind, track(port.now, target), 'farm');
-    for (const t of rec.turrets) t.reloadMsLeft = rec.stats.equipment.mainBattery.reloadMs;
-    const d = COMBAT_BRAIN.decide(rec, mind, port, false);
-    expect([d.throttle, d.rudder, d.fireSlot]).toEqual([0, 0, null]);
-    expect(d.aimDist).toBeGreaterThan(0);
-    expect(Math.abs(angleDiff(bearing(rec.state, target), d.aim))).toBeLessThan(0.1);
-  });
-
-  it('IN TRANSIT with a target in reach: it sails for the STANDOFF at the transit throttle, the bearing left alone', () => {
-    const w = ocean(1222);
-    const port = fakePort(w);
-    const rec = mkBot(w, 'bismarck', 0, 0, 0); // bow due east, at the standoff far ahead
-    const reach = ownReachU(situationOf(rec, mkMind('siege'), port));
-    const far = CONFIG.beacons.rangeU * 4;
-    const withTarget = mkMind('siege');
-    withTarget.beaconGoal = { x: far + beaconStandoffU(), y: 0, bearing: Math.PI, standoff: { x: far, y: 0 }, centerSide: false, paying: true };
-    holdTarget(withTarget, track(port.now, { x: 0, y: -reach * 0.5 }), 'farm'); // a target off the starboard beam... not on the line
-    const alone = mkMind('siege');
-    alone.beaconGoal = withTarget.beaconGoal;
-    alone.posture = 'farm';
-    const a = COMBAT_BRAIN.decide(rec, withTarget, port, false);
-    const b = COMBAT_BRAIN.decide(rec, alone, port, false);
-    expectUntouched(a.rudder);
-    expect([a.throttle, a.rudder]).toEqual([b.throttle, b.rudder]); // the target changes nothing about the helm
-    expect(a.throttle).toBeGreaterThan(0);
-  });
-
-  it('`farm` with NO beacon goal falls back as before: a target is band-held, nothing sits still', () => {
-    const rig = rigFor('iowa', 1223, Math.PI);
-    const reach = inReach(rig.rec, rig.port, 1);
-    const mind = mkMind('siege');
-    holdTarget(mind, track(rig.port.now, { x: reach * 0.9, y: 0 }), 'farm');
-    expect(COMBAT_BRAIN.decide(rig.rec, mind, rig.port, false).throttle).toBeGreaterThan(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// BEACON BODIES
-// ---------------------------------------------------------------------------
-
-describe('beacon bodies — an avoidance term in every posture', () => {
-  const beacon = (phase: BotBeacon['phase'], x: number, y: number): BotBeacon => ({ x, y, phase, rate01: phase === 'afloat' ? 1 : 0 });
-  const chart = (list: readonly BotBeacon[]) => ({ beacons: () => list });
-  /** A point ahead of the bow, a little to port, well inside every point lookahead. */
-  const AHEAD = { x: CONFIG.bots.hullLookaheadU / 2, y: CONFIG.bots.hullLookaheadU / 8 };
-
-  it('a SOLID beacon (afloat or sinking) ahead takes the hull kernel\'s own bias; charted and gone ones are not there', () => {
-    const { rec } = rigFor('bismarck', 1230);
-    const mind = mkMind('raider');
-    mind.contacts.set('stranger', track(0, { id: 'stranger', ...AHEAD }));
-    const asHull = avoidHulls(rec, mind, 'reposition');
-    expect(asHull).not.toBe(0);
-    expect(avoidBeacons(rec, chart([beacon('afloat', AHEAD.x, AHEAD.y)]))).toBe(asHull);
-    expect(avoidBeacons(rec, chart([beacon('sinking', AHEAD.x, AHEAD.y)]))).toBe(asHull);
-    expect(avoidBeacons(rec, chart([beacon('charted', AHEAD.x, AHEAD.y)]))).toBe(0);
-    expect(avoidBeacons(rec, chart([beacon('gone', AHEAD.x, AHEAD.y)]))).toBe(0);
-  });
-
-  it('the sign law is the point kernel\'s: to port → steer starboard, mirrored → port; astern and far ahead → nothing', () => {
-    const { rec } = rigFor('iowa', 1231);
-    const port = avoidBeacons(rec, chart([beacon('afloat', AHEAD.x, AHEAD.y)]));
-    const stbd = avoidBeacons(rec, chart([beacon('afloat', AHEAD.x, -AHEAD.y)]));
-    expect(port).toBeLessThan(0);
-    expect(stbd).toBe(-port);
-    expect(avoidBeacons(rec, chart([beacon('afloat', -AHEAD.x, AHEAD.y)]))).toBe(0);
-    const far = (CONFIG.bots.hullLookaheadU + CONFIG.beacons.bodyRadiusU) * 2;
-    expect(avoidBeacons(rec, chart([beacon('afloat', far, 0)]))).toBe(0);
-    expect(avoidBeacons(rec, {})).toBe(0); // a port with no chart
-  });
-
-  it('the brain steers round it in every posture that is under way', () => {
-    const postures: readonly BotPosture[] = ['reposition', 'pursue', 'engage', 'kite', 'disengage', 'hide', 'ram', 'farm'];
-    for (const posture of postures) {
-      const rig = rigFor('bismarck', 1232);
-      const target = { x: 0, y: inReach(rig.rec, rig.port) };
-      const clear = rudderOn(rig, target, posture);
-      // The body goes on the side the helm is NOT already hard over to, so
-      // its push can show on a clamped rudder.
-      const side = clear > 0 ? 1 : -1;
-      const solid = { ...rig, port: { ...rig.port, beacons: () => [beacon('afloat', AHEAD.x, side * AHEAD.y)] } };
-      const bent = rudderOn(solid, target, posture);
-      expect((clear - bent) * side, posture).toBeGreaterThan(0.01); // pushed away from the body's side
-    }
   });
 });

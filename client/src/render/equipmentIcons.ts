@@ -590,18 +590,37 @@ const WRECK_GLYPH: GlyphPaths = [
   path([0.35, -0.2], [0.75, -0.9]),
 ];
 
+// --- STORY 12.4 (Eric 2026-11-19, epic-12 amendments 5(a) and 6(a)) — THE XP
+// CRATE's glyph: "a square with "+XP" inside it". The square is the crate's
+// own body (render/drops.ts); this is the "+XP" inside it, as LINEWORK in the
+// wreck's family (crisp at every zoom, never a Pixi Text). The paths are the
+// APPROVED bench's (v2), verbatim.
+
+/** "+XP": a plus, an X, and a P (stem + bowl), left to right. */
+const XP_GLYPH: GlyphPaths = [
+  path([-0.95, 0], [-0.45, 0]),
+  path([-0.7, -0.25], [-0.7, 0.25]),
+  path([-0.3, -0.42], [0.18, 0.42]),
+  path([-0.3, 0.42], [0.18, -0.42]),
+  path([0.36, 0.42], [0.36, -0.42], [0.72, -0.42], [0.9, -0.27], [0.9, -0.05], [0.72, 0.1], [0.36, 0.1]),
+];
+
+/** The drop-only glyph ids (Story 10.9's wreck, Story 12.4's XP crate) — the
+ *  crate kinds `drawEquipmentIcon` answers, disjoint from every other table. */
+const DROP_GLYPHS: Readonly<Record<string, GlyphPaths>> = { wreck: WRECK_GLYPH, xp: XP_GLYPH };
+
 /**
  * THE one lookup, over slot content AND card lines (Story 8.7, ruling 1;
  * cycle 162). The id spaces stay DISJOINT — a cooldown ability is answered
  * from its own table first, then an equipment row, then a card line that is
- * neither (a ship ladder, or the CANNON ladder), then the one drop-only id
- * `'wreck'` (Story 10.9). Null, never a throw: an id with no art (the stub
+ * neither (a ship ladder, or the CANNON ladder), then the drop-only ids
+ * `'wreck'` (Story 10.9) and `'xp'` (Story 12.4). Null, never a throw: an id with no art (the stub
  * DEPTH CHARGE) is not a crash.
  */
 export function glyphPaths(id: string): GlyphPaths | null {
   if (Object.hasOwn(ABILITY_GLYPHS, id)) return ABILITY_GLYPHS[id as CooldownAbilityId];
   if (Object.hasOwn(GLYPHS, id)) return GLYPHS[id as EquipmentId] ?? null;
-  if (id === 'wreck') return WRECK_GLYPH;
+  if (Object.hasOwn(DROP_GLYPHS, id)) return DROP_GLYPHS[id];
   return Object.hasOwn(LINE_GLYPHS, id) ? LINE_GLYPHS[id as LineId] ?? null : null;
 }
 

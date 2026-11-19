@@ -132,7 +132,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   repair:
     'the HUD bar\'s hull percent and bar climbing, the lighter pooled-repair segment draining into it (render/console/hudBar)',
   smoke: 'the smoke cloud blooming on the water where it was laid (render/countermeasure)',
-  beacon: 'the radio beacon markers surfacing on the water and the chart (render/beacons)',
+  beacon: 'a supply drop\'s chart mark starting its fade as its crates land (render/supplyDrops)',
   boostSurge:
     'the HUD bar\'s boost state lighting + the wake lengthening behind your hull (render/console/hudBar, render/wake)',
   sinkWitness:

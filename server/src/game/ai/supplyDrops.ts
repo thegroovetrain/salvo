@@ -1,0 +1,147 @@
+// THE SUPPLY RUN (Story 12.4, Eric 2026-11-19 "Head for charted drops",
+// "Every bot", "Collect what it sees"; epic-12 amendment 5(h)) — the smallest
+// change that sends a bot to a charted supply drop and has it clear the
+// crates. It replaces the radio-beacon farm (Story 10.8): there is no beacon
+// body, no pot and no paying range any more, so the standoff, the
+// hold-in-range and the contest-while-paying stayer are gone.
+//
+// WHAT A BOT KNOWS: the public chart only (BotWorldPort.supplyDrops — each
+// charted spot and the moment its crates land, exactly what a human's map
+// mark shows). The crates themselves are seen like any crate, through
+// `PerceptionView.drops` once they are down — never anything else.
+//
+// WHAT IT DOES (every bot, with no target):
+//   1. PICK. With no goal, the NEAREST charted spot whose crates have not
+//      landed yet and whose spot lies inside the disc it would patrol anyway
+//      (ai/navigate.ts patrolDisc).
+//   2. SAIL (routed) for the spot; arriving before the landing it waits there
+//      dead in the water, so the hull is on the spot around `landT`.
+//   3. COLLECT. Once landed, it steers for the nearest crate it can SEE
+//      within `CONFIG.supplyDrops.scatterU` of the spot, one after another;
+//      with none in sight it makes for the spot again.
+//   4. RELEASE once it is ON the spot and sees no crate in the circle (then
+//      it patrols on), or when the spot leaves the chart or the disc.
+//
+// Pure functions over plain data: no world import, no rng, no clock read.
+
+import { CONFIG, type Vec2, type ZoneRing } from '@salvo/shared';
+import type { BotSupplyDrop } from './types.js';
+
+/** Is `p` within `r` of `c` (rim inclusive)? */
+function within(p: Vec2, c: Vec2, r: number): boolean {
+  return Math.hypot(p.x - c.x, p.y - c.y) <= r;
+}
+
+/** Is `p` inside `disc` (rim inclusive)? */
+function inDisc(p: Vec2, disc: ZoneRing): boolean {
+  return within(p, { x: disc.cx, y: disc.cy }, disc.r);
+}
+
+/** Has this drop's landing not happened yet at `now`? */
+export function supplyPending(d: BotSupplyDrop, now: number): boolean {
+  return now < d.landT;
+}
+
+/** The nearest charted drop still to land whose spot is inside `disc`, or
+ *  null. */
+export function pickSupplyDrop(drops: readonly BotSupplyDrop[], disc: ZoneRing, pos: Vec2, now: number): BotSupplyDrop | null {
+  let best: BotSupplyDrop | null = null;
+  let bestD = Infinity;
+  for (const d of drops) {
+    if (!supplyPending(d, now) || !inDisc(d, disc)) continue;
+    const dist = Math.hypot(d.x - pos.x, d.y - pos.y);
+    if (dist < bestD) {
+      best = d;
+      bestD = dist;
+    }
+  }
+  return best;
+}
+
+/** Is the hull at `pos` on the spot (within `slackU` of it)? */
+export function atSupplySpot(goal: Vec2, pos: Vec2, slackU: number): boolean {
+  return within(pos, goal, slackU);
+}
+
+/**
+ * The crate to collect next: the nearest to `pos` of the SIGHTED crates
+ * (`sighted` — the bot's `PerceptionView.drops`) lying within `scatterU` of
+ * the goal's spot. Null = none in the circle.
+ */
+export function supplyCrateOf<T extends Vec2>(
+  goal: Vec2,
+  sighted: readonly T[],
+  pos: Vec2,
+  scatterU: number = CONFIG.supplyDrops.scatterU,
+): T | null {
+  let best: T | null = null;
+  let bestD = Infinity;
+  for (const c of sighted) {
+    if (!within(c, goal, scatterU)) continue;
+    const dist = Math.hypot(c.x - pos.x, c.y - pos.y);
+    if (dist < bestD) {
+      best = c;
+      bestD = dist;
+    }
+  }
+  return best;
+}
+
+/** Same chart row (spot and landing)? */
+function sameDrop(a: BotSupplyDrop, b: BotSupplyDrop): boolean {
+  return a.x === b.x && a.y === b.y && a.landT === b.landT;
+}
+
+/** Done with a LANDED drop: on its spot with no sighted crate left in its
+ *  circle. */
+function cleared(goal: BotSupplyDrop, bot: SupplyReading, scatterU: number): boolean {
+  return atSupplySpot(goal, bot.pos, bot.slackU) && supplyCrateOf(goal, bot.sighted, bot.pos, scatterU) === null;
+}
+
+/** The previous goal, KEPT: still on the chart, still inside the disc, and
+ *  not yet cleared after its landing. Else null. */
+function keptGoal(prev: BotSupplyDrop | null, drops: readonly BotSupplyDrop[], disc: ZoneRing, bot: SupplyReading, scatterU: number): BotSupplyDrop | null {
+  if (prev === null || !inDisc(prev, disc) || !drops.some((d) => sameDrop(d, prev))) return null;
+  return !supplyPending(prev, bot.now) && cleared(prev, bot, scatterU) ? null : prev;
+}
+
+/** What a deliberation hands supplyGoalOf about the bot. */
+export interface SupplyReading {
+  readonly pos: Vec2;
+  readonly now: number;
+  /** The bot's sighted crates (`PerceptionView.drops`). */
+  readonly sighted: readonly Vec2[];
+  /** u — how close to the spot counts as ON it. */
+  readonly slackU: number;
+}
+
+/**
+ * This deliberation's goal: the previous one while it is kept (see
+ * keptGoal; the same object, so a routed path is not re-planned), else a
+ * fresh pickSupplyDrop. The goal is a COPY of the chart row (the port's rows
+ * are reused between calls). Null = none.
+ */
+export function supplyGoalOf(
+  drops: readonly BotSupplyDrop[],
+  disc: ZoneRing,
+  bot: SupplyReading,
+  prev: BotSupplyDrop | null,
+  scatterU: number = CONFIG.supplyDrops.scatterU,
+): BotSupplyDrop | null {
+  const kept = keptGoal(prev, drops, disc, bot, scatterU);
+  if (kept !== null) return kept;
+  const pick = pickSupplyDrop(drops, disc, bot.pos, bot.now);
+  return pick === null ? null : { x: pick.x, y: pick.y, landT: pick.landT };
+}
+
+/** Waiting on the spot for the landing: on it, crates not down yet. */
+export function waitingForSupply(goal: BotSupplyDrop, pos: Vec2, now: number, slackU: number): boolean {
+  return supplyPending(goal, now) && atSupplySpot(goal, pos, slackU);
+}
+
+/** The point the helm steers for on a supply run: before the landing the
+ *  spot; after it the next sighted crate in the circle, else the spot. */
+export function supplySteerPoint(goal: BotSupplyDrop, sighted: readonly Vec2[], pos: Vec2, now: number): Vec2 {
+  if (supplyPending(goal, now)) return goal;
+  return supplyCrateOf(goal, sighted, pos) ?? goal;
+}

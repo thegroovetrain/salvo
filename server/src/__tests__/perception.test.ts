@@ -5402,7 +5402,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       //     beyond its detect rung (the DROP_BY_ZONE arm).
       {
         const drng = mulberry32(0xd90b_0000 + world);
-        const roll = (): IndexId => CONFIG.drops.indices[drng.int(0, CONFIG.drops.indices.length - 1)];
+        const roll = (): DropKind => (drng.int(0, 1) === 0 ? 'xp' : 'wreck'); // Story 12.4: the two kinds
         const seat = (id: string, x: number, y: number, kind: DropKind): void => {
           w.drops.set(id, { id, x: Math.fround(x), y: Math.fround(y), kind });
         };

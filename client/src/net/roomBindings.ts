@@ -1577,23 +1577,29 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
- * AN AIRDROP COLLECTED (Story 10.9). `dp` is self-private (perception forwards
- * it only to the collector), so the id check is defensive. UX only: the
- * authoritative bonus self-syncs on `you.ib`. Dead-gated like `handlePoint`
- * (no toast to a corpse or a results screen). NO TONE (the audio twin map is
- * untouched). The tell is the stat-row toast (Eric 2026-11-08, on the
- * rendered page) — the rolls are drawn AT PICKUP, so this is the first time
- * the player learns the amount. A malformed `g` shows nothing.
+ * AN AIRDROP COLLECTED (Story 10.9; Story 12.4, epic-12 amendment 5). `dp` is
+ * self-private (perception forwards it only to the collector), so the id
+ * check is defensive. UX only: the authoritative XP and bonus self-sync on
+ * `you`. Dead-gated like `handlePoint` (no feedback to a corpse or a results
+ * screen). EVERY pickup plays the airdrop chime; only a WRECK's grants (the
+ * `[stat, n]` rolls drawn at pickup) also show the stat toast. An XP crate's
+ * `dp` carries no grants and shows NO toast (AC 4: no in-game copy unasked) —
+ * its tell is the XP gauge itself. A malformed `g` reads as no grants.
  */
 function handleDropPickup(e: DropPickupEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
   if (frameIsDeadOrSpectating(f)) return;
-  const g = Array.isArray(e.g) ? e.g.filter((r) => isDropRoll(r)) : [];
-  if (g.length === 0) return;
-  pushUpgradeToast(dropToastLine(g));
-  // Story 10.13: the pickup chime (Eric's pick), centered — it rides the
-  // stat toast it twins, so a pickup that draws no toast makes no sound.
+  const toast = dropPickupToast(e.g);
+  if (toast !== null) pushUpgradeToast(toast);
   deps.audio.playCue('airdropChime');
+}
+
+/** Pure: the stat toast a pickup's grants earn — the wreck's valid
+ *  `[stat, n]` rolls as one line, or null when there are none (an XP crate,
+ *  or a malformed `g`). */
+export function dropPickupToast(g: unknown): string | null {
+  const rolls = Array.isArray(g) ? g.filter((r) => isDropRoll(r)) : [];
+  return rolls.length === 0 ? null : dropToastLine(rolls);
 }
 
 /**

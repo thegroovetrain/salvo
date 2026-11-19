@@ -12,10 +12,12 @@
 //              the name, the 100-point index value, the tier mark in the same
 //              column as every tile's, an EMPTY chip slot. A hovered ship-stat
 //              card turns the value amber `new▲`, the numeral amber `IV▲` and
-//              outlines the next dot amber — no box.
+//              outlines the next dot amber — no box. A stat whose bonus
+//              (`you.ib`) just ROSE flashes its value amber and fades it back
+//              (Story 12.4, statFlash.ts); the hover mark wins while it shows.
 
 import { BlurFilter, Container, Graphics, type Text } from 'pixi.js';
-import { INDEX_IDS } from '@salvo/shared';
+import { INDEX_IDS, type IndexBonus } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
 import type { MotionLevel } from '../../settings/store.js';
 import { indexWord } from '../../ui/boonCopy.js';
@@ -23,6 +25,7 @@ import { drawBox, drawChip, drawRefill, drawTierMark, monoText, place, setFill }
 import { HOVER_WASH, abilitySkin, indexValueText, tierMarkModel } from './skins.js';
 import type { AbilityTileRect, ShipRowRect } from './layout.js';
 import { READOUT_KEY, type AbilityModel, type PreviewMarks, type Readout } from './readouts.js';
+import { StatRises, flashColor } from './statFlash.js';
 
 const C = CLIENT_CONFIG.colors;
 const K = CLIENT_CONFIG.console;
@@ -127,6 +130,8 @@ export class ShipRows {
   private readonly labels: Text[];
   private readonly values: Text[];
   private readonly tiers: Text[];
+  /** The level-up flash's memory of `ib` (Story 12.4). */
+  private readonly rises = new StatRises();
 
   constructor() {
     this.labels = INDEX_IDS.map(() => monoText(T.statLabel, '400', C.textSecondary));
@@ -138,17 +143,35 @@ export class ShipRows {
     this.root.addChild(this.gfx, ...this.labels, ...this.values, ...this.tiers);
   }
 
-  update(readouts: readonly Readout[], preview: PreviewMarks | null, rows: readonly ShipRowRect[], uiScale: number): void {
+  /** One frame. `ib` is the own hull's bonus (`you.ib`; null = no `you`
+   *  this frame: the flash memory is left as it is) and `nowMs` the frame
+   *  clock the flash runs on. Positional, so the per-frame call allocates
+   *  nothing. */
+  update(
+    readouts: readonly Readout[],
+    preview: PreviewMarks | null,
+    rows: readonly ShipRowRect[],
+    uiScale: number,
+    ib: IndexBonus | null = null,
+    nowMs = 0,
+  ): void {
+    if (ib !== null) this.rises.observe(ib, nowMs);
     this.gfx.clear();
     rows.forEach((row, i) => {
       const { value, held } = indexAt(readouts, i);
       const cy = row.y + row.h / 2;
       this.labels[i].position.set(row.label.x, cy);
       const mark = preview?.get(INDEX_KEYS[i]);
-      setFill(this.values[i], mark === undefined ? C.phosphor : C.amber);
+      setFill(this.values[i], mark === undefined ? flashColor(nowMs - this.rises.roseAt(i), C.phosphor) : C.amber);
       place(this.values[i], indexValueText(value, mark), row.value.x, cy, uiScale);
       drawTierMark(this.gfx, this.tiers[i], row.tierMark, tierMarkModel(held, preview?.get(HELD_KEYS[i])), uiScale);
     });
+  }
+
+  /** Forget the flash memory: the next `ib` only seeds (join / redeploy —
+   *  the bar's `hide()`). */
+  reset(): void {
+    this.rises.reset();
   }
 
   /** The value text a row prints (test seam). */

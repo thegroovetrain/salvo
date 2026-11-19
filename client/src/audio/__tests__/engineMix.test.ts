@@ -129,8 +129,8 @@ const frame = (over: Partial<EngineFrame> = {}): EngineFrame => ({
   listener: EAR,
   hulls: [],
   drawn: [],
-  beaconCycle: undefined,
-  beaconAfloat: false,
+  supplyCycle: undefined,
+  supplyLanded: false,
   inStorm: false,
   matchOver: false,
   boostConfirmed: false,
@@ -222,12 +222,20 @@ describe('EngineMix — the sink fade and the edge cues', () => {
     expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'boostSurge')).toHaveLength(1);
   });
 
-  it('a beacon set surfacing sounds once', () => {
+  it('a supply drop landing plays the `beacon` cue once (Story 12.4)', () => {
     const r = rig();
-    r.mix.update(frame({ beaconCycle: 2, beaconAfloat: false }));
-    r.mix.update(frame({ beaconCycle: 2, beaconAfloat: true }));
-    r.mix.update(frame({ beaconCycle: 2, beaconAfloat: true }));
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: false }));
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: true }));
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: true }));
     expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'beacon')).toHaveLength(1);
+  });
+
+  it('reseedEdges forgets a charted set: its landing after the reseed is silent', () => {
+    const r = rig();
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: false }));
+    r.mix.reseedEdges();
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: true }));
+    expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'beacon')).toHaveLength(0);
   });
 
   it('a drawn torpedo coming close hums once, placed over the close radius', () => {
@@ -321,7 +329,7 @@ describe('P1 / P4 / P5 — halt and resume', () => {
     r.mix.halt();
     r.mix.resume();
     const boosting = frame({ own: { cls: 'bismarck', throttle: 1, speed01: 1, boost: true }, boostConfirmed: true });
-    r.mix.update({ ...boosting, beaconCycle: 4, beaconAfloat: true, drawn: [{ id: 't', kind: 'torp', x: 1, y: 0 }] });
+    r.mix.update({ ...boosting, supplyCycle: 4, supplyLanded: true, drawn: [{ id: 't', kind: 'torp', x: 1, y: 0 }] });
     expect(r.ownBuilt).toHaveLength(2);
     const ids = r.audio.playCue.mock.calls.map(([id]) => id);
     expect(ids).not.toContain('boostSurge');
@@ -411,10 +419,10 @@ describe('P10 / P11 / P14 / P15', () => {
     expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'boostSurge')).toHaveLength(1);
   });
 
-  it('P14: no beacon data (an unsynced first frame) never arms a set', () => {
+  it('P14: no supply chart data (an unsynced first frame) never arms a set', () => {
     const r = rig();
-    r.mix.update(frame({ beaconCycle: 3, beaconAfloat: null }));
-    r.mix.update(frame({ beaconCycle: 3, beaconAfloat: true }));
+    r.mix.update(frame({ supplyCycle: 3, supplyLanded: null }));
+    r.mix.update(frame({ supplyCycle: 3, supplyLanded: true }));
     expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'beacon')).toHaveLength(0);
   });
 

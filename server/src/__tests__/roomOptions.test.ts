@@ -252,19 +252,6 @@ describe('sanitizeRoomOptions — spawnOverride (the dev spawn pose)', () => {
   });
 });
 
-describe('sanitizeRoomOptions — matchOverride.beacons (the dev no-beacons switch, Story 10.8)', () => {
-  it('beacons: false survives under devEnabled', () => {
-    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, beacons: false } }, true);
-    expect(out.sanitized.matchOverride?.beacons).toBe(false);
-    expect(out.rejectedKeys).toEqual([]);
-  });
-
-  it('is stripped WITH matchOverride without HC_DEV_OPTIONS', () => {
-    const out = sanitizeRoomOptions({ matchOverride: { beacons: false } }, false);
-    expect(out.sanitized.matchOverride).toBeUndefined();
-    expect(out.rejectedKeys).toEqual(['matchOverride']);
-  });
-});
 
 // --- callsign hardening (Story 2.3 — deferred-work 127/130) ------------------
 
@@ -474,5 +461,19 @@ describe('sanitizeRoomOptions — the lobby trust ticket', () => {
     expect(sanitized.botFill).toBeUndefined();
     expect(sanitized.mode).toBeUndefined();
     expect(sanitized.mapSeed).toBeUndefined();
+  });
+});
+
+describe('sanitizeRoomOptions — matchOverride.supplyDrops (the dev no-supply-drops switch, Story 12.4)', () => {
+  it('supplyDrops: false survives under devEnabled', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, supplyDrops: false } }, true);
+    expect(out.sanitized.matchOverride?.supplyDrops).toBe(false);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('is stripped WITH matchOverride without HC_DEV_OPTIONS', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { supplyDrops: false } }, false);
+    expect(out.sanitized.matchOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['matchOverride']);
   });
 });

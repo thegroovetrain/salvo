@@ -129,8 +129,9 @@ export const SPAWN_ISLAND_CLEARANCE = MAX_HULL_RADIUS;
 
 /**
  * Signed clearance from `p` to the nearest island COASTLINE (negative =
- * ashore). EXPORTED (Story 5.6) so every other placement — today the RADIO
- * BEACON tests — reads THE SAME clearance math the spawn ring uses — the one
+ * ashore). EXPORTED (Story 5.6) so every other placement — today the
+ * airdrops and the supply-drop spots and crates — reads THE SAME clearance
+ * math the spawn ring uses — the one
  * place "is this water deep enough for a hull" is answered.
  *
  * `islandDistance` carries the mandatory bounding-circle broadphase
@@ -221,25 +222,27 @@ function fallbackSpawn(map: MapShape, occupied: readonly Vec2[], offset: number)
 }
 
 // ---------------------------------------------------------------------------
-// RADIO BEACON SPOTS (Eric 2026-11-15, Story 11.7) — random open water. The
-// fleet-anchor max-min rule that placed beacons since Story 10.8 is retired:
-// it put every match's beacons in the same regular pattern, pushed away from
-// the players.
+// SUPPLY-DROP SPOTS (Eric 2026-11-15, Story 11.7, for the radio beacons;
+// kept for the supply drops that replaced them, Eric 2026-11-19, Story 12.4,
+// epic-12 amendment 5(f): "Same spawn characteristics") — random open water.
+// The fleet-anchor max-min rule that placed beacons since Story 10.8 is
+// retired: it put every match's spots in the same regular pattern, pushed
+// away from the players.
 // ---------------------------------------------------------------------------
 
-/** The placement knobs `pickBeaconSpot` reads (`CONFIG.beacons` in play). */
-export interface BeaconSpotConfig {
+/** The placement knobs `pickSupplySpot` reads (`CONFIG.supplyDrops` in play). */
+export interface SupplySpotConfig {
   /** Radius of each captain's keep-out disc — the SOFT rule. */
   readonly keepOutU: number;
-  /** Least distance to every beacon already placed this cycle — a HARD rule. */
+  /** Least distance to every spot already placed this cycle — a HARD rule. */
   readonly minSpacingU: number;
-  /** Uniform draws tried before the beacon is given up. */
+  /** Uniform draws tried before the spot is given up. */
   readonly placeAttempts: number;
 }
 
-/** A beacon spot. `keepOutRelaxed` = no draw cleared every captain's disc,
+/** A supply-drop spot. `keepOutRelaxed` = no draw cleared every captain's disc,
  *  so this is the first draw that met the hard rules (the caller logs it). */
-export interface BeaconSpot {
+export interface SupplySpot {
   x: number;
   y: number;
   keepOutRelaxed: boolean;
@@ -257,8 +260,8 @@ function withinAny(p: Vec2, pts: readonly Vec2[], r: number): boolean {
 }
 
 /** Does `p` meet the hard rules: off land, and at least `minSpacingU` from
- *  every beacon already taken this cycle? */
-function beaconSpotHardOk(p: Vec2, islands: readonly Island[], taken: readonly Vec2[], minSpacingU: number): boolean {
+ *  every spot already taken this cycle? */
+function supplySpotHardOk(p: Vec2, islands: readonly Island[], taken: readonly Vec2[], minSpacingU: number): boolean {
   if (islandClearance(p, islands) <= SPAWN_ISLAND_CLEARANCE) return false;
   const s2 = minSpacingU * minSpacingU;
   for (const q of taken) {
@@ -270,10 +273,11 @@ function beaconSpotHardOk(p: Vec2, islands: readonly Island[], taken: readonly V
 }
 
 /**
- * Pick one radio beacon's spot (Eric 2026-11-15, Story 11.7). Each draw is
+ * Pick one supply-drop spot (Eric 2026-11-15, Story 11.7 — for the radio
+ * beacons; the supply drops keep it, Story 12.4). Each draw is
  * uniform over the disc of `radius` about `center` (sqrt radius), FLOAT32-
  * exact like the wire value, so every distance test below is the one the
- * placed beacon really has.
+ * placed spot really has.
  *
  * Hard rules, never broken: inside that disc; clear of land at the spawn
  * ring's clearance; at least `cfg.minSpacingU` from every point of `taken`.
@@ -282,17 +286,17 @@ function beaconSpotHardOk(p: Vec2, islands: readonly Island[], taken: readonly V
  * Degradation (the placement always happens when it can, and degrades
  * visibly): the first draw meeting hard + soft wins; else the first draw
  * that met the hard rules, with `keepOutRelaxed: true`; else null (no
- * beacon for this slot). A `radius` ≤ 0 is null at once. Never throws.
+ * drop for this slot). A `radius` ≤ 0 is null at once. Never throws.
  */
-export function pickBeaconSpot(
+export function pickSupplySpot(
   center: Vec2,
   radius: number,
   islands: readonly Island[],
   taken: readonly Vec2[],
   captains: readonly Vec2[],
-  cfg: BeaconSpotConfig,
+  cfg: SupplySpotConfig,
   rng: Rng,
-): BeaconSpot | null {
+): SupplySpot | null {
   if (!(radius > 0)) return null;
   let relaxed: Vec2 | null = null;
   for (let i = 0; i < cfg.placeAttempts; i += 1) {
@@ -301,7 +305,7 @@ export function pickBeaconSpot(
     const p = { x: Math.fround(center.x + Math.cos(a) * r), y: Math.fround(center.y + Math.sin(a) * r) };
     // The float32 rounding can push a rim draw a hair outside the disc.
     if (Math.hypot(p.x - center.x, p.y - center.y) > radius) continue;
-    if (!beaconSpotHardOk(p, islands, taken, cfg.minSpacingU)) continue;
+    if (!supplySpotHardOk(p, islands, taken, cfg.minSpacingU)) continue;
     if (!withinAny(p, captains, cfg.keepOutU)) return { x: p.x, y: p.y, keepOutRelaxed: false };
     relaxed ??= p;
   }

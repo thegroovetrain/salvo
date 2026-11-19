@@ -40,13 +40,13 @@ describe('shellDamagedHull — one tick\'s events', () => {
     expect(shellDamagedHull([burst, { k: 'hc', id: 'own', x: 11, y: 20 }], 's1', 'own')).toBe(false); // another shell's hit
   });
 
-  it('a `boom` naming the shell with a `hit` is a hit; a hit-less boom (a beacon, open water) is not', () => {
+  it('a `boom` naming the shell with a `hit` is a hit; a hit-less boom (open water) is not', () => {
     expect(shellDamagedHull([{ k: 'boom', id: 's1', hit: 'b', x: 0, y: 0 }], 's1', 'own')).toBe(true);
     expect(shellDamagedHull([{ k: 'boom', id: 's1', x: 0, y: 0 }], 's1', 'own')).toBe(false);
     expect(shellDamagedHull([{ k: 'boom', id: 's2', hit: 'b', x: 0, y: 0 }], 's1', 'own')).toBe(false);
   });
 
-  it('a hit-less landing `boom` (a main-battery shell on a beacon) is a hit only with its owner\'s `hc` at the same point', () => {
+  it('a hit-less landing `boom` (a main-battery landing) is a hit only with its owner\'s `hc` at the same point', () => {
     const boom = { k: 'boom', id: 's1', x: 10, y: 20 } as const;
     expect(shellDamagedHull([boom, { k: 'hc', id: 'own', x: 10, y: 20 }], 's1', 'own')).toBe(true);
     expect(shellDamagedHull([boom, { k: 'hc', id: 'other', x: 10, y: 20 }], 's1', 'own')).toBe(false);

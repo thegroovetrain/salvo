@@ -1,7 +1,7 @@
 // THE PER-FRAME SHIP AUDIO (Story 10.13, wave B): the own engine, other
 // ships' engines close alongside, the storm bed, the klaxon, the own sinking
 // fade, and the per-frame edge cues that have no wire event (boost surge,
-// beacon set surfacing, a torpedo coming close). main.ts builds one
+// a supply drop landing, a torpedo coming close). main.ts builds one
 // `EngineFrame` per render frame from state it already holds and calls
 // `update` once; every decision is a pure function, and the class only keeps
 // voices alive and released.
@@ -47,14 +47,14 @@ import type { EngineProfile } from './engine.js';
 import { worldCue } from './tones.js';
 import { RemoteEngines, type RemoteHull, type RemoteMaker } from './remoteEngines.js';
 import {
-  beaconSurfaced,
+  supplyLanded,
   boostRose,
-  freshBeaconCueState,
+  freshSupplyCueState,
   freshTorpedoHumState,
   markHumHeard,
   torpedoHumCandidates,
   unseedTorpedoHum,
-  type BeaconCueState,
+  type SupplyCueState,
   type DrawnBallistic,
   type ListenerKind,
 } from './cueEdges.js';
@@ -90,9 +90,10 @@ export interface EngineFrame {
   hulls: readonly RemoteHull[];
   /** Every ballistic the client draws this frame (any kind). */
   drawn: readonly DrawnBallistic[];
-  /** The beacon set's identity and whether any of it is afloat (null = no data). */
-  beaconCycle: number | undefined;
-  beaconAfloat: boolean | null;
+  /** The supply set's identity and whether its crates have landed (null = no
+   *  chart data) — the `'beacon'` cue's edge since Story 12.4. */
+  supplyCycle: number | undefined;
+  supplyLanded: boolean | null;
   /** The conned hull is inside the storm (last rendered frame). */
   inStorm: boolean;
   matchOver: boolean;
@@ -171,7 +172,7 @@ export class EngineMix {
   private readonly klaxon: Klaxon;
   private halted = false;
   private boostPrev: boolean | null = null;
-  private beacons: BeaconCueState = freshBeaconCueState();
+  private supply: SupplyCueState = freshSupplyCueState();
   private readonly torps = freshTorpedoHumState();
   private sinkLatched = false;
   /** The sink target last written, or null while unplugged. */
@@ -234,10 +235,10 @@ export class EngineMix {
     this.reseedEdges();
   }
 
-  /** The next frame only SEEDS every edge detector (boost, beacon, torpedo hum). */
+  /** The next frame only SEEDS every edge detector (boost, supply landing, torpedo hum). */
   reseedEdges(): void {
     this.boostPrev = null;
-    this.beacons = freshBeaconCueState();
+    this.supply = freshSupplyCueState();
     unseedTorpedoHum(this.torps);
   }
 
@@ -292,7 +293,7 @@ export class EngineMix {
     const boost = f.own ? f.boostConfirmed : null;
     if (boost !== null && boostRose(this.boostPrev, boost)) this.audio.playCue('boostSurge');
     this.boostPrev = boost;
-    if (beaconSurfaced(this.beacons, f.beaconCycle, f.beaconAfloat)) this.audio.playCue('beacon');
+    if (supplyLanded(this.supply, f.supplyCycle, f.supplyLanded)) this.audio.playCue('beacon'); // a supply drop landed
     if (f.listener) this.humTorpedoes(f.listener, f.drawn, f.listenerKind);
   }
 

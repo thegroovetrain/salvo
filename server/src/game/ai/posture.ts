@@ -15,19 +15,18 @@
 //   4. THE RAM EXIT (amendment 201): a ram that has touched its target falls
 //      to disengage once CONFIG.bots.ramExitMs passes without the target
 //      sinking, and never re-arms on that target until the pair separate.
-//   5. NO TARGET: a beacon worth farming -> farm (Story 10.8: sail to its
-//      standoff and hold); else siege / trapper standing at a cover point
-//      HOLD (amendments 199/202); everyone else repositions (the routed
-//      patrol is wave 2's).
+//   5. NO TARGET: a supply-drop goal (Story 12.4, ai/supplyDrops.ts) ->
+//      reposition (the helm sails for the spot); else siege / trapper
+//      standing at a cover point HOLD (amendments 199/202); everyone else
+//      repositions (the routed patrol is wave 2's). (Story 10.8's beacon
+//      `farm`, and clause 6b's beacon stayer, were deleted with the beacons
+//      by Story 12.4.)
 //   6. THE RING CLAUSES (amendment 200(2)): a target outside the live ring is
 //      never chased (engaged only from where the bot is, if in reach); with
 //      the close under CONFIG.bots.ringOpenMarginMs no fight is opened.
-//   6b. THE BEACON STAYER (Story 10.12, R4): a profile that does not contest
-//      a beacon, with a beacon goal on its mind, stays in `farm` with a
-//      target; raider and duelist (and a bot with no goal) go on below.
 //   7. NO LINE OF FIRE -> pursue (unchanged; wave 2 routes it).
-//   8. (Retired at Story 10.8 with the PvE fleet: the fleet-prize `farm`.
-//      `farm` is now the target-less beacon farm of clause 4 alone.)
+//   8. (Retired at Story 10.8 with the PvE fleet: the fleet-prize `farm`;
+//      the beacon `farm` that replaced it went with Story 12.4.)
 //   9. IN OWN REACH -> engage. BEYOND IT, THE ODDS GATE (amendments 194–195):
 //      pass -> pursue; fail -> lean in (raider / duelist at
 //      CONFIG.bots.leanInFactor of the bar), else SHADOW at own reach (`kite`)
@@ -46,7 +45,6 @@
 
 import {
   CONFIG,
-  beaconInRange,
   contactHitDamage,
   effectiveStats,
   hullBumper,
@@ -171,26 +169,9 @@ function engagement(sit: BotSituation, target: BotTrack | null, prev: BotPosture
   if (outsideRing(sit.ring, p)) return lineBlocked(sit, p, sit.islands) ? idle(sit, inp) : 'engage';
   const inReach = Math.hypot(p.x - sit.x, p.y - sit.y) <= ownReachU(sit);
   if (!inReach && closeImminent(sit, inp)) return 'reposition';
-  if (staysOnBeacon(sit, prev, inp)) return 'farm';
   if (lineBlocked(sit, p, sit.islands)) return 'pursue';
   if (inReach) return 'engage';
   return beyondReach(sit, target, p, prev, inp);
-}
-
-/** THE BEACON STAYER (Story 10.12, Eric 2026-11-11, epic-10 amendment 21,
- *  R4): a profile that does not contest a beacon (`contestsBeacon` false),
- *  already FARMING (the previous posture `farm`), INSIDE its beacon goal's
- *  paying circle while the beacon is PAYING, is not pulled off it by a target
- *  — it stays in `farm` (the helm keeps station; the guns shoot from there).
- *  A stayer already fighting that merely orbits across a beacon's circle is
- *  not pulled out of its fight, and a charted / spent beacon holds nobody.
- *  The break-off, ring run and ring clauses still outrank it. */
-function staysOnBeacon(sit: BotSituation, prev: BotPosture, inp: PostureInputs): boolean {
-  const goal = inp.mind?.beaconGoal ?? null;
-  if (sit.profile.contestsBeacon || prev !== 'farm' || goal === null) return false;
-  // PARKED AND COLLECTING is the ruling: a stayer still on its way to a
-  // beacon answers a contact like any bot (the paying circle is the test).
-  return goal.paying && beaconInRange(goal.x, goal.y, sit.x, sit.y);
 }
 
 /** Clause 9's far half: the odds gate on a contact beyond own reach. A
@@ -244,13 +225,13 @@ function hideOrLeave(sit: BotSituation, mind: BotMind | null, threat: Vec2, prev
   return mind.coverPoint ? 'hide' : 'disengage';
 }
 
-/** Clause 5: no target. A public beacon worth farming in the patrol disc
- *  (the deliberation's `mind.beaconGoal`, ai/beacons.ts — Story 10.8) is
- *  farmed by every profile; otherwise siege / trapper lie in wait at a cover
- *  point. */
+/** Clause 5: no target. A charted supply drop on the bot's mind (the
+ *  deliberation's `mind.supplyGoal`, ai/supplyDrops.ts — Story 12.4) is a
+ *  `reposition` the helm steers for the spot; otherwise siege / trapper lie
+ *  in wait at a cover point. */
 function idle(sit: BotSituation, inp: PostureInputs): BotPosture {
   const mind = inp.mind ?? null;
-  if ((mind?.beaconGoal ?? null) !== null) return 'farm';
+  if ((mind?.supplyGoal ?? null) !== null) return 'reposition';
   if (mind === null || !sit.profile.holdsInCover) return 'reposition';
   if (!coverUsable(sit, mind.coverPoint, inp.nextRing)) {
     mind.coverPoint = findCover(mind, coverSite(sit), null, sit.islands, mind.fogAt, coverOptions(sit, inp));

@@ -38,11 +38,10 @@ export class ContactBodies {
 
   /**
    * This frame's bodies: every sighted contact except `ownId`, posed at `at`
-   * (server ms), then every `fixed` body appended as handed in — the solid
-   * radio beacons (Story 10.8, sim/beaconView.ts `BeaconBodies`), immovable.
-   * The list (and its bodies) is reused by the next call.
+   * (server ms). The list (and its bodies) is reused by the next call. (The
+   * radio beacons' immovable bodies went with the beacons, Story 12.4.)
    */
-  build(src: ContactPoseSource, at: number, ownId: string, fixed: readonly ContactBody[] = []): readonly ContactBody[] {
+  build(src: ContactPoseSource, at: number, ownId: string): readonly ContactBody[] {
     this.list.length = 0;
     this.held.clear();
     for (const id of src.ids()) {
@@ -52,7 +51,6 @@ export class ContactBodies {
       if (body !== null) this.list.push(body);
     }
     for (const id of this.byId.keys()) if (!this.held.has(id)) this.byId.delete(id);
-    for (const b of fixed) this.list.push(b);
     return this.list;
   }
 

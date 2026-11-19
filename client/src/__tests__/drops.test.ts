@@ -1,14 +1,15 @@
 // Story 10.9 — the airdrop renderer (render/drops.ts): the kind → color/glyph
-// core and the add/remove reconcile of the adapter.
+// core and the add/remove reconcile of the adapter. Story 12.4: two kinds,
+// the XP crate (+XP linework) and the wreck.
 import { describe, expect, it } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
-import { INDEX_IDS, type DropKind, type DropView } from '@salvo/shared';
+import { isDropKind, type DropKind, type DropView } from '@salvo/shared';
 import { Drops, crateStyleFor, drawCrate } from '../render/drops.js';
-import { glyphPaths } from '../render/equipmentIcons.js';
+import { drawEquipmentIcon, glyphPaths } from '../render/equipmentIcons.js';
 import { CLIENT_CONFIG } from '../config.js';
 
-const KINDS: DropKind[] = [...INDEX_IDS, 'wreck'];
-const crate = (id: string, x = 0, y = 0, c: DropKind = 'armor'): DropView => ({ id, x, y, c });
+const KINDS = Object.keys(CLIENT_CONFIG.drops.kindColors) as DropKind[];
+const crate = (id: string, x = 0, y = 0, c: DropKind = 'xp'): DropView => ({ id, x, y, c });
 
 describe('Drops — the add/remove reconcile', () => {
   it('adds one child per view, positioned at its (x, y)', () => {
@@ -54,8 +55,14 @@ describe('the crate core', () => {
     expect(crateStyleFor(kind).color).toBe(CLIENT_CONFIG.drops.kindColors[kind]);
   });
 
-  it('armor is pink (Eric 2026-11-09)', () => {
-    expect(crateStyleFor('armor')).toEqual({ color: CLIENT_CONFIG.colors.pink, glyphId: 'armor' });
+  it('kindColors holds exactly the drop kinds (xp + wreck), each one a shared DropKind', () => {
+    expect([...KINDS].sort()).toEqual(['wreck', 'xp']);
+    for (const k of KINDS) expect(isDropKind(k)).toBe(true);
+  });
+
+  it('each kind wears its own glyph id (the XP crate the +XP, the wreck the salvage mark)', () => {
+    expect(crateStyleFor('xp').glyphId).toBe('xp');
+    expect(crateStyleFor('wreck').glyphId).toBe('wreck');
   });
 
   it('the glow reads its dials: two underlay passes in the kind color, then the body', () => {
@@ -71,8 +78,8 @@ describe('the crate core', () => {
         strokes.push(s);
         return orig(s);
       }) as typeof g.stroke;
-      drawCrate(g, 'power', 0.9);
-      const color = CLIENT_CONFIG.drops.kindColors.power;
+      drawCrate(g, 'xp', 0.9);
+      const color = CLIENT_CONFIG.drops.kindColors.xp;
       const body = strokes[2];
       expect(body).toMatchObject({ alpha: 0.9, color });
       expect(strokes[0]).toMatchObject({ width: body.width + 2 * 3, alpha: 0.2, color });
@@ -80,5 +87,53 @@ describe('the crate core', () => {
     } finally {
       Object.assign(cfg, was);
     }
+  });
+});
+
+describe('the +XP glyph (Story 12.4) — linework, not text', () => {
+  /** A Graphics stand-in that records every path call. */
+  function recorder(): { g: Graphics; calls: string[] } {
+    const calls: string[] = [];
+    const g = new Graphics();
+    for (const m of ['moveTo', 'lineTo', 'circle', 'stroke', 'fill', 'poly'] as const) {
+      const orig = (g[m] as (...a: unknown[]) => unknown).bind(g);
+      (g as unknown as Record<string, unknown>)[m] = (...a: unknown[]) => {
+        calls.push(m);
+        return orig(...a);
+      };
+    }
+    return { g, calls };
+  }
+
+  it('is a set of open polylines inside the unit frame, with no fills and no inks', () => {
+    const parts = glyphPaths('xp');
+    expect(parts).not.toBeNull();
+    expect(parts!.length).toBeGreaterThan(0);
+    for (const p of parts!) {
+      expect(p.kind).toBe('path');
+      if (p.kind !== 'path') continue;
+      expect(p.fill).toBeUndefined();
+      expect(p.ink).toBeUndefined();
+      expect(p.pts.length).toBeGreaterThanOrEqual(2);
+      for (const [x, y] of p.pts) {
+        expect(Math.abs(x)).toBeLessThanOrEqual(1);
+        expect(Math.abs(y)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('is its own drawing (never the wreck`s)', () => {
+    expect(glyphPaths('xp')).not.toEqual(glyphPaths('wreck'));
+  });
+
+  it('strokes one moveTo per polyline and one lineTo per further point, in a single stroke', () => {
+    const parts = glyphPaths('xp')!;
+    const { g, calls } = recorder();
+    drawEquipmentIcon(g, 'xp', 0, 0, 20, { width: 1.5, color: 0xffffff });
+    const pts = parts.reduce((n, p) => n + (p.kind === 'path' ? p.pts.length : 0), 0);
+    expect(calls.filter((c) => c === 'moveTo')).toHaveLength(parts.length);
+    expect(calls.filter((c) => c === 'lineTo')).toHaveLength(pts - parts.length);
+    expect(calls.filter((c) => c === 'stroke')).toHaveLength(1);
+    expect(calls).not.toContain('fill');
   });
 });

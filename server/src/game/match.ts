@@ -269,9 +269,6 @@ export interface MatchEndSummary {
   winnerClass: string | null;
   /** hullId -> summed kills across combatants. */
   killsByClass: Record<string, number>;
-  /** hullId -> summed RADIO BEACON XP ms across combatants (Story 10.8) —
-   *  keyed by the EARNER's hull, as `killsByClass` is. Operator telemetry. */
-  beaconXpMsByClass: Record<string, number>;
   /** Sinks with no attributable killer (storm deaths) observed while active. */
   stormDeaths: number;
   /** How the match ended (amendment 53). Before a finish this reads the
@@ -320,11 +317,8 @@ export interface Participant {
   hullId: HullId;
   kills: number;
   damageDealt: number;
-  /** XP ms this combatant was paid by RADIO BEACONS (Story 10.8 —
-   *  `ShipRecord.beaconXpMs`), snapshotted exactly as `damageDealt` is. */
-  beaconXpMs: number;
   /** Airdrops this combatant collected (Story 10.9 — `ShipRecord.dropsTaken`;
-   *  a wreck pickup counts once), snapshotted exactly as `beaconXpMs` is. */
+   *  a wreck pickup counts once), snapshotted exactly as `damageDealt` is. */
   dropsTaken: number;
   /** THE BUILD AND THE HAND LOG (Story 8.21, R3 "leavers yes"): the seat's
    *  Shift (Story 10.4 — was the gun), the fitted card ids (fit order, repeats intact), every hand dealt and
@@ -350,7 +344,6 @@ function participantOf(ship: ShipRecord): Participant {
     hullId: ship.hullId,
     kills: ship.kills,
     damageDealt: ship.damageDealt,
-    beaconXpMs: ship.beaconXpMs,
     dropsTaken: ship.dropsTaken,
     shift: ship.shift,
     cards: [...ship.cards] as LineId[],
@@ -1079,11 +1072,9 @@ export class Match {
   endSummary(): MatchEndSummary {
     const rosterByClass: Record<string, number> = {};
     const killsByClass: Record<string, number> = {};
-    const beaconXpMsByClass: Record<string, number> = {};
     for (const p of this.participants.values()) {
       addTo(rosterByClass, p.hullId, 1);
       addTo(killsByClass, p.hullId, p.kills);
-      addTo(beaconXpMsByClass, p.hullId, p.beaconXpMs);
     }
     const finished = this.finishedAt > 0 && this.activatedAt > 0;
     const durationS = finished ? Math.round((this.finishedAt - this.activatedAt) / 100) / 10 : 0;
@@ -1093,7 +1084,6 @@ export class Match {
       durationS,
       winnerClass: this.participants.get(this.winnerId)?.hullId ?? null,
       killsByClass,
-      beaconXpMsByClass,
       stormDeaths: this.stormDeaths,
       endedBy: this.endedBy,
       outcome: this.outcomeOf(finished),
@@ -1146,7 +1136,6 @@ export class Match {
     const fresh = participantOf(ship);
     p.kills = fresh.kills;
     p.damageDealt = fresh.damageDealt;
-    p.beaconXpMs = fresh.beaconXpMs;
     p.dropsTaken = fresh.dropsTaken;
     p.shift = fresh.shift;
     p.cards = fresh.cards;

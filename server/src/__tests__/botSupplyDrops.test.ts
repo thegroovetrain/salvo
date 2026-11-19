@@ -1,0 +1,357 @@
+// THE SUPPLY RUN (Story 12.4, Eric 2026-11-19 "Head for charted drops",
+// epic-12 amendment 5(h)) — the bots' half: the port's chart view, the pick
+// (who seeks, which drop), the steering to the spot, the wait for the
+// landing, the release, and on a real World that a seeking bot is on the
+// spot around the landing and takes crates afterwards.
+//
+// Every time and distance is read off CONFIG and the shared supply clock; no
+// number of Eric's is pinned here.
+
+import { describe, expect, it } from 'vitest';
+import { CONFIG, mulberry32, supplyLandMs, type DropView, type Vec2 } from '@salvo/shared';
+import { World, type ShipRecord } from '../game/world.js';
+import type { PerceptionView } from '../game/perception.js';
+import { makeBotPort, supplyRowsOf, type BotPortSource } from '../game/botPort.js';
+import type { SupplyChart, SupplyChartRow } from '../game/supplyDrops.js';
+import { COMBAT_BRAIN } from '../game/ai/tactics.js';
+import { atSupplySpot, pickSupplyDrop, supplyCrateOf, supplyGoalOf, waitingForSupply } from '../game/ai/supplyDrops.js';
+import { hullLengthU } from '../game/ai/navigate.js';
+import type { BotMind, BotProfileId, BotSupplyDrop, BotWorldPort, RememberedContact } from '../game/ai/types.js';
+import { flatRaster } from './islandFixture.js';
+
+const DT = CONFIG.tick.simDtMs;
+const SURFACE_MS = CONFIG.supplyDrops.surfaceMs;
+const NOW = 100000;
+
+/** Every in-game personality (Eric 2026-11-19, "Every bot"). */
+const PROFILES = CONFIG.bots.profiles as readonly BotProfileId[];
+const SCATTER_U = CONFIG.supplyDrops.scatterU;
+
+// --- fixtures -----------------------------------------------------------------
+
+function openWorld(seed: number): World {
+  const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone);
+  w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
+  return w;
+}
+
+/** A hand-built port (botTactics.test's shape) with a settable chart. */
+function fakePort(w: World, drops: BotSupplyDrop[], now = NOW): BotWorldPort {
+  const live = { cx: 0, cy: 0, r: w.map.radius };
+  return {
+    now,
+    map: w.map,
+    zoneLiveRing: live,
+    zoneEndgameReached: false,
+    helmEnabled: true,
+    submitInput: () => true,
+    spendPoint: () => true,
+    zoneNextRing: () => null,
+    zonePhase: () => ({ phase: 'idle', closesInMs: null }),
+    zoneSafeDisc: () => live,
+    supplyDrops: () => drops,
+  };
+}
+
+function mkMind(profile: BotProfileId, seed = 7): BotMind {
+  return {
+    rng: mulberry32(seed),
+    spendRng: mulberry32(seed + 1),
+    seq: 0,
+    fireSeq: 0,
+    actSeq: 0,
+    profile,
+    phase: 0,
+    view: null,
+    viewAt: -1,
+    contacts: new Map(),
+    wakeCells: [],
+    lastSweep: -1,
+    targetKey: null,
+    posture: 'reposition',
+    stuckMs: 0,
+    unbeachUntil: 0,
+  };
+}
+
+function mkBot(w: World, x: number, y: number, heading = 0): ShipRecord {
+  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', 'bismarck', undefined, { x, y });
+  rec.state = { x, y, heading, speed: 0 };
+  return rec;
+}
+
+/** A pending drop (lands `inMs` after NOW). */
+const pending = (x: number, y: number, inMs = SURFACE_MS / 2): BotSupplyDrop => ({ x, y, landT: NOW + inMs });
+
+/** The station slack the helm uses (two own hull lengths). */
+const slackOf = (rec: ShipRecord): number => 2 * hullLengthU(rec.hullId);
+
+function row(spot: number, x: number, y: number, cycleStartT: number): SupplyChartRow {
+  return { cycle: 0, spot, x, y, cycleStartT };
+}
+
+// --- the port -------------------------------------------------------------------
+
+describe('BotWorldPort.supplyDrops — the public chart, nothing more', () => {
+  /** A minimal adapter source over a settable chart. */
+  function source(chart: SupplyChart): BotPortSource {
+    const w = openWorld(1300);
+    return {
+      now: NOW,
+      map: w.map,
+      zoneLiveRing: { cx: 0, cy: 0, r: w.map.radius },
+      zoneCurrentRing: { cx: 0, cy: 0, r: w.map.radius },
+      zoneRevealedNextRing: null,
+      zoneStartMs: 0,
+      zonePhase: 'idle',
+      zoneEndgameReached: false,
+      helmEnabled: true,
+      supplyChart: chart,
+      submitInput: () => true,
+      spendPoint: () => true,
+    };
+  }
+
+  it('is empty when nothing is charted', () => {
+    expect(makeBotPort(source([]), CONFIG.zone).supplyDrops!()).toEqual([]);
+  });
+
+  it('maps each chart row to its spot and the shared landing time', () => {
+    const chart = [row(0, 100, 200, 5000), row(1, -300, 50, 5000)];
+    const view = makeBotPort(source(chart), CONFIG.zone).supplyDrops!();
+    expect(view).toEqual(chart.map((r) => ({ x: r.x, y: r.y, landT: supplyLandMs(r.cycleStartT) })));
+  });
+
+  it('reuses one array between calls, trimmed to the chart (read it, never keep it)', () => {
+    const out: BotSupplyDrop[] = [];
+    const a = supplyRowsOf([row(0, 1, 2, 0), row(1, 3, 4, 0)], out);
+    expect(a).toBe(out);
+    expect(supplyRowsOf([row(0, 5, 6, 0)], out)).toBe(out);
+    expect(out).toHaveLength(1);
+  });
+
+  it('carries no fact beyond the spot and the landing', () => {
+    const view = makeBotPort(source([row(0, 100, 200, 5000)]), CONFIG.zone).supplyDrops!();
+    expect(Object.keys(view[0]).sort()).toEqual(['landT', 'x', 'y']);
+  });
+
+  it('a real World\'s port reads World.supplyChart through the shared landing time', () => {
+    const w = openWorld(1301);
+    const port = (w.bots as unknown as { port: BotWorldPort }).port;
+    expect(port.supplyDrops!()).toEqual([]);
+    seatDrops(w, 0, [{ x: 400, y: -200 }]);
+    expect(port.supplyDrops!()).toEqual(w.supplyChart.map((r) => ({ x: r.x, y: r.y, landT: supplyLandMs(r.cycleStartT) })));
+  });
+});
+
+// --- the pick and the goal -------------------------------------------------------
+
+describe('ai/supplyDrops — pick, keep, release', () => {
+  const disc = { cx: 0, cy: 0, r: 2000 };
+  const pos = { x: 0, y: 0 };
+
+  it('picks the NEAREST drop still to land inside the disc', () => {
+    const far = pending(900, 0);
+    const near = pending(0, 600);
+    const landed: BotSupplyDrop = { x: 100, y: 0, landT: NOW };
+    const outside = pending(2500, 0);
+    expect(pickSupplyDrop([far, near, landed, outside], disc, pos, NOW)).toBe(near);
+    expect(pickSupplyDrop([far, landed, outside], disc, pos, NOW)).toBe(far);
+    expect(pickSupplyDrop([landed, outside], disc, pos, NOW)).toBeNull();
+    expect(pickSupplyDrop([], disc, pos, NOW)).toBeNull();
+  });
+
+  /** The bot's reading for supplyGoalOf. */
+  const SLACK = 50;
+  const at = (p: Vec2, now: number, sighted: readonly Vec2[] = []) => ({ pos: p, now, sighted, slackU: SLACK });
+
+  it('the goal is a copy of the row, and is KEPT (same object) while due', () => {
+    const rows = [pending(500, 0)];
+    const g1 = supplyGoalOf(rows, disc, at(pos, NOW), null)!;
+    expect(g1).toEqual(rows[0]);
+    expect(g1).not.toBe(rows[0]);
+    expect(supplyGoalOf(rows, disc, at({ x: 100, y: 0 }, NOW + 1000), g1)).toBe(g1);
+  });
+
+  it('after the landing: kept on the way in and while a SIGHTED crate lies in the circle; released ON the spot with none', () => {
+    const d = pending(500, 0);
+    const g = supplyGoalOf([d], disc, at(pos, NOW), null)!;
+    const after = d.landT + 1;
+    const spot = { x: d.x, y: d.y };
+    const inCircle = { x: d.x + SCATTER_U / 2, y: 0 };
+    const outCircle = { x: d.x + SCATTER_U * 2, y: 0 };
+    expect(supplyGoalOf([d], disc, at({ x: d.x - 2 * SCATTER_U, y: 0 }, after), g)).toBe(g); // still on its way (outside the circle)
+    expect(supplyGoalOf([d], disc, at(spot, after, [inCircle]), g)).toBe(g); // crates left to take
+    expect(supplyGoalOf([d], disc, at(spot, after, [outCircle]), g)).toBeNull(); // a crate outside the circle is not this drop's
+    expect(supplyGoalOf([d], disc, at(spot, after), g)).toBeNull(); // cleared
+    expect(supplyGoalOf([d], disc, at(inCircle, after), g)).toBe(g); // off the spot: back to it first
+  });
+
+  it('the crate to collect is the nearest SIGHTED one inside the circle', () => {
+    const spot = { x: 0, y: 0 };
+    const near = { x: SCATTER_U / 4, y: 0 };
+    const far = { x: -SCATTER_U / 2, y: 0 };
+    const outside = { x: SCATTER_U + 1, y: 0 };
+    expect(supplyCrateOf(spot, [far, near, outside], spot)).toBe(near);
+    expect(supplyCrateOf(spot, [far, outside], { x: outside.x, y: 0 })).toBe(far); // outside never counts, however close
+    expect(supplyCrateOf(spot, [outside], spot)).toBeNull();
+    expect(supplyCrateOf(spot, [], spot)).toBeNull();
+  });
+
+  it('a goal that left the chart or the disc is dropped for the next pick', () => {
+    const a = pending(500, 0);
+    const b = pending(-800, 0);
+    const g = supplyGoalOf([a, b], disc, at(pos, NOW), null)!;
+    expect([g.x, g.y]).toEqual([a.x, a.y]);
+    const g2 = supplyGoalOf([b], disc, at(pos, NOW), g)!; // a's row is gone
+    expect([g2.x, g2.y]).toEqual([b.x, b.y]);
+    const shrunk = { cx: -1000, cy: 0, r: 1200 }; // a's spot outside it
+    const g3 = supplyGoalOf([a, b], shrunk, at(pos, NOW), g)!;
+    expect([g3.x, g3.y]).toEqual([b.x, b.y]);
+  });
+
+  it('waiting = on the spot with the crates not yet down', () => {
+    const g = pending(0, 0);
+    expect(atSupplySpot(g, { x: SLACK, y: 0 }, SLACK)).toBe(true);
+    expect(waitingForSupply(g, { x: SLACK, y: 0 }, NOW, SLACK)).toBe(true);
+    expect(waitingForSupply(g, { x: SLACK + 1, y: 0 }, NOW, SLACK)).toBe(false);
+    expect(waitingForSupply(g, { x: 0, y: 0 }, g.landT, SLACK)).toBe(false);
+  });
+});
+
+// --- the brain -------------------------------------------------------------------
+
+describe('COMBAT_BRAIN — the supply run', () => {
+  it('EVERY personality with no target sails full ahead for the charted spot', () => {
+    const w = openWorld(1310);
+    const drop = pending(1200, 0);
+    const port = fakePort(w, [drop]);
+    expect(PROFILES.length).toBeGreaterThan(1);
+    for (const id of PROFILES) {
+      const rec = mkBot(w, 0, 0, Math.PI / 2); // bow due north, drop due east
+      const mind = mkMind(id);
+      const d = COMBAT_BRAIN.decide(rec, mind, port);
+      expect(mind.supplyGoal, id).toEqual(drop);
+      expect(mind.posture, id).toBe('reposition');
+      expect(d.throttle, id).toBe(1);
+      expect(d.rudder, id).toBeLessThan(0); // starboard: a north bow turns east
+      expect(d.fireSlot, id).toBeNull();
+    }
+  });
+
+  it('on the spot before the landing it WAITS dead in the water', () => {
+    const w = openWorld(1312);
+    const rec = mkBot(w, 0, 0);
+    rec.state.speed = 5;
+    const port = fakePort(w, [pending(slackOf(rec) / 2, 0)]);
+    const mind = mkMind('trapper');
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.supplyGoal).not.toBeNull();
+    expect([d.throttle, d.rudder]).toEqual([0, 0]);
+  });
+
+  it('on the spot once landed with NO crate sighted in the circle it RELEASES the goal and patrols on', () => {
+    const w = openWorld(1313);
+    const rec = mkBot(w, 0, 0);
+    const drop = pending(slackOf(rec) / 2, 0);
+    const mind = mkMind('siege');
+    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop]));
+    expect(mind.supplyGoal).not.toBeNull();
+    const d = COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop], drop.landT));
+    expect(mind.supplyGoal).toBeNull();
+    expect(mind.posture).toBe('reposition');
+    expect(d.throttle).toBeGreaterThan(0);
+  });
+
+  it('on the spot once landed with a crate sighted in the circle it KEEPS the goal and steers for the crate', () => {
+    const w = openWorld(1316);
+    const rec = mkBot(w, 0, 0, 0); // bow due east
+    const drop = pending(0, 0);
+    const mind = mkMind('bulwark');
+    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop]));
+    const crate: DropView = { id: 'c1', x: 0, y: -SCATTER_U / 2, c: 'xp' }; // due south, abeam to starboard
+    mind.view = { drops: [crate], mines: [] } as unknown as PerceptionView;
+    const d = COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop], drop.landT));
+    expect(mind.supplyGoal).toEqual(drop);
+    expect(d.throttle).toBe(1);
+    expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the crate
+  });
+
+  it('a sighted crate in its lane on the way is taken (the lane nudge rides the supply run)', () => {
+    const w = openWorld(1314);
+    const rec = mkBot(w, 0, 0, 0); // bow due east, drop due east
+    const port = fakePort(w, [pending(2000, 0)]);
+    const crate: DropView = { id: 'c1', x: CONFIG.bots.dropAheadU / 2, y: CONFIG.bots.dropLaneU / 2, c: 'xp' };
+    const plain = mkMind('trapper');
+    plain.view = { drops: [], mines: [] } as unknown as PerceptionView;
+    const straight = COMBAT_BRAIN.decide(rec, plain, port);
+    const withCrate = mkMind('trapper');
+    withCrate.view = { drops: [crate], mines: [] } as unknown as PerceptionView;
+    const nudged = COMBAT_BRAIN.decide(rec, withCrate, port);
+    expect(withCrate.supplyGoal).not.toBeNull();
+    expect(nudged.throttle).toBe(straight.throttle);
+    expect(nudged.rudder).toBeGreaterThan(straight.rudder); // the crate lies to port of the line
+  });
+
+  it('a TARGET outranks the drop: the helm is the target\'s, never the spot\'s', () => {
+    const w = openWorld(1315);
+    const port = fakePort(w, [pending(1200, 0)]);
+    const rec = mkBot(w, 0, 0);
+    const mind = mkMind('trapper');
+    const t: RememberedContact = {
+      id: 'tgt', x: 0, y: 300, heading: 0, speed: 0, seenAt: NOW, live: true, sunk: false,
+      cls: 'bismarck', firstSeenAt: NOW - CONFIG.bots.reactionMs * 4, hits: 0,
+      vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 300, paintAt: -1, missSweptAt: -1,
+    };
+    mind.contacts.set('tgt', t);
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.targetKey).toBe('tgt');
+    expect(mind.posture).not.toBe('reposition');
+  });
+});
+
+// --- a real World ----------------------------------------------------------------
+
+/** cycle 0's set with its spots at `at`, `intoMs` into the cycle now (the
+ *  field's own `replace`, the directed pick). */
+function seatDrops(w: World, intoMs: number, at: readonly Vec2[]): void {
+  const t0 = w.now - intoMs;
+  w.startZone(t0);
+  w.supply.replace(0, t0, (_rng, taken) => at[taken.length] ?? null);
+}
+
+describe('a real World — a bot is on the spot for the landing and clears the crates', () => {
+  it('arrives before the landing, waits there, takes the crates of the drop it sees, then releases on the spot', () => {
+    const w = openWorld(1320);
+    const at: Vec2 = { x: 0, y: 0 };
+    seatDrops(w, 0, [at]);
+    const landT = supplyLandMs(w.supplyChart[0].cycleStartT);
+    const rec = w.addBot('bismarck', 'siege'); // a cover-holder: every personality seeks
+    rec.state = { x: 1500, y: 0, heading: 0, speed: 0 }; // bow pointed AWAY
+    const mind = (w.bots as unknown as { minds: Map<string, BotMind> }).minds.get(rec.id)!;
+    const slack = slackOf(rec);
+    let onSpotAtLanding = false;
+    while (w.now < landT) {
+      w.step();
+      onSpotAtLanding = Math.hypot(rec.state.x - at.x, rec.state.y - at.y) <= slack;
+    }
+    expect(onSpotAtLanding).toBe(true);
+    expect(Math.abs(rec.state.speed)).toBeLessThan(1);
+    w.step(); // the landing tick
+    const inCircle = (c: Vec2): boolean => Math.hypot(c.x - at.x, c.y - at.y) <= SCATTER_U;
+    const circleCrates = (): string[] => [...w.drops.entries()].filter(([, c]) => inCircle(c)).map(([id]) => id);
+    const landed = circleCrates();
+    expect(landed.length).toBeGreaterThan(0);
+    const taken0 = rec.dropsTaken;
+    for (let i = 0; i < (2 * SURFACE_MS) / DT && (mind.supplyGoal ?? null) !== null; i += 1) w.step();
+    expect(mind.supplyGoal ?? null).toBeNull(); // released
+    // At the release no crate in the circle is in its sight ...
+    expect((mind.view?.drops ?? []).filter(inCircle)).toEqual([]);
+    // ... and it released ON the spot, having taken the crates that are gone.
+    expect(atSupplySpot(at, rec.state, slack)).toBe(true);
+    const left = circleCrates();
+    expect(left.length).toBeLessThan(landed.length);
+    expect(rec.dropsTaken - taken0).toBe(landed.length - left.length);
+  });
+});

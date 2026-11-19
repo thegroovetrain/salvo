@@ -384,6 +384,18 @@
 // seven `,"hb":n` tokens deleted — each a hull sent beyond the observer's
 // class-and-name sight (the hazed band, or lit by an own zone past it). No
 // frame, tick, value, event or count moved.
+//
+// RE-RECORDED 2026-11-19 (Story 12.4, the level stat roll; Eric 2026-11-19,
+// epic-12 amendment 5(b); PV 112 placeholder). THREE `you` rows moved, in
+// two keys each, nothing else: in the three scenarios where the observer's
+// kill crosses a level on tick 1 (the shooter `a` that sinks `b`), that
+// level now rolls its stats, so the row's own `ib` goes from `{}` to the
+// rolled points (armor/power/reload/engines/intel; ARMOR, ENGINES and INTEL
+// appear in all three) and its `sweep` advances a hair further (the INTEL
+// points speed the beam: 0.0785398… → 0.0793252… / 0.0801106… / 0.0808960…).
+// Diffed key by key against the old snapshot: no other row, frame, tick,
+// event, contact, paint or count moved; the six exceptions and every proof
+// are unchanged. `ib` is self-private (`you` only), as before.
 
 import { describe, it, expect } from 'vitest';
 import {

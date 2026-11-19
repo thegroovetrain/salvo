@@ -114,15 +114,16 @@ describe('grantOpening — one banked level and a hand, participants only', () =
     expect(a.bankedLevels).toBe(1);
   });
 
-  // AN EMPTY DRAW BANKS NOTHING (Story 10.7, R5): an all-stub catalog has no
-  // dealable line, so the opening grant draws empty and its level becomes one
-  // bonus index point instead of a bank.
-  it('an all-stub catalog draws empty at the opening: nothing banked, no offer, no pt — one bonus point', () => {
+  // AN EMPTY DRAW BANKS NOTHING (Story 10.7, R5; since Story 12.4, epic-12
+  // amendment 5(c), with no bonus-point conversion): an all-stub catalog has
+  // no dealable line, so the opening grant draws empty and banks nothing —
+  // and the opening never rolls stats (`level` does not move).
+  it('an all-stub catalog draws empty at the opening: nothing banked, no offer, no pt, no point', () => {
     const w = bareWorld(4, { catalog: { ghost: { id: 'ghost', kind: 'consumable', cap: 5, stub: true, tiers: [] } } });
     const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     w.grantOpening();
     expect(a.bankedLevels).toBe(0);
-    expect(Object.values(a.indexBonus).reduce((s, n) => s + n, 0)).toBe(1);
+    expect(Object.values(a.indexBonus).reduce((s, n) => s + n, 0)).toBe(0);
     expect(a.offer).toBeNull(); // an offer-less level advertises no refit
     w.step();
     expect(ptIds(w)).toEqual([]);

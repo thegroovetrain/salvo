@@ -29,9 +29,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, paintDiscCoverage, type BlipEvent, type DropState, type FrameMsg, type GameEvent } from '@salvo/shared';
-import type { World } from '../game/world.js';
+import type { CrateState, World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
-import { bareWorld, captain, moveTo } from './beaconFixture.js';
+import { bareWorld, captain, moveTo } from './worldFixture.js';
 
 const RADAR = CONFIG.vision.radar;
 const CRATE_SIGHT = CONFIG.vision.crateKindSight; // Story 11.2: a crate's kind has its own eye reach
@@ -44,7 +44,7 @@ const UNPAINTED = RADAR + 300;
  *  diameter, so the crate sits half of UNPAINTED east of the origin and the
  *  `far` hull as far west — both on the water (a hull seated past the rim is
  *  pushed back onto it by the first step, which would put it inside radar). */
-const CRATE: DropState = Object.freeze({ id: 'drop-7x', x: Math.fround(UNPAINTED / 2), y: Math.fround(-418.75), kind: 'armor' });
+const CRATE: DropState = Object.freeze({ id: 'drop-7x', x: Math.fround(UNPAINTED / 2), y: Math.fround(-418.75), kind: 'xp' });
 
 /** Park a hull's beam just short of the bearing to `p`, so the sweep crosses
  *  it within the first ticks of a run (the perception.test.ts posture). */
@@ -227,7 +227,9 @@ describe('airdrops — the pickup tell `dp` reaches the collector alone', () => 
     // half that reach north of it (√2 / 2 of the reach from the crate).
     const collector = captain(w, 'taker', 0, 0, 0);
     captain(w, 'watch', 0, CRATE_SIGHT / 2, 0); // sees the taker and the crate
-    const crate: DropState = { id: 'crate-1', x: CRATE_SIGHT / 2, y: 0, kind: 'power' };
+    // A WRECK (Story 12.4): the one crate whose `dp` carries grants.
+    const levels = 3;
+    const crate: CrateState = { id: 'crate-1', x: CRATE_SIGHT / 2, y: 0, kind: 'wreck', levels };
     w.drops.set(crate.id, crate);
     w.step();
     const before = { taker: buildFrame(w, 'taker'), watch: buildFrame(w, 'watch') };
@@ -244,13 +246,12 @@ describe('airdrops — the pickup tell `dp` reaches the collector alone', () => 
     const takerDp = taker.events.filter((e): e is GameEvent & { k: 'dp' } => e.k === 'dp');
     expect(takerDp).toHaveLength(1);
     expect(Object.keys(takerDp[0])).toEqual(['k', 'id', 't', 'g']);
-    // The amount is rolled AT PICKUP (Eric 2026-11-08): one roll of the
-    // crate's kind, its amount within the dials.
+    // The grants are rolled AT PICKUP: +1 per victim level, merged per stat
+    // (Story 12.4, epic-12 amendment 5(e)) — and the level count itself
+    // never left the server.
     expect(takerDp[0]).toMatchObject({ k: 'dp', id: 'taker', t: w.now });
-    expect(takerDp[0].g).toHaveLength(1);
-    expect(takerDp[0].g[0][0]).toBe(crate.kind);
-    expect(takerDp[0].g[0][1]).toBeGreaterThanOrEqual(CONFIG.drops.bonusMin);
-    expect(takerDp[0].g[0][1]).toBeLessThanOrEqual(CONFIG.drops.bonusMax);
+    expect(takerDp[0].g.reduce((n, [, k]) => n + k, 0)).toBe(levels);
+    for (const f of [before.taker, before.watch]) expect(Object.keys(f.drops![0])).toEqual(['id', 'x', 'y', 'c']);
     // The watcher: no `dp`, no event of any kind at the crate's point, and the
     // row simply gone; the taker is still its plain contact.
     expect(watch.events.filter((e) => e.k === 'dp')).toEqual([]);

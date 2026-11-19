@@ -8,8 +8,8 @@
 // shell's ordinal is public (its id is `s<ordinal>`), so one shell's 32-bit
 // seed is brute-forceable from its landing in seconds. Under the first cut
 // (`priv ^ const ^ imul(ordinal, K)`) that recovered the room's pseudonym
-// material and with it EVERY room-private stream (track ids, beacons,
-// airdrops, dropout, fog) plus every later shell. Under an HMAC a recovered
+// material and with it EVERY room-private stream (track ids, supply
+// drops, airdrops, stat rolls, dropout, fog) plus every later shell. Under an HMAC a recovered
 // seed reveals nothing about the key, about any other shell's seed or about
 // any other stream — and the key is independent of `priv` by construction.
 //

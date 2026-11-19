@@ -10,7 +10,7 @@
 // is beyond the CaptainControl interface.
 //
 // Determinism: matchSeed = mixSeed(runSeed, matchIndex); every stream in the
-// match (map, spawns, beacons, draws, controls) derives from it. No Math.random,
+// match (map, spawns, supply drops, draws, controls) derives from it. No Math.random,
 // no Date.now — wall-clock metadata lives in main.ts, outside the run key.
 //
 // Timings: production CONFIG.match values EXCEPT a short 1000ms countdown,
@@ -216,14 +216,11 @@ export interface CaptainSample {
   firstDoctrineFitted: ReachSample | null;
   /** levelCurve[k] = level at k*LEVEL_SAMPLE_MS since activation. */
   levelCurve: number[];
-  /** Levels of XP RADIO BEACONS paid this captain (Story 10.8 —
-   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`). */
-  beaconXpLevels: number;
   /** AIRDROPS this captain collected (Story 10.9 — `ShipRecord.dropsTaken`;
    *  a wreck pickup counts once). */
   dropsTaken: number;
   /** Bonus index points at the end per random-index stat
-   *  (`CONFIG.drops.indices` order — `ShipRecord.indexBonus`: drops AND the
+   *  (`CONFIG.xp.statRoll.indices` order — `ShipRecord.indexBonus`: drops AND the
    *  exhausted hull's levels, Story 10.7). */
   indexBonus: Record<string, number>;
   /** The sum of `indexBonus`. */
@@ -283,11 +280,6 @@ export interface MatchSample {
    *  bot-lobby sample. */
   lastTwoS?: number;
   endgameNoContactMaxS?: number;
-  /** RADIO BEACON CROWDING (Story 10.8): `[n]` = paying beacon-ticks, over
-   *  the whole match and every beacon, with n hulls in range (World.beacons.
-   *  inRangeTicks, holes read as 0). OPTIONAL for the same reason `bots` is:
-   *  sample literals predating the field exist in the harness's own tests. */
-  beaconInRangeHist?: number[];
 }
 
 export interface BatchResult {
@@ -393,7 +385,6 @@ export class MatchCollector {
       firstDoctrineOffered: t.firstDoctrineOffered,
       firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,
-      beaconXpLevels: ship.beaconXpMs / CONFIG.xp.levelMs,
       dropsTaken: ship.dropsTaken,
       ...bonusFields(ship),
     };
@@ -700,7 +691,6 @@ function buildSample(
     catalog: catalog?.result(),
     captains,
     departedCaptains,
-    beaconInRangeHist: Array.from(world.beacons.inRangeTicks, (n) => n ?? 0),
   };
 }
 

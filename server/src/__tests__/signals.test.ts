@@ -432,7 +432,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   // ---------- Story 10.9 — THE AIRDROPS (epic-10 amendment 18, R3) ----------
 
   function makeDrop(overrides: Partial<DropState> = {}): DropState {
-    return { id: 'd1', x: 50, y: 0, kind: 'armor', ...overrides };
+    return { id: 'd1', x: 50, y: 0, kind: 'xp', ...overrides };
   }
 
   it('drop row: [id,x,y,c] — the crate\'s position and its kind, in that order, `c` the world\'s own kind; for a spectator too', () => {
