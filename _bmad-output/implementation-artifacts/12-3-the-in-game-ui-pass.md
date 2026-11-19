@@ -2,13 +2,13 @@
 
 Status: ready-for-dev
 
-<!-- Created 2026-11-18 by gds-create-story from Eric's sitting in chat (epic-12 amendment 2). Part A is ruled and ready for dev. Part B (the HUD redesign) has NOT been sat yet. It is not dev-ready and stays out of the Part A PR. -->
+<!-- Created 2026-11-18 by gds-create-story from Eric's sitting in chat (epic-12 amendment 2). Part B (the HUD redesign) was designed 2026-11-19 in the same sitting and approved (epic-12 amendment 3): it is IN this story, built in the same cycle. -->
 
 ## Story
 
 As a captain,
 I want the ships, the brackets, the radar near my hull and my special-shell aim to read cleanly, and to be able to see how hurt each ship in sight is,
-so that I can steer close in and pick smart targets.
+so that I can steer close in and pick smart targets, and read my whole ship from one bar.
 
 Eric, 2026-11-18, verbatim (the sitting, `/gds-create-story 12-3` args): *"1) ships currently have cyan or red for their graphical linework, and I think I hate this. Change all the linework for all ships to black. | 2) the square brackets that we added around ships when zoomed out should be applied to all ships at all zoom levels whenever they are in visible sight. | 3) After removing the 12ths ladder the radar returns no longer get a decreased alpha as they approach close to one's ship, this needs to be investigated/fixed because it is making it difficult to know where to steer in close proximity to my ship. | 4) I'd like the player's name to never be bigger (sizewize/horizontally) than the square brackets from, so i'd like to scale the text to that. Between the name and the brackets, i'd like a smaller line of text that says the ship's condition … | 5) Special Shell effect area needs to be shown around my targeting cursor while I am aiming it. ||| Lets attack those first and then discuss the HUD."*
 
@@ -19,7 +19,7 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
 ## Scope
 
 - **Part A, this build (ruled and approved on the bench):** items 1–5 below.
-- **Part B, the HUD redesign (`[unruled]`):** Eric: "then discuss the HUD". A separate sitting renders candidates from the real HUD code, Eric picks, and DESIGN.md is updated to the pick. It is built as a follow-up cycle on this story, never inside the Part A PR.
+- **Part B, the HUD redesign (ruled and approved 2026-11-19):** one vertical HUD bar. Eric: *"Part B isn't going to be a separate story. We need to design it now."* Approved on the bench https://claude.ai/artifact/4So2VtjHDTBjCciXs37qYx **v2** (*"This is the HUD."*). Built in the same cycle and PR as Part A. DESIGN.md is rewritten to it in that PR.
 - **Zoom / panning:** Eric listed no zoom or panning tweak at the sitting, so none is built. Item 2 changes the brackets, not the camera.
 - **Deferred radar stories 11.4 / 11.10 stay deferred** (epic-12 amendment 1(e)). Item 3 is a regression fix, not a revival.
 
@@ -74,6 +74,57 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
     - the relation-linework notes (:80, :228): hull lines dark gray #212121, brackets and names keep cyan / red.
 26. How-to-Play copy is Eric's. Do not add a health-bar sentence.
 
+
+## Part B: The HUD Bar (Eric 2026-11-19, epic-12 amendment 3)
+
+Eric's brief, verbatim: *"A single, vertical HUD bar at the left or right side of the screen (user's choice). At the top are my weapons, their upgrade tier, and how many shots they have available. The dot with cooldown is fine, but I'd like something a bit clearly. Maybe the main gun gets 3 or 4 bullet icons (but they behave the same way, filling up with a number countdown). Maybe the torpedo gets 4 torpedo icons, all greyed out, displayed in two "sets" of two, and as the player unlocks torpedoes these open up? Mines maybe need up to 8 individual mine icons, and we can keep the circles as their rack cooldown indicators. I want the abilities below that. And I want the ship stat upgrade tiers below that. I don't want to see weapon stats at all times. If I hover the mouse over the button, then it will open up a little thing to the side that shows the stats. If I hover over an upgrade card, taht little thing to the side will open up and show the changes. Upgrade cards should open along the bottom, they need to stand out against the ocean better. Game chrome remains on top."*
+
+Rulings that followed, verbatim:
+- *"Heading is now in the HUD directly as a line and indicator on the chart/radar display. I only need a throttle indicator, which can be a vertical thing with detents."*
+- *"Maybe its 3 bars next to each other... vertical. HP, Throttle, XP?"*
+- *"B - tiles. Position (left or right) should be user-selectable in options, and the "center" (for the purposes of jumping back to my ship when I hit space) should shift accordingly."*
+- *"None of the cooldown icons should **ever** shift in position for **any** reason. So mine racks need to have both racks with 4 slots (for naval/fouling) and 2 slots (for captive), with one rack and one slot each empty like the torpedpoes have."*
+- *"Star Shells only EVER have 1 shot. EVER. It doesn't need a "shell" graphic like the others have. More of a bar like Hull Repair or the one under Secondaries"*
+- *"The ship numbers (on the 100 point index) ought to go in that space between the skill name and the 5 pips, and lets not open boxes on hover for those."*
+
+The bench's sizes, colors and type are the reference look. Its numbers (damage, reloads, index values) are **samples**: every value on screen comes from the real stats.
+
+### Acceptance Criteria (Part B)
+
+27. **One vertical HUD bar replaces both consoles.** It replaces the left ship console (HULL, index rows, HELM, LEVEL) and the right weapons console with ability buttons (Story 10.10, `client/src/render/console/*`). Style **B, tiles**:
+    - The bar is **300 px wide** at the 1080p reference. Each section (WEAPONS, ABILITIES, SHIP, and the gauge footer) sits on its own bed (cardScrim .78, 1 px hairline).
+    - Each weapon and ability is a tile with today's state outline: silver .45 while cooling, phosphor .65 + glow while ready, and the armed / denied outlines as today.
+    - Top to bottom: WEAPONS, ABILITIES, SHIP, then the footer pinned to the bottom.
+    - The bar runs from **132 px** below the top (clear of the kill feed, on both sides) to **18 px** above the bottom.
+    - The HUD scale clamp is unchanged (`config.ts:2361`).
+    - Section heads are 13 px; names 14 / 600; key chips 12 / 600; values 15 to 17 / 600.
+28. **Side is a player setting.** A new options setting places the bar on the **left or right** (default: left, a reading of record). **Space-home shifts with it:** `camera.home()` (Space) puts your hull at the centre of the open water beside the bar, not the screen centre. That means half the bar width + edge, offset toward the open side, in the follow camera's centre. The setting persists like the other settings (`settings/store.ts`).
+29. **Weapons.** Each row: name, tier numeral (tier-ramp color), key chip (LMB / RMB / Q / E / R). Below that, the shots, as follows:
+    - **MAIN BATTERY:** one shell icon per turret, 3 or 4 by hull (fixed for the match). A turret that has fired shows its icon empty and **filling from the bottom** with the seconds countdown inside: tenths under 2 s, whole seconds above, today's rule. When full, it is solid phosphor.
+    - **SECONDARIES:** today's heat bar (silver outline, phosphor fill).
+    - **TORPEDO:** **always 4 torpedo icons in two pairs**, fore launcher and aft launcher. Locked tubes are dashed gray, in place. Unlocked tubes fill with a countdown like the shells.
+    - **MINES:** **always two racks**, each a rack cooldown circle (today's wedge ring with the seconds) followed by its fixed slots: **4 per rack for naval / fouling, 2 per rack for captive**. A locked rack and locked slots stay in place, dashed gray. A held mine is a filled mine icon; an empty slot in an unlocked rack is a muted outline.
+    - **SPECIAL SHELL:** **one shot, always**. No shell icons: a single refill bar like the secondaries'. READY or the seconds sit on the name line.
+30. **No cooldown icon ever moves.** For a given hull and mine kind, every icon (shells, tubes, racks, slots) holds the same screen position through every unlock, tier, reload and state. Locked means a dashed outline in place, never removed. (Bench check: identical positions across every rack and tube combination.) The two-digit countdown wears a dark outline so it reads over the icon edge.
+31. **Abilities.** One tile per ability: HULL REPAIR (C), SMOKE (V), the fitted Shift (SHIFT). Each shows name, READY or the seconds, the key chip, and a thin progress line along the bottom while cooling. The active (Shift window) outline is as today.
+32. **Ship.** One row per index stat: ARMOR · POWER · RELOAD · ENGINES · INTEL. Each shows its name, its **100-point index value** (17 / 600 phosphor) **between the name and the 5 pips**, and today's five-bar tier ladder. **Hovering a ship row opens nothing.**
+33. **Footer: three vertical gauges side by side.**
+    - **HULL:** 10 segments filled from the bottom in the hull band color (phosphor ≥ 50 %, amber ≥ 25 %, red below), with the whole-number percent under it.
+    - **THROTTLE:** a vertical nine-detent ladder, ahead on top, using today's detents (`helm.ts` `DETENT_LABELS`). STOP is longer and brighter. Labels FULL / ½ / STOP / ½ / FULL, because 13 px labels on all nine collide. A box marks the ordered detent and an arrow marks actual speed. The word under it reads e.g. `¾ AHEAD`, `STOP`, `½ ASTERN`.
+    - **LEVEL:** an XP track filling toward the next level, with `LV n` under it.
+    - **Gone from the HUD:** HDG and KTS (heading lives on the radar display), the rudder track, and the W / S / A / D coach marks. *(Reading of record, from "I only need a throttle indicator", for Eric's veto.)*
+34. **Weapon and ability stats are not on screen at all times.** Hovering a weapon or ability tile opens a **flyout beside the bar** (toward the open water, level with the row). It shows the stat lines today's cells print always (`readouts.ts:228-253`: DAMAGE vs ARMOR 100, RANGE, RELOAD, SPEED, HOMING, radius…). It closes when the pointer leaves.
+35. **Upgrade cards along the bottom.**
+    - The offer group always sits **along the bottom**, centered in the open water beside the bar, over a dark band (cardScrim gradient, about 170 px). The `offerPos` setting (R26: right / left / bottom) is **retired**.
+    - Cards are bigger and stand out: **236 × 88**, an opaque panel, a **2 px border in the granted tier's color** (gold for a one-off) with an outer + inner glow, and on hover a stronger glow plus a 3 px lift. The face keeps name, tier mark, and the TAB│n chip.
+    - The header reads `n LEVELS` and `TAB + 1–4`. Picking is unchanged (click, or Tab + 1–4).
+36. **Hovering an upgrade card shows the change.**
+    - **Weapon or ability card:** outlines the affected tile in amber and opens the flyout beside it with the changes as amber `old → new ▲`. Slots it would open (a tube, a rack, a rack slot) show as amber outlines in place.
+    - **Ship-stat card:** changes the row itself (the value turns amber `new▲`, and the new pip gets an amber outline), with **no box**.
+37. **Game chrome stays on top, unchanged:** the chrome bar top centre, the kill feed top right, the storm and respawn banners.
+38. **DESIGN.md** is rewritten for the HUD in the build PR: the console rows (:173-175, :351-353, already stale), the Refit Card row, and the offer group. The rewrite describes this bar as built. It is minimal everywhere else.
+39. **No in-game copy added.** Every word on the bar is an existing label. ≥ 13 px everywhere except the 12 px key chips and tier numerals (today's register).
+
 ## Tasks / Subtasks
 
 - [ ] **T0 Setup.** `npm install --include=dev && npm run build -w shared` in the worktree. Fetch `origin/development` and merge it in before starting (parallel-cycle collisions).
@@ -87,6 +138,12 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
 - [ ] **T4 Wire + shared** (AC 14, 18–20). Pure `hullBlocks()` in shared (unit-tested at the exact 750/500/250 boundaries, plus 1000, 1 and 0), `CONFIG` block count, `Contact.hb` appended last, filled in `signals.ts`'s contact row, invariant tests extended, PV bump, and the barrel export.
 - [ ] **T5 Plate + bar** (AC 11–17). Extend `NameplateLayer` (or add a sibling `HullBars` pool on the plate layer) to fit the name to the bracket width per frame. Pixi re-rasterizes Text on a style change, so quantize the font size (e.g. 0.5 px steps) and only write on change. Below 9 px, switch to the 5×7 pixel font. Put the glyph table + layout in a pure module (e.g. `render/pixelFont.ts`, unit-tested: widths, fold, fallback). Build each name's pixel texture ONCE at latch, NEAREST scale mode, never per frame. Then draw the A2 bar and the glow. Glow: Text via a zero-distance `dropShadow` (blur ≈ 4, own color); Graphics (brackets, blocks) via the drops.ts precedent of wider, low-alpha strokes underneath. No per-object filters.
 - [ ] **T6 Special-shell preview** (AC 22–23). Reproduce, diagnose, render the before/after for Eric, then fix.
+- [ ] **T9 The HUD bar** (AC 27–39). Replace `render/console/*` (layout spine, `shipConsole.ts`, `weaponsConsole.ts`) with the bar. Keep the pure readout model (`readouts.ts`) as the data source and re-point it at the bar + flyout.
+  - Icons are pure geometry functions (unit-tested) drawn into fixed slot positions computed from the hull + mine kind, never from current counts.
+  - Add the HUD-side setting and the Space-home offset (`camera.ts` `home()`).
+  - Retire `offerPos`; re-lay the offer group (`ui/offerGroup.ts`) along the bottom with the new card look.
+  - The flyout is DOM chrome (like the offer group) or Pixi: dev's choice, but it must never steal input from the canvas beyond its own box.
+  - Show Eric the built bar on a rendered page or staging before the PR opens (no PR while a look waits on his yes).
 - [ ] **T7 Docs + records.** DESIGN.md rows (AC 25); epic-12 amendment(s) for any build-time readings; `spec-12-3-*.md` cycle record; ONE-LINE stamps in both trackers; VERSION / package.json +1 patch (numbers at PR time).
 - [ ] **T8 Gate.** `npm run lint` explicitly, then `npm run check`. Run the headless smokes (`matchSmoke`, `weaponsSmoke`) on your own booted server with `HC_DEV_OPTIONS=1`, then kill both the PID and its tsx child. Run `tickCost.mjs` old vs new: a contact-row field adds per-tick work (memory: full-match tick cost before merge). Every test run has a hard wall-clock bound.
 
