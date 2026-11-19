@@ -70,13 +70,11 @@
 // line leaves the undealt set, so the cards are always DIFFERENT lines. A
 // REDRAW is simply this draw run again (R2) — there is no remembered plan.
 //
-// AN EMPTY DRAW IS A BONUS POINT (Story 10.7, R5, Eric 2026-11-06, epic-10
-// amendment 13 — it replaces R3's "a hull with nothing dealable banks
-// nothing"): when the draw has nothing to deal, every level waiting on it
-// becomes `CONFIG.offer.exhausted.indexPoints` on one index, picked by
-// `drawBonusIndex` below — ONE `rng.next()` per converted level, off the same
-// per-ship stream. The World does the converting (materializeOffer); the
-// points enter the stats only through `effectiveStats()`.
+// AN EMPTY DRAW BANKS NOTHING (2026-11-19, Story 12.4, epic-12 amendment 5(c)):
+// the exhausted hull's +1 random index point (Story 10.7, R5) and its pick,
+// `drawBonusIndex`, are RETIRED. Index points now come from the level stat
+// roll (sim/levelRoll.ts) and wreck crates (sim/drops.ts), on their own
+// streams — never this per-ship offer stream.
 //
 // RETIRED 2026-11-06 (Story 10.7, epic-10 amendment 13): the two-stage
 // KIND-SHARE draw (epic-8 amendment 92 — stage 1 picked `weapon` or `upgrade`
@@ -109,7 +107,7 @@
 // per-ship decorrelated mulberry32 stream. Nothing here rides the wire: only
 // the offered line ids leave the server (the slot types never do).
 
-import { CONFIG, INDEX_IDS, type IndexId } from '../constants.js';
+import { CONFIG } from '../constants.js';
 import type { Rng } from '../math/rng.js';
 import {
   boonStackCount,
@@ -426,28 +424,4 @@ export function drawOffer(ship: DrawShip, weights: Weights, rng: Rng, catalog: C
     dealt.add(id); // DIFFERENT lines per draw
   }
   return offer;
-}
-
-/** The index ids — what a bonus pick must be one of (P4 below). */
-const INDEX_ID_SET: ReadonlySet<string | undefined> = new Set<string>(INDEX_IDS);
-
-/**
- * THE EXHAUSTED HULL'S PICK (Story 10.7, R5, Eric 2026-11-06, epic-10
- * amendment 13): which index one converted level lands on — uniform over
- * `CONFIG.offer.exhausted.indices`, ONE `rng.next()`. Never HULL REPAIR or
- * SMOKE SCREEN: only the listed indices can come out. The `min` is the guard
- * against an rng that returns exactly 1 (a stub; mulberry32 never does).
- *
- * FAIL-CLOSED (review gate P4): the answer is `undefined` — the caller skips
- * that level's point — whenever the pick is not one of the `INDEX_IDS`
- * (an empty or misconfigured list, or an rng returning NaN / a negative), so
- * no junk key is ever written onto a ship. The rng value is spent either way.
- * `indices` is the test seam.
- */
-export function drawBonusIndex(
-  rng: Rng,
-  indices: readonly string[] = CONFIG.offer.exhausted.indices,
-): IndexId | undefined {
-  const pick = indices[Math.min(indices.length - 1, Math.floor(rng.next() * indices.length))];
-  return INDEX_ID_SET.has(pick) ? (pick as IndexId) : undefined;
 }

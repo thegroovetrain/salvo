@@ -3,6 +3,21 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  112 — AIRDROPS AND SUPPLY DROPS (2026-11-19, Eric; epic-12 amendment 5;
+ *  Story 12.4 (number re-checked at PR time)): `DropView.c` narrows to
+ *  `'xp' | 'wreck'` (every airdrop is an XP crate; a wreck's `dp.g` carries
+ *  its merged per-stat grants, an XP crate's none). CONFIG the client reads:
+ *  `drops` loses `bonusMin` / `bonusMax` / `wreckRolls` / `indices` and gains
+ *  `xpLevels`; `xp` gains `statRoll` (the level roll, new shared
+ *  sim/levelRoll.ts); `offer.exhausted` is deleted (an empty draw banks
+ *  nothing; `drawBonusIndex` is gone; the bonus fold is one point per `ib`
+ *  count). The RADIO BEACONS ARE DELETED: `CONFIG.beacons` becomes
+ *  `CONFIG.supplyDrops` (placement + timing dials, `crates`, `scatterU`),
+ *  sim/beacons.ts becomes sim/supplyDrops.ts (`supplyCountFor`,
+ *  `supplyCycleAt`, `supplyCycleStartMs`, `supplyLandMs`, `supplyDropLanded`,
+ *  `SUPPLY_WIRE_SLOTS`), the schema's beacon fields are renamed to the
+ *  supply chart and `SinkT` is dropped, and `TargetKind` loses `'beacon'`.
+ *  Perception exception count stays SIX.
  *  111 — THE HULL HEALTH STEP (2026-11-18, Eric; epic-12 amendment 2(e) + (g);
  *  Story 12.3): `Contact.hb` (1..CONFIG.hullBar.blocks, `hullBlocks()` in the
  *  new shared sim/hullBlocks.ts) appended LAST and optional on the sighted
@@ -1131,7 +1146,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 111;
+export const PROTOCOL_VERSION = 112;
 
 // Tunables
 export * from './constants.js';
@@ -1201,5 +1216,6 @@ export * from './sim/fog.js';
 export * from './sim/fogDepth.js';
 export * from './sim/smokeDepth.js';
 export * from './sim/zone.js';
-export * from './sim/beacons.js';
+export * from './sim/supplyDrops.js';
+export * from './sim/levelRoll.js';
 export * from './sim/drops.js';
