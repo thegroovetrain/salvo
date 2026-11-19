@@ -66,4 +66,4 @@ retrospective-epic-9: _bmad-output/implementation-artifacts/epic-9-retro-2026-10
 retrospective-epic-10: _bmad-output/implementation-artifacts/epic-10-retro-2026-11-12.md # complete 2026-11-12 (with Eric; 13 built / 1 deferred into 11-11 / 2 cancelled, accepted at 0.19.19 on staging, prod 0.19.0; cycles 207-225, PV 91->102; 24 amendments; no significant-discovery alert)
 retrospective-epic-11: _bmad-output/implementation-artifacts/epic-11-retro-2026-11-16.md # complete 2026-11-16 (with Eric; 7 built / 2 shelved / 2 deferred, accepted at 0.19.36 on staging; cycles 226-242, PV 102->110; amendments 1-21; no significant discovery)
 
-next_expected: '2026-11-19 12-3 ready-for-dev, Parts A + B (HUD bar), epic-12 amendments 2-3; next: gds-dev-story 12-3'
+next_expected: '2026-11-19 12-3 ready-for-dev, Parts A + B (HUD bar, one tier mark), epic-12 amendments 2-4; next: gds-dev-story 12-3'

@@ -19,7 +19,7 @@ Correction of record (Eric): *"Every hull has 1000 HP and that's all the HP anyo
 ## Scope
 
 - **Part A, this build (ruled and approved on the bench):** items 1–5 below.
-- **Part B, the HUD redesign (ruled and approved 2026-11-19):** one vertical HUD bar. Eric: *"Part B isn't going to be a separate story. We need to design it now."* Approved on the bench https://claude.ai/artifact/4So2VtjHDTBjCciXs37qYx **v2** (*"This is the HUD."*). Built in the same cycle and PR as Part A. DESIGN.md is rewritten to it in that PR.
+- **Part B, the HUD redesign (ruled and approved 2026-11-19):** one vertical HUD bar. Eric: *"Part B isn't going to be a separate story. We need to design it now."* Approved on the bench https://claude.ai/artifact/4So2VtjHDTBjCciXs37qYx **v4** (*"This is the HUD."* on v2; the one tier mark approved on v4, *"This is it."*, epic-12 amendment 4). Built in the same cycle and PR as Part A. DESIGN.md is rewritten to it in that PR.
 - **Zoom / panning:** Eric listed no zoom or panning tweak at the sitting, so none is built. Item 2 changes the brackets, not the camera.
 - **Deferred radar stories 11.4 / 11.10 stay deferred** (epic-12 amendment 1(e)). Item 3 is a regression fix, not a revival.
 
@@ -99,15 +99,15 @@ The bench's sizes, colors and type are the reference look. Its numbers (damage, 
     - The HUD scale clamp is unchanged (`config.ts:2361`).
     - Section heads are 13 px; names 14 / 600; key chips 12 / 600; values 15 to 17 / 600.
 28. **Side is a player setting.** A new options setting places the bar on the **left or right** (default: left, a reading of record). **Space-home shifts with it:** `camera.home()` (Space) puts your hull at the centre of the open water beside the bar, not the screen centre. That means half the bar width + edge, offset toward the open side, in the follow camera's centre. The setting persists like the other settings (`settings/store.ts`).
-29. **Weapons.** Each row: name, tier numeral (tier-ramp color), key chip (LMB / RMB / Q / E / R). Below that, the shots, as follows:
+29. **Weapons.** Each row's first line: name, then the tier mark (AC 40), then the key chip (LMB / RMB / Q / E / R). Below that, the shots, as follows:
     - **MAIN BATTERY:** one shell icon per turret, 3 or 4 by hull (fixed for the match). A turret that has fired shows its icon empty and **filling from the bottom** with the seconds countdown inside: tenths under 2 s, whole seconds above, today's rule. When full, it is solid phosphor.
     - **SECONDARIES:** today's heat bar (silver outline, phosphor fill).
     - **TORPEDO:** **always 4 torpedo icons in two pairs**, fore launcher and aft launcher. Locked tubes are dashed gray, in place. Unlocked tubes fill with a countdown like the shells.
     - **MINES:** **always two racks**, each a rack cooldown circle (today's wedge ring with the seconds) followed by its fixed slots: **4 per rack for naval / fouling, 2 per rack for captive**. A locked rack and locked slots stay in place, dashed gray. A held mine is a filled mine icon; an empty slot in an unlocked rack is a muted outline.
-    - **SPECIAL SHELL:** **one shot, always**. No shell icons: a single refill bar like the secondaries'. READY or the seconds sit on the name line.
+    - **SPECIAL SHELL:** **one shot, always**. No shell icons: a single refill bar like the secondaries', with READY or the seconds at the bar's right end.
 30. **No cooldown icon ever moves.** For a given hull and mine kind, every icon (shells, tubes, racks, slots) holds the same screen position through every unlock, tier, reload and state. Locked means a dashed outline in place, never removed. (Bench check: identical positions across every rack and tube combination.) The two-digit countdown wears a dark outline so it reads over the icon edge.
-31. **Abilities.** One tile per ability: HULL REPAIR (C), SMOKE (V), the fitted Shift (SHIFT). Each shows name, READY or the seconds, the key chip, and a thin progress line along the bottom while cooling. The active (Shift window) outline is as today.
-32. **Ship.** One row per index stat: ARMOR · POWER · RELOAD · ENGINES · INTEL. Each shows its name, its **100-point index value** (17 / 600 phosphor) **between the name and the 5 pips**, and today's five-bar tier ladder. **Hovering a ship row opens nothing.**
+31. **Abilities.** One tile per ability: HULL REPAIR (C), SMOKE (V), the fitted Shift (SHIFT). First line: name, then the tier mark (Hull Repair and Smoke are five-tier ladders, `catalog.ts` `hullRepair` / `smokeScreen`; the Shift has none, so its slot stays empty), then the key chip. Second line: a refill bar like the special shell's, with READY or the seconds at its right end. The active (Shift window) outline is as today.
+32. **Ship.** One row per index stat: ARMOR · POWER · RELOAD · ENGINES · INTEL. Each shows its name, its **100-point index value** (17 / 600 phosphor) **between the name and the tier mark**, then the tier mark (AC 40), then an empty chip slot so the tier marks line up with the weapon and ability rows. **Hovering a ship row opens nothing.**
 33. **Footer: three vertical gauges side by side.**
     - **HULL:** 10 segments filled from the bottom in the hull band color (phosphor ≥ 50 %, amber ≥ 25 %, red below), with the whole-number percent under it.
     - **THROTTLE:** a vertical nine-detent ladder, ahead on top, using today's detents (`helm.ts` `DETENT_LABELS`). STOP is longer and brighter. Labels FULL / ½ / STOP / ½ / FULL, because 13 px labels on all nine collide. A box marks the ordered detent and an arrow marks actual speed. The word under it reads e.g. `¾ AHEAD`, `STOP`, `½ ASTERN`.
@@ -120,10 +120,15 @@ The bench's sizes, colors and type are the reference look. Its numbers (damage, 
     - The header reads `n LEVELS` and `TAB + 1–4`. Picking is unchanged (click, or Tab + 1–4).
 36. **Hovering an upgrade card shows the change.**
     - **Weapon or ability card:** outlines the affected tile in amber and opens the flyout beside it with the changes as amber `old → new ▲`. Slots it would open (a tube, a rack, a rack slot) show as amber outlines in place.
-    - **Ship-stat card:** changes the row itself (the value turns amber `new▲`, and the new pip gets an amber outline), with **no box**.
+    - **Ship-stat card:** changes the row itself (the value turns amber `new▲`, the numeral turns amber `IV▲`, and the next dot gets an amber outline), with **no box**.
 37. **Game chrome stays on top, unchanged:** the chrome bar top centre, the kill feed top right, the storm and respawn banners.
 38. **DESIGN.md** is rewritten for the HUD in the build PR: the console rows (:173-175, :351-353, already stale), the Refit Card row, and the offer group. The rewrite describes this bar as built. It is minimal everywhere else.
-39. **No in-game copy added.** Every word on the bar is an existing label. ≥ 13 px everywhere except the 12 px key chips and tier numerals (today's register).
+39. **No in-game copy added.** Every word on the bar is an existing label. ≥ 13 px everywhere except the 12 px key chips (today's register).
+40. **One tier mark for every tiered line** (Eric 2026-11-19, epic-12 amendment 4). Every tiered row (all five weapons, Hull Repair, Smoke, and the five ship stats) shows the same mark:
+    - the **tier numeral** I–V in its tier-ramp color (13 / 600), then **five small round dots** (5 px, 3 px apart), filled phosphor up to the tier and outlined after it.
+    - It sits in **one column**, directly left of a fixed-width key-chip slot, on every row from MAIN BATTERY to INTEL. Ship rows keep the slot empty, so the column holds.
+    - No row shows a tier any other way: no bare pips, no numeral beside the name, nothing between a cooldown readout and the key chip.
+    - An untiered line (the Shift) leaves the mark's slot empty.
 
 ## Tasks / Subtasks
 
