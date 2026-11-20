@@ -453,6 +453,8 @@ Three escalating cycles of that rhythm bring the ocean down to the endgame ring 
 
 *(Superseded 2026-11-16, Story 11.11 — epic-10 amendments 11, 14 and 18, epic-11 amendment 15: things ARE taken off the water now — radio beacons pay levels and airdrop crates add +1..+5 to an index. Beacons are placed at random on open water inside the live ring, 7 / 5 / 3 per ring cycle, at least half the placement radius apart (never the fleet-anchor or midpoint rule). Slots fill only from cards; no consumables.)*
 
+*(Stamped 2026-11-19, Story 12.4 — epic-12 amendments 5, 6, 8: every airdrop is an XP crate (+0.1 level). Each level rolls a die [0, 0, 1, 1, 2, 3] per stat (ARMOR, POWER, ENGINES, RELOAD, INTEL), whether or not cards are left; the out-of-cards +1 is retired. A wreck is +1 random stat per level the victim had, none at level 0. Radio beacons are removed (the beacon lines above are superseded 2026-11-19, Story 12.4), replaced by charted supply drops: 7 / 5 / 3 per ring cycle, charted at cycle start; 10 XP crates land 1:00 later within 500 u; the map mark fades over 10 s. Bots head for charted drops.)*
+
 ---
 
 ## Level Design Framework
