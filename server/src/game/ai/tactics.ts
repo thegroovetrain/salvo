@@ -139,7 +139,7 @@ import { gunBand, kiteHoldOf, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
 import { probeExit } from './unbeachProbe.js';
-import { noteSupplyCrates, routeFailedToward, supplyBarsOf, supplyGoalOf, supplySteerPoint, waitingForSupply, type SupplyReading } from './supplyDrops.js';
+import { crateApproachThrottle, noteSupplyCrates, routeFailedToward, supplyCrateTarget, supplyBarsOf, supplyGoalOf, supplySteerPoint, waitingForSupply, type SupplyReading } from './supplyDrops.js';
 import { laneDrop } from './drops.js';
 import {
   RUDDER_GAIN,
@@ -841,9 +841,20 @@ function helmFor(
   const avoid =
     avoidIslands(self, ctx.nav.grid, want) + avoidMines(self, mind) + boundaryBias(self.state, port.map.radius)
     + avoidHulls(self, mind, posture);
-  const base = baseThrottle(posture);
+  const base = escaping ? baseThrottle(posture) : Math.min(baseThrottle(posture), crateThrottle(self, mind, port, target, posture));
   const damped = entryDamped(self, mind, port, want, deliberate);
   return { throttle: damped ? Math.min(base, CRUISE_THROTTLE) : base, rudder: composeRudder(track, avoid) };
+}
+
+/** THE CRATE APPROACH (Story 12.4 orbit fix, ai/supplyDrops.ts
+ *  crateApproachThrottle): steering for a supply crate that lies inside the
+ *  hull's turning circle, the fastest ahead step that can reach it; else no
+ *  cap (1). */
+function crateThrottle(self: BotSelf, mind: BotMind, port: BotWorldPort, target: BotTrack | null, posture: BotPosture): number {
+  const goal = seekingSupply(mind, target, posture);
+  if (goal === null) return 1;
+  const crate = supplyCrateTarget(goal, mind.view?.drops ?? [], self.state, port.now, mind.supplyCrates);
+  return crate === null ? 1 : crateApproachThrottle(self.state, crate, self.stats.kinematics);
 }
 
 /** The burst's helm: the PROBED order (fix wave P19); the stage keeps its

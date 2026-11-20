@@ -275,6 +275,54 @@ export function supplySteerPoint(
   now: number,
   remembered: readonly Vec2[] = [],
 ): Vec2 {
-  if (supplyPending(goal, now)) return goal;
-  return supplyCrateOf(goal, sighted, pos, CONFIG.supplyDrops.scatterU, remembered) ?? goal;
+  return supplyCrateTarget(goal, sighted, pos, now, remembered) ?? goal;
+}
+
+// THE CRATE APPROACH (Story 12.4 orbit fix; orchestrator ruling 2026-11-19,
+// Eric's veto): a crate inside the hull's turning circle can never be reached
+// by holding the turn — the bot orbits it at full ahead for the whole cycle.
+// So on a crate it takes the fastest ahead step whose turning circle leaves
+// the crate outside, else the slowest ahead step.
+
+/** The ahead steps of the engine telegraph, fastest first — the very detents
+ *  a human's W/S steps through (client/src/input/telegraph.ts `DETENTS`). */
+export const AHEAD_STEPS: readonly number[] = [1, 0.75, 0.5, 0.25];
+
+/** The kinematics the turn model reads (shared sim/ship.ts stepShip). */
+export interface TurnKinematics {
+  readonly maxSpeed: number;
+  readonly turnRate: number;
+  readonly steerageSpeed: number;
+}
+
+/** u — the steady turning radius at throttle `step` under the shared turn
+ *  model: speed `step × maxSpeed`, rudder authority `min(1, speed /
+ *  steerageSpeed)`, so radius = max(speed, steerageSpeed) / turnRate. */
+export function stepTurnRadiusU(kin: TurnKinematics, step: number): number {
+  return Math.max(step * kin.maxSpeed, kin.steerageSpeed) / kin.turnRate;
+}
+
+/** Is `p` strictly inside either turning circle (port or starboard) of
+ *  radius `r` tangent to a hull at `pose` (heading in radians)? */
+export function insideTurnCircle(pose: Vec2 & { readonly heading: number }, p: Vec2, r: number): boolean {
+  const nx = -Math.sin(pose.heading) * r;
+  const ny = Math.cos(pose.heading) * r;
+  return Math.hypot(p.x - (pose.x + nx), p.y - (pose.y + ny)) < r || Math.hypot(p.x - (pose.x - nx), p.y - (pose.y - ny)) < r;
+}
+
+/** The throttle for steering at a crate at `p`: the fastest AHEAD_STEPS
+ *  step whose turning circle leaves it outside, else the slowest. */
+export function crateApproachThrottle(pose: Vec2 & { readonly heading: number }, p: Vec2, kin: TurnKinematics): number {
+  for (const step of AHEAD_STEPS) {
+    if (!insideTurnCircle(pose, p, stepTurnRadiusU(kin, step))) return step;
+  }
+  return AHEAD_STEPS[AHEAD_STEPS.length - 1];
+}
+
+/** The crate a supply run is steering for this tick (after the landing, the
+ *  nearest sighted or remembered one in the circle), or null — before the
+ *  landing, or none left. */
+export function supplyCrateTarget(goal: BotSupplyDrop, sighted: readonly Vec2[], pos: Vec2, now: number, remembered: readonly Vec2[] = []): Vec2 | null {
+  if (supplyPending(goal, now)) return null;
+  return supplyCrateOf(goal, sighted, pos, CONFIG.supplyDrops.scatterU, remembered);
 }

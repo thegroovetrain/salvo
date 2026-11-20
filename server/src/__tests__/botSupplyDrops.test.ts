@@ -15,7 +15,10 @@ import { makeBotPort, supplyRowsOf, type BotPortSource } from '../game/botPort.j
 import type { SupplyChart, SupplyChartRow } from '../game/supplyDrops.js';
 import { COMBAT_BRAIN } from '../game/ai/tactics.js';
 import {
+  AHEAD_STEPS,
   atSupplySpot,
+  crateApproachThrottle,
+  insideTurnCircle,
   noteSupplyCrates,
   pickSupplyDrop,
   routeFailedToward,
@@ -23,6 +26,7 @@ import {
   supplyCrateOf,
   supplyGoalOf,
   supplySteerPoint,
+  stepTurnRadiusU,
   waitingForSupply,
 } from '../game/ai/supplyDrops.js';
 import { hullLengthU } from '../game/ai/navigate.js';
@@ -326,6 +330,38 @@ describe('ai/supplyDrops — the remembered crates (Eric 2026-11-19, remember if
   });
 });
 
+// --- the crate approach (the orbit fix) --------------------------------------------
+
+describe('ai/supplyDrops — the crate approach (a crate inside the turning circle)', () => {
+  const kin = { maxSpeed: 30, turnRate: 0.5, steerageSpeed: 6 }; // a fixture hull, not a CONFIG row
+  const pose = { x: 0, y: 0, heading: 0 }; // bow due east
+  const fullR = stepTurnRadiusU(kin, AHEAD_STEPS[0]);
+
+  it('the turning radius follows the shared turn model: speed over turn rate, floored at steerage', () => {
+    expect(stepTurnRadiusU(kin, 1)).toBeCloseTo(kin.maxSpeed / kin.turnRate);
+    expect(stepTurnRadiusU(kin, 0.1)).toBeCloseTo(kin.steerageSpeed / kin.turnRate);
+  });
+
+  it('a point abeam inside either circle is inside; one dead ahead or beyond the diameter is not', () => {
+    expect(insideTurnCircle(pose, { x: 0, y: fullR }, fullR)).toBe(true); // port circle's centre
+    expect(insideTurnCircle(pose, { x: 0, y: -fullR }, fullR)).toBe(true); // starboard
+    expect(insideTurnCircle(pose, { x: fullR, y: 0 }, fullR)).toBe(false); // dead ahead
+    expect(insideTurnCircle(pose, { x: 0, y: 2 * fullR + 1 }, fullR)).toBe(false);
+  });
+
+  it('full ahead for a crate it can turn onto; the fastest step that clears it otherwise; the slowest when none does', () => {
+    expect(crateApproachThrottle(pose, { x: 3 * fullR, y: 0 }, kin)).toBe(AHEAD_STEPS[0]);
+    const abeam = { x: 0, y: -fullR }; // the full-ahead circle's centre
+    const step = crateApproachThrottle(pose, abeam, kin);
+    expect(step).toBeLessThan(AHEAD_STEPS[0]);
+    expect(insideTurnCircle(pose, abeam, stepTurnRadiusU(kin, step))).toBe(false);
+    for (const faster of AHEAD_STEPS.filter((t) => t > step)) expect(insideTurnCircle(pose, abeam, stepTurnRadiusU(kin, faster))).toBe(true);
+    const slowest = AHEAD_STEPS[AHEAD_STEPS.length - 1];
+    const tight = { x: 0, y: -stepTurnRadiusU(kin, slowest) }; // inside even the slowest circle
+    expect(crateApproachThrottle(pose, tight, kin)).toBe(slowest);
+  });
+});
+
 // --- the brain -------------------------------------------------------------------
 
 describe('COMBAT_BRAIN — the supply run', () => {
@@ -403,6 +439,27 @@ describe('COMBAT_BRAIN — the supply run', () => {
     expect(mind.supplyCrates).toEqual([]);
   });
 
+  it('THE ORBIT FIX: a crate inside its turning circle slows it to a step that can reach it; one outside keeps full ahead', () => {
+    const w = openWorld(1319);
+    const rec = mkBot(w, 0, 0, 0); // bow due east
+    const drop = pending(0, 0);
+    const mind = mkMind('siege');
+    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop]));
+    const kin = rec.stats.kinematics;
+    rec.state.speed = kin.maxSpeed;
+    const fullR = stepTurnRadiusU(kin, AHEAD_STEPS[0]);
+    expect(fullR).toBeLessThan(SCATTER_U); // the circle fits in the drop's scatter
+    const abeam: DropView = { id: 'c1', x: 0, y: -fullR, c: 'xp' }; // the starboard circle's centre
+    mind.view = { drops: [abeam], mines: [] } as unknown as PerceptionView;
+    const slow = COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop], drop.landT));
+    expect(mind.supplyGoal).toEqual(drop);
+    expect(slow.throttle).toBeLessThan(1);
+    expect(AHEAD_STEPS).toContain(slow.throttle);
+    const ahead: DropView = { id: 'c2', x: fullR, y: 0, c: 'xp' }; // dead ahead: reachable
+    mind.view = { drops: [ahead], mines: [] } as unknown as PerceptionView;
+    expect(COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop], drop.landT)).throttle).toBe(1);
+  });
+
   it('a sighted crate in its lane on the way is taken (the lane nudge rides the supply run)', () => {
     const w = openWorld(1314);
     const rec = mkBot(w, 0, 0, 0); // bow due east, drop due east
@@ -463,8 +520,10 @@ function seatDrops(w: World, intoMs: number, at: readonly Vec2[]): void {
 }
 
 describe('a real World — a bot is on the spot for the landing and clears the crates', () => {
-  it('arrives before the landing, waits there, takes the crates of the drop it sees, then releases on the spot', () => {
-    const w = openWorld(1320);
+  // 1334 laid a crate inside the battleship's turning circle: before the
+  // crate approach it orbited that crate at full ahead for the whole cycle.
+  it.each([1320, 1334])('seed %i: arrives before the landing, waits there, takes the crates of the drop it sees, then releases on the spot', (seed) => {
+    const w = openWorld(seed);
     const at: Vec2 = { x: 0, y: 0 };
     seatDrops(w, 0, [at]);
     const landT = supplyLandMs(w.supplyChart[0].cycleStartT);
@@ -504,7 +563,8 @@ describe('a real World — a bot is on the spot for the landing and clears the c
     // drop into the circle meanwhile.)
     const left = circleCrates().filter((id) => landed.includes(id));
     expect(left.length).toBeLessThan(landed.length);
-    expect(rec.dropsTaken - taken0).toBe(landed.length - left.length);
+    // Every landed crate gone is its own take (it may also take a minute airdrop crate).
+    expect(rec.dropsTaken - taken0).toBeGreaterThanOrEqual(landed.length - left.length);
     // Every crate of the drop it EVER saw is taken (Eric 2026-11-19,
     // remember if not expensive), not only the ones still in sight.
     expect(seen.size).toBeGreaterThan(0);
