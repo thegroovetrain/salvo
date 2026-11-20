@@ -113,3 +113,12 @@ Format: numbered, dated, source-attributed. "Supersedes" names the exact plannin
    - (c) **Renamed "The Supply Run"** (Eric's pick from offered names).
    - (d) **Nothing built is undone:** `matchRecord.ts` + `accountWriter.ts` (`NullWriter`, Story 8.21) stay as the seam; no code, no PV change (113), no version bump (0.20.3), no `render.yaml` change.
    - **What will bite the next agent:** 12.1 / 12.2 are NOT deferred work — never build them. The store, the writer and the readout are Epic 14 (14.1 / 14.6 / 14.7 / 14.12). The epic-11 retro action "confirm `@colyseus/database` is current / refresh the record wording" now fires at 14.1 / 14.7 create-story. 14.12's readout list ("gun × tier", "consumable use") is 12.2's wording kept whole; its refresh against the record as built is 14.12's create-story.
+
+## Retrospective 2026-11-20 — Epic 12 accepted and closed (no build cycle; `epic-12-retro-2026-11-20.md`)
+
+12. **EPIC 12 THE SUPPLY RUN ACCEPTED AND CLOSED AT 0.20.3; THE REMAINING `priv`-DERIVED ROOM STREAMS GO TO EPIC 14; THE GAME COPY IS ERIC'S.** Eric 2026-11-20 (`/bmad-retrospective 12`, AskUserQuestion). Never re-ask (a)–(d).
+   - (a) **Accepted:** *"Accepted, closed"* — 12.3 + 12.4 live on production at 0.20.3.
+   - (b) **Seed leak → Epic 14:** *"Fold into Epic 14"* — track ids, minute-crate spots and pickup / wreck rolls get keyed by HMAC from the room key (as 12.4's supply streams are) inside Epic 14's work; deferred-work entry re-pointed.
+   - (c) **The How-to-Play and Privacy copy is Eric's, written when he does:** *"I want to personally write the actual how to play. All I need is the page to be crawlable so I can get fucking approved."* 13.2 makes the pages crawlable from the copy modules as they stand and never chases their wording; the 12.4 DRAFT paragraph and the stale `hullcracker.helm` privacy line are not blockers or action items.
+   - (d) **Append-only stays as written, no new mechanism:** *"as long as YOU are able to parse and understand these amendments so there are no fuckups. Do whatever you want."* A changed ruling is a new amendment that supersedes the old one.
+   - **What will bite the next agent:** only bring Eric questions that change the plan (*"Stop making mountains out of fucking molehills."*).

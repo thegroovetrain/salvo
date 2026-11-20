@@ -3900,7 +3900,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   summary: THE 10 PX +XP CHART ICON READS AS A SMUDGE AT TRUE SIZE - Eric: "Not sure if it matters. We'll address later if it's an issue."
   evidence: amendment 8(e); `client/src/render/supplyDrops.ts`, `drops.ts` chart-icon handover.
 - source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
-  status: open - pre-existing, not 12.4's - 2026-11-19
+  status: open - Epic 14 (Eric, epic-12 retro 2026-11-20, amendment 12(b)) - 2026-11-19
   summary: THE REMAINING ROOM STREAMS ARE STILL DERIVED FROM THE 32-BIT PSEUDONYM MATERIAL `priv` - track ids `trk-<hex>` (raw mulberry32(priv) outputs, likely brute-forceable to priv), minute-airdrop positions (`dropSeed = priv ^ K`), pickup / wreck rolls (`dropSeed ^ ...`, visible in the own `ib`). Candidate fix: key them by HMAC from the room dispersion key, like the supply-spot / supply-scatter / stat-roll streams.
   evidence: review gate (Fable, reproduced the supply streams' recovery from the public chart); `server/src/game/dispersionKey.ts`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
