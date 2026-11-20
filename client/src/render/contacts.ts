@@ -45,7 +45,8 @@ import type { ContactStore } from '../net/snapshots.js';
 import type { Point } from './camera.js';
 import { ShipView } from './ships.js';
 import { relationStroke, relationStyle, type Relation } from './relationColor.js';
-import { NameplateLayer, latchPlate, plateScreenY } from './nameplates.js';
+import { NameplateLayer, latchPlate, type PlateLook } from './nameplates.js';
+import { bracketHalfPx } from './brackets.js';
 import { Fader } from './fade.js';
 import { plateInSight, type RainEye } from './rainSight.js';
 
@@ -85,24 +86,26 @@ export interface PlateFrame {
   /** World→screen projector + current zoom (the same camera transform the hull
    *  gets), for screen-space plate placement. */
   camera: { worldToScreen(p: Point): Point; zoom: number };
-  /** Screen-px gap above the hull (CLIENT_CONFIG.nameplate.padPx). */
-  pad: number;
 }
 
 interface FadingView {
   view: ShipView;
   fader: Fader;
   /** The contact's hull id, cached at creation (a contact never changes hull
-   *  mid-life). Used for the plate offset instead of re-reading store.classOf()
-   *  per frame: once the store prunes the contact its class entry is DELETED, so
-   *  a live re-read falls back to the default hull during the fade-out and pops the
-   *  plate to the wrong (smaller) hull radius. */
+   *  mid-life). The plate offset reads the VIEW's own hull (`drawnLengthU`),
+   *  never a live store.classOf() — once the store prunes the contact its class
+   *  entry is DELETED, and a re-read would pop the plate to the default hull
+   *  during the fade-out. */
   hull: HullId;
   /** The relation the hull is painted in (repainted only when it changes). */
   relation: Relation;
   /** True once the nameplate's text + color have resolved and been set —
    *  latched, so a later roster leave keeps the plate (position/alpha only). */
   plated: boolean;
+  /** The hull bar's blocks (Story 12.3, `Contact.hb`) as of the last frame
+   *  that carried them — held through the fade-out after a prune; null until
+   *  one does (no bar). */
+  blocks: number | null;
 }
 
 /** The empty angle list (a contact with no `tu` holds its turrets at rest). */
@@ -112,6 +115,8 @@ export class ContactViews {
   private views = new Map<string, FadingView>();
   /** This frame's rain eye (`render`'s argument), read by `updateView`. */
   private rain: RainEye | null = null;
+  /** The plate look scratch, rewritten per plate (no per-frame allocation). */
+  private readonly look: PlateLook = { halfPx: 0, zoom: 1, blocks: null };
 
   constructor(
     private readonly layer: Container,
@@ -235,6 +240,7 @@ export class ContactViews {
       // Story 10.6 (I7): the launcher ANGLES only — the generic housing, since
       // a sighted hull's tube count is not on the wire.
       fv.view.setLaunchers(store.launcherAnglesOf(id) ?? NO_ANGLES, null);
+      fv.blocks = store.hullBlocksOf(id) ?? fv.blocks;
     }
     else if (!store.get(id)) fv.fader.hide(); // pruned: hold last pose, fade out
     // The feather reads the view's LAST-APPLIED pose (the same one the plate
@@ -289,7 +295,13 @@ export class ContactViews {
     }
     const gp = fv.view.gfx.position;
     const sc = plates.camera.worldToScreen({ x: gp.x, y: gp.y });
-    const y = plateScreenY(sc.y, fv.hull, plates.camera.zoom, plates.pad);
+    // Story 12.3: the plate (name + hull bar) stacks on the corner bracket's
+    // top edge — the SAME half the bracket draws at (`bracketHalfPx` of the
+    // drawn length), so the two can never disagree.
+    const look = this.look;
+    look.zoom = plates.camera.zoom;
+    look.halfPx = bracketHalfPx(fv.view.drawnLengthU() * look.zoom);
+    look.blocks = fv.blocks;
     // UNDER THICK COUNTERMEASURE PAINT THE NAME GOES (Eric 2026-10-12: "I don't
     // want someone's nameplate sticking out from behind the smoke, that gives it
     // away"). Sampled at the hull pose like the feather; the hull itself is
@@ -298,7 +310,7 @@ export class ContactViews {
     // Eric 2026-11-15): the hull still draws there, fading in the haze.
     const covered = this.coverAt(gp.x, gp.y) >= CLIENT_CONFIG.countermeasure.plateHideAlpha;
     const shown = !covered && plateInSight(this.rain, gp.x, gp.y) ? 1 : 0;
-    this.nameplates.place(id, sc.x, y, fv.fader.alpha * softness(gp.x, gp.y) * shown);
+    this.nameplates.place(id, sc.x, sc.y - look.halfPx, fv.fader.alpha * softness(gp.x, gp.y) * shown, look);
   }
 
   /** Repaint a captain hull (and its plate) if its relation moved — one
@@ -321,7 +333,7 @@ export class ContactViews {
       const relation = relationOf(id);
       const style = relationStyle(relation);
       const fader = new Fader();
-      fv = { view: new ShipView(style, hullId), fader, hull: hullId, relation, plated: false };
+      fv = { view: new ShipView(style, hullId), fader, hull: hullId, relation, plated: false, blocks: null };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);
     }

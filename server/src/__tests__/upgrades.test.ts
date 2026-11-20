@@ -47,6 +47,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { offlineDispersionKey } from '../game/dispersionKey.js';
 import { flatRaster } from './islandFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 
@@ -61,10 +62,17 @@ const SLOT_BROADSIDE = 2;
 
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
  *  not radar-shadow a world the test built as empty water. */
+/** Story 12.4: every level now ROLLS STATS (epic-12 amendment 5(b)). Most of
+ *  this file pins pre-12.4 per-level arithmetic on neutral hulls, so its worlds
+ *  roll a die with no faces (every roll 0) — the World's test seam. The
+ *  EXHAUSTED-hull block opts back in to the shipped die where it tests the
+ *  roll. */
+const NO_ROLL = { ...CONFIG.xp.statRoll, faces: [] };
+
 function bareWorld(seed = 1, opts?: WorldOptions): World {
   // 8.14: there is no deck and no hidden match pool to set up — every captain
   // draws from the whole catalog, bounded by caps and by the slot rules.
-  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, { statRoll: NO_ROLL, ...opts });
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
@@ -769,10 +777,11 @@ function ladderLine(id: string, cap = 1): CatalogLine {
 // were ALWAYS eligible. They are gone (Story 10.5, epic-10 amendment 11), so a
 // hull holding every ladder and all three family-slot weapons at cap has
 // NOTHING left to draw. Orchestrator ruling: an empty offer is never opened as
-// a refit window and never throws. Since Story 10.7 (R5, Eric 2026-11-06,
-// replacing R3's "banks nothing") a level that meets an EMPTY draw becomes ONE
-// bonus point on an index picked off the ship's draw stream: no bank, no
-// offer, no `pt`, while `level` keeps counting.
+// a refit window and never throws. Since Story 12.4 (Eric 2026-11-19, epic-12
+// amendment 5(c), retiring Story 10.7's R5 bonus-point conversion) a level
+// that meets an EMPTY draw BANKS NOTHING: no bank, no offer, no `pt`, no
+// draw-stream value, while `level` keeps counting — and the level's STAT ROLL
+// (5(b)) runs exactly as it does on a hull with cards left.
 
 /** Max a production captain OUT: every non-stub universal ladder, one kind
  *  per family at its cap (the first non-stub, dealable member of each) and
@@ -797,9 +806,6 @@ function exhaust(w: World, a: ShipRecord): void {
   }
 }
 
-/** The total bonus points a ship holds across every index (Story 10.7, R5). */
-const bonusTotal = (a: ShipRecord): number => INDEX_IDS.reduce((sum, id) => sum + a.indexBonus[id], 0);
-
 /** Wrap a ship's draw stream so the test can count what the World spends. */
 function countDraws(a: ShipRecord): () => number {
   const inner = a.drawRng;
@@ -814,55 +820,70 @@ function countDraws(a: ShipRecord): () => number {
   return () => n;
 }
 
-describe('the EXHAUSTED hull — a short or empty offer never throws, and an empty draw is a bonus point (Stories 10.5, 10.7 R5)', () => {
-  it('every ladder + all three family weapons at cap: NOTHING is eligible, and a level crossed is ONE bonus point — no bank, no offer, no pt, level still rises', () => {
+/** Every point each index gained between two `indexBonus` snapshots. */
+const bonusGain = (a: ShipRecord, before: Readonly<Record<string, number>>): Record<string, number> =>
+  Object.fromEntries(INDEX_IDS.map((id) => [id, a.indexBonus[id] - (before[id] ?? 0)]));
+
+/** Put a wreck crate worth `levels` under the hull and take it (Story 12.4). */
+function takeWreck(w: World, a: ShipRecord, id: string, levels: number): void {
+  w.drops.set(id, { id, x: a.state.x, y: a.state.y, kind: 'wreck', levels });
+  w.step();
+}
+
+describe('the EXHAUSTED hull — a short or empty offer never throws, and an empty draw banks nothing (Stories 10.5, 12.4)', () => {
+  it('every ladder + all three family weapons at cap: NOTHING is eligible, and a level crossed banks nothing — no bank, no offer, no pt, level still rises', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
     expect(WEAPON_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
     expect(eligibleFor(a)).toEqual([]);
-    expect(bonusTotal(a)).toBe(0);
     const levelBefore = a.level;
     const cardsBefore = [...a.cards];
     expect(() => bank(w, a, 1)).not.toThrow();
     w.step();
     expect(a.level).toBe(levelBefore + 1); // the LEVEL still counts...
     expect(a.bankedLevels).toBe(0); // ...nothing is banked...
-    expect(bonusTotal(a)).toBe(1); // ...it became exactly one bonus point (R5)...
-    expect(a.cards).toEqual(cardsBefore); // ...which is no card
+    expect(a.cards).toEqual(cardsBefore); // ...no card...
     expect(a.offer).toBeNull(); // ...no hand (no refit window)
     expect(ptsOf(w.tickEvents)).toEqual([]); // ...and no TAB cue
-    // The point is IN the stats, through the one fold.
+    // Whatever the level rolled is IN the stats, through the one fold.
     expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
-    const picked = INDEX_IDS.find((id) => a.indexBonus[id] > 0)!;
-    expect(a.stats[picked]).toBe(effectiveStats(a.cls, a.cards)[picked] + CONFIG.offer.exhausted.indexPoints);
     const you = buildFrame(w, 'a').you!;
     expect(you.pts).toBe(0);
     expect(you.offer).toEqual([]);
-    expect(you.ib).toEqual({ [picked]: 1 });
   });
 
-  it('R7: a SINKING or SUNK exhausted hull credited levels gets NO point — bank 0, no draw-stream value spent, stats untouched; the same hull afloat converts', () => {
-    for (const state of ['sinking', 'sunk'] as const) {
-      const w = bareWorld();
+  it('AC 8: a hull with cards left and an exhausted hull ROLL IDENTICALLY — the level roll ignores the offer', () => {
+    const rolled = (exhausted: boolean): Record<string, number> => {
+      const w = bareWorld(3, { pseudonymSeed: 99, statRoll: CONFIG.xp.statRoll });
       const a = place(w, 'a', 0, 0);
-      exhaust(w, a);
-      if (state === 'sinking') w.sinkShip('a');
-      else a.lifecycle = sunkAt(w.now);
-      expect(isAfloat(a.lifecycle), state).toBe(false);
-      const stats = a.stats;
-      const draws = countDraws(a);
-      bank(w, a, 3);
-      expect(a.bankedLevels, state).toBe(0);
-      expect(bonusTotal(a), state).toBe(0);
-      expect(draws(), state).toBe(0);
-      expect(a.stats, state).toBe(stats);
+      if (exhausted) exhaust(w, a);
+      const before = { ...a.indexBonus };
+      bank(w, a, 6);
+      return bonusGain(a, before);
+    };
+    const full = rolled(false);
+    expect(rolled(true)).toEqual(full);
+    expect(Object.values(full).some((n) => n > 0)).toBe(true); // six levels rolled something
+  });
+
+  it('R7: a SINKING or SUNK hull credited levels rolls NOTHING and banks nothing — no draw-stream value spent, stats untouched', () => {
+    for (const exhausted of [true, false]) {
+      for (const state of ['sinking', 'sunk'] as const) {
+        const w = bareWorld(1, { statRoll: CONFIG.xp.statRoll });
+        const a = place(w, 'a', 0, 0);
+        if (exhausted) exhaust(w, a);
+        if (state === 'sinking') w.sinkShip('a');
+        else a.lifecycle = sunkAt(w.now);
+        expect(isAfloat(a.lifecycle), state).toBe(false);
+        const stats = a.stats;
+        const bonus = { ...a.indexBonus };
+        bank(w, a, 3);
+        expect(a.indexBonus, state).toEqual(bonus);
+        expect(a.stats, state).toBe(stats);
+        if (exhausted) expect(a.bankedLevels, state).toBe(0);
+      }
     }
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    exhaust(w, a);
-    bank(w, a, 3);
-    expect(bonusTotal(a)).toBe(3);
   });
 
   it('R6: an INTEL bonus point on a hull at its INTEL card cap makes it SWEEP faster — no ceiling', () => {
@@ -871,13 +892,10 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     exhaust(w, a);
     expect(boonStackCount(a.cards, 'intel')).toBe(CATALOG.intel.cap);
     const before = a.stats;
-    // Steer the pick onto INTEL: the uniform slice of [0, 1) that maps to it.
-    const indices = CONFIG.offer.exhausted.indices;
-    const v = (indices.indexOf('intel') + 0.5) / indices.length;
-    a.drawRng = { ...a.drawRng, next: () => v };
-    bank(w, a, 1);
+    // One-level wrecks until a point lands on INTEL (a uniform pick each).
+    for (let i = 0; i < 100 && a.indexBonus.intel === 0; i += 1) takeWreck(w, a, `w${i}`, 1);
     expect(a.indexBonus.intel).toBe(1);
-    const perPoint = (CONFIG.vision.sweepRpm * CONFIG.offer.exhausted.indexPoints) / CONFIG.index.base;
+    const perPoint = CONFIG.vision.sweepRpm / CONFIG.index.base;
     expect(a.stats.sweepRpm - before.sweepRpm).toBeCloseTo(perPoint, 9);
     // ...and the World's sweep stepping reads it: one tick advances the beam
     // by 2π·dt / the NEW (shorter) period.
@@ -888,7 +906,7 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     expect(advanced).toBeGreaterThan((2 * Math.PI * DT) / before.sweepPeriodMs);
   });
 
-  it('K levels on an exhausted hull are K points — one draw-stream value each — and spendPoint is refused cleanly', () => {
+  it('K levels on an exhausted hull bank nothing and spend NO draw-stream value, and spendPoint is refused cleanly', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
@@ -901,22 +919,23 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     expect(a.level).toBe(levelBefore + 5);
     expect(a.bankedLevels).toBe(0);
     expect(a.offer).toBeNull();
-    expect(bonusTotal(a)).toBe(6);
-    expect(draws()).toBe(5); // an empty draw spends nothing; each pick spends one
+    expect(draws()).toBe(0); // an empty draw spends nothing, and the roll never touches the offer stream
   });
 
-  it('PROPERTY over seeds: the points land only on the ruled indices, never on anything else', () => {
-    const allowed = new Set<string>(CONFIG.offer.exhausted.indices);
+  it('PROPERTY over seeds: the rolled points land only on the rolled indices, never on anything else', () => {
+    const allowed = new Set<string>(CONFIG.xp.statRoll.indices);
     for (let seed = 1; seed <= 12; seed += 1) {
-      const w = bareWorld(seed);
+      const w = bareWorld(seed, { statRoll: CONFIG.xp.statRoll });
       const a = place(w, 'a', 0, 0);
       exhaust(w, a);
       const cardsBefore = [...a.cards];
       const before = a.stats;
       bank(w, a, 8);
       expect(Object.keys(a.indexBonus).sort(), `seed ${seed}`).toEqual([...INDEX_IDS].sort());
-      for (const id of INDEX_IDS) if (a.indexBonus[id] > 0) expect(allowed.has(id), `seed ${seed} ${id}`).toBe(true);
-      expect(bonusTotal(a), `seed ${seed}`).toBe(8);
+      for (const id of INDEX_IDS) {
+        expect(Number.isInteger(a.indexBonus[id]), `seed ${seed} ${id}`).toBe(true);
+        if (a.indexBonus[id] > 0) expect(allowed.has(id), `seed ${seed} ${id}`).toBe(true);
+      }
       expect(a.cards, `seed ${seed}`).toEqual(cardsBefore);
       // HULL REPAIR / SMOKE SCREEN never move: they are no index.
       expect(a.stats.repair, `seed ${seed}`).toEqual(before.repair);
@@ -924,9 +943,9 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     }
   });
 
-  it('is deterministic: the same seed picks the same points', () => {
+  it('is deterministic: the same seed rolls the same points', () => {
     const run = (): Record<string, number> => {
-      const w = bareWorld(7);
+      const w = bareWorld(7, { statRoll: CONFIG.xp.statRoll });
       const a = place(w, 'a', 0, 0);
       exhaust(w, a);
       bank(w, a, 10);
@@ -935,7 +954,7 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     expect(run()).toEqual(run());
   });
 
-  it('a hull that spends its LAST eligible card with N levels banked behind it converts all N into points, and the bank ends at 0', () => {
+  it('a hull that spends its LAST eligible card with N levels banked behind it drops the N, the bank ends at 0 and the spend adds no point', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
@@ -945,13 +964,13 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     bank(w, a, 3); // the front level draws [back]; two more queue behind it
     expect(front(a)).toEqual([back]);
     expect(a.bankedLevels).toBe(3);
-    expect(bonusTotal(a)).toBe(0);
+    const bonus = { ...a.indexBonus }; // what the three levels rolled
     const levelBefore = a.level;
     w.step();
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(eligibleFor(a)).toEqual([]);
     expect(a.bankedLevels).toBe(0);
-    expect(bonusTotal(a)).toBe(2); // the two queued levels, one point each (R5)
+    expect(a.indexBonus).toEqual(bonus); // no conversion (5(c))
     expect(a.offer).toBeNull();
     expect(a.level).toBe(levelBefore); // a spend never moves the level
     expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
@@ -960,22 +979,44 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     expect(buildFrame(w, 'a').you!.pts).toBe(0);
   });
 
-  it('a hull with cards left to draw NEVER receives a bonus point, however many levels it banks and spends', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    bank(w, a, 6);
-    for (let i = 0; i < 6; i += 1) spendPlainCard(w, a);
-    expect(a.bankedLevels).toBe(0);
-    expect(bonusTotal(a)).toBe(0);
-    expect(buildFrame(w, 'a').you!.ib).toEqual({});
+  it('the roll never touches the offer stream: two rooms on one map seed with different private seeds roll differently and deal the SAME offers', () => {
+    const play = (pseudonymSeed: number): { offers: string[][]; bonus: Record<string, number> } => {
+      const w = bareWorld(5, { pseudonymSeed, statRoll: CONFIG.xp.statRoll });
+      const a = place(w, 'a', 0, 0);
+      const offers: string[][] = [];
+      for (let i = 0; i < 6; i += 1) {
+        bank(w, a, 1);
+        offers.push(front(a));
+        spendPlainCard(w, a);
+      }
+      return { offers, bonus: { ...a.indexBonus } };
+    };
+    const one = play(11);
+    const two = play(12);
+    expect(two.offers).toEqual(one.offers);
+    expect(two.bonus).not.toEqual(one.bonus);
+  });
+
+  it('the roll is KEYED by the room key, not the pseudonym material: same map + pseudonym seed, another dispersion key → other rolls; the same key → the same rolls', () => {
+    const roll = (dispersionKey: Buffer): Record<string, number> => {
+      const w = bareWorld(5, { pseudonymSeed: 11, dispersionKey, statRoll: CONFIG.xp.statRoll });
+      const a = place(w, 'a', 0, 0);
+      exhaust(w, a);
+      bank(w, a, 8);
+      return { ...a.indexBonus };
+    };
+    const one = roll(offlineDispersionKey(0, 1));
+    expect(roll(offlineDispersionKey(0, 1))).toEqual(one);
+    expect(roll(offlineDispersionKey(0, 2))).not.toEqual(one);
   });
 
   it('the points survive the activation redeploy and a respawn, folded into the rebuilt stats', () => {
-    const w = bareWorld();
+    const w = bareWorld(1, { statRoll: CONFIG.xp.statRoll });
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
     bank(w, a, 4);
     const held = { ...a.indexBonus };
+    expect(Object.values(held).some((n) => n > 0)).toBe(true); // non-vacuous
     w.resetForMatchStart();
     expect(a.indexBonus).toEqual(held);
     expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
@@ -986,19 +1027,21 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, CATALOG, a.indexBonus));
   });
 
-  it('the countdown grant on an exhausted hull is a bonus point too; the REDRAW has no hand and is a clean no-op', () => {
+  it('the countdown grant on an exhausted hull banks nothing and ROLLS nothing (level unchanged); the REDRAW has no hand and is a clean no-op', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     exhaust(w, a);
+    const bonus = { ...a.indexBonus };
     w.countdownOpen = true;
     expect(() => w.grantOpening()).not.toThrow();
     expect(a.offer).toBeNull();
     expect(a.bankedLevels).toBe(0);
-    expect(bonusTotal(a)).toBe(1);
+    expect(a.level).toBe(0);
+    expect(a.indexBonus).toEqual(bonus);
     // A redraw needs a held hand — there is none, so it is a clean no-op.
     expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
     expect(a.offer).toBeNull();
-    expect(bonusTotal(a)).toBe(1);
+    expect(a.indexBonus).toEqual(bonus);
   });
 
   it('a hand ONE line short of exhaustion is SHORT, never padded and never repeated', () => {

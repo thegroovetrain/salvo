@@ -33,8 +33,14 @@ const DT = CONFIG.tick.simDtMs;
 const LIFT = CONFIG.wake.draft.lift;
 
 /** World with no islands and a flat raster (geometry stays out of the way). */
+/** Story 12.4: every level now ROLLS STATS (epic-12 amendment 5(b)). This
+ *  file pins pre-12.4 per-level arithmetic on neutral hulls, so its worlds
+ *  roll a die with no faces (every roll 0) — the World's test seam. The roll
+ *  itself is pinned in upgrades.test.ts / drops.test.ts. */
+const NO_ROLL = { ...CONFIG.xp.statRoll, faces: [] };
+
 function bareWorld(seed = 1): World {
-  const w = new World(seed);
+  const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, { statRoll: NO_ROLL });
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;

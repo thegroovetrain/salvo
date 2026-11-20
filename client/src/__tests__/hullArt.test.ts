@@ -12,7 +12,7 @@ import { barbetteRadiusU, hullArt, turretArt, turretDrawOrder, type Prim } from 
 import { artCacheSize, lineWidthU } from '../render/hullArt/pixiArt.js';
 import { artBox, hullArtSvg, restingPrims, sharedFitPxPerU, svgLineWidth } from '../render/hullArt/svgArt.js';
 import { ShipView } from '../render/ships.js';
-import { relationStroke, relationStyle, type Relation } from '../render/relationColor.js';
+import { hullLineColor, relationStroke, relationStyle, type Relation } from '../render/relationColor.js';
 import { cssHex } from '../util/color.js';
 
 const RELATIONS: readonly Relation[] = ['own', 'enemy'];
@@ -108,13 +108,13 @@ describe('the hull line is the shared silhouette (what you see is what gets hit)
 });
 
 describe('hullArtSvg — the DOM art, from the same shapes', () => {
-  it('returns art for every hull in both relations, every line in that relation’s color', () => {
+  it('returns art for every hull in both relations, every line in the hull line color (Story 12.3)', () => {
     for (const id of SHIP_CLASS_IDS) {
       for (const r of RELATIONS) {
         const svg = hullArtSvg(id, r, { pxPerU: 2 });
         expect(svg.startsWith('<svg')).toBe(true);
         const strokes = new Set([...svg.matchAll(/stroke="([^"]+)"/g)].map((m) => m[1]).filter((s) => s !== 'none'));
-        expect(strokes).toEqual(new Set([cssHex(relationStroke(r))]));
+        expect(strokes).toEqual(new Set([cssHex(hullLineColor(relationStroke(r)))]));
         // one SVG element per resting primitive (deck + turrets + outline)
         const count = (svg.match(/<(polygon|ellipse|line) /g) ?? []).length;
         expect(count).toBe(restingPrims(id).length);

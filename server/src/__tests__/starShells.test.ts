@@ -238,6 +238,7 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
       id: 'e', x: hidden.state.x, y: hidden.state.y, heading: hidden.state.heading, speed: 0, cls: hidden.hullId,
       tu: encodeTurretAngles(hidden.turrets, hidden.hullId), // Story 10.4: a sighted hull's turret angles ride its row
       ...(hidden.launchers.length > 0 ? { lu: encodeLauncherAngles(hidden.launchers) } : {}), // Story 10.6: ...and its launcher angles
+      // Story 12.3 (Eric 2026-11-19): NO `hb` — the hull is beyond a's name-tag reach, lit or not
     });
     expect(fa.litZones).toEqual([
       { id: 'z1', x: Z, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },

@@ -43,7 +43,6 @@ import type {
   LauncherState,
   Vec2,
   ZonePhase,
-  BeaconPhase,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 import type { NavCache } from '../navCache.js';
@@ -234,36 +233,32 @@ export interface BotZonePhase {
   readonly closesInMs: number | null;
 }
 
-/** One RADIO BEACON as a bot reads it (Story 10.8): its position and where it
- *  is in its life — exactly what a human's chart shows (the schema's public
- *  beacon slots run through the shared `beaconStateAt`). No hp, no pot, no
- *  hulls-in-range count: those never leave the server. */
-export interface BotBeacon {
+/** One charted SUPPLY DROP as a bot reads it (Story 12.4, epic-12 amendment
+ *  5(h)): its spot and the server ms its crates land — exactly what a human's
+ *  map mark shows (the schema's public supply slots; `landT` derived as
+ *  `supplyLandMs(cycleStartT)`). Also the shape of a bot's supply goal (a copy
+ *  of the row it picked, ai/supplyDrops.ts). */
+export interface BotSupplyDrop {
   readonly x: number;
   readonly y: number;
-  readonly phase: BeaconPhase;
-  /** 0..1 — the payout rate's fraction of full (0 while charted / gone). */
-  readonly rate01: number;
+  readonly landT: number;
 }
 
-/** A beacon a bot is farming (ai/beacons.ts): its centre and the standoff
- *  point fixed when it was first picked. */
-export interface BotBeaconGoal {
-  readonly x: number;
-  readonly y: number;
-  /** rad — the bearing from the beacon to the bot when the standoff was
-   *  fixed: a swing of more than 90° off it re-fixes the standoff. */
-  readonly bearing: number;
-  readonly standoff: Vec2;
-  /** Was the standoff fixed on the DISC-CENTRE side (the bot-side point lay
-   *  outside the patrol disc)? Such a goal is on station only AT its standoff
-   *  point (ai/beacons.ts onStation) — the "anywhere within the standoff
-   *  distance of the centre" reading would let the bot park outside the disc. */
-  readonly centerSide: boolean;
-  /** Is the beacon PAYING now (not gone, not merely charted, rate above 0)?
-   *  Re-read off the chart EVERY deliberation (ai/beacons.ts beaconGoalOf),
-   *  the kept goal included; the beacon stayer reads it (ai/posture.ts). */
-  readonly paying: boolean;
+/** A supply drop the router could not reach (Story 12.4 review fix,
+ *  ai/supplyDrops.ts supplyBarsOf): never picked or kept until `until`
+ *  (server ms — `CONFIG.bots.nav.routeRetryMs` after the failure, the
+ *  router's own retry clock) or until it leaves the chart. */
+export interface BotSupplyBar extends BotSupplyDrop {
+  readonly until: number;
+}
+
+/** A crate a bot SAW inside its supply goal's circle (Eric 2026-11-19,
+ *  "Remember if it's not expensive"; ai/supplyDrops.ts noteSupplyCrates):
+ *  its id and position, copied from the bot's own `PerceptionView.drops`. */
+export interface BotRememberedCrate {
+  id: string;
+  x: number;
+  y: number;
 }
 
 /**
@@ -279,26 +274,28 @@ export interface BotBeaconGoal {
  * is sent or derives from what it is sent (the schema's `zoneNext*`, the
  * shared zone timeline over `zoneStartT`, and CONFIG.zone's ring ladder).
  * Every OTHER widening of this interface still needs its own Eric ruling.
- * The RADIO BEACON chart (`beacons`, Story 10.8) has one: Eric 2026-11-06
- * "bots sail to and farm beacons" (epic-10 amendment 6(g); spec R3, R9 —
- * every beacon's cycle, position and early sink are public on the schema).
+ * The SUPPLY-DROP chart (`supplyDrops`, Story 12.4) has one: it is the
+ * radio-beacon chart's widening (Story 10.8, epic-10 amendment 6(g)) renamed
+ * by epic-12 amendment 5(h), Eric 2026-11-19 "Head for charted drops" — every
+ * spot's cycle and position are public on the schema.
  *
  * Deliberately absent: ANY ship store (a bot's own record arrives in its
  * BotTickEntry; everything else reaches it only through the fogged view),
- * `shells`, `mines`, `litZones`, events, other observers, and any beacon
- * fact a chart does not show (hp, pot, hulls in range).
+ * `shells`, `mines`, `litZones`, events, other observers, and any supply
+ * fact a chart does not show (the server's private seed, the crates before
+ * they are sighted).
  */
 export interface BotWorldPort {
   /**
-   * THE PUBLIC BEACON CHART (Story 10.8 — the widening ruled above): every
-   * beacon of the current cycle as `BotBeacon` (position, phase, rate), built
-   * by game/botPort.ts from `World.beaconChart` — the very facts the schema
-   * mirrors to every client — through the shared `beaconStateAt`. Empty when
-   * there is no set. The returned array is REUSED between calls: read it,
-   * never keep it. OPTIONAL so a hand-built test port omits it (absent = no
-   * beacons, as `nav` absent = the per-map cache).
+   * THE PUBLIC SUPPLY-DROP CHART (Story 12.4 — the widening ruled above):
+   * every charted spot as `BotSupplyDrop` (position, landing ms), built by
+   * game/botPort.ts from `World.supplyChart` — the very facts the schema
+   * mirrors to every client. Empty when nothing is charted. The returned
+   * array is REUSED between calls: read it, never keep it. OPTIONAL so a
+   * hand-built test port omits it (absent = no drops, as `nav` absent = the
+   * per-map cache).
    */
-  beacons?(): readonly BotBeacon[];
+  supplyDrops?(): readonly BotSupplyDrop[];
   /** ms since world creation — the one server clock. */
   readonly now: number;
   /** The generated map: islands (avoidance/LOS context) + radius (boundary). */
@@ -353,7 +350,6 @@ export type BotPosture =
   | 'pursue'
   | 'disengage'
   | 'reposition'
-  | 'farm'
   | 'ringRun'
   | 'ram'
   // Story 9.13 (amendment 193): KITE holds at own reach and opens from a
@@ -607,10 +603,19 @@ export interface BotMind {
   coverPoint?: Vec2 | null;
   /** The routed idle-patrol waypoint (amendment 202). */
   patrolWaypoint?: Vec2 | null;
-  /** THE BEACON BEING FARMED (Story 10.8, ai/beacons.ts): the public beacon
-   *  this bot sails to and holds by, re-picked every deliberation; null =
-   *  none (patrol as usual). */
-  beaconGoal?: BotBeaconGoal | null;
+  /** THE SUPPLY DROP BEING SOUGHT (Story 12.4, ai/supplyDrops.ts): a copy
+   *  of the public chart row this bot sails for (and waits on until its
+   *  crates land), re-checked every deliberation; null = none (patrol as
+   *  usual). */
+  supplyGoal?: BotSupplyDrop | null;
+  /** The supply drops the router reported unreachable, barred for a while
+   *  (see BotSupplyBar); empty = none. */
+  supplyBars?: readonly BotSupplyBar[];
+  /** The crates SEEN inside the supply goal's circle and not yet known gone
+   *  (ai/supplyDrops.ts noteSupplyCrates): at most
+   *  `CONFIG.supplyDrops.crates` entries, reused in place, emptied whenever
+   *  the goal changes or is released. */
+  supplyCrates?: BotRememberedCrate[];
   /** u — the closest the bot has come to `patrolWaypoint`, and the server ms
    *  it last gained a hull length on it: the no-progress re-pick after
    *  CONFIG.bots.nav.waypointTimeoutMs (amendment 202). */

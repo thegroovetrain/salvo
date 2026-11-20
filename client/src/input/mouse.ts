@@ -158,9 +158,14 @@ export class MouseInput {
    * `pos`: the aim path must keep using the last known position (a ship keeps
    * aiming where you left the cursor), while hover-only UI — the hotbar
    * tooltip — must not hang open after the pointer leaves the window entirely.
-   * Consumed ONLY by the hotbar's hover; nothing else reads it.
+   * Consumed ONLY by the HUD bar's hover (Story 12.3 Part B review: the
+   * flyout and the hover wash must not hang open off-window).
    */
   private inside = false;
+  /** Did the last pointermove land on the game CANVAS (not a DOM overlay —
+   *  the settings overlay, an offer card — above it)? The same canvas-target
+   *  test the fire path uses; hover-only UI on the canvas reads it. */
+  private onCanvas = false;
   /** Has any pointermove reported a position yet? `pos` starts at (0, 0), which
    *  is a real screen corner, so the spectate X/Z zoom anchor (Eric 2026-10-14)
    *  reads this to fall back to the screen centre until the cursor is known. */
@@ -203,6 +208,7 @@ export class MouseInput {
     this.pos.x = e.clientX;
     this.pos.y = e.clientY;
     this.inside = true;
+    this.onCanvas = this.canvas !== null && e.target === this.canvas;
     this.seen = true;
     this.onChord(e);
     this.onPanChord(e);
@@ -445,6 +451,13 @@ export class MouseInput {
    *  this so it can't hang open once the pointer leaves; aiming ignores it. */
   get pointerInside(): boolean {
     return this.inside;
+  }
+
+  /** Is the pointer inside the window AND over the game canvas (its last move
+   *  targeted the canvas, not DOM chrome above it)? Hover-only canvas UI (the
+   *  HUD bar's flyout and hover wash) reads this. */
+  get pointerOnCanvas(): boolean {
+    return this.inside && this.onCanvas;
   }
 
   /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, SLOT_COUNT, abilityReadyAt, encodeTurretAngles } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, SLOT_COUNT, abilityReadyAt, encodeTurretAngles, hullBlocks } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -160,11 +160,12 @@ describe('buildFrame — contacts (fogged via perception)', () => {
       heading: b.state.heading,
       speed: b.state.speed,
       cls: DEFAULT_CLASS_ID,
-      tu: encodeTurretAngles(b.turrets, b.hullId), // Story 10.4: angles, last
+      tu: encodeTurretAngles(b.turrets, b.hullId), // Story 10.4: angles
+      hb: hullBlocks(b.hp, b.stats.maxHp), // Story 12.3: the health step, last
     });
   });
 
-  it('carries a hull beyond the class-and-name sight and inside the hull sight as the SAME full contact (one tier — Eric 2026-11-15); no `pc` channel', () => {
+  it('carries a hull beyond the class-and-name sight and inside the hull sight as the SAME contact, minus the health step (one tier — Eric 2026-11-15); no `pc` channel', () => {
     const w = makeWorld();
     place(w, 'far', CONFIG.vision.sight + 50, 0);
     w.step();
@@ -175,7 +176,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     expect(f.contacts.map((c) => c.id).sort()).toEqual(['b', 'far']);
     expect(f.contacts.find((c) => c.id === 'far')).toEqual({
       id: 'far', x: far.state.x, y: far.state.y, heading: far.state.heading, speed: far.state.speed, cls: far.hullId, tu: encodeTurretAngles(far.turrets, far.hullId),
-    });
+    }); // ...minus the health step `hb`, which stays on the name-tag reach (Story 12.3, Eric 2026-11-19)
     expect('pc' in f).toBe(false);
   });
 
@@ -284,15 +285,15 @@ describe('buildFrame — the `drops` channel (Story 10.9, R3)', () => {
     // A crate 60 u off `a` (a raw store write — the injectMine posture): inside
     // a's detect rung, no island (delivered; this test pins the wire shape and
     // the channel order, not the gate — that is perception.test.ts's oracle).
-    w.drops.set('d1', { id: 'd1', x: 60, y: 0, kind: 'armor' });
+    w.drops.set('d1', { id: 'd1', x: 60, y: 0, kind: 'xp' });
     const f = buildFrame(w, 'a');
-    expect(f.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'armor' }]);
+    expect(f.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'xp' }]);
     expect(Object.keys(f.drops![0])).toEqual(['id', 'x', 'y', 'c']); // key order is the wire order
     expect(JSON.stringify(f)).not.toContain('rolls'); // no roll exists before pickup
     // The spectator path carries the same optional channel on the same rule.
     const spec = buildFrame(w, 'a', 'finished');
     expect(spec.spec).toBe(true);
-    expect(spec.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'armor' }]);
+    expect(spec.drops).toEqual([{ id: 'd1', x: 60, y: 0, c: 'xp' }]);
     // WIRE ORDER of the optional channels (key insertion): litZones,
     // burnZones, foulZones, clouds, then drops LAST — on both paths.
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: w.now + 5000 });

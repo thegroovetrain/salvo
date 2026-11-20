@@ -3,24 +3,23 @@
 // FrameMsg.drops (contact-like, sight-gated per observer, sanitized
 // fail-closed by sim/dropView.ts before it lands here).
 //
-// WHAT IS DRAWN: inside sight, a crate shows its KIND and nothing else — the
-// bonus is rolled AT PICKUP (Eric: "I only need to know that it's there, and
-// what type of upgrade it is (icon + color)"), so there are NO numerals. ONE
-// body — the 15 u pickup disc's inscribed square (`CONFIG.drops.radiusU`, R4,
-// so what you see is the water you must touch) — with the kind's glyph inside:
-// an index stat wears its ladder's own hotbar/card linework
-// (`drawEquipmentIcon`), the WRECK crate its own unique glyph (`'wreck'`). On
-// radar a drop is a plain anonymous blip — no art here (R3).
+// WHAT IS DRAWN: inside sight, a crate shows its KIND and nothing else — NO
+// numerals. ONE body — the 15 u pickup disc's inscribed square
+// (`CONFIG.drops.radiusU`, R4, so what you see is the water you must touch) —
+// with the kind's glyph inside (`drawEquipmentIcon`): since Story 12.4
+// (epic-12 amendments 5(a) and 6(a)) every airdrop is an XP crate wearing the
+// "+XP" linework (`'xp'`), and the WRECK crate keeps its own salvage glyph
+// (`'wreck'`). On radar a drop is a plain anonymous blip — no art here (R3).
 //
 // COLOR: outline and glyph both in the KIND's color
-// (`CLIENT_CONFIG.drops.kindColors`, Eric's 2026-11-09 ruling) at the mine
+// (`CLIENT_CONFIG.drops.kindColors`: the XP gauge's color, the wreck's white) at the mine
 // marker's alpha, over a SMALL GLOW in the same color (Eric: "give all of
 // them a small glow effect in their color") — the projectile tracer's
 // underlay technique (render/projectiles.ts: a wider, low-alpha stroke under
 // the line; no filter), two passes so it fades outward. No relation color (a
 // drop has no owner), no alert tint (not a hazard), no motion.
 //
-// SHAPE (render/beacons.ts's): a PURE core — `crateStyleFor` (no Pixi) and
+// SHAPE (the fire.ts pattern): a PURE core — `crateStyleFor` (no Pixi) and
 // `drawCrate` (one Graphics, world units, centered at 0,0) — and the thin
 // `Drops` adapter: one Graphics per id, add/remove reconcile exactly like
 // `Mines.sync` (the shared `reconcileLitZones` diff), placed once at spawn (a
@@ -40,7 +39,7 @@ import { drawEquipmentIcon } from './equipmentIcons.js';
 import { chartIconAlpha, screenScale } from './chartMarks.js';
 
 /** What a kind of crate is drawn with: its color and the glyph id
- *  `drawEquipmentIcon` answers (an index stat's own line id, or `'wreck'`). */
+ *  `drawEquipmentIcon` answers (`'xp'` or `'wreck'`). */
 export interface CrateKindStyle {
   color: number;
   glyphId: string;
@@ -82,11 +81,16 @@ export function drawCrate(g: Graphics, kind: DropKind, alpha: number = CLIENT_CO
   paintCrate(g, kind, CRATE_SIDE_U, LINE_W, 1, alpha);
 }
 
-/** THE CHART ICON (Story 11.8): the same crate in SCREEN px — `iconPx`
- *  across, `iconLinePx` linework, the glow shrunk in proportion — for a
- *  Graphics scaled `1 / zoom`. */
-export function drawCrateIcon(g: Graphics, kind: DropKind, alpha: number = CLIENT_CONFIG.drops.glyphAlpha): void {
-  const px = CLIENT_CONFIG.chartMarks.iconPx;
+/** THE CHART ICON (Story 11.8): the same crate in SCREEN px — `px` across
+ *  (`chartMarks.iconPx` by default; the supply-drop mark passes its own),
+ *  `iconLinePx` linework, the glow shrunk in proportion — for a Graphics
+ *  scaled `1 / zoom`. */
+export function drawCrateIcon(
+  g: Graphics,
+  kind: DropKind,
+  alpha: number = CLIENT_CONFIG.drops.glyphAlpha,
+  px: number = CLIENT_CONFIG.chartMarks.iconPx,
+): void {
   paintCrate(g, kind, px, CLIENT_CONFIG.chartMarks.iconLinePx, px / CRATE_SIDE_U, alpha);
 }
 

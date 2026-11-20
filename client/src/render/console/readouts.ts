@@ -1,5 +1,6 @@
-// THE CONSOLES' VIEW MODEL (Story 10.10, R9 / R17 / R18 / R19; plan O4–O8) —
-// pure, no Pixi, no DOM. Every number either console prints comes out of here.
+// THE HUD BAR'S VIEW MODEL (Story 10.10, R9 / R17 / R18 / R19; plan O4–O8;
+// re-pointed at the HUD bar and its flyout by Story 12.3 Part B) — pure, no
+// Pixi, no DOM. Every number the bar and its flyout print comes out of here.
 //
 //   • `consoleReadouts` — EVERY number on both consoles as `{ key, label,
 //     value, raw }`, off one `effectiveStats()` fold. Never re-derived: the
@@ -92,7 +93,7 @@ export const READOUT_KEY = {
   held: (id: IndexId): string => `index.${id}.held`,
   stat: (kind: WeaponRowKind, field: string): string => `row.${kind}.${field}`,
   tier: (kind: WeaponRowKind): string => `row.${kind}.tier`,
-  count: (kind: WeaponRowKind, what: 'tubes' | 'racks' | 'capacity' | 'rounds'): string => `row.${kind}.${what}`,
+  count: (kind: WeaponRowKind, what: CountWhat): string => `row.${kind}.${what}`,
   cooldown: (kind: 'repair' | 'smoke'): string => `ability.${kind}.cooldown`,
   abilityTier: (kind: 'repair' | 'smoke'): string => `ability.${kind}.tier`,
 } as const;
@@ -316,7 +317,7 @@ function indexReadouts(stats: EffectiveStats, cards: readonly string[], window: 
   for (const id of INDEX_IDS) {
     const v = shiftedIndex(stats, id, window);
     out.push({ key: READOUT_KEY.index(id), label: indexWord(id), value: String(v), raw: v, role: 'index' });
-    const held = Math.min(lineTier(cards, id), CLIENT_CONFIG.console.ship.tierBars);
+    const held = Math.min(lineTier(cards, id), CLIENT_CONFIG.console.bar.tierMark.dots);
     out.push({ key: READOUT_KEY.held(id), label: '', value: String(held), raw: held, role: 'held' });
   }
   return out;
@@ -349,13 +350,20 @@ function secondariesReadouts(src: ReadoutSource): Readout[] {
   ];
 }
 
-function countReadout(kind: WeaponRowKind, what: 'tubes' | 'racks' | 'capacity' | 'rounds', n: number): Readout {
+/** The mount counts a row carries: the torpedo's launchers and its tube total
+ *  (launchers × tubes per launcher), the mines' racks and per-rack capacity,
+ *  the special's rounds. The HUD bar unlocks its fixed slots from these. */
+type CountWhat = 'launchers' | 'tubes' | 'racks' | 'capacity' | 'rounds';
+
+function countReadout(kind: WeaponRowKind, what: CountWhat, n: number): Readout {
   return { key: READOUT_KEY.count(kind, what), label: '', value: String(n), raw: n, role: 'count' };
 }
 
 /** The mount counts a fitted row draws as marks (a SECOND TUBE card adds a clock). */
 function countReadouts(kind: WeaponRowKind, id: EquipmentId, stats: EffectiveStats): Readout[] {
-  if (kind === 'torpedo') return [countReadout(kind, 'tubes', stats.torpedoLaunchers * stats.tubesPerLauncher)];
+  if (kind === 'torpedo') {
+    return [countReadout(kind, 'launchers', stats.torpedoLaunchers), countReadout(kind, 'tubes', stats.torpedoLaunchers * stats.tubesPerLauncher)];
+  }
   if (kind === 'mines' && isMineEquipment(id)) {
     return [countReadout(kind, 'racks', rackCount(stats)), countReadout(kind, 'capacity', rackCapacity(stats, id))];
   }

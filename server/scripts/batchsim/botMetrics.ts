@@ -125,13 +125,10 @@ export interface BotSample extends BotReadouts {
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
-  /** Levels of XP RADIO BEACONS paid this bot (Story 10.8 —
-   *  `ShipRecord.beaconXpMs / CONFIG.xp.levelMs`), read at the last afloat tick. */
-  beaconXpLevels: number;
   /** AIRDROPS this bot collected (Story 10.9 — `ShipRecord.dropsTaken`), read
    *  at the last afloat tick. */
   dropsTaken: number;
-  /** Bonus index points per random-index stat (`CONFIG.drops.indices` order)
+  /** Bonus index points per random-index stat (`CONFIG.xp.statRoll.indices` order)
    *  and their sum — `ShipRecord.indexBonus`, read at the last afloat tick. */
   indexBonus: Record<string, number>;
   indexBonusTotal: number;
@@ -231,7 +228,6 @@ interface BotTrack {
   shots: number;
   minesLaid: number;
   damageDealt: number;
-  beaconXpLevels: number;
   dropsTaken: number;
   indexBonus: Record<string, number>;
   indexBonusTotal: number;
@@ -263,7 +259,6 @@ function newTrack(): BotTrack {
     shots: 0,
     minesLaid: 0,
     damageDealt: 0,
-    beaconXpLevels: 0,
     dropsTaken: 0,
     indexBonus: {},
     indexBonusTotal: 0,
@@ -464,7 +459,6 @@ export class BotCollector {
         shots: track.shots,
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
-        beaconXpLevels: track.beaconXpLevels,
         dropsTaken: track.dropsTaken,
         indexBonus: track.indexBonus,
         indexBonusTotal: track.indexBonusTotal,
@@ -545,10 +539,11 @@ function contactEnd(victim: ShipRecord, by: string | undefined): BotEnd | null {
 }
 
 /** The random-index stats' bonus points off `ShipRecord.indexBonus`, in
- *  `CONFIG.drops.indices` order (Story 10.9 harness). */
+ *  `CONFIG.xp.statRoll.indices` order (Story 10.9 harness; the list moved
+ *  there with Story 12.4). */
 export function indexBonusOf(ship: Pick<ShipRecord, 'indexBonus'>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const id of CONFIG.drops.indices) out[id] = ship.indexBonus[id] ?? 0;
+  for (const id of CONFIG.xp.statRoll.indices) out[id] = ship.indexBonus[id] ?? 0;
   return out;
 }
 
@@ -574,7 +569,6 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
-  track.beaconXpLevels = ship.beaconXpMs / CONFIG.xp.levelMs;
   track.dropsTaken = ship.dropsTaken;
   const bonus = bonusFields(ship);
   track.indexBonus = bonus.indexBonus;

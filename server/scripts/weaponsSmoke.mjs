@@ -218,7 +218,8 @@ const statsOf = (cls, fit = []) => effectiveStats(CONFIG.shipClasses[cls], fit);
 // the 2nd join. The 10-minute beat parks the first close 30 minutes out, so
 // every phase runs on the full-map ring.
 const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
-const MATCH_OVERRIDE = { sandbox: true };
+// Story 12.4: level rolls are random per room; a scripted smoke turns them off
+const MATCH_OVERRIDE = { sandbox: true, statRoll: false };
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);

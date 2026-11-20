@@ -265,7 +265,7 @@ export function zoneTerminalRadius(cfg: ZoneTimeline = CONFIG.zone): number {
 
 /**
  * ms of ONE ring group (`ZONE_BEATS_PER_GROUP` beats) — the length of a ring
- * cycle, which the radio beacons (Story 10.8, sim/beacons.ts) are timed on.
+ * cycle, which the supply drops (Story 12.4, sim/supplyDrops.ts) are timed on.
  * 0 for a degenerate beat duration, like zoneClosedAtMs.
  */
 export function zoneGroupMs(cfg: ZoneTimeline = CONFIG.zone): number {

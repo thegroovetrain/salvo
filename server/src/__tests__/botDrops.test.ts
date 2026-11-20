@@ -1,10 +1,11 @@
 // THE LANE NUDGE (Story 10.9 "Airdrops", epic-10 amendment 18; spec
 // Boundaries "Bots") — a bot takes a SIGHTED crate lying on the line it
-// already sails, in the non-combat bearings only (idle / patrol / beacon farm
-// in transit); never while engaged, never off a beacon station.
+// already sails, in the non-combat bearings only (idle / patrol / a supply
+// run in transit, Story 12.4); never while engaged, never off a supply spot
+// it is waiting on for the landing.
 //
-// Every distance is read off CONFIG.bots / CONFIG.drops / CONFIG.beacons and
-// the ai/beacons.ts knob; no number of Eric's is pinned here.
+// Every distance is read off CONFIG.bots / CONFIG.drops / CONFIG.supplyDrops;
+// no number of Eric's is pinned here.
 
 import { describe, expect, it } from 'vitest';
 import { CONFIG, bearing, mulberry32, type DropView, type HullId, type Vec2 } from '@salvo/shared';
@@ -12,16 +13,15 @@ import type { PerceptionView } from '../game/perception.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { COMBAT_BRAIN } from '../game/ai/tactics.js';
 import { laneDrop } from '../game/ai/drops.js';
-import { beaconStandoffU, onStation } from '../game/ai/beacons.js';
+import { atSupplySpot } from '../game/ai/supplyDrops.js';
 import { hullLengthU } from '../game/ai/navigate.js';
-import type { BotBeacon, BotMind, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
-import { SURFACE_MS, bareWorld, run, seatBeacon } from './beaconFixture.js';
+import type { BotMind, BotProfileId, BotSupplyDrop, BotWorldPort, RememberedContact } from '../game/ai/types.js';
+import { bareWorld, run, seatSupply } from './worldFixture.js';
 
 const AHEAD = CONFIG.bots.dropAheadU;
 const LANE = CONFIG.bots.dropLaneU;
-const STAT = CONFIG.drops.indices[0];
 
-const crate = (id: string, x: number, y: number): DropView => ({ id, x, y, c: STAT });
+const crate = (id: string, x: number, y: number): DropView => ({ id, x, y, c: 'xp' });
 
 /** The point `along` ahead of `from` on `b`, offset `side` to its left. */
 function inLane(from: Vec2, b: number, along: number, side: number): Vec2 {
@@ -65,8 +65,8 @@ describe('laneDrop — the nearest crate in the lane of the goal bearing', () =>
 
 // --- the brain, one decision ----------------------------------------------------
 
-/** A hand-built port (botBeacons.test's shape) with a settable chart. */
-function fakePort(w: World, beacons: BotBeacon[]): BotWorldPort {
+/** A hand-built port with a settable supply chart. */
+function fakePort(w: World, supply: BotSupplyDrop[]): BotWorldPort {
   const live = { cx: 0, cy: 0, r: w.map.radius };
   return {
     now: 100000,
@@ -79,7 +79,7 @@ function fakePort(w: World, beacons: BotBeacon[]): BotWorldPort {
     zoneNextRing: () => null,
     zonePhase: () => ({ phase: 'idle', closesInMs: null }),
     zoneSafeDisc: () => live,
-    beacons: () => beacons,
+    supplyDrops: () => supply,
   };
 }
 
@@ -118,25 +118,31 @@ function mkBot(w: World, x: number, y: number, heading = 0, hull: HullId = 'bism
   return rec;
 }
 
-const afloat = (x: number, y: number): BotBeacon => ({ x, y, phase: 'afloat', rate01: 1 });
+/** A charted spot still to land (its landing a minute after the fake
+ *  port's clock). */
+const charted = (x: number, y: number): BotSupplyDrop => ({ x, y, landT: 100000 + CONFIG.supplyDrops.surfaceMs });
+
+/** The supply run's "on the spot" slack (ai/tactics.ts supplySlackU). */
+const slackOf = (rec: ShipRecord): number => 2 * hullLengthU(rec.hullId);
 
 describe('COMBAT_BRAIN — the lane nudge', () => {
-  it('a bot farming in transit turns for a crate in its lane (and not without one)', () => {
+  it('a bot on a supply run in transit turns for a crate in its lane (and not without one)', () => {
     const w = openWorld(1901);
-    const port = fakePort(w, [afloat(1200, 0)]); // dead ahead, bow on
+    const port = fakePort(w, [charted(1200, 0)]); // dead ahead, bow on
     const rec = mkBot(w, 0, 0, 0);
     const c = crate('c', AHEAD * 0.5, LANE * 0.8); // ahead, to port of the line
-    const plain = COMBAT_BRAIN.decide(rec, mkMind('bulwark', []), port);
-    const mind = mkMind('bulwark', [c]);
+    const plain = COMBAT_BRAIN.decide(rec, mkMind('raider', []), port);
+    const mind = mkMind('raider', [c]);
     const nudged = COMBAT_BRAIN.decide(rec, mind, port);
-    expect(mind.posture).toBe('farm');
+    expect(mind.posture).toBe('reposition');
+    expect(mind.supplyGoal).toBeTruthy();
     expect(nudged.throttle).toBe(plain.throttle);
     expect(nudged.rudder).toBeGreaterThan(plain.rudder); // turns toward +y
   });
 
   it('a TARGET in sight: the crate changes nothing (combat keeps priority)', () => {
     const w = openWorld(1902);
-    const port = fakePort(w, [afloat(1200, 0)]);
+    const port = fakePort(w, [charted(1200, 0)]);
     const rec = mkBot(w, 0, 0, 0);
     const now = port.now;
     const hostile = (): RememberedContact => ({
@@ -146,26 +152,25 @@ describe('COMBAT_BRAIN — the lane nudge', () => {
     });
     const c = crate('c', AHEAD * 0.5, LANE * 0.8);
     const decideWith = (drops: DropView[]): { d: ReturnType<typeof COMBAT_BRAIN.decide>; mind: BotMind } => {
-      const mind = mkMind('duelist', drops); // a beacon CONTESTER (Story 10.12, R4): the target pulls it off
+      const mind = mkMind('duelist', drops); // a supply SEEKER (Story 12.4): the target pulls it off
       mind.contacts.set('tgt', hostile());
       return { d: COMBAT_BRAIN.decide(rec, mind, port), mind };
     };
     const plain = decideWith([]);
     const withCrate = decideWith([c]);
     expect(withCrate.mind.targetKey).toBe('tgt');
-    expect(withCrate.mind.posture).not.toBe('farm');
     expect(withCrate.d.rudder).toBe(plain.d.rudder);
     expect(withCrate.d.throttle).toBe(plain.d.throttle);
   });
 
-  it('a bot ON STATION at a beacon does not leave it for a crate in front of its bow', () => {
+  it('a bot WAITING on a charted spot for the landing does not leave it for a crate in front of its bow', () => {
     const w = openWorld(1903);
-    const port = fakePort(w, [afloat(beaconStandoffU() - 20, 0)]);
     const rec = mkBot(w, 0, 0, Math.PI);
+    const port = fakePort(w, [charted(slackOf(rec) / 2, 0)]);
     const c = crate('c', -AHEAD * 0.4, 0); // dead ahead of the bow
-    const mind = mkMind('bulwark', [c]);
+    const mind = mkMind('raider', [c]);
     const d = COMBAT_BRAIN.decide(rec, mind, port);
-    expect(mind.posture).toBe('farm');
+    expect(mind.posture).toBe('reposition');
     expect(d.throttle).toBe(0);
     expect(d.rudder).toBe(0);
   });
@@ -174,8 +179,8 @@ describe('COMBAT_BRAIN — the lane nudge', () => {
 // --- a real World ----------------------------------------------------------------
 
 /** An ENROLLED bot on a real World (the controller drives it), at a pose. */
-function realBot(w: World, x: number, y: number, heading: number): ShipRecord {
-  const rec = w.addBot('bismarck', 'bulwark');
+function realBot(w: World, x: number, y: number, heading: number, profile: BotProfileId = 'bulwark'): ShipRecord {
+  const rec = w.addBot('bismarck', profile);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -184,36 +189,34 @@ function mindOf(w: World, rec: ShipRecord): BotMind {
   return (w.bots as unknown as { minds: Map<string, BotMind> }).minds.get(rec.id)!;
 }
 
-const bonusSum = (rec: ShipRecord): number => CONFIG.drops.indices.reduce((n, id) => n + rec.indexBonus[id], 0);
-
 /** Clear of a straight run: the lateral offset beats the crate disc + the
  *  hull's half-beam, so only a turn takes it. */
 const SIDE = LANE * 0.8;
 
 describe('a real World — the bot takes a crate on its line', () => {
-  it('in transit to a beacon: the crate off its line is collected on the way, and the bot still farms', () => {
+  it('in transit to a charted supply drop: the crate off its line is collected on the way, and the bot still makes the spot', () => {
     const w = bareWorld(1910, { drops: false }); // no scheduled scatter: only the test's crate
     const at: Vec2 = { x: 0, y: 0 };
-    seatBeacon(w, SURFACE_MS, at);
+    seatSupply(w, 0, [at]);
     const start: Vec2 = { x: -1600, y: 0 };
-    const rec = realBot(w, start.x, start.y, 0);
+    const rec = realBot(w, start.x, start.y, 0, 'raider');
     expect(SIDE).toBeGreaterThan(CONFIG.drops.radiusU + hullLengthU(rec.hullId) / 4);
     const p = inLane(start, bearing(start, at), AHEAD * 0.6, SIDE);
-    w.drops.set('lane', { id: 'lane', x: p.x, y: p.y, kind: STAT });
-    const bonus0 = bonusSum(rec);
+    w.drops.set('lane', { id: 'lane', x: p.x, y: p.y, kind: 'xp' });
+    const landTicks = Math.floor(CONFIG.supplyDrops.surfaceMs / CONFIG.tick.simDtMs);
     let tookAt = -1;
-    for (let i = 0; i < 600 && tookAt < 0; i += 1) {
+    let i = 0;
+    for (; i < landTicks && tookAt < 0; i += 1) {
       w.step();
       if (!w.drops.has('lane')) tookAt = i;
     }
     expect(tookAt).toBeGreaterThanOrEqual(0);
     expect(rec.dropsTaken).toBe(1);
-    expect(bonusSum(rec)).toBeGreaterThan(bonus0);
-    run(w, 900);
-    const goal = mindOf(w, rec).beaconGoal!;
+    const goal = mindOf(w, rec).supplyGoal!;
     expect(goal).toBeTruthy();
-    expect(onStation(goal, rec.state, 2 * hullLengthU(rec.hullId))).toBe(true);
-    expect(rec.beaconXpMs).toBeGreaterThan(0);
+    // ...and it reaches the spot BEFORE the crates land.
+    for (; i < landTicks - 1 && !atSupplySpot(goal, rec.state, slackOf(rec)); i += 1) w.step();
+    expect(atSupplySpot(goal, rec.state, slackOf(rec))).toBe(true);
   });
 
   it('on patrol: a crate ahead in the lane of its waypoint is collected', () => {
@@ -223,29 +226,32 @@ describe('a real World — the bot takes a crate on its line', () => {
     run(w, 10);
     const wp = mind.patrolWaypoint;
     expect(wp).toBeTruthy();
-    expect(mind.posture).not.toBe('farm');
     const from = { x: rec.state.x, y: rec.state.y };
     const p = inLane(from, bearing(from, wp!), Math.min(AHEAD * 0.6, Math.hypot(wp!.x - from.x, wp!.y - from.y) * 0.5), SIDE);
-    w.drops.set('lane', { id: 'lane', x: p.x, y: p.y, kind: STAT });
+    w.drops.set('lane', { id: 'lane', x: p.x, y: p.y, kind: 'xp' });
     for (let i = 0; i < 600 && w.drops.has('lane'); i += 1) w.step();
     expect(w.drops.has('lane')).toBe(false);
     expect(rec.dropsTaken).toBe(1);
   });
 
-  it('stationed on a beacon: a crate off its lane does not pull it off station', () => {
+  it('waiting on a charted spot: a crate off its lane does not pull it off the spot before the landing', () => {
     const w = bareWorld(1912, { drops: false });
     const at: Vec2 = { x: 0, y: 0 };
-    seatBeacon(w, SURFACE_MS, at);
-    const rec = realBot(w, -beaconStandoffU(), 0, Math.PI);
-    run(w, 200); // settle on station
-    const goal = mindOf(w, rec).beaconGoal!;
-    const slack = 2 * hullLengthU(rec.hullId);
-    expect(onStation(goal, rec.state, slack)).toBe(true);
+    seatSupply(w, 0, [at]);
+    const rec = realBot(w, at.x, at.y, Math.PI, 'raider');
+    run(w, 200); // settle on the spot
+    const goal = mindOf(w, rec).supplyGoal!;
+    const slack = slackOf(rec);
+    expect(goal).toBeTruthy();
+    expect(atSupplySpot(goal, rec.state, slack)).toBe(true);
     const off = 300;
-    w.drops.set('off', { id: 'off', x: rec.state.x - off * 0.6, y: rec.state.y + off * 0.8, kind: STAT });
-    for (let i = 0; i < 400; i += 1) {
+    w.drops.set('off', { id: 'off', x: rec.state.x - off * 0.6, y: rec.state.y + off * 0.8, kind: 'xp' });
+    // Well short of the landing (surfaceMs after the seat), the hull holds.
+    const ticks = Math.min(400, Math.floor(CONFIG.supplyDrops.surfaceMs / CONFIG.tick.simDtMs) - 250);
+    expect(ticks).toBeGreaterThan(0);
+    for (let i = 0; i < ticks; i += 1) {
       w.step();
-      expect(onStation(goal, rec.state, slack)).toBe(true);
+      expect(atSupplySpot(goal, rec.state, slack)).toBe(true);
     }
     expect(w.drops.has('off')).toBe(true);
     expect(rec.dropsTaken).toBe(0);

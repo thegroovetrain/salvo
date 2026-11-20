@@ -10,8 +10,8 @@
 // pure helpers, which is what these tests pin.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { Container } from 'pixi.js';
-import { DEFAULT_CLASS_ID, SHIP_CLASS_IDS, hullSilhouette, polygonMaxRadius, type Contact, type HullId } from '@salvo/shared';
+import { Graphics, type Container } from 'pixi.js';
+import { CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, type Contact, type HullId } from '@salvo/shared';
 import { textSafe } from '../util/color.js';
 import { relationStroke, type Relation } from '../render/relationColor.js';
 import {
@@ -19,9 +19,12 @@ import {
   plateColor,
   resolvePlate,
   latchPlate,
-  plateScreenY,
+  plateStack,
+  nameFitAt,
   NameplateLayer,
 } from '../render/nameplates.js';
+import { bracketHalfPx } from '../render/brackets.js';
+import { CLIENT_CONFIG } from '../config.js';
 import { ContactViews, CONTACT_STALE_MS } from '../render/contacts.js';
 import { ContactStore } from '../net/snapshots.js';
 
@@ -72,6 +75,8 @@ beforeEach(() => {
 });
 
 const ENEMY = relationStroke('enemy');
+/** A zoom (px per u) at which every name draws in the mono Text. */
+const MONO_ZOOM = 4;
 const RELATIONS: readonly Relation[] = ['own', 'enemy'];
 const enemyIs = (): Relation => 'enemy';
 
@@ -172,44 +177,27 @@ describe('latchPlate — resolve once, then persist', () => {
   });
 });
 
-describe('plateScreenY — floats above the hull, constant screen font at any zoom', () => {
-  it('offsets above the hull bounding circle plus the pad', () => {
-    const pad = 8;
-    const r = polygonMaxRadius(hullSilhouette(DEFAULT_CLASS_ID));
-    expect(plateScreenY(100, DEFAULT_CLASS_ID, 1, pad)).toBeCloseTo(100 - r - pad, 9);
-  });
-
-  it('the hull-radius offset scales with zoom while the pad does NOT', () => {
-    const pad = 8;
-    const r = polygonMaxRadius(hullSilhouette(DEFAULT_CLASS_ID));
-    const full = plateScreenY(100, DEFAULT_CLASS_ID, 1, pad); // 100 - r - 8
-    const half = plateScreenY(100, DEFAULT_CLASS_ID, 0.5, pad); // 100 - r/2 - 8 (spectate zoom)
-    expect(full).toBeCloseTo(100 - r - pad, 9);
-    expect(half).toBeCloseTo(100 - r / 2 - pad, 9);
-    // The hull-radius offset (excluding the constant pad) halves at 0.5× — the
-    // hull shrinks with zoom, so the plate sits closer to the ship's screen point.
-    expect(100 - half - pad).toBeCloseTo((100 - full - pad) / 2, 9);
-  });
-
-  it('uses each hull id\'s own silhouette radius (per-class offset)', () => {
-    const pad = 6;
-    for (const id of SHIP_CLASS_IDS) {
-      const r = polygonMaxRadius(hullSilhouette(id));
-      expect(plateScreenY(0, id, 1, pad)).toBeCloseTo(-r - pad, 9);
-    }
+describe('plateStack — name, then bar, then the bracket top edge (Story 12.3)', () => {
+  it('puts the bar padPx above the bracket and the name nameGapPx above the bar', () => {
+    const top = 100;
+    const { barTop, nameBottom } = plateStack(top);
+    expect(top - (barTop + CLIENT_CONFIG.hullBar.heightPx)).toBe(CLIENT_CONFIG.hullBar.padPx);
+    expect(barTop - nameBottom).toBe(CLIENT_CONFIG.nameplate.nameGapPx);
   });
 });
 
 describe('ContactViews plate offset survives prune (no fallback-hull pop)', () => {
   const contact = (cls: Contact['cls']): Contact[] => [{ id: 'e1', x: 100, y: 50, heading: 0, speed: 0, cls }];
   const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
-  const plates = { nameOf: () => 'ADM', camera, pad: 8 };
-  const radius = (id: HullId): number => polygonMaxRadius(hullSilhouette(id));
+  const plates = { nameOf: () => 'ADM', camera };
+  const len = (id: HullId): number => CONFIG.shipClasses[id].hull.length;
   // The captain hull whose plate offset differs MOST from the default-class
   // fallback, so a pop to the fallback is unmistakable.
   const SEEN: HullId = SHIP_CLASS_IDS.reduce((best, id) =>
-    Math.abs(radius(id) - radius(DEFAULT_CLASS_ID)) > Math.abs(radius(best) - radius(DEFAULT_CLASS_ID)) ? id : best,
+    Math.abs(len(id) - len(DEFAULT_CLASS_ID)) > Math.abs(len(best) - len(DEFAULT_CLASS_ID)) ? id : best,
   );
+  /** The name's bottom y over a hull of `id` at (_, 50), zoom 1. */
+  const nameY = (id: HullId): number => plateStack(50 - bracketHalfPx(len(id))).nameBottom;
 
   it('holds the sighted hull\'s plate offset through the fade-after-prune', () => {
     const nameplates = new NameplateLayer(stubLayer());
@@ -221,18 +209,16 @@ describe('ContactViews plate offset survives prune (no fallback-hull pop)', () =
     views.render(store, 0, 0, 16, enemyIs, plates);
     const plate = textLog.find((t) => t.text === 'ADM');
     expect(plate).toBeDefined();
-    const rSeen = radius(SEEN);
-    const rDefault = radius(DEFAULT_CLASS_ID);
-    expect(plate!.position.y).toBeCloseTo(50 - rSeen - 8, 6); // its own offset while sighted
+    expect(plate!.position.y).toBeCloseTo(nameY(SEEN), 6); // its own offset while sighted
 
     // Stop pushing; advance past the stale TTL so prune drops the contact — its
     // class entry is DELETED, so a live store.classOf() would fall back to
     // DEFAULT_CLASS_ID. The cached hull id must keep the sighted offset (no pop).
     const afterTtl = CONTACT_STALE_MS + 1;
     views.render(store, afterTtl, afterTtl, 16, enemyIs, plates);
-    expect(plate!.position.y).toBeCloseTo(50 - rSeen - 8, 6); // STILL its own, not popped
+    expect(plate!.position.y).toBeCloseTo(nameY(SEEN), 6); // STILL its own, not popped
     // Sanity: the default-class fallback would have produced a visibly different y.
-    expect(50 - rDefault - 8).not.toBeCloseTo(50 - rSeen - 8, 2);
+    expect(nameY(DEFAULT_CLASS_ID)).not.toBeCloseTo(nameY(SEEN), 2);
   });
 });
 
@@ -259,7 +245,7 @@ describe('ContactViews — every revealed hull latches a plate in one frame (UX-
 
     store.pushFrame(0, Object.keys(humans).map((id) => contact(id, DEFAULT_CLASS_ID)));
 
-    const plates = { nameOf: (id: string) => humans[id]?.name ?? null, camera, pad: 8 };
+    const plates = { nameOf: (id: string) => humans[id]?.name ?? null, camera };
     views.render(store, 0, 0, 16, enemyIs, plates);
 
     // Nothing in the batch was skipped — every captain latched.
@@ -286,7 +272,7 @@ describe('ContactViews — every revealed hull latches a plate in one frame (UX-
 
     const [first, second] = SHIP_CLASS_IDS;
     store.pushFrame(0, [contact('ace', first), contact('ghost', second)]);
-    const plates = { nameOf: (id: string) => (id === 'ace' ? 'ace' : null), camera, pad: 8 };
+    const plates = { nameOf: (id: string) => (id === 'ace' ? 'ace' : null), camera };
     views.render(store, 0, 0, 16, enemyIs, plates);
 
     expect(nameplates.has('ace')).toBe(true); // synced human: plates
@@ -330,11 +316,14 @@ describe('NameplateLayer — Pixi Text lifecycle state machine', () => {
     const layer = new NameplateLayer(stubLayer());
     layer.set('a', 'X', 0x1);
     const t = textLog[0];
-    layer.place('a', 10, 20, 1);
+    // a zoom whose name size is the mono (the Text), not the 5×7 pixel font
+    const look = { halfPx: 0, zoom: MONO_ZOOM, blocks: null };
+    expect(nameFitAt(MONO_ZOOM).pixel, 'premise: the mono shows at this zoom').toBe(false);
+    layer.place('a', 10, 20, 1, look);
     expect(t.visible).toBe(true);
     layer.hide('a');
     expect(t.visible).toBe(false);
-    layer.place('a', 10, 20, 0.5);
+    layer.place('a', 10, 20, 0.5, look);
     expect(t.visible).toBe(true);
     expect(t.alpha).toBe(0.5);
   });
@@ -351,5 +340,56 @@ describe('NameplateLayer — Pixi Text lifecycle state machine', () => {
     expect(layer.has('a')).toBe(true);
     expect(textLog).toHaveLength(2);
     expect(textLog[1].text).toBe('Y');
+  });
+});
+
+// STORY 12.3 REVIEW FIX PASS — the hull bar never waits on the name, and the
+// pixel-font name is centred on its FOLDED width.
+describe('the plate stack without a name, and the pixel name`s centre (12.3 review)', () => {
+  /** A layer that keeps what is added to it, so the Graphics can be read. */
+  function keepingLayer(): { layer: Container; kids: unknown[] } {
+    const kids: unknown[] = [];
+    return { layer: { addChild: (c: unknown) => kids.push(c), removeChild() {} } as unknown as Container, kids };
+  }
+  const isGraphics = (o: unknown): o is Graphics => o instanceof Graphics;
+
+  it('an in-sight hull with a known step gets its hull bar before its name resolves; the name joining never moves it', () => {
+    const { layer, kids } = keepingLayer();
+    const plates = new NameplateLayer(layer);
+    const look = { halfPx: 20, zoom: MONO_ZOOM, blocks: 3 };
+    plates.place('a', 200, 300, 1, look);
+    expect(plates.has('a'), 'no name latched yet').toBe(false);
+    const bars = kids.filter(isGraphics);
+    expect(bars).toHaveLength(1);
+    const bar = bars[0];
+    expect(bar.visible).toBe(true);
+    expect({ x: bar.x, y: bar.y }).toEqual({ x: 200, y: plateStack(300).barTop });
+    plates.set('a', 'ACE', 0x1);
+    plates.place('a', 200, 300, 1, look);
+    expect(plates.has('a')).toBe(true);
+    expect(kids.filter(isGraphics)[0]).toBe(bar);
+    expect({ x: bar.x, y: bar.y }).toEqual({ x: 200, y: plateStack(300).barTop });
+  });
+
+  it('a hull with no known step and no name draws nothing', () => {
+    const { layer, kids } = keepingLayer();
+    const plates = new NameplateLayer(layer);
+    plates.place('a', 200, 300, 1, { halfPx: 20, zoom: MONO_ZOOM, blocks: null });
+    expect(kids.filter(isGraphics).every((g) => !g.visible)).toBe(true);
+  });
+
+  it('a decomposed name (base letter + combining mark) is centred on its folded width', () => {
+    const { layer, kids } = keepingLayer();
+    const plates = new NameplateLayer(layer);
+    const name = 'ÉVE'; // É decomposed: four code points, three glyphs
+    plates.set('a', name, 0xffffff);
+    const PIXEL_ZOOM = 1e-4;
+    expect(nameFitAt(PIXEL_ZOOM).pixel, 'premise: the pixel font shows at this zoom').toBe(true);
+    plates.place('a', 100, 300, 1, { halfPx: 4, zoom: PIXEL_ZOOM, blocks: null });
+    const pixel = kids.filter(isGraphics).find((g) => g.visible)!;
+    expect(pixel).toBeDefined();
+    const b = pixel.getLocalBounds();
+    // integer pixels: an odd drawn width centres to the half pixel, no further
+    expect(Math.abs(pixel.x + b.x + b.width / 2 - 100)).toBeLessThanOrEqual(0.5);
   });
 });

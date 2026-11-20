@@ -1464,7 +1464,7 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
       id: 'cap-1', cls: 'warspite', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
       boonsFitted: 2, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
-      firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2], beaconXpLevels: 0,
+      firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2],
       dropsTaken: 0, indexBonus: {}, indexBonusTotal: 0,
     };
     const match: MatchSample = {
@@ -1713,13 +1713,13 @@ describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune famil
 });
 
 describe('report — AIRDROPS (Story 10.9)', () => {
-  const stats = CONFIG.drops.indices;
+  const stats = CONFIG.xp.statRoll.indices;
   function cap(id: string, cls: string, dropsTaken: number, perStat: (i: number) => number): CaptainSample {
     const indexBonus: Record<string, number> = {};
     stats.forEach((s, i) => (indexBonus[s] = perStat(i)));
     return {
       id, cls, finalLevel: 1, kills: 0, deaths: 0, picks: 0, boonsFitted: 0, cappedLines: 0,
-      boonTimesS: new Array<number | null>(BOON_N_MAX).fill(null), firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1], beaconXpLevels: 0,
+      boonTimesS: new Array<number | null>(BOON_N_MAX).fill(null), firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1],
       dropsTaken, indexBonus, indexBonusTotal: Object.values(indexBonus).reduce((a, n) => a + n, 0),
     };
   }

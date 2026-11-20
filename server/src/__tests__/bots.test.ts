@@ -373,13 +373,13 @@ describe('the narrow world port — its surface is exactly the ruled one', () =>
     // amendment 190 (Eric 2026-10-17, human parity) for EXACTLY zoneNextRing,
     // zonePhase and zoneSafeDisc; anything else still needs a ruling.
     expect(Object.keys(port).sort()).toEqual([
-      'beacons', // Story 10.8 (Eric 2026-11-06, amendment 6(g)): the public beacon chart
       'helmEnabled',
       'map',
       'nav', // Story 9.13 (amendments 191/192): the public map's nav cache — derived from `map` alone
       'now',
       'spendPoint',
       'submitInput',
+      'supplyDrops', // Story 12.4 (epic-12 amendment 5(h); Story 10.8's beacon chart renamed): the public supply chart
       'zoneEndgameReached',
       'zoneLiveRing',
       'zoneNextRing', // amendment 190

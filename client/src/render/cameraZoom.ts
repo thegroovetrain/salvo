@@ -99,13 +99,40 @@ function allUsable(...xs: number[]): boolean {
  * scale. NaN when unusable (no room above the bar, a missing radius or margin,
  * a degenerate viewport or inset) — the caller then falls back to the default
  * framing.
+ *
+ * THE FOCUS OFFSET (Story 12.3 review): with the HUD bar on a side the ship
+ * sits `focusOffsetPx` off the screen centre, at the centre of the open water;
+ * the disc then has W/2 − |offset| px to the bar's edge and to the far edge,
+ * so the side room is that, not W/2 (else the far side clips).
  */
-export function intelFitSpanU(viewW: number, viewH: number, bottomInsetPx: number, radiusU: number, margin: number): number {
+export function intelFitSpanU(viewW: number, viewH: number, bottomInsetPx: number, radiusU: number, margin: number, focusOffsetPx = 0): number {
   if (!allUsable(viewW, viewH, radiusU, margin)) return NaN;
   if (!Number.isFinite(bottomInsetPx)) return NaN;
-  const room = Math.min(viewH / 2 - Math.max(0, bottomInsetPx), viewW / 2);
+  const room = Math.min(viewH / 2 - Math.max(0, bottomInsetPx), sideRoomPx(viewW, focusOffsetPx));
   if (!(room > 0)) return NaN;
   return (Math.min(viewW, viewH) * radiusU * margin) / room;
+}
+
+/** The px from a focus `focusOffsetPx` off the screen centre to the nearer
+ *  side edge (a non-finite offset counts as 0). */
+function sideRoomPx(viewW: number, focusOffsetPx: number): number {
+  return viewW / 2 - (Number.isFinite(focusOffsetPx) ? Math.abs(focusOffsetPx) : 0);
+}
+
+/**
+ * THE WHOLE-MAP FIT IN THE OPEN WATER (Story 12.3 review): a span `spanU`
+ * frames across the short axis, i.e. puts half the short axis on each side of
+ * the focus. With the focus `focusOffsetPx` off the screen centre (the HUD
+ * bar's open water) the side room is W/2 − |offset|; where that is the tighter
+ * room, the span widens until the framed disc fits it — never clipped on the
+ * far side. Unchanged where the room holds (or the span / viewport is
+ * unusable).
+ */
+export function openWaterFitSpanU(spanU: number, viewW: number, viewH: number, focusOffsetPx: number): number {
+  if (!allUsable(spanU, viewW, viewH)) return spanU;
+  const half = Math.min(viewW, viewH) / 2;
+  const room = Math.min(viewH / 2, sideRoomPx(viewW, focusOffsetPx));
+  return room > 0 && room < half ? (spanU * half) / room : spanU;
 }
 
 /**

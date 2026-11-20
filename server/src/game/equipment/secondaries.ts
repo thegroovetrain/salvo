@@ -8,11 +8,11 @@
 // A ROUND HITS ONLY WHERE IT LANDS (Eric 2026-11-13, epic-11 amendment
 // 11: "Secondaries should also require aim like main guns") — the
 // MAIN BATTERY's landing rule on the main battery's own code path. The round
-// ARCS OVER every ship and radio beacon between muzzle and landing
+// ARCS OVER every ship between muzzle and landing
 // (`overShips` — the sweep never runs against them), and at its landing point
 // every afloat non-owner hull whose silhouette holds the point takes
 // `CONFIG.secondaries.damage` through the one damage gate (World.resolveBurst
-// at radius 0 — a point test; a beacon by its body). It superseded the
+// at radius 0 — a point test). It superseded the
 // machine-gun round's "first hull on the path" (a DIRECT shell — epic-11
 // amendment 8(f)). MINES are as before: the secondaries' mask carries the
 // mine bit (the ONLY captain weapon that hurts one), and a mine within the
@@ -69,10 +69,10 @@ export function fireSecondaryRound(ctx: ActivationContext): void {
     // THE MAIN BATTERY'S LANDING RULE (epic-11 amendment 11): no
     // blast — the landing POINT is the whole test (a 0 radius admits exactly
     // the hulls whose silhouette holds it) — and no contact damage, because
-    // the round ARCS OVER every ship and beacon on the way.
+    // the round ARCS OVER every ship on the way.
     burstRadius: 0,
     contactDamage: 0,
-    hits: cfg.hits, // hull | mine | beacon — each only where the round lands
+    hits: cfg.hits, // hull | mine — each only where the round lands
     family: 'mg',
     overShips: true,
     overLand: true, // the coastline alone never stops it; high ground does (terrainStop)

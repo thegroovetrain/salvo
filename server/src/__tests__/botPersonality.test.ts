@@ -119,7 +119,7 @@ describe('HULL REPAIR — the two styles (Story 10.12, R3)', () => {
     for (const id of byStyle('late')) {
       const rec = mkBot(w);
       rec.hp = rec.stats.maxHp - 1; // a scratch, well above the break-off line
-      for (const posture of ['disengage', 'ram', 'engage', 'pursue', 'kite', 'farm', 'reposition'] as const) {
+      for (const posture of ['disengage', 'ram', 'engage', 'pursue', 'kite', 'reposition'] as const) {
         expect(wants(rec, id, posture), `${id} ${posture}`).toBe(false); // a healthy bot that declined a fight
       }
       // The latch (set when the hull broke and the bot turned away) holds the press

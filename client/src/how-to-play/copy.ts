@@ -127,7 +127,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       'Every level gives you an upgrade offer of four cards in the corner of the screen: a Ship card, an Equipment card, and two wildcards. Take one by clicking it or with Tab and its number. You can bank levels and spend them whenever you like, even in a fight. Hover a card to see what it would change.',
       'Everyone starts with one free level during the countdown, and may redraw that first offer once.',
       'Ship cards raise one of your five stats, or improve Hull Repair or Smoke Screen. Equipment cards give you a new weapon, raise a weapon\'s tier (up to Tier V), or add a one-off extra.',
-      'Once nothing is left to offer you, every level adds a point to a random stat instead.',
+      'Every level also rolls a die for each stat, adding 0, 1, 2 or 3 points. Stats that grow flash amber.',
     ],
   },
   {
@@ -173,11 +173,12 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
     ],
   },
   {
-    heading: '[ BEACONS AND AIRDROPS ]',
+    // DRAFT (Story 12.4, 2026-11-19): factual placeholder; Eric rewrites the copy.
+    heading: '[ SUPPLY DROPS AND AIRDROPS ]',
     paragraphs: [
-      'Radio beacons are marked on everyone\'s map at the start of each ring. A minute later they surface and pay experience to every ship close by, split evenly, until they sink again. A beacon can be shot to pieces, which pays its killers and sinks it early.',
-      'Airdrop crates are scattered across the ocean every minute, fewer as the match goes on. Sail over one to pick it up: it raises the stat its icon shows by a random amount. The storm destroys any crate it closes over.',
-      'A ship sunk in battle leaves a wreck you can sail over for three random stat boosts.',
+      'Supply drops are marked on everyone\'s map at the start of each ring. A minute later ten crates land around each mark.',
+      'Airdrop crates are scattered across the ocean every minute, fewer as the match goes on. Sail over one for a tenth of a level of experience. The storm destroys any crate it closes over.',
+      'A ship sunk in battle leaves a wreck worth one random stat point for each level its captain had. A ship sunk at level 0 leaves no wreck.',
     ],
   },
   {

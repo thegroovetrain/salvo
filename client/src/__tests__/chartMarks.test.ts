@@ -4,8 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
 import { CONFIG, DEFAULT_CLASS_ID, type EffectiveMine, type MineView } from '@salvo/shared';
-import { bandAlpha, bracketAlpha, chartIconAlpha, renderChartMarks, screenScale } from '../render/chartMarks.js';
-import { HullBrackets, bracketTicks } from '../render/brackets.js';
+import { bandAlpha, chartIconAlpha, renderChartMarks, screenScale } from '../render/chartMarks.js';
+import { HullBrackets, bracketHalfPx, bracketTickLenPx, bracketTicks } from '../render/brackets.js';
 import { SplashPegs, pegAlpha, pegKindFor } from '../render/pegs.js';
 import { ShipView } from '../render/ships.js';
 import { Mines, GLYPH_R } from '../render/mines.js';
@@ -32,10 +32,8 @@ describe('bandAlpha — the linear fade across a band centered on a threshold', 
     expect(bandAlpha(Number.POSITIVE_INFINITY, 24, 0.3)).toBe(0);
   });
 
-  it('brackets follow the hull-length threshold and icons the icon size, both on the shared band', () => {
-    expect(bracketAlpha(M.bracketThresholdPx)).toBeCloseTo(0.5, 9);
+  it('icons follow the icon size on the shared band', () => {
     expect(chartIconAlpha(M.iconPx)).toBeCloseTo(0.5, 9);
-    expect(bracketAlpha(M.bracketThresholdPx * (1 + M.bandFrac / 2))).toBeCloseTo(0, 9);
     expect(chartIconAlpha(M.iconPx * (1 - M.bandFrac / 2))).toBeCloseTo(1, 9);
   });
 
@@ -63,7 +61,36 @@ describe('bracketTicks — four corner ticks of the half-box', () => {
   });
 });
 
-describe('HullBrackets — on hulls drawing small, in the relation color, at screen size', () => {
+describe('bracketHalfPx / bracketTickLenPx — the bracket frames the whole hull (Story 12.3)', () => {
+  it('holds the smallest half-box while the hull is short, then hull length / 2 + the pad', () => {
+    expect(bracketHalfPx(0)).toBe(M.bracketHalfPx);
+    const short = 2 * (M.bracketHalfPx - M.bracketHullPadPx) - 2 * M.bracketQuantPx;
+    expect(bracketHalfPx(short)).toBe(M.bracketHalfPx);
+    const long = 10 * M.bracketHalfPx;
+    expect(bracketHalfPx(long)).toBeCloseTo(long / 2 + M.bracketHullPadPx, 9);
+    expect(bracketHalfPx(Number.NaN)).toBe(M.bracketHalfPx);
+  });
+
+  it('snaps the half to bracketQuantPx', () => {
+    for (const px of [33.1, 77.77, 151.3, 402.9]) {
+      const h = bracketHalfPx(px);
+      expect(h / M.bracketQuantPx).toBeCloseTo(Math.round(h / M.bracketQuantPx), 9);
+      expect(Math.abs(h - (px / 2 + M.bracketHullPadPx))).toBeLessThanOrEqual(M.bracketQuantPx / 2 + 1e-9);
+    }
+  });
+
+  it('tick arms: the shortest arm while small, growing with the half, never past the half', () => {
+    expect(bracketTickLenPx(M.bracketHalfPx)).toBe(Math.min(M.bracketHalfPx, Math.max(M.bracketTickPx, M.bracketTickGrowth * M.bracketHalfPx)));
+    const big = (10 * M.bracketTickPx) / M.bracketTickGrowth;
+    expect(bracketTickLenPx(big)).toBeCloseTo(M.bracketTickGrowth * big, 9);
+    expect(bracketTickLenPx(M.bracketTickPx / 2)).toBe(M.bracketTickPx / 2);
+    const ticks = bracketTicks(big);
+    const [x0, y0, x1, y1] = ticks[0];
+    expect(Math.hypot(x0 - x1, y0 - y1)).toBeCloseTo(M.bracketTickGrowth * big, 9);
+  });
+});
+
+describe('HullBrackets — on every hull in sight at every zoom, in the relation color, at screen size', () => {
   const lengthU = CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.length;
   const zoomFor = (px: number): number => px / lengthU;
   function setup() {
@@ -74,20 +101,45 @@ describe('HullBrackets — on hulls drawing small, in the relation color, at scr
   }
   const shownBrackets = (layer: Container): Container[] => layer.children.filter((c) => c.visible);
 
-  it('a hull 10 px long wears its brackets at full alpha; at 30 px none show', () => {
+  it('a hull wears its brackets at full alpha at every zoom — 10 px, 30 px and 400 px long', () => {
     const { layer, own, brackets } = setup();
-    brackets.render(own, [], zoomFor(10));
-    expect(brackets.shown).toBe(1);
-    const [b] = shownBrackets(layer);
-    expect(b.alpha).toBeCloseTo(1, 9);
-    expect(b.tint).toBe(OWN_STYLE.stroke);
-    expect(b.position.x).toBe(100);
-    expect(b.position.y).toBe(-50);
-    expect(b.rotation).toBe(0); // axis-aligned, whatever the heading
-    expect(b.scale.x).toBeCloseTo(1 / zoomFor(10), 9); // screen size
-    brackets.render(own, [], zoomFor(30));
-    expect(brackets.shown).toBe(0);
-    expect(shownBrackets(layer)).toHaveLength(0);
+    for (const px of [10, 30, 400]) {
+      brackets.render(own, [], zoomFor(px));
+      expect(brackets.shown).toBe(1);
+      const [b] = shownBrackets(layer);
+      expect(b.alpha).toBeCloseTo(1, 9);
+      expect(b.tint).toBe(OWN_STYLE.stroke);
+      expect(b.position.x).toBe(100);
+      expect(b.position.y).toBe(-50);
+      expect(b.rotation).toBe(0); // axis-aligned, whatever the heading
+      expect(b.scale.x).toBeCloseTo(1 / zoomFor(px), 9); // screen size
+    }
+  });
+
+  it('frames the whole hull zoomed in: the drawn box spans the hull length plus the pad', () => {
+    const { layer, own, brackets } = setup();
+    const px = 400;
+    brackets.render(own, [], zoomFor(px));
+    const [b] = shownBrackets(layer) as Graphics[];
+    const bounds = b.context.bounds;
+    // the glow passes reach a little past the line; the line's corner sits at the half
+    expect(bounds.maxX).toBeGreaterThanOrEqual(bracketHalfPx(px));
+    expect(bracketHalfPx(px)).toBeCloseTo(px / 2 + M.bracketHullPadPx, 0);
+  });
+
+  it('re-strokes a pooled bracket only when its snapped size changes — never at a steady zoom', () => {
+    const { own, brackets } = setup();
+    brackets.render(own, [], zoomFor(200));
+    const first = brackets.strokeCount;
+    for (let i = 0; i < 10; i++) brackets.render(own, [], zoomFor(200));
+    expect(brackets.strokeCount).toBe(first);
+    brackets.render(own, [], zoomFor(260));
+    expect(brackets.strokeCount).toBe(first + 1);
+    // both under the smallest box: one size, no re-stroke
+    brackets.render(own, [], zoomFor(4));
+    const small = brackets.strokeCount;
+    brackets.render(own, [], zoomFor(8));
+    expect(brackets.strokeCount).toBe(small);
   });
 
   it('frames every passed contact in ITS relation color, and multiplies in the hull\'s own alpha', () => {
@@ -153,7 +205,7 @@ describe('the chart icon handover — airdrops and the salvage wreck', () => {
   it('every crate kind hands over to its icon below 10 px and back above', () => {
     const layer = new Container();
     const d = new Drops(layer);
-    d.sync([{ id: 'w', x: 1, y: 2, c: 'wreck' }, { id: 'a', x: 3, y: 4, c: 'armor' }]);
+    d.sync([{ id: 'w', x: 1, y: 2, c: 'wreck' }, { id: 'a', x: 3, y: 4, c: 'xp' }]);
     d.renderIcons(zoomFor(4));
     expect(d.iconAlphaAt('w')).toBeCloseTo(1, 9);
     expect(d.iconAlphaAt('a')).toBeCloseTo(1, 9);

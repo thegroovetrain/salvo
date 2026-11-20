@@ -1,4 +1,5 @@
-// THE OFFER GROUP (ui/offerGroup.ts, Story 10.10 — plan O3; R3 / R9 / R10).
+// THE OFFER GROUP (ui/offerGroup.ts, Story 10.10 — plan O3; R3 / R9 / R10;
+// re-laid along the bottom by Story 12.3 Part B, AC 35 / 36).
 // The DOM adapter over the moved pure core (ui/offerCore.ts): it renders the
 // view the core derives, hides with nothing banked, carries REDRAW only at the
 // countdown, hands the hovered card's line to the consoles and clears it, and
@@ -9,17 +10,17 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DEFAULT_CLASS_ID, DEFAULT_SHIFT, MULLIGAN_CHOICE, SLOT_COUNT, initialTurrets, type OwnShip } from '@salvo/shared';
 import { consoleLayout } from '../render/console/layout.js';
 import { offerView, redrawState, type OfferView } from '../ui/offerCore.js';
-import { OfferGroup, REDRAW_LABEL, cardTierMark, offerHeaderText, rearmChoice, type OfferGroupHooks } from '../ui/offerGroup.js';
+import { OFFER_HINT, OfferGroup, REDRAW_LABEL, cardGlow, cardTierMark, offerHeaderText, rearmChoice, type OfferGroupHooks } from '../ui/offerGroup.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { settings } from '../settings/store.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const OFFER = ['intel', 'armor', 'deckGun', 'navalMines'];
-/** The RIGHT stack on the 13" MacBook's logical viewport (1440×900 ÷ 0.75). */
+/** The row along the bottom, beside a LEFT bar, on the 13" MacBook's logical viewport. */
 const LIVE = consoleLayout(1920, 1200).offer;
 const COUNTDOWN = consoleLayout(1920, 1200, { countdown: true }).offer;
-/** The BOTTOM row (R26) on the reference screen. */
-const ROW = consoleLayout(1920, 1080, { offerPos: 'bottom' }).offer;
+/** The same row beside a RIGHT bar on the reference screen. */
+const ROW = consoleLayout(1920, 1080, { side: 'right' }).offer;
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
@@ -49,6 +50,12 @@ function cards(): HTMLButtonElement[] {
 
 function redrawBtn(): HTMLButtonElement | undefined {
   return [...document.querySelectorAll('#offer-group button')].find((b) => b.textContent === REDRAW_LABEL) as HTMLButtonElement | undefined;
+}
+
+/** A card's FACE — the edge, panel, glow and lift live on it, never on the
+ *  button (its hit box; Story 12.3 review). */
+function face(b: HTMLElement): HTMLElement {
+  return b.querySelector('[data-part="face"]') as HTMLElement;
 }
 
 function panel(): HTMLElement {
@@ -86,36 +93,19 @@ describe('OfferGroup — the corner group (O3)', () => {
     expect(cards()).toHaveLength(OFFER.length);
     // The digit token on each chip is its pick index + 1 (the Tab+digit map).
     cards().forEach((b, i) => expect(b.textContent?.endsWith(String(i + 1))).toBe(true));
-    expect(panel().querySelector('b')?.textContent).toBe('2');
-    expect(part(panel(), 'header')[0].textContent).toBe(offerHeaderText(2)); // the header IS the pure line
+    const header = part(panel(), 'header')[0];
+    expect(header.textContent).toBe(`${offerHeaderText(2)}${OFFER_HINT}`); // `n LEVELS` · `TAB + 1–4`
+    expect(part(header, 'hint')[0].textContent).toBe(OFFER_HINT);
   });
 
-  it('stacks the four cards in ONE column, each at its spine rect, in rect order (R22)', () => {
-    const g = new OfferGroup(hooks());
-    g.update(view(ownShip()), LIVE, 1);
-    const cs = cards();
-    expect(cs).toHaveLength(4);
-    cs.forEach((b, i) => {
-      // Placed off the spine's rect (relative to the group frame), never re-derived.
-      expect(px(b.style.left)).toBe(LIVE.cards[i].x - LIVE.frame.x);
-      expect(px(b.style.top)).toBe(LIVE.cards[i].y - LIVE.frame.y);
-      expect(px(b.style.width)).toBe(LIVE.cards[i].w);
-    });
-    // A vertical stack: one left edge, each card BELOW the one before it.
-    for (let i = 1; i < cs.length; i++) {
-      expect(px(cs[i].style.left)).toBe(px(cs[0].style.left));
-      expect(px(cs[i].style.top)).toBeGreaterThanOrEqual(px(cs[i - 1].style.top) + px(cs[i - 1].style.height));
-    }
-  });
-
-  it('lays the cards from the ROW`s rects too (BOTTOM, R26): one row, left to right, the header in its slot', () => {
+  it('lays the cards from the spine`s rects: one row, left to right, the header over them (AC 35)', () => {
     const g = new OfferGroup(hooks());
     g.update(view(ownShip()), ROW, 1);
     const cs = cards();
     expect(cs).toHaveLength(4);
     cs.forEach((b, i) => {
-      expect(px(b.style.left)).toBe(ROW.cards[i].x - ROW.frame.x);
-      expect(px(b.style.top)).toBe(ROW.cards[i].y - ROW.frame.y);
+      expect(px(b.style.left)).toBe(ROW.cards[i].x - ROW.band.x);
+      expect(px(b.style.top)).toBe(ROW.cards[i].y - ROW.band.y);
       expect(px(b.style.width)).toBe(ROW.cards[i].w);
       expect(px(b.style.height)).toBe(ROW.cards[i].h);
     });
@@ -124,41 +114,50 @@ describe('OfferGroup — the corner group (O3)', () => {
       expect(px(cs[i].style.left)).toBeGreaterThanOrEqual(px(cs[i - 1].style.left) + px(cs[i - 1].style.width));
     }
     const header = part(panel(), 'header')[0];
-    expect(px(header.style.left)).toBe(ROW.header.x - ROW.frame.x);
+    expect(px(header.style.left)).toBe(ROW.header.x - ROW.band.x);
     expect(px(header.style.width)).toBe(ROW.header.w);
-    expect(panel().style.width).toBe(`${ROW.frame.w}px`);
+    expect(panel().style.width).toBe(`${ROW.band.w}px`);
   });
 
-  it('re-lays when the arrangement changes under the same view (a settings change)', () => {
+  it('re-lays when the arrangement changes under the same view (a HUD SIDE change)', () => {
     const g = new OfferGroup(hooks());
     g.update(view(ownShip()), LIVE, 1);
     g.update(view(ownShip()), ROW, 1);
-    expect(px(cards()[1].style.left)).toBe(ROW.cards[1].x - ROW.frame.x);
-    expect(px(cards()[1].style.top)).toBe(ROW.cards[1].y - ROW.frame.y);
+    expect(px(cards()[1].style.left)).toBe(ROW.cards[1].x - ROW.band.x);
+    expect(px(cards()[1].style.top)).toBe(ROW.cards[1].y - ROW.band.y);
   });
 
-  it('keeps the MERGED card face: glyph box top-left, the name beside it, the tier mark bottom-left, the TAB n chip bottom-right', () => {
+  it('the card face (AC 35): the name, the tier mark bottom-left, the TAB n chip bottom-right; a 2 px tier-colour border and its glow', () => {
     const g = new OfferGroup(hooks());
     g.update(view(ownShip()), LIVE, 1);
     for (const b of cards()) {
-      const glyph = part(b, 'glyph')[0];
       const name = part(b, 'name')[0];
       const tier = [...part(b, 'tier'), ...part(b, 'oneOff')][0];
       const chip = part(b, 'chip')[0];
-      for (const e of [glyph, name, tier, chip]) expect(e).toBeDefined();
-      expect(px(glyph.style.width)).toBe(CLIENT_CONFIG.console.offer.glyphBox);
-      expect(px(glyph.style.left)).toBe(px(glyph.style.top));
-      expect(px(name.style.left)).toBeGreaterThan(px(glyph.style.left) + px(glyph.style.width));
-      // the foot line carries the tier first (left) and the chip last (right)
+      for (const e of [name, tier, chip]) expect(e).toBeDefined();
       const foot = tier.parentElement!;
       expect(foot).toBe(chip.parentElement);
       expect(foot.firstElementChild).toBe(tier);
       expect(foot.lastElementChild).toBe(chip);
-      expect(foot.style.justifyContent).toBe('space-between');
-      expect(foot.style.bottom).not.toBe('');
       expect(chip.textContent?.startsWith('TAB')).toBe(true);
-      expect(b.style.borderStyle).toBe('solid');
+      expect(face(b).style.borderStyle).toBe('solid');
+      expect(px(face(b).style.borderWidth)).toBe(CLIENT_CONFIG.console.offer.border);
+      expect(face(b).style.boxShadow).not.toBe('none'); // the outer + inner glow at rest
+      expect(face(b).style.backgroundColor).not.toBe('transparent'); // an opaque panel
     }
+  });
+
+  it('a hovered card glows stronger and lifts; leaving puts it back', () => {
+    const g = new OfferGroup(hooks());
+    g.update(view(ownShip()), LIVE, 1);
+    const b = cards()[0];
+    const rest = face(b).style.boxShadow;
+    b.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(face(b).style.transform).toContain('translateY');
+    expect(face(b).style.boxShadow).not.toBe(rest);
+    b.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(face(b).style.transform).toBe('none');
+    expect(cardGlow('red', true)).not.toBe(cardGlow('red', false));
   });
 
   it('THE TEXT RULE: header, names, tier marks and REDRAW at ≥ 14 px, the key chip at ≥ 12 px', () => {
@@ -183,28 +182,16 @@ describe('OfferGroup — the corner group (O3)', () => {
     for (const e of chips) expect(e.style.fontSize.replace(/\s+/g, '')).toContain('calc(9px/var(--hc-ui-scale,1))');
   });
 
-  it('sits on ONE dark-glass bed behind the header and the stack (R24)', () => {
+  it('sits on ONE dark band along the bottom, beneath everything, catching no pointer (AC 35)', () => {
     const g = new OfferGroup(hooks());
     g.update(view(ownShip()), LIVE, 1);
-    const beds = part(panel(), 'bed');
-    expect(beds).toHaveLength(1);
-    const bed = beds[0];
-    expect(panel().firstElementChild).toBe(bed); // beneath everything else
-    expect(bed.style.backgroundColor).toMatch(/^rgba\(/); // translucent…
-    expect(bed.style.backgroundColor).not.toMatch(/, 0\)$/); // …not transparent
-    expect(bed.style.borderStyle).toBe('solid');
-    expect(bed.style.pointerEvents).toBe('none'); // the water stays clickable
-    // It sits at the spine's bed rect and covers the header AND the whole stack.
-    expect(px(bed.style.left)).toBe(LIVE.bed.x - LIVE.frame.x);
-    expect(px(bed.style.top)).toBe(LIVE.bed.y - LIVE.frame.y);
-    const [bx, by, bw, bh] = [px(bed.style.left), px(bed.style.top), px(bed.style.width), px(bed.style.height)];
-    for (const e of [part(panel(), 'header')[0], ...cards()]) {
-      const [x, y, w, h] = [px(e.style.left), px(e.style.top), px(e.style.width), px(e.style.height)];
-      expect(x).toBeGreaterThanOrEqual(bx);
-      expect(y).toBeGreaterThanOrEqual(by);
-      expect(x + w).toBeLessThanOrEqual(bx + bw);
-      expect(y + h).toBeLessThanOrEqual(by + bh);
-    }
+    const bands = part(panel(), 'band');
+    expect(bands).toHaveLength(1);
+    expect(panel().firstElementChild).toBe(bands[0]);
+    expect(bands[0].style.pointerEvents).toBe('none');
+    expect(panel().style.pointerEvents).toBe('none');
+    expect(panel().style.width).toBe(`${LIVE.band.w}px`);
+    expect(panel().style.height).toBe(`${LIVE.band.h}px`);
   });
 
   it('is HIDDEN with nothing banked, and with no view at all (spectate / sinking)', () => {
@@ -236,14 +223,16 @@ describe('OfferGroup — the corner group (O3)', () => {
     expect(h.redraws).toBe(1);
   });
 
-  it('hover hands the card\'s line to the consoles, and leaving clears it', () => {
+  it('hover hands the card\'s line to the bar (and names the hovered card), and leaving clears it', () => {
     const h = hooks();
     const g = new OfferGroup(h);
     g.update(view(ownShip()), LIVE, 1);
     cards()[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(h.hovers).toEqual([OFFER[1]]);
+    expect(g.hoveredCard()?.id).toBe(OFFER[1]);
     cards()[1].dispatchEvent(new MouseEvent('mouseleave'));
     expect(h.hovers).toEqual([OFFER[1], null]);
+    expect(g.hoveredCard()).toBeNull();
   });
 
   it('clears a live hover when the group hides (no mouseleave ever reaches a hidden card)', () => {
@@ -281,15 +270,17 @@ describe('OfferGroup — the corner group (O3)', () => {
     expect(h.picks).toEqual([1]);
   });
 
-  it('a refused (greyed) card is INERT under the pointer: no preview line, no glow', () => {
+  it('a refused (greyed) card is INERT under the pointer: no preview line, no hover glow', () => {
     const h = hooks();
     const g = new OfferGroup(h);
     const full = ['gun', 'boost', 'lightTorpedo', 'navalMines', 'starShells', ...Array.from({ length: SLOT_COUNT - 5 }, () => null)] as const;
     const you = ownShip({ offer: ['heavyTorpedo', 'intel'], cards: ['lightTorpedo'] });
     g.update(offerView(you, false, false, false, full), LIVE, 1);
+    const rest = face(cards()[0]).style.boxShadow;
     cards()[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(h.hovers).toEqual([]);
-    expect(cards()[0].style.boxShadow).toBe('none');
+    expect(face(cards()[0]).style.boxShadow).toBe(rest);
+    expect(face(cards()[0]).style.transform).toBe('none');
     cards()[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(h.hovers).toEqual(['intel']);
   });
@@ -303,7 +294,7 @@ describe('OfferGroup — the corner group (O3)', () => {
     cards()[1].dispatchEvent(new MouseEvent('mouseenter'));
     g.update(view(ownShip({ pts: 1 })), LIVE, 1); // the bank moved: the cards rebuild
     expect(h.hovers.at(-1)).toBe(OFFER[1]);
-    expect(cards()[1].style.boxShadow).not.toBe('none');
+    expect(face(cards()[1]).style.transform).toContain('translateY');
     under = null;
     cards()[1].dispatchEvent(new MouseEvent('mouseleave'));
     expect(h.hovers.at(-1)).toBeNull();
@@ -350,10 +341,10 @@ describe('OfferGroup — the corner group (O3)', () => {
     expect(claim).not.toHaveBeenCalled();
   });
 
-  it('anchors at the spine\'s offer frame × the UI scale', () => {
+  it('anchors at the spine\'s band × the UI scale', () => {
     const g = new OfferGroup(hooks());
     g.update(view(ownShip()), LIVE, 1.25);
-    expect(panel().style.left).toBe(`${LIVE.frame.x * 1.25}px`);
-    expect(panel().style.top).toBe(`${LIVE.frame.y * 1.25}px`);
+    expect(panel().style.left).toBe(`${LIVE.band.x * 1.25}px`);
+    expect(panel().style.top).toBe(`${LIVE.band.y * 1.25}px`);
   });
 });

@@ -54,8 +54,14 @@ interface Gate {
   applyDamage(victim: ShipRecord, amount: number, src: Src, byId: string | undefined): void;
 }
 
+/** Story 12.4: every level now ROLLS STATS (epic-12 amendment 5(b)). This
+ *  file pins pre-12.4 per-level arithmetic on neutral hulls, so its worlds
+ *  roll a die with no faces (every roll 0) — the World's test seam. The roll
+ *  itself is pinned in upgrades.test.ts / drops.test.ts. */
+const NO_ROLL = { ...CONFIG.xp.statRoll, faces: [] };
+
 function bareWorld(seed = 3): World {
-  const w = new World(seed);
+  const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, { statRoll: NO_ROLL });
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
@@ -695,20 +701,15 @@ describe('the grep pin — exactly one hull-hp decrement', () => {
     }
   });
 
-  it('the TWO non-hull decrements are `mine.hp -=` (amendment 200) and `beacon.hp -=` (Story 10.8), each inside its own door', () => {
-    // One hull door, one mine door, one RADIO BEACON door (World.damageBeacon,
-    // Story 10.8 — a beacon is not a ship: no `dmg`, no feed line, it never
-    // enters applyDamage). The decoy's decrement left with Story 10.5.
+  it('the ONE non-hull decrement is `mine.hp -=` (amendment 200), inside its own door', () => {
+    // One hull door and one mine door. The decoy's decrement left with Story
+    // 10.5, the radio beacon's door (World.damageBeacon) with Story 12.4.
     const code = WORLD_SRC.split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//'));
     expect(code.filter((l) => /\.hp\s*-=/.test(l)).map((l) => l.trim())).toEqual([
       'victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME',
-      'beacon.hp -= dealt; // THE ONE BEACON-HP DECREMENT IN THE GAME',
       'mine.hp -= amount;',
     ]);
     expect(methodBody('damageMine')).toContain('mine.hp -= amount;');
-    const door = WORLD_SRC.indexOf('\n  damageBeacon(');
-    expect(door).toBeGreaterThan(-1);
-    expect(WORLD_SRC.slice(door, WORLD_SRC.indexOf('\n  }\n', door))).toContain('beacon.hp -= dealt;');
   });
 });
 

@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  hullBlocks,
   isAfloat,
   isSinking,
   isSunk,
@@ -166,6 +167,8 @@ describe('spectator frames — dead observer in the active phase', () => {
       // Story 10.4: a spectator gets a captain's turret ANGLES through the
       // same contact row as everyone else (orchestrator ruling) — never a reload.
       tu: encodeTurretAngles(c.turrets, c.hullId),
+      // Story 12.3: ...and the hull health step, on every contact row.
+      hb: hullBlocks(c.hp, c.stats.maxHp),
     });
     expect(JSON.stringify(f)).not.toContain('reloadMsLeft');
     expect(JSON.stringify(f)).not.toContain('"heat"');
@@ -304,7 +307,7 @@ describe('spectator frames — phase gating', () => {
     expect(winner.you).toBeUndefined();
     // The winner's own (alive) hull rides the contact pipeline now.
     expect(winner.contacts).toEqual([
-      { id: 'a', x: a.state.x, y: a.state.y, heading: a.state.heading, speed: a.state.speed, cls: DEFAULT_CLASS_ID, tu: encodeTurretAngles(a.turrets, a.hullId) },
+      { id: 'a', x: a.state.x, y: a.state.y, heading: a.state.heading, speed: a.state.speed, cls: DEFAULT_CLASS_ID, tu: encodeTurretAngles(a.turrets, a.hullId), hb: hullBlocks(a.hp, a.stats.maxHp) },
     ]);
     const loser = buildFrame(w, 'b', 'finished');
     expect(loser.spec).toBe(true);
@@ -355,7 +358,10 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     // shape is enumerated rather than allowed loosely: a stray extra key
     // still fails.
     const keys = Object.keys(c).sort();
-    const base = ['cls', 'heading', 'id', 'speed', 'x', 'y'];
+    // `hb` (Story 12.3, Eric 2026-11-19): present IFF the hull is within the
+    // observer's name-tag reach (these worlds never flash anybody).
+    const named = dist(me.state, target.state) <= SIGHT;
+    const base = [...(named ? ['hb'] : []), 'cls', 'heading', 'id', 'speed', 'x', 'y'].sort();
     const withTu = target.turrets.length > 0;
     expect(keys).toEqual(withTu ? [...base, 'tu'].sort() : base);
     if (withTu) expect(c.tu).toEqual(encodeTurretAngles(target.turrets, target.hullId));

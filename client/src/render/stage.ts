@@ -156,7 +156,9 @@ export function applyCamera(camera: Camera, world: Container, chart: Container, 
   const z = camera.zoom;
   const inv = 1 / z;
   if (!(z > 0) || !Number.isFinite(z) || !Number.isFinite(inv)) return;
-  const c = camera.screenCenter;
+  // The FOCUS (Story 12.3 Part B): the drawn center lands in the middle of the
+  // open water beside the HUD bar, not the screen centre.
+  const c = camera.focus;
   const px = c.x - camera.center.x * z + camera.shake.x;
   const py = c.y - camera.center.y * z + camera.shake.y;
   world.scale.set(z);
@@ -177,10 +179,6 @@ export interface StageLayers {
   /** AIRDROPS (render/drops.ts, Story 10.9) — fogged and sight-only, like an
    *  enemy mine: a crate is never on the chart (on radar it is a plain blip). */
   dropWorld: Container;
-  /** RADIO BEACON BODIES on the water (render/beacons.ts, Story 10.8) — fogged
-   *  like a hull on the water; under the projectiles so a shell reads over it.
-   *  The beacon's broadcast signal is `beaconChart`, above the fog. */
-  beaconWorld: Container;
   // chartRoot children
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
@@ -207,12 +205,12 @@ export interface StageLayers {
    *  The burn-zone fire (render/fire.ts) shares it. (Countermeasure clouds
    *  drew here until 2026-10-12; they have their own `cloud` layer now.) */
   smoke: Container;
-  /** RADIO BEACON chart marks (render/beacons.ts, Story 10.8) — the marker
-   *  and the 500 u range ring, fog-immune: a public broadcast on every chart
-   *  at every zoom. Above `smoke` (a tactical mark outranks soft plume
-   *  texture — a hurt beacon's own smoke must not bury its marker), below
-   *  the mines and every hull. */
-  beaconChart: Container;
+  /** SUPPLY-DROP chart marks (render/supplyDrops.ts, Story 12.4; the radio
+   *  beacons' seat until then) — the dashed scatter ring, its fill and the
+   *  +XP icon, fog-immune: public on every chart at every zoom. Above `smoke`
+   *  (a tactical mark outranks soft plume texture), below the mines and every
+   *  hull. */
+  supplyChart: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
   /**
@@ -300,7 +298,7 @@ export type LayerName = keyof StageLayers;
 // keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
-export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'beaconWorld', 'projectile', 'mineWorld', 'dropWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5)
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'dropWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5); the beacon bodies with the beacons (Story 12.4)
 /** chartRoot, bottom → top: everything above the fog. The legibility contract,
  *  read upward: `ship` (contact hulls), `plate` (the name that outranks terrain
  *  and hulls), `cloud` (countermeasure smoke), `blip` (radar paint), `ownShip`
@@ -324,7 +322,7 @@ export const CHART_LAYER_ORDER = [
   'litZone',
   'fog',
   'smoke',
-  'beaconChart',
+  'supplyChart',
   'mineChart',
   'ship',
   'plate',

@@ -3879,3 +3879,35 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low - Eric's if it matters - 2026-11-16
   summary: THE STAR-SHELL LIT LIFT NO LONGER HELPS A BOT'S MAIN BATTERY IN PRACTICE - a shot past gun reach is far below the 20 % hit bar, so the bot holds; the lift still works for a human captain.
   evidence: review gate (Blind Hunter); `server/src/game/ai/doctrine.ts` `effectiveReach`, `battery.ts` `clearsHitBar`.
+
+## 2026-11-19 - Story 12.3 The In-Game UI Pass (build cycle and numbers at PR time; epic-12 amendment 7)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-3-the-in-game-ui-pass.md`
+  status: open - low - Eric's (legal copy) - 2026-11-19
+  summary: THE PRIVACY POLICY STILL DESCRIBES `hullcracker.helm` - the W/S/A/D coach marks it backed were removed with the HUD bar, so the game no longer writes that key; the policy line is stale.
+  evidence: amendment 7(e)8; the privacy page's storage list; `client/src/render/helmGlyphs.ts` deleted.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-3-the-in-game-ui-pass.md`
+  status: open - measure on staging - 2026-11-19
+  summary: THE HUD BAR RE-TESSELLATES ITS TILES EVERY FRAME - WeaponTiles / AbilityTiles clear and redraw every shape (incl. dashed 20-gons) each frame under the bed glow filters, the 10.10 pattern with more shapes. Measure frame cost on staging (never locally); cache-on-change if it shows.
+  evidence: review gate (Fable, item F); `client/src/render/console/barWeapons.ts`, `barDraw.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-3-the-in-game-ui-pass.md`
+  status: open - low - 2026-11-19
+  summary: A CAPTAIN PARKED AT THE OLD ZOOM-OUT LIMIT KEEPS IT WHEN THE BAR OFFSET FIRST APPLIES - the new open-water fit re-clamps on the next zoom input only (a silent re-clamp inside setFocusOffset would skip the fog re-bake).
+  evidence: review fix pass; `client/src/render/camera.ts` `setFocusOffset`, `cameraZoom.ts` `openWaterFitSpanU`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - low - Eric's (only if it proves an issue) - 2026-11-19
+  summary: THE 10 PX +XP CHART ICON READS AS A SMUDGE AT TRUE SIZE - Eric: "Not sure if it matters. We'll address later if it's an issue."
+  evidence: amendment 8(e); `client/src/render/supplyDrops.ts`, `drops.ts` chart-icon handover.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - pre-existing, not 12.4's - 2026-11-19
+  summary: THE REMAINING ROOM STREAMS ARE STILL DERIVED FROM THE 32-BIT PSEUDONYM MATERIAL `priv` - track ids `trk-<hex>` (raw mulberry32(priv) outputs, likely brute-forceable to priv), minute-airdrop positions (`dropSeed = priv ^ K`), pickup / wreck rolls (`dropSeed ^ ...`, visible in the own `ib`). Candidate fix: key them by HMAC from the room dispersion key, like the supply-spot / supply-scatter / stat-roll streams.
+  evidence: review gate (Fable, reproduced the supply streams' recovery from the public chart); `server/src/game/dispersionKey.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - low (cosmetic) - 2026-11-19
+  summary: MINUTE-CRATE AND WRECK PLACEMENT DO NOT CHECK SUPPLY CRATES - a later minute crate can land on top of a supply crate. Supply crates already avoid every crate on the water; the reverse check is missing.
+  evidence: review gate; `server/src/game/supplyDrops.ts` vs the minute-airdrop and wreck placement in `world.ts` / `drops`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - low - 2026-11-19
+  summary: A RECONNECT WHILE THE HUD BAR STAYS UP MAY FLASH STATS THAT ROSE WHILE DISCONNECTED - AC 12 names only join / redeploy as seed points.
+  evidence: review gate; `client/src/render/console/statFlash.ts` first-observation seeding.

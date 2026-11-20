@@ -1,20 +1,20 @@
-// THE HELM INSTRUMENT'S PURE CORE (Story 10.10, O6 (3)) — the ship console's
-// flat telegraph: `HDG 045°` / `18.0 KTS`, the nine-detent ladder laid out
-// HORIZONTALLY (astern LEFT, STOP in the middle, ahead RIGHT — the globe's arc
-// unrolled), the hollow ordered rung, the solid actual needle and the rudder
-// track's tick.
+// THE THROTTLE GAUGE'S PURE CORE (Story 12.3 Part B, AC 33; Story 10.10 O6 (3)
+// before it) — the footer's vertical nine-detent ladder: ahead on TOP, STOP in
+// the middle, astern at the bottom; a box marks the ORDERED detent and an
+// arrow the ACTUAL speed; the word under it reads e.g. `¾ AHEAD`, `STOP`,
+// `½ ASTERN`. Ordered-vs-actual stays SHAPE-coded (a hollow box against a
+// solid arrow), never colour alone.
 //
-// MOVED FROM render/helmGlobe.ts (which W3 deletes): `detentIndexOf`,
-// `detentLabel`, `DETENT_LABELS`, `speedLadderFraction`, `rudderTickCenter`
-// and the heading / speed readouts, unchanged. RE-EXPRESSED: the globe's
-// `detentTickAngle` / `needleAngle` (degrees on an arc) become `detentTickX` /
-// `needleX` (px along a straight ladder) — the same fraction, a different
-// shape. Ordered-vs-actual stays SHAPE-coded: a hollow rung against a solid
-// needle, never colour alone.
+// KEPT from Story 10.10: `DETENT_LABELS`, `detentIndexOf`, `detentLabel`,
+// `speedLadderFraction`, `helmKinematics`. RE-EXPRESSED: the flat ladder's
+// `detentTickX` / `needleX` (px along a horizontal ladder) become `detentY` /
+// `speedY` (px up a vertical one). GONE with the HUD's HDG / KTS readouts and
+// the rudder track (AC 33: heading lives on the radar display): the heading /
+// speed text and the rudder tick.
 
-import { boostedKinematics, wrapPositive, type ShipConfig } from '@salvo/shared';
+import { boostedKinematics, type ShipConfig } from '@salvo/shared';
 
-/** Kinematics subset the needle needs (ahead / astern denominators). */
+/** Kinematics subset the arrow needs (ahead / astern denominators). */
 export interface LadderKin {
   maxSpeed: number;
   reverseSpeed: number;
@@ -29,6 +29,10 @@ export const DETENTS = DETENT_LABELS.length;
 /** The STOP detent's index. */
 export const STOP_DETENT = (DETENTS - 1) / 2;
 
+function clampDetent(index: number): number {
+  return index < 0 ? 0 : index > DETENTS - 1 ? DETENTS - 1 : index;
+}
+
 /** Pure: detent index [0,8] for a throttle order in [-1,1] (0.25 steps, STOP=4). */
 export function detentIndexOf(throttle: number): number {
   const i = Math.round(throttle * 4) + 4;
@@ -37,15 +41,29 @@ export function detentIndexOf(throttle: number): number {
 
 /** Pure: the label of a detent index (clamped). */
 export function detentLabel(index: number): string {
-  const i = index < 0 ? 0 : index > 8 ? 8 : index;
-  return DETENT_LABELS[i];
+  return DETENT_LABELS[clampDetent(index)];
 }
 
-/** Pure: the x of a detent tick on a ladder [x, x + w] — index 0 at the left
- *  end, STOP dead centre, 8 at the right end; clamped onto the end stops. */
-export function detentTickX(index: number, x: number, w: number): number {
-  const i = index < 0 ? 0 : index > 8 ? 8 : index;
-  return x + (w * i) / (DETENTS - 1);
+/** Pure: the ladder's labelled detents (AC 33: FULL / ½ / STOP / ½ / FULL —
+ *  13 px labels on all nine would collide), every other one from full astern. */
+export function labelledDetent(index: number): boolean {
+  return clampDetent(index) % 2 === 0;
+}
+
+/** Pure: the word under the gauge for the ordered detent — `STOP`, or the
+ *  detent's fraction and its direction (`¾ AHEAD`, `FULL ASTERN`). */
+export function throttleWord(index: number): string {
+  const i = clampDetent(index);
+  if (i === STOP_DETENT) return DETENT_LABELS[i];
+  return `${DETENT_LABELS[i]} ${i > STOP_DETENT ? 'AHEAD' : 'ASTERN'}`;
+}
+
+/** Pure: the y of a detent on a ladder from `top` to `top + h`, `inset` in
+ *  from both ends — full ahead at the top, STOP centred, full astern at the
+ *  bottom; clamped onto the end stops. */
+export function detentY(index: number, top: number, h: number, inset: number): number {
+  const step = (h - 2 * inset) / (DETENTS - 1);
+  return top + inset + (DETENTS - 1 - clampDetent(index)) * step;
 }
 
 /** Pure: the ACTUAL speed on the telegraph's [-1,1] axis — ahead on maxSpeed,
@@ -56,36 +74,15 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
   return f < -1 ? -1 : f > 1 ? 1 : f;
 }
 
-/** Pure: the needle's x on the ladder — the ladder fraction spread over the
- *  same span the ticks occupy (one scale), clamped by construction. */
-export function needleX(speed: number, kin: LadderKin, x: number, w: number): number {
-  return x + w / 2 + (speedLadderFraction(speed, kin) * w) / 2;
+/** Pure: the arrow's y — the ladder fraction spread over the same span the
+ *  detents occupy (one scale), clamped by construction. */
+export function speedY(speed: number, kin: LadderKin, top: number, h: number, inset: number): number {
+  const mid = detentY(STOP_DETENT, top, h, inset);
+  return mid - speedLadderFraction(speed, kin) * (h / 2 - inset);
 }
 
-/** Pure: the needle's denominators — the BOOSTED cap while the boost window
+/** Pure: the arrow's denominators — the BOOSTED cap while the boost window
  *  is open, through the one shared mutator (a proportion, never a flat add). */
 export function helmKinematics(kin: ShipConfig, boostFactor: number, boostActive: boolean): ShipConfig {
   return boostedKinematics(kin, boostFactor, boostActive);
-}
-
-/** Pure: the rudder tick's x CENTER for an axis in [-1,1], clamped so the
- *  painted tick never overhangs the track. */
-export function rudderTickCenter(rudder: number, trackX: number, trackW: number, inset: number): number {
-  const r = rudder < -1 ? -1 : rudder > 1 ? 1 : rudder;
-  const raw = trackX + trackW / 2 + (r * trackW) / 2;
-  const lo = trackX + inset;
-  const hi = trackX + trackW - inset;
-  return raw < lo ? lo : raw > hi ? hi : raw;
-}
-
-/** Pure: the heading readout — three wrapped digits and the degree sign. */
-export function headingText(headingRad: number): string {
-  const deg = Math.round((wrapPositive(headingRad) * 180) / Math.PI) % 360;
-  return `${deg.toString().padStart(3, '0')}°`;
-}
-
-/** Pure: the speed readout — the one-decimal magnitude of the raw hull speed
- *  (the globe's grammar, unchanged). */
-export function speedText(speed: number): string {
-  return Math.abs(speed).toFixed(1);
 }

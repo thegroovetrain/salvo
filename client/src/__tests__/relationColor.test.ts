@@ -4,7 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { SHIP_CLASS_IDS } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { relationFill, relationOf, relationStroke, relationStyle, scaleValue } from '../render/relationColor.js';
+import { hullLineColor, relationFill, relationOf, relationStroke, relationStyle, scaleValue } from '../render/relationColor.js';
+import { FALLBACK_STYLE } from '../render/ships.js';
+import { hullArtSvg } from '../render/hullArt/svgArt.js';
 import { ShipView } from '../render/ships.js';
 import { OWN_ACCENT } from '../ui/ownAccent.js';
 import { cssHex } from '../util/color.js';
@@ -44,15 +46,26 @@ describe('relation colors — two tokens, one fill rule', () => {
   });
 });
 
-describe('every captain hull draws its outline in its relation stroke', () => {
-  it('for every class and both relations', () => {
+describe('hullLineColor — the hull art leaves the relation rule (Story 12.3)', () => {
+  it('both relation strokes map to the one hullLine token; the fallback stroke passes through', () => {
+    expect(hullLineColor(relationStroke('own'))).toBe(CLIENT_CONFIG.colors.hullLine);
+    expect(hullLineColor(relationStroke('enemy'))).toBe(CLIENT_CONFIG.colors.hullLine);
+    expect(hullLineColor(FALLBACK_STYLE.stroke)).toBe(FALLBACK_STYLE.stroke);
+  });
+});
+
+describe('every captain hull draws its outline in the hull line color, whatever its relation', () => {
+  it('for every class and both relations (canvas and DOM SVG alike)', () => {
     for (const id of SHIP_CLASS_IDS) {
       for (const r of ['own', 'enemy'] as const) {
         const view = new ShipView(relationStyle(r), id);
         const instructions = view.outline.context.instructions as { action: string; data: { style?: { color?: number } } }[];
         const strokes = instructions.filter((i) => i.action === 'stroke').map((i) => i.data.style?.color);
-        expect(strokes).toEqual([relationStroke(r)]);
+        expect(strokes).toEqual([hullLineColor(relationStroke(r))]);
         view.destroy();
+        const svg = hullArtSvg(id, r, { pxPerU: 2 });
+        expect(svg).toContain(`stroke="${cssHex(hullLineColor(relationStroke(r)))}"`);
+        expect(svg).not.toContain(`stroke="${cssHex(relationStroke(r))}"`);
       }
     }
   });

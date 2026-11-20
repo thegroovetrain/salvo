@@ -527,11 +527,11 @@ export interface OwnShip {
    */
   rd: boolean;
   /**
-   * THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, Eric 2026-11-06, R5,
-   * epic-10 amendment 13; PROTOCOL_VERSION 99): per index, the levels this
-   * hull converted into that index because its draw had nothing left to deal
-   * (`ShipRecord.indexBonus`), NON-ZERO entries only — `{}` for every hull
-   * that still has cards to draw. The client folds it into its own
+   * THE HULL'S BONUS INDEX POINTS (Story 10.7, PROTOCOL_VERSION 99; since
+   * 2026-11-19, Story 12.4, epic-12 amendment 5, they come from the level
+   * stat roll and wreck crates — the exhausted conversion is retired): per
+   * index, the points gained outside the cards (`ShipRecord.indexBonus`),
+   * NON-ZERO entries only — `{}` for a hull with none. The client folds it into its own
    * `effectiveStats()` call beside `cards`, so its prediction and HUD read
    * the server's numbers. Self-private like `pts` / `cards`: it rides `you`
    * and NOTHING else (a build, like the cards).
@@ -798,6 +798,27 @@ export interface Contact {
    * APPENDED AFTER `tu`, AND OPTIONAL (msgpack key order).
    */
   lu?: number[];
+  /**
+   * THE HULL HEALTH STEP (Story 12.3, Eric 2026-11-18, epic-12 amendment 2(e)
+   * + (g)): `hullBlocks(hp, maxHp)` (sim/hullBlocks.ts), 1..CONFIG.hullBar.
+   * blocks while afloat — the A2 four-block bar over every hull in sight.
+   * Steps exactly where wounded smoke (< 50 %) and fire (< 25 %) change.
+   *
+   * A STEP ONLY — never the exact hp, a fraction or a damage amount. It rides
+   * the sighted contact row and therefore that row's own visibility gate:
+   * never a radar paint, never an event. Not a seventh exception. Supersedes
+   * epic-4 amendment 41 for sighted hulls only.
+   *
+   * ONLY WITHIN THE NAME-TAG REACH, ABSENT BEYOND IT (Eric 2026-11-19 —
+   * "only where drawn"): the server sends it only while the hull's center is
+   * within the observer's effective class-and-name sight (signals.ts
+   * `nameTagHeld`, the twin of the client's `plateInSight`). In the hazed
+   * band out to the hull sight the key is OMITTED, never a sentinel.
+   * Spectators (no eye) get it on every row.
+   *
+   * APPENDED AFTER `lu`, AND OPTIONAL (msgpack key order).
+   */
+  hb?: 1 | 2 | 3 | 4;
 }
 
 // --- GameEvent union (discriminated on `k`) --------------------------------
@@ -1157,6 +1178,9 @@ export interface MuzzleEvent {
  * fraction below CONFIG.damageBands.amberBelow), 2 = heavy (below
  * criticalBelow). Sending hp/maxHp would be a real HP gauge and is
  * FORBIDDEN — two named conditions is a state, not a number (amendment 41).
+ * (Superseded FOR SIGHTED HULLS ONLY by Eric 2026-11-18, epic-12 amendment 2:
+ * a hull within the name-tag reach carries the `Contact.hb` step on its own contact row. This
+ * event is unchanged — shape, reach and tiers.)
  *
  * ANTI-CHEAT — deliberately omitted: EVERY identity channel, for EVERY
  * observer without exception — enemies, the smoking ship's OWN captain, and
@@ -1379,8 +1403,9 @@ export interface HealEvent {
  * is the collecting ship's id, and perception forwards the event ONLY to that
  * observer — the same gate as `pt`/`bn`/`heal` (`selfPrivateSignal`), so
  * nobody else ever learns who took a crate or what it held. `t` is the server
- * time of the pickup (ms); `g` is what the crate granted, one `[stat, amount]`
- * roll for an ordinary drop, `CONFIG.drops.wreckRolls` for a wreck pickup.
+ * time of the pickup (ms); `g` is what the crate granted: a wreck's grants,
+ * merged one `[stat, amount]` per stat (Story 12.4, epic-12 amendment 5(e)),
+ * and nothing for an XP crate (its XP self-syncs like any XP).
  * Purely UX (the pickup tell — whether the client shows one is Eric's call on
  * the rendered candidate): the authoritative bonus self-syncs every frame via
  * OwnShip.ib. KEY ORDER k, id, t, g is load-bearing (msgpack).
@@ -1389,7 +1414,7 @@ export interface DropPickupEvent {
   k: 'dp';
   id: string; // the collector (= the only observer this is ever delivered to)
   t: number; // ms — server time of the pickup
-  g: ReadonlyArray<DropRoll>; // the rolls granted, in roll order
+  g: ReadonlyArray<DropRoll>; // the grants (a wreck's, merged per stat; none for an XP crate)
 }
 
 /**
@@ -1399,10 +1424,11 @@ export interface DropPickupEvent {
  * every drop; anyone else only within sight (× detect factor) + island LOS, or
  * inside their own lit zone. On radar a drop is NEVER this row: it paints as
  * an anonymous `blip` (the disc imprint), carrying no id, stat or amount (R3).
- * `c` is the crate's KIND only — the index stat it will land on, or `'wreck'`
- * for a sunk participant's pickup. No amount rides the wire: it is rolled at
- * PICKUP (Eric 2026-11-08) and reported to the collector alone in `dp`. The
- * client ingest drops any entry whose `c` fails `isDropKind`.
+ * `c` is the crate's KIND only — `'xp'` (every airdrop and supply-drop crate)
+ * or `'wreck'` for a sunk participant's pickup (Story 12.4, epic-12 amendment
+ * 5). A wreck's worth never rides the wire: it is rolled at PICKUP and
+ * reported to the collector alone in `dp`. The client ingest drops any entry
+ * whose `c` fails `isDropKind`.
  *
  * KEY ORDER id, x, y, c IS LOAD-BEARING (msgpack serializes insertion order;
  * the golden frames and the key-order pins read it — the mine row's `c`

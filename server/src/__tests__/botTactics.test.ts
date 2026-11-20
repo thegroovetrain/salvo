@@ -1937,21 +1937,6 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(plain, plainMind, port).fireSlot).toBeNull();
   });
 
-  it('PREPARED LAY: `farm` is safe only with NO target — a beacon stayer fighting from its station seeds nothing (Story 10.12 review gate)', () => {
-    const w = openWorld(4191);
-    const port = fakePort(w);
-    const rec = mkBot(w, 'warspite', 0, 0, 0);
-    const mind = mkMind('trapper'); // EAGER mines
-    viewWithOwnMines(mind, 0);
-    const sit = situationOf(rec, mind, port);
-    const want = (target: RememberedContact | null): boolean =>
-      EQUIPMENT_TACTICS.navalMines.want({ self: rec, mind, sit, port, target, posture: 'farm', slot: slotOf(rec, 'navalMines') });
-    expect(want(null)).toBe(true); // farming alone: the prepared occasion stands
-    // A target dead ahead, parked — nothing behind, nothing closing: no reactive
-    // occasion, and the prepared one is refused mid-fight.
-    expect(want(track(port.now, { x: 600, y: 0, speed: 0 }))).toBe(false);
-  });
-
   it('PREPARED LAY stops at the reserve; the REACTIVE lay still fires there (adds, never removes)', () => {
     const w = openWorld(419);
     const port = fakePort(w);
@@ -2948,17 +2933,6 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)
     tb.loadout[SLOT_BOOST].state = { n: 0, reloadMsLeft: 20000 };
     const mind = heldOn(port, bandMax + 50, 'pursue');
     expect(COMBAT_BRAIN.decide(tb, mind, port, false).act).not.toBe(abilityCode('shift'));
-  });
-
-  it('Boost vs farm (R13): a HELD farm posture with a far track never boosts in; the same track under pursue does', () => {
-    // The fleet farm retired with the drones (Story 10.8); `farm` is the
-    // beacon farm now (botBeacons.test.ts). The posture's no-boost rule is
-    // pinned on a held posture, the amendment-194 idiom above.
-    const { port, tb, bandMax } = setup(8206);
-    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + PAST_BAND_U, 'farm'), port, false).act).not.toBe(abilityCode('shift'));
-    // Control: the same captain, the same far target, in a real-fight posture
-    // boosts — so the hold above is the posture, not the appetite.
-    expect(COMBAT_BRAIN.decide(tb, heldOn(port, bandMax + PAST_BAND_U, 'pursue'), port, false).act).toBe(abilityCode('shift'));
   });
 });
 

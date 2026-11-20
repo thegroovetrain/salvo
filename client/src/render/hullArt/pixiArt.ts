@@ -5,7 +5,8 @@
 // geometry without copying it, and `Graphics.destroy()` leaves a borrowed
 // context alone. Nothing here runs per frame.
 //
-// Fills are the skin (palette.ts), lines the one relation color in `line`, at
+// Fills are the skin (palette.ts), lines the one color in `line` (since Story
+// 12.3 the dark-gray `hullLine` for every captain hull), at
 // the world-unit weights of CLIENT_CONFIG.ship.art — the hull line bold, every
 // inner line a third of it, rails and cranes 1.5× the inner (amendment 7(o)).
 
@@ -37,7 +38,7 @@ function trace(ctx: GraphicsContext, p: Prim): void {
 }
 
 /** Paint primitives in order: each traced once, filled with its skin slot,
- *  then stroked in the relation color at its weight class. */
+ *  then stroked in the line color at its weight class. */
 function paint(ctx: GraphicsContext, id: ShipClassId, prims: readonly Prim[], line: number): GraphicsContext {
   for (const p of prims) {
     trace(ctx, p);

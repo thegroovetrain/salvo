@@ -37,8 +37,8 @@ import {
  *  mounted gun's doctrine band (ai/doctrine.ts), so the boost closes the gap
  *  to fighting range. The far edge is the LEGACY one (Story 11.9 R7, Eric
  *  2026-11-16 "Keep the old trigger": `legacyBandMaxU`, the cannon band's
- *  far fraction + nudge × reach), not the hit-bar band. Never in `engage`, `kite`, `hold`, `hide` or `farm`
- *  (R13: farming never boosts in). */
+ *  far fraction + nudge × reach), not the hit-bar band. Never in `engage`, `kite`, `hold` or `hide`
+ *  (R13; its `farm` went with the beacons, Story 12.4). */
 function chargingIn(ctx: TacticContext): boolean {
   const t = ctx.target;
   if (t === null || ctx.posture !== 'pursue') return false;

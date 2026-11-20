@@ -13,28 +13,28 @@
 // run through the shared `zoneLiveState` — the one live-ring derivation both
 // sides already share — so a bot's clock equals a client's by construction.
 //
-// THE BEACON CHART (Story 10.8, Eric 2026-11-06 "bots sail to and farm
-// beacons", epic-10 amendment 6(g); spec R3 / R9): `beacons()` reads ONLY
-// `World.beaconChart` — the cycle, its start and each beacon's position and
-// early sink time, exactly what the schema mirrors to every client — and runs
-// each through the shared `beaconStateAt`, the one lifecycle a client's chart
-// render reads too. Never the server's BeaconRecords (hp, pot, ledger).
+// THE SUPPLY-DROP CHART (Story 12.4, Eric 2026-11-19 "Head for charted
+// drops", epic-12 amendment 5(h); it replaces Story 10.8's beacon chart):
+// `supplyDrops()` reads ONLY `World.supplyChart` — each charted spot's cycle,
+// position and its cycle's start, exactly what the schema mirrors to every
+// client — and derives the landing moment through the shared `supplyLandMs`,
+// the one timing a client's map mark reads too. Never the server's private
+// supply seed or the crates before they are down.
 //
 // Lives OUTSIDE ai/ on purpose: it reads World (structurally, through
 // BotPortSource), and ai/ may not import world.js. Zero Colyseus.
 
 import {
-  beaconStateAt,
+  supplyLandMs,
   zoneLiveState,
   zoneRingRadii,
-  type BeaconPhase,
   type ZonePhase,
   type ZoneRing,
   type ZoneTimeline,
   type GameMap,
 } from '@salvo/shared';
-import type { BotBeacon, BotWorldPort, BotZonePhase } from './ai/types.js';
-import type { BeaconChart } from './beacons.js';
+import type { BotSupplyDrop, BotWorldPort, BotZonePhase } from './ai/types.js';
+import type { SupplyChart } from './supplyDrops.js';
 import type { NavCache } from './navCache.js';
 
 /** What the adapter reads off World — every field public on World today. */
@@ -48,8 +48,8 @@ export interface BotPortSource {
   readonly zonePhase: ZonePhase;
   readonly zoneEndgameReached: boolean;
   readonly helmEnabled: boolean;
-  /** The public beacon chart (Story 10.8 — World.beaconChart). */
-  readonly beaconChart: BeaconChart;
+  /** The public supply-drop chart (Story 12.4 — World.supplyChart). */
+  readonly supplyChart: SupplyChart;
   /** The map's nav cache (Story 9.13, amendment 192 — game/navCache.ts). */
   readonly nav?: NavCache;
   submitInput(id: string, raw: unknown): boolean;
@@ -85,30 +85,27 @@ export function safeDiscOf(live: ZoneRing, nextR: number | null): ZoneRing {
   return { cx: live.cx, cy: live.cy, r: Math.max(0, 2 * rNext - live.r) };
 }
 
-/** A mutable BotBeacon — the port's reused rows. */
-interface BeaconRow {
+/** A mutable BotSupplyDrop — the port's reused rows. */
+interface SupplyRow {
   x: number;
   y: number;
-  phase: BeaconPhase;
-  rate01: number;
+  landT: number;
 }
 
 /**
- * THE BOTS' BEACON VIEW (see the file header): one row per charted beacon at
- * `now`, written into `out` in place (rows reused, length trimmed) — the
- * chart's public facts through the shared lifecycle, nothing else.
+ * THE BOTS' SUPPLY VIEW (see the file header): one row per charted spot,
+ * written into `out` in place (rows reused, length trimmed) — the chart's
+ * position and the shared landing time, nothing else.
  */
-export function beaconRowsOf(chart: BeaconChart, now: number, out: BotBeacon[]): readonly BotBeacon[] {
-  const rows = out as BeaconRow[];
-  rows.length = chart.beacons.length;
-  for (let i = 0; i < chart.beacons.length; i += 1) {
-    const b = chart.beacons[i];
-    const s = beaconStateAt(now, chart.cycleStartT, b.sinkT);
-    const row = rows[i] ?? (rows[i] = { x: 0, y: 0, phase: 'charted', rate01: 0 });
-    row.x = b.x;
-    row.y = b.y;
-    row.phase = s.phase;
-    row.rate01 = s.rate01;
+export function supplyRowsOf(chart: SupplyChart, out: BotSupplyDrop[]): readonly BotSupplyDrop[] {
+  const rows = out as SupplyRow[];
+  rows.length = chart.length;
+  for (let i = 0; i < chart.length; i += 1) {
+    const c = chart[i];
+    const row = rows[i] ?? (rows[i] = { x: 0, y: 0, landT: 0 });
+    row.x = c.x;
+    row.y = c.y;
+    row.landT = supplyLandMs(c.cycleStartT);
   }
   return rows;
 }
@@ -123,7 +120,7 @@ export function makeBotPort(src: BotPortSource, cfg: ZoneTimeline): BotWorldPort
     ladder ??= zoneRingRadii(src.map.radius, cfg);
     return ladder[group + 1] ?? null;
   };
-  const beaconRows: BotBeacon[] = [];
+  const supplyRows: BotSupplyDrop[] = [];
   return {
     get now() { return src.now; },
     get map() { return src.map; },
@@ -139,6 +136,6 @@ export function makeBotPort(src: BotPortSource, cfg: ZoneTimeline): BotWorldPort
       return { phase: c.phase, closesInMs: c.closesInMs };
     },
     zoneSafeDisc: () => safeDiscOf(src.zoneLiveRing, nextLadderR(zoneClockOf(src, cfg).group)),
-    beacons: () => beaconRowsOf(src.beaconChart, src.now, beaconRows),
+    supplyDrops: () => supplyRowsOf(src.supplyChart, supplyRows),
   };
 }

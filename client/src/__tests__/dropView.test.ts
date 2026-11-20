@@ -1,15 +1,20 @@
 // Story 10.9 — the airdrop ingest gate (sim/dropView.ts): a crate is kept iff
-// its id, position and KIND are sound; anything else is dropped whole.
+// its id, position and KIND are sound; anything else is dropped whole. Story
+// 12.4: the kinds are the XP crate and the wreck (the shared `isDropKind`).
 import { describe, expect, it } from 'vitest';
 import { INDEX_IDS } from '@salvo/shared';
 import { sanitizeDrops } from '../sim/dropView.js';
 
-const ok = { id: 'd1', x: 10, y: -20, c: 'armor' };
+const ok = { id: 'd1', x: 10, y: -20, c: 'xp' };
 
 describe('sanitizeDrops', () => {
-  it.each([...INDEX_IDS, 'wreck'])('keeps a crate of kind %s', (c) => {
+  it.each(['xp', 'wreck'])('keeps a crate of kind %s', (c) => {
     const v = { id: 'k', x: 0, y: 0, c };
     expect(sanitizeDrops([v, ok])).toEqual([v, ok]);
+  });
+
+  it.each([...INDEX_IDS])('drops a retired stat-crate kind %s (Story 12.4)', (c) => {
+    expect(sanitizeDrops([{ ...ok, c }, ok])).toEqual([ok]);
   });
 
   it('a non-array (including the omitted key) is no crates', () => {

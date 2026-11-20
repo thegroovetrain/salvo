@@ -31,10 +31,11 @@ export function hudBedCss(): string {
   ].join(';');
 }
 
-/** Redraw `g` as the bed over `r` (cleared first; the edge sits inside the rect). */
-export function drawHudBed(g: Graphics, r: BedRect): void {
-  g.clear();
+/** Draw the bed over `r` on `g` (NOT cleared — a caller may lay several beds
+ *  on one Graphics; the edge sits inside the rect). `alpha` is the scrim's —
+ *  the HUD bar's sections ask for their own (Story 12.3 Part B). */
+export function drawHudBed(g: Graphics, r: BedRect, alpha: number = B.alpha): void {
   const e = B.edgeW;
-  g.rect(r.x, r.y, r.w, r.h).fill({ color: C.cardScrim, alpha: B.alpha });
+  g.rect(r.x, r.y, r.w, r.h).fill({ color: C.cardScrim, alpha });
   g.rect(r.x + e / 2, r.y + e / 2, r.w - e, r.h - e).stroke({ width: e, color: C.hairline });
 }

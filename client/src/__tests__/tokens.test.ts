@@ -156,7 +156,7 @@ describe('(c) the token table\'s structure — counts, derivations, retirements'
 
   it('pins what the hull gauge KEPT of the own-vitals group (UX-DR15 + amendments 24-27)', () => {
     // Story 10.10 deleted the `vitals` block with the HP globe; the BEHAVIOUR
-    // the gauge inherited unchanged lives in `console.hull` / `console.helmGlyphs`.
+    // the gauge inherited unchanged lives in `console.hull` (the helm glyphs left with the coach marks, Story 12.3).
     const H = CLIENT_CONFIG.console.hull;
     // A BASE fill alpha that is information (what the gauge holds at motion=off).
     expect(H.fillAlpha).toBeGreaterThan(0.5);
@@ -174,11 +174,6 @@ describe('(c) the token table\'s structure — counts, derivations, retirements'
     expect(H.pulseFloorFrac).toBeLessThan(H.amberBelow);
     expect(H.pulseAmp).toBeGreaterThan(0);
     expect(H.pulseAmp).toBeLessThan(H.fillAlpha); // the fill never breathes to nothing
-    // Helm glyphs: a whole number of successful inputs per pair, under a standalone key.
-    const G = CLIENT_CONFIG.console.helmGlyphs;
-    expect(Number.isInteger(G.fadeCount) && G.fadeCount > 0).toBe(true);
-    expect(G.key).toBe('hullcracker.helm');
-    expect(G.fadeSec).toBeGreaterThan(0);
   });
 
   it('pins the ONE photosensitivity ceiling shared by every breathing pulse', () => {

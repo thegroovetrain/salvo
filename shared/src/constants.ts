@@ -58,23 +58,19 @@ export const U_PER_M = 0.4585;
 // four buoys and their sponge body are deleted, so every mask that named it
 // reads hulls (plus its own mine / ordnance bits) alone.
 //
-// `beacon` IN A MASK MEANS "THIS ORDNANCE STRIKES A RADIO BEACON AS IT WOULD A
-// SHIP WITH ITS ARMOR" (Story 10.8, Eric 2026-11-06, R8: every weapon damages
-// it — main battery, secondaries, torpedoes, mines, special shells). So EVERY
-// weapon row carries it — EXCEPT the two mine TRIP masks (`mine.hits`,
-// `foulingMines.hits`), which keep `HITS_TRIP`: a mine does NOT trip on a
-// beacon (R12); a blast set off by a hull still damages one (server-side).
-const HITS_HULL_MINE_ORDNANCE_BEACON: readonly TargetKind[] = ['hull', 'mine', 'ordnance', 'beacon'];
-const HITS_HULL_MINE_BEACON: readonly TargetKind[] = ['hull', 'mine', 'beacon'];
-const HITS_HULL_BEACON: readonly TargetKind[] = ['hull', 'beacon'];
-/** A MINE'S TRIP MASK — hulls only (AR44; R12: never a beacon). */
+// THE `beacon` KIND IS GONE (2026-11-19, Story 12.4, epic-12 amendment 5(f)):
+// radio beacons are deleted, so no weapon row names them any more.
+const HITS_HULL_MINE_ORDNANCE: readonly TargetKind[] = ['hull', 'mine', 'ordnance'];
+const HITS_HULL_MINE: readonly TargetKind[] = ['hull', 'mine'];
+const HITS_HULL: readonly TargetKind[] = ['hull'];
+/** A MINE'S TRIP MASK — hulls only (AR44). */
 const HITS_TRIP: readonly TargetKind[] = ['hull'];
 
 /**
  * THE STATS A RANDOM INDEX POINT MAY LAND ON (Story 10.7, R5, Eric
- * 2026-11-06) — never HULL REPAIR / SMOKE SCREEN. Hoisted out of the CONFIG
- * literal so `offer.exhausted.indices` and `drops.indices` (Story 10.9,
- * epic-10 amendment 18) are ONE array, never two literals that could drift.
+ * 2026-11-06) — never HULL REPAIR / SMOKE SCREEN. Since 2026-11-19 (Story
+ * 12.4, epic-12 amendment 5) it is `xp.statRoll.indices`: the stats the level
+ * roll rolls, in order, and the wreck crate's uniform picks.
  * The order is the uniform pick's index order — a wire-free but
  * seed-load-bearing order (moving an entry changes which stat a seed draws).
  *
@@ -392,7 +388,8 @@ export const CONFIG = {
 
   // CONFIG.drones / CONFIG.fleet — the PvE fleet envelopes and wave schedule
   // of Story 5.6 — RETIRED with the drone fleet at Story 10.8 (2026-11-06);
-  // the radio beacons (CONFIG.beacons) replace them as the world's XP faucet.
+  // the radio beacons replaced them, and are themselves gone since Story 12.4
+  // (2026-11-19, epic-12 amendment 5: supply drops, `CONFIG.supplyDrops`).
 
   /**
    * COMBAT BOTS (Story 6.4, Eric rulings 2026-08-16) — AI CAPTAINS, `role:
@@ -833,15 +830,8 @@ export const CONFIG = {
       'SPINDRIFT', 'TRADEWIND', 'DOLDRUM', 'SEXTANT', 'ASTROLABE',
       'CROWSNEST', 'MOONRAKER', 'BINNACLE', 'DEADLIGHT', 'LODESTAR',
     ],
-    /**
-     * THE BEACON STANDOFF (Story 10.8, 2026-11-06; moved here from server
-     * ai/beacons.ts once shared/ opened): a farming bot holds station on the
-     * bearing from the beacon to itself, this fraction of
-     * `CONFIG.beacons.rangeU` out from the centre — well inside the paying
-     * circle (a nudge or a coast does not carry the hull out) and far from
-     * the solid body. A harness dial.
-     */
-    beaconStandoffFrac: 0.6,
+    // `beaconStandoffFrac` (the beacon farm's standoff) is DELETED with the
+    // radio beacons (2026-11-19, Story 12.4, epic-12 amendment 5).
     /**
      * THE CRATE-PAINT FILTER (Story 10.9, orchestrator ruling 2026-11-09): a
      * radar return whose fuzzed footprint's LONGEST SIDE (the paint rect's
@@ -860,7 +850,7 @@ export const CONFIG = {
     /**
      * THE LANE NUDGE (Story 10.9, epic-10 amendment 18; server/src/game/ai/
      * drops.ts): u — how far AHEAD along the bearing a non-combat bot already
-     * wants (idle / patrol / beacon farm in transit) a sighted airdrop may lie
+     * wants (idle / patrol / in transit) a sighted airdrop may lie
      * and still be taken as this tick's waypoint. First reading (spec);
      * Story 10.12 tunes. A harness dial.
      */
@@ -1040,13 +1030,13 @@ export const CONFIG = {
     // epic-9 amendment 104, rulings 121–123: beyond 8/12 of radar a sweep
     // increasingly failed to paint, rolled per revolution in sim/dropout.ts) —
     // REMOVED 2026-11-12, Story 11.2, epic-11 amendment 4 (Eric R8): Story 11.4's return-strength model replaces it. The
-    // beacon keep-out disc that read `dropout.startU` has its own fact,
-    // `CONFIG.beacons.keepOutU` (R20).
+    // placement keep-out disc that read `dropout.startU` has its own fact,
+    // `CONFIG.supplyDrops.keepOutU` (R20; the beacons' until Story 12.4).
     sweepRpm: 15, // rev/min — radar rotation rate at INTEL 100 (15 rpm = one 4 s revolution; the fold reads sweepRpm × INTEL / 100 — Story 10.3, ruling 14)
     // NO SWEEP CEILING: `sweepRpmMax` (30 RPM) is DELETED (Story 10.7, R6,
     // 2026-11-06, epic-10 amendment 13 — Eric: there is no INTEL cap any
     // more, for any reason). The sweep is the plain linear INTEL law for
-    // cards and the exhausted hull's bonus points alike.
+    // cards and bonus index points alike.
     // u — THE RADAR GRID RESOLUTION (cycle 63, amendment 152). World units per
     // radar cell, shared because it is now gameplay-authoritative: the server
     // rasterizes a fogged hull's true silhouette onto THIS lattice and sends
@@ -1160,7 +1150,7 @@ export const CONFIG = {
     // UNCAPPED, so "every sweep rate" no longer holds: the covering lasts only
     // while 3 × 60000 / rpm ≥ wakeLifeMs (≈ 32.7 rpm, INTEL ≈ 218 today).
     // The fastest CARD-only build (INTEL 215, 32.25 rpm) still covers; a few
-    // exhausted-hull bonus INTEL points on top of it do not — the cycle-69
+    // bonus INTEL points on top of it do not — the cycle-69
     // shape of shortfall, back, and a question for Eric, not a fixed cap.
     // Only the base-rate covering is pinned (zone.test.ts).
     wakeLifeMs: 5500,
@@ -1213,6 +1203,20 @@ export const CONFIG = {
   damageBands: {
     amberBelow: 0.5, // frac < this — hurt (amber rail / light smoke, tier 1)
     criticalBelow: 0.25, // frac < this — critical (crimson rail / heavy smoke, tier 2)
+  },
+
+  /**
+   * THE HULL HEALTH BAR (Story 12.3, Eric 2026-11-18, epic-12 amendment 2(e)
+   * + (g)) — how many steps of a sighted hull's health cross the wire
+   * (`Contact.hb`, `hullBlocks()` in sim/hullBlocks.ts). Gameplay-load-
+   * bearing, not a feel knob: it is how much enemy health an observer learns.
+   * A step, never the hp or a fraction. At four blocks the steps land on
+   * `damageBands` (the bar reads 2 the instant smoke starts, 1 the instant
+   * fire starts); the wire type `Contact.hb` is the literal union 1..4, so a
+   * different count is a wire-contract change (PROTOCOL_VERSION).
+   */
+  hullBar: {
+    blocks: 4,
   },
 
   /**
@@ -1298,7 +1302,7 @@ export const CONFIG = {
     // Story 9.12, epic-9 amendment 184(i): the cursor clause and amendment
     // 200's "a burst that merely covers a mine does nothing" are RETIRED). A
     // shell in flight never touches a mine.
-    hits: HITS_HULL_MINE_BEACON,
+    hits: HITS_HULL_MINE,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
     // CANNON ladder's tier-III rung (catalog `deckGun`, Eric 2026-09-30) raises
@@ -1401,7 +1405,7 @@ export const CONFIG = {
    */
   machineGun: {
     arc: 'full', // 360° — amendment 106
-    hits: HITS_HULL_MINE_BEACON, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
+    hits: HITS_HULL_MINE, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
     rangeU: hmToU(285), // u — Tier I reach (Story 11.2, R20 reading: the same 380 hm / 1,000 u scale; was 750 u, the 6/12 rung)
     rangeUAtV: hmToU(333), // u — Tier V reach (Story 11.2, R20 reading; was 875 u, the 7/12 rung)
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
@@ -1442,7 +1446,7 @@ export const CONFIG = {
    */
   flak: {
     arc: 'full', // 360° — amendment 106
-    hits: HITS_HULL_MINE_ORDNANCE_BEACON, // AR44 / amendment 96(f)
+    hits: HITS_HULL_MINE_ORDNANCE, // AR44 / amendment 96(f)
     rangeU: hmToU(238), // u — Tier I reach (Story 11.2, R20 reading: the same 380 hm / 1,000 u scale; was 625 u, the 5/12 rung)
     rangeUAtV: hmToU(285), // u — Tier V reach (Story 11.2, R20 reading; was 750 u, the 6/12 rung)
     shellSpeed: 500, // u/s (amendment 105)
@@ -1540,7 +1544,7 @@ export const CONFIG = {
    * DIRECT HITS ONLY (Eric 2026-11-13, epic-11 amendment 8): "Remove the
    * 'burst radius' from the main guns … Only direct hits count", and "Only
    * the landing point counts". The shell ARCS OVER every ship between the
-   * muzzle and its landing point (no in-flight hull or beacon contact —
+   * muzzle and its landing point (no in-flight hull contact —
    * ShellState.arcs `'ships'`) and, at the landing point, every afloat
    * non-owner hull whose SILHOUETTE contains the point takes the full
    * `battery.shellDamage`; a landing outside every hull damages nothing.
@@ -1551,7 +1555,7 @@ export const CONFIG = {
    */
   mainBattery: {
     arc: 'full', // every bearing is inside SOME turret's arc on every hull (which turrets may fire: sim/turrets.ts pickTurret)
-    hits: HITS_HULL_BEACON, // hulls (+ radio beacons, Story 10.8 R8); NO mine bit (R3)
+    hits: HITS_HULL, // hulls only; NO mine bit (R3)
     rangeU: hmToU(380), // u — the BASE main-battery reach, × each hull's `battery.reachFrac` (Story 11.2, R2 / R18; was 1,000 u, the 8/12 rung)
     reloadMs: 15000, // ms per turret, before RELOAD (Eric 2026-11-13, epic-11 amendment 9: "15 seconds at 100 RELOAD"; was 10000, R2)
     // `traverseDegPerS` (90 °/s, turrets AND torpedo launchers) and
@@ -1591,7 +1595,7 @@ export const CONFIG = {
    */
   secondaries: {
     arc: 'full', // 360°
-    hits: HITS_HULL_MINE_BEACON, // the machine gun's mask: hulls + mines
+    hits: HITS_HULL_MINE, // the machine gun's mask: hulls + mines
     damage: 3, // hp per round (R3: Eric's "3 per round" after the DPS math)
     coldRatePerS: 3, // rounds a second while held at zero heat (Eric 2026-11-13, epic-11 amendment 9; was one per 120 ms)
     hotRatePerS: 1, // rounds a second while held at full heat — linear in heat between (Eric 2026-11-13; full heat no longer locks)
@@ -1622,7 +1626,7 @@ export const CONFIG = {
     // LAUNCHER that trains like a turret (`CONFIG.launcher`, sim/launchers.ts).
     // AR44: a torpedo hits hulls — it runs UNDER a minefield and
     // never sets one off.
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
     // amendment 55): nothing requires a torpedo to outrun every hull any more.
     // What 65 buys today is a FACT, not a requirement — the base fish still
@@ -1731,7 +1735,7 @@ export const CONFIG = {
     maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls — it runs UNDER a minefield.
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     runU: hmToU(55), // u — the run at Tier I (Story 11.2, R5 / R18 — every kind 55 → 140 hm)
     runUAtV: hmToU(140), // u — the run at Tier V; the four upgrade tiers split the difference evenly
   },
@@ -1760,7 +1764,7 @@ export const CONFIG = {
     maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
     reloadMs: 45000, // ms — Eric 2026-11-05, Story 10.5, R4 ("SUPERCAV 45")
     // AR44: hulls only, never a mine — it runs UNDER a minefield.
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     runU: hmToU(55), // u — the run at Tier I (Story 11.2, R5 / R18 — every kind 55 → 140 hm)
     runUAtV: hmToU(140), // u — the run at Tier V; the four upgrade tiers split the difference evenly
   },
@@ -1853,7 +1857,6 @@ export const CONFIG = {
     // sailing into its ring is not a hull and must not set it off (remote
     // minefield clearing is a mechanic nobody ruled on; LANDING a deck-gun
     // shell on it is the sanctioned way — amendment 200, as widened by 184(i)).
-    // Nor does a radio beacon trip it (Story 10.8, R12).
     hits: HITS_TRIP,
     // hp — EVERY mine (naval, captive, fouling) carries this many hit points,
     // SERVER-SIDE ONLY, never on the wire (Eric 2026-10-01, amendment 200).
@@ -1977,8 +1980,7 @@ export const CONFIG = {
     slowDurationMs: 5000, // ms — FIXED at every tier (refresh, don't stack) [DRAFT]
     maxAmmo: 3, // held mines PER RACK (Story 10.6, R7: "3 fouling"; was 2 +1/tier → 6 at V) — no tier steps it (R4)
     reloadMs: 15000, // ms — tier I; −5 %/tier → 12 s at V [DRAFT]
-    // AR44: a mine TRIPS on hulls only (the naval mine's rule, unchanged) —
-    // never on a radio beacon (Story 10.8, R12).
+    // AR44: a mine TRIPS on hulls only (the naval mine's rule, unchanged).
     hits: HITS_TRIP,
   },
 
@@ -2119,7 +2121,7 @@ export const CONFIG = {
     arcOffsetDeg: 90,
     // AR44: hulls. NEVER a mine (amendment 200, Eric 2026-10-01):
     // only a deck gun's shell landing on a mine damages one.
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -2263,7 +2265,7 @@ export const CONFIG = {
     // can never double as remote minefield clearing. (Before Story 8.4 a flare
     // burst DID set off the firer's own armed mines, through the owner-only
     // self-detonation path that amendment 16 replaced.)
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     rangeU: hmToU(523), // u — Tier I reach (Story 11.2, R18; was 1,375 u, the 11/12 rung)
     rangeUAtV: hmToU(570), // u — Tier V reach (Story 11.2, R18; was 1,500 u, the 12/12 rung)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
@@ -2315,7 +2317,7 @@ export const CONFIG = {
     // AR44: hulls. NEVER a mine (amendment 200, Eric 2026-10-01,
     // superseding amendment 135(c)): only a deck gun's shell landing on a mine
     // damages one.
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     rangeU: hmToU(380), // u — Tier I reach (Story 11.2, R18; was 1,000 u, the 8/12 rung)
     rangeUAtV: hmToU(475), // u — Tier V reach (Story 11.2, R18; was 1,250 u, the 10/12 rung)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -2364,7 +2366,7 @@ export const CONFIG = {
     arc: 'full', // 360° (sim/arcs.ts)
     // The star shell's mask: interception by a hull bursts the shell at the
     // stop point; it never detonates a mine.
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     // u — the burst reach (Story 11.2, R18: 380 hm; was 1,000 u, the 8/12
     // rung). FIXED at every tier: R7 steps the radius, never the reach. FLASH
     // SHELLS read this same reach (epic-10 amendment 4, ruling 2).
@@ -2479,7 +2481,7 @@ export const CONFIG = {
     arc: 'full', // 360° (sim/arcs.ts)
     // The star shell's mask: interception by a hull flashes at the stop
     // point; a flash never detonates a mine (amendment 135(d)).
-    hits: HITS_HULL_BEACON,
+    hits: HITS_HULL,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     shellRadius: 2, // u — shell collision radius (star-shell parity)
     maxAmmo: 1, // one round in the pool (2026-11-05, Story 10.5)
@@ -2738,6 +2740,19 @@ export const CONFIG = {
      * solo kill still pays the full value.
      */
     killerShare: 0.1,
+    /**
+     * THE LEVEL STAT ROLL (Eric 2026-11-19, Story 12.4, epic-12 amendment
+     * 5(b)): every completed level rolls a die with these `faces` ONCE for
+     * each stat in `indices` (in order) and adds the face to that stat's
+     * bonus index points (*"Treat it like a dice roll, where the faces are 0,
+     * 0, 1, 1, 2, 3"*). It replaces the exhausted hull's +1 (5(c)) and does
+     * not depend on the offer. A wreck crate's +1 picks are uniform over the
+     * same `indices` (5(e)). The pure model is `shared/src/sim/levelRoll.ts`.
+     */
+    statRoll: {
+      faces: [0, 0, 1, 1, 2, 3], // index points per face of the die (Eric 2026-11-19)
+      indices: RANDOM_INDEX_STATS, // the stats rolled each level, in roll order
+    },
   },
 
   /**
@@ -2779,26 +2794,17 @@ export const CONFIG = {
    * the ship, and empty once it holds every ladder, its three slotted weapons
    * at cap and every add-on it can host.
    *
-   * A LEVEL THAT MEETS AN EMPTY DRAW IS A BONUS POINT (Story 10.7, R5, Eric
-   * 2026-11-06, epic-10 amendment 13 — it replaces R3's "banks nothing"):
-   * the hull with nothing dealable gets no offer, no `pt` and no bank; each
-   * such level instead adds `exhausted.indexPoints` to ONE of the
-   * `exhausted.indices`, picked uniformly at random off the ship's own draw
-   * stream. Every level still banked when the draw runs dry (the queue behind
-   * a hull's last card) converts the same way, one pick each. The points are
-   * index points (a card is +20 or +10; this is +1), folded by
-   * `effectiveStats()` after the cards and beyond any card cap.
+   * A LEVEL THAT MEETS AN EMPTY DRAW BANKS NOTHING (2026-11-19, Story 12.4,
+   * epic-12 amendment 5(c)): the hull with nothing dealable gets no offer, no
+   * `pt` and no bank. The exhausted hull's +1 random index point (Story 10.7,
+   * R5) and its `exhausted` dials are RETIRED — the level stat roll
+   * (`xp.statRoll`) runs on every level, cards left or not.
    */
   offer: {
     size: 4, // card lines per offer — drawn from the common pool, all different
     weighting: {
       factor: 0.75, // [DRAFT] weight multiplier per OTHER captain who took copy 1 (amendment 90)
       floor: 0.25, // [DRAFT] the weight never falls below this — less likely, never impossible
-    },
-    exhausted: {
-      indexPoints: 1, // index points per level converted on an exhausted hull (Eric 2026-11-06, R5: "+1 to a random stat")
-      // the stats a converted level may land on, picked uniformly (Eric 2026-11-06, R5) — never HULL REPAIR / SMOKE SCREEN
-      indices: RANDOM_INDEX_STATS,
     },
   },
 
@@ -2988,67 +2994,42 @@ export const CONFIG = {
   },
 
   /**
-   * THE RADIO BEACONS (Story 10.8, Eric rulings R1–R13, 2026-11-06, epic-10
-   * amendment 14 — supersedes the story's "2 levels/min falling linearly from
-   * 1:00 to 3:00"). Global world objects that replace the drone fleet as the
-   * first-minute objective. The ONE lifecycle/rate model is
-   * `shared/src/sim/beacons.ts`; every number below is read through it.
+   * THE SUPPLY DROPS (Eric 2026-11-19, Story 12.4, epic-12 amendment 5(f)/(g)
+   * — *"Beacons are being removed altogether. Instead, treat them as a supply
+   * drop of XP crates, say 10 of them in a bunch. Same spawn characteristics,
+   * and I want their locations marked on the map before they drop."*). They
+   * keep the radio beacons' (Story 10.8) placement and timing exactly. The
+   * pure model is `shared/src/sim/supplyDrops.ts`.
    *
    * TIMELINE, per ring cycle (a cycle is one zone ring group,
    * `ZONE_BEATS_PER_GROUP × zone.beatMs`, starting at the zone clock):
-   *   cycle start   CHARTED — on every chart at once (the schema), nothing in
-   *                 the water: not solid, not hittable, pays nothing;
-   *   + surfaceMs   SURFACES and FLOATS for `floatMs` paying the FULL rate;
-   *   + floatMs     SINKS over `sinkMs`, the rate falling LINEARLY to 0 (R3);
-   *   + sinkMs      gone.
-   * Destroyed afloat (0 hp) the sink minute starts at once (R6) — the early
-   * sink time is public (R9).
+   *   cycle start   CHARTED — every spot on every chart at once (the schema);
+   *   + surfaceMs   LANDS — each spot drops `crates` ordinary XP crates
+   *                 (`CONFIG.drops`) uniformly within `scatterU` of it.
    *
-   * COUNTS (R2; Eric 2026-11-15, Story 11.7): `counts[c]` beacons in ring
+   * COUNTS (R2; Eric 2026-11-15, Story 11.7): `counts[c]` spots in ring
    * cycle c — *"7 / 5 / 3"* (*"Just to keep it odd lol"*; was 8 / 4 / 2) for
    * the cycles starting 0:00 / 4:00 / 8:00; a cycle past the list (the 12:00
    * sudden-death cycle) gets NONE.
    *
-   * RATE (R4): *"lets actually say it transmits 3 levels worth of XP per minute
-   * for the first minute, which then scales down to 0 over the minute that it
-   * sinks"* — `levelsPerMin` × `xp.levelMs` per minute, split evenly (integer
-   * ms, carried remainder) among afloat hulls whose centre is within `rangeU`.
-   *
-   * BODY (R5, R7, R12): *"Give it a full 1000 HP and 100 ARMOR and lets see how
-   * it goes."* Solid afloat AND sinking (the wreck law), hittable afloat only;
-   * contact is the ramming law with the beacon immovable and mass = `armor`.
-   * Destroying it pays `killLevels` levels split as a ship kill (R13: *"worth,
-   * say, 2 levels worth of XP to kill it, which would be divided among
-   * participants like ship kills would be"*).
-   *
    * PLACEMENT (R10; RANDOM since Eric 2026-11-15, Story 11.7 — *"Its a game
    * where randomness is part of things. I don't mind if there's one or two in
-   * the middle."*): each beacon goes on a uniformly random open-water point
-   * of the live ring, the whole `rangeU` circle inside it (`edgeMarginU` from
-   * the ring edge), clear of land, at least `minSpacingFrac` × the placement
-   * radius from every beacon already placed this cycle (hard rules), and outside every afloat
-   * captain's `keepOutU` disc (the soft rule: when no draw of `placeAttempts`
-   * clears it, the first draw that met the hard rules is taken and logged;
-   * when none met them, that beacon is skipped and logged). The old
-   * fleet-anchor max-min rule is retired. `keepOutU` is its OWN fact since
-   * Story 11.2 (2026-11-12, R20): it used to read `vision.dropout.startU`
-   * (1000 u), which is REMOVED with the dropout (R8), so the disc keeps
-   * today's 1000 u here and no longer moves with any sensor reach.
+   * the middle."*): each spot goes on a uniformly random open-water point
+   * of the live ring, `edgeMarginU` from the ring edge (so the `scatterU`
+   * circle stays inside it), clear of land, at least `minSpacingFrac` × the
+   * placement radius from every spot already placed this cycle (hard rules),
+   * and outside every afloat captain's `keepOutU` disc (the soft rule: when no
+   * draw of `placeAttempts` clears it, the first draw that met the hard rules
+   * is taken and logged; when none met them, that spot is skipped and logged).
+   * `keepOutU` is its OWN fact since Story 11.2 (2026-11-12, R20).
    */
-  beacons: {
-    counts: [7, 5, 3], // beacons per ring cycle, cycle 0 first; past the list = 0 (R2; Eric 2026-11-15, Story 11.7)
-    rangeU: 500, // u — a hull's CENTRE within this of the beacon's centre is paid (inclusive)
-    surfaceMs: 60000, // ms — cycle start → surfaces (R3: charted 0:00, surfaces 1:00)
-    floatMs: 60000, // ms — afloat at the full rate (R3)
-    sinkMs: 60000, // ms — the sink, rate linear 1 → 0 (R3)
-    levelsPerMin: 3, // levels of XP per minute at the full rate, the whole pot (R4)
-    hp: 1000, // hit points (R5)
-    armor: 100, // ARMOR index — the damage gate AND the ram mass (R5, R7)
-    killLevels: 2, // levels paid for destroying it, split as a ship kill (R13)
+  supplyDrops: {
+    counts: [7, 5, 3], // spots per ring cycle, cycle 0 first; past the list = 0 (R2; Eric 2026-11-15, Story 11.7)
+    surfaceMs: 60000, // ms — cycle start → the crates land (charted 0:00, land 1:00; the beacons' surface time)
     edgeMarginU: 500, // u — placement: at least this far inside the live ring edge (R10)
-    keepOutU: 500, // u — the captain keep-out disc of the placement, the soft rule. Story 11.7 (Eric 2026-11-15, "Solve the problem"): 1000 -> 500 = rangeU, nobody starts a cycle already paid; at 1000 the 16 spawn discs walled off the ring outside ~3,300 u (was 1000 u since Story 11.2, R20)
+    keepOutU: 500, // u — the captain keep-out disc of the placement, the soft rule. Story 11.7 (Eric 2026-11-15, "Solve the problem"): 1000 -> 500 = the old beacon rangeU, nobody starts a cycle already paid; at 1000 the 16 spawn discs walled off the ring outside ~3,300 u (was 1000 u since Story 11.2, R20)
     // × the placement radius (live ring r − edgeMarginU) — the least distance
-    // between two beacons of one cycle, a hard rule. Eric 2026-11-15 after
+    // between two spots of one cycle, a hard rule. Eric 2026-11-15 after
     // playing it at a fixed 1000 u: "They need to be spread out from each
     // other a bit more. They were all clumped together for the first ring."
     // 0.5 = 2250 / 1500 / 750 u on today's rings: the widest fraction that
@@ -3056,61 +3037,52 @@ export const CONFIG = {
     // 0.9 % of cycle-0 beacons, 0.7 12.6 %). Scales with the ring so a later,
     // smaller ring still fits its count.
     minSpacingFrac: 0.5,
-    placeAttempts: 256, // uniform draws tried per beacon before it is skipped (never thrown); an implementation knob (Story 11.7)
-    // u — circumradius of the regular-octagon body. PROVISIONAL — NOT RULED BY
-    // ERIC: pending his yes on the RENDERED candidate (the spec's Block-If).
-    // Picked at ~one battleship half-beam (Yamato 17.8 / Bismarck 16.5 /
-    // Warspite 14.5 / Iowa 15.1 u beam → half-beams 8.9 / 8.25 / 7.25 / 7.55 u).
-    bodyRadiusU: 8,
+    placeAttempts: 256, // uniform draws tried per spot (and per landing crate) before it is skipped (never thrown); an implementation knob (Story 11.7)
+    crates: 10, // XP crates dropped per spot at landing (Eric 2026-11-19, "say 10 of them in a bunch")
+    scatterU: 500, // u — the crates land uniformly within this of the spot (Eric 2026-11-19, "Inside the old 500 u circle")
   },
 
   /**
    * THE AIRDROPS (Story 10.9, epic-10 amendment 18; brainstorm #13–#23 and
    * #48–#49 of 2026-11-03, forge premise 5: drops are FLAVOR — litter on
    * purpose, taken when on your line, never a route; Eric's rulings R1–R4 of
-   * 2026-11-08). Small INTANGIBLE crates on the water, each worth a random
-   * +bonusMin..+bonusMax on one random index stat, folded onto the hull's
-   * existing `indexBonus` (Story 10.7's seat — uncapped). The ONE pure model is
+   * 2026-11-08). Small INTANGIBLE crates on the water. The ONE pure model is
    * `shared/src/sim/drops.ts`; every number below is read through it.
+   *
+   * EVERY AIRDROP IS XP (Eric 2026-11-19, Story 12.4, epic-12 amendment 5(a)
+   * — *"turn all airdrops into experience pickups. Lets say they grant 10%
+   * experience"*): a crate (kind `'xp'`) grants `xpLevels` of a level through
+   * the one XP entry point. A crate carries no stat any more.
+   *
+   * WRECKS (5(e)): a sunk participant leaves ONE wreck crate (kind `'wreck'`)
+   * worth +1 to a uniformly random `xp.statRoll.indices` stat once per level
+   * the victim had completed, rolled at pickup; a level-0 victim leaves none.
    *
    * SCHEDULE: at every match minute m from 0:00 (the zone clock,
    * `floor((now − zoneStartT) / zone.beatMs)`) the server scatters
    * `perMinuteRemaining × (untilMinute − m)` drops — 2 per minute remaining
    * to 12:00, so 24 at 0:00 … 2 at 11:00 and none from 12:00 on (the total
-   * is `totalDropCount`, derived — never pinned).
+   * is `totalDropCount`, derived — never pinned). Supply drops
+   * (`CONFIG.supplyDrops`) add their landed crates on top.
    *
-   * PLACEMENT (R1 — HARD KEEP-OUT): uniform inside the live ring, clear of
-   * land, and NEVER inside any live beacon's signal circle — that distance is
-   * `CONFIG.beacons.rangeU`, read there, never duplicated here. A rejected
+   * PLACEMENT (R1): uniform inside the live ring, clear of land. A rejected
    * draw is re-sampled up to `placeAttempts` times, then skipped (logged,
-   * never thrown).
+   * never thrown). The beacon keep-out is gone with the beacons (5(f)).
    *
    * PICKUP (R4): a 15 u intangible disc — not solid, not shootable, never a
    * target or a body. An AFLOAT hull whose silhouette comes within `radiusU`
    * of the centre collects it.
    *
-   * ROLL: at SPAWN only the crate's KIND is drawn — its stat, uniform over
-   * `indices` (the same five as `offer.exhausted.indices` — ONE array; six
-   * until Story 11.2 removed RANGE, R9). The
-   * AMOUNT, an integer uniform in [bonusMin, bonusMax], is rolled at PICKUP
-   * (Eric 2026-11-08: "The bonus is rolled AFTER I pick it up"). A sunk
-   * participant leaves ONE wreck pickup (kind `'wreck'`) that rolls
-   * `wreckRolls` independent stat + amount rolls at pickup (R2 — nothing of
-   * the victim's leaks).
-   *
-   * SEEN (R3): the crate shows ONLY its kind (stat or wreck), within
-   * `vision.crateKindSight` only (Story 11.2, R4 / R18) — never an amount; on radar an anonymous blip (the crate's disc imprint,
+   * SEEN (R3): the crate shows ONLY its kind (xp or wreck), within
+   * `vision.crateKindSight` only (Story 11.2, R4 / R18); on radar an anonymous blip (the crate's disc imprint,
    * `paintDiscCoverage`).
    */
   drops: {
     perMinuteRemaining: 2, // drops per minute remaining to `untilMinute`, at each match minute (Eric 2026-11-03, #13)
     untilMinute: 12, // the minute from which no drop spawns (12:00 — Eric 2026-11-03, #13)
     radiusU: 15, // u — the crate disc; a hull silhouette within this of the centre collects it (R4)
-    bonusMin: 1, // index points — the smallest roll (Eric 2026-11-03, "+1..+5")
-    bonusMax: 5, // index points — the largest roll, inclusive
-    wreckRolls: 3, // rolls in a sunk participant's one wreck pickup (R2)
     placeAttempts: 64, // uniform draws tried per drop before it is skipped (never thrown)
-    indices: RANDOM_INDEX_STATS, // the stats a roll may land on — the exhausted hull's five (R2/#13; Story 11.2 R9)
+    xpLevels: 0.1, // levels of XP an XP crate grants (Eric 2026-11-19, Story 12.4: "Lets say they grant 10% experience")
   },
 
   /** Match lifecycle. */

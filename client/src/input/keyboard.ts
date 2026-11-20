@@ -109,14 +109,6 @@ export const PAN_KEY_CODES = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLef
 /** CAMERA HOME (Story 11.8): Space snaps the camera back to FOLLOW. */
 export const CAMERA_HOME_CODE = 'Space';
 
-/**
- * The LABELED helm keys — the ones the on-screen chips actually teach (W/S at
- * the ladder, A/D at the rudder track). Since Story 11.8 they are the ONLY
- * helm keys (the arrows pan the camera), so every helm press counts toward the
- * glyph fade (Story 2.4); the sets stay as the fade's one definition.
- */
-const LABELED_THROTTLE = new Set(['KeyW', 'KeyS']);
-const LABELED_RUDDER = new Set(['KeyA', 'KeyD']);
 
 /**
  * Weapon key → the loadout slot it addresses. Story 8.5 re-cut the loadout into
@@ -348,19 +340,11 @@ export function textEntryFocused(doc: Document = document): boolean {
  * bound Game). Every hook is optional so pure-driving tests stay terse.
  */
 export interface KeyboardHooks {
-  /** A throttle keydown edge: step direction, whether the detent changed (false
-   *  at an end stop), and whether the key was a LABELED one (W/S — every helm
-   *  key since Story 11.8) — wired to the telegraph-click tone (all keys) AND (Story 2.4) the W/S
-   *  helm-glyph fade, which counts only CHANGED steps from LABELED keys. */
-  onDetent?: (dir: Step, changed: boolean, labeled: boolean) => void;
-  /**
-   * A LABELED rudder key (A/D) ACTIVATION edge that reached the sim — one per
-   * physical press, never per held frame, and never while a focused overlay is
-   * suppressing input (the dispatcher swallows those before the handler). Feeds the A/D helm-glyph fade (Story 2.4,
-   * amendment 26); it changes no steering behavior — the rudder is still read
-   * from the held-key set.
-   */
-  onRudder?: () => void;
+  /** A throttle keydown edge: step direction and whether the detent changed
+   *  (false at an end stop) — wired to the telegraph-click tone. (The W/S and
+   *  A/D helm-glyph fade it also fed left the HUD with the coach marks, Story
+   *  12.3 Part B.) */
+  onDetent?: (dir: Step, changed: boolean) => void;
   /** Does this loadout slot hold ability (non-weapon) equipment on the OWN
    *  ship? True → the slot key ACTIVATES instead of priming. */
   isAbilitySlot?: (slot: number) => boolean;
@@ -658,26 +642,12 @@ export class KeyboardInput {
     const step = stepFromKey(e.code, e.repeat);
     if (step === null) return;
     const changed = this.telegraph.step(step);
-    this.hooks.onDetent?.(step, changed, LABELED_THROTTLE.has(e.code));
+    this.hooks.onDetent?.(step, changed);
   };
 
-  /**
-   * A/D: held rudder — state only, read by axes()/panAxes(). A keydown
-   * that NEWLY LATCHES the key is an activation edge and reports to onRudder
-   * (labeled A/D only) for the helm-glyph fade.
-   *
-   * The test is `!this.keys.has(e.code)` ALONE — deliberately not "&& !e.repeat".
-   * A keydown that latches a key the set did not hold IS a fresh steering
-   * activation whatever the repeat flag says: hold A while the settings overlay
-   * swallows input, close the overlay, and the very next event to reach here is
-   * an auto-REPEAT keydown that re-latches the rudder and starts steering the
-   * ship. Excluding it counted that steering as nothing forever. Genuine
-   * auto-repeats while already latched still never count — the key is in the set.
-   */
+  /** A/D: held rudder — state only, read by axes()/panAxes(). */
   private readonly handleRudderKey = (e: KeyboardEvent): void => {
-    const activation = !this.keys.has(e.code);
     this.keys.add(e.code);
-    if (activation && LABELED_RUDDER.has(e.code)) this.hooks.onRudder?.();
   };
 
   /**

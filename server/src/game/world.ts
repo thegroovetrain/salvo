@@ -21,8 +21,8 @@ import {
   applyGroundingDamp,
   applySinkingDecel,
   applySlotEffect,
-  beaconCycleAt,
-  beaconCycleStartMs,
+  supplyCycleAt,
+  supplyCycleStartMs,
   cardBehaviors,
   boostedKinematics,
   abilityCode,
@@ -44,7 +44,6 @@ import {
   polyInBlast,
   burstVictims,
   drawOffer,
-  drawBonusIndex,
   INDEX_IDS,
   type IndexId,
   lineWeight,
@@ -71,8 +70,8 @@ import {
   dropCountFor,
   dropMinuteAt,
   dropTouches,
-  rollKind,
-  rollPickup,
+  rollLevelStats,
+  rollWreckStats,
   hasFoundered,
   hookKinematics,
   isAfloat,
@@ -160,6 +159,7 @@ import {
   type RackBank,
   type ShellOutcome,
   type DropState,
+  type StatRollConfig,
   type ShellState,
   type CloudRecord,
   type ShipClassId,
@@ -195,15 +195,15 @@ import { emptyRackBank, instantReloadMounts, isMountBacked, refitMounts, resetMo
 import type { BoomSubject, BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
-import { BeaconField, type BeaconChart, type BeaconRecord } from './beacons.js';
-import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
+import { SupplyField, type SupplyChart } from './supplyDrops.js';
+import { dispersionShellSeed, keyedStreamSeed, offlineDispersionKey } from './dispersionKey.js';
 import { paintSalt, paintSaltKey, type PaintKind } from './paintSalt.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
 import { navCacheFor, type NavCache } from './navCache.js';
 import type { AnyProfileId, BotTickEntry } from './ai/types.js';
 import { observe } from './perception.js';
-import { SPAWN_ISLAND_CLEARANCE, islandClearance, isSpawnClear, pickBeaconSpot, pickSpawn } from './spawn.js';
+import { SPAWN_ISLAND_CLEARANCE, islandClearance, isSpawnClear, pickSpawn, pickSupplySpot } from './spawn.js';
 import { logWarn } from '../log.js';
 import { leadIntercept } from './lead.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
@@ -319,14 +319,21 @@ export interface WorldOptions {
    */
   dispersionKey?: Uint8Array;
   /**
-   * THE RADIO BEACON SWITCH (Story 10.8, a DEV SMOKE ARM). `false` makes
-   * `placeBeacons` and `tickBeacons` no-ops, so no beacon is ever charted and
-   * the public chart stays empty — a scripted socket scenario keeps its XP
-   * clock to itself. Absent / `true` = the shipped beacons. ArenaRoom passes
-   * it ONLY from the dev-gated `matchOverride.beacons` (stripped without
-   * HC_DEV_OPTIONS=1).
+   * THE SUPPLY-DROP SWITCH (Story 12.4; the radio beacons' Story 10.8 switch,
+   * renamed). `false` makes `placeSupplyDrops` and `landSupplyDrops` no-ops,
+   * so no spot is ever charted and no supply crate lands. Absent / `true` =
+   * the shipped supply drops. ArenaRoom passes it ONLY from the dev-gated
+   * `matchOverride.supplyDrops` (stripped without HC_DEV_OPTIONS=1).
    */
-  beacons?: boolean;
+  supplyDrops?: boolean;
+  /**
+   * THE LEVEL STAT ROLL'S DIE (Story 12.4) — `CONFIG.xp.statRoll` when
+   * absent (every room). A TEST SEAM; a room passes it ONLY from the
+   * dev-gated `matchOverride.statRoll: false` (an empty die): a fixture
+   * that pins pre-12.4 per-level economy arithmetic hands in a die with no
+   * faces (every roll 0) so its levels leave the stats alone.
+   */
+  statRoll?: StatRollConfig;
   /**
    * THE AIRDROP SWITCH (Story 10.9, epic-10 amendment 18 — a DEV SMOKE ARM).
    * `false` makes `spawnDrops` a no-op: no SCHEDULED crate is ever scattered.
@@ -695,19 +702,21 @@ export interface ShipRecord {
    * SINGLE SOURCE OF TRUTH for the level bank (OwnShip.pts mirrors it). Levels
    * behind the front one carry NO cards — a level is drawn for only when it
    * reaches the front (`offer` below), so banking costs nothing.
-   * A HULL WITH NOTHING DEALABLE BANKS NOTHING (Story 10.7, R5, Eric
-   * 2026-11-06): an EMPTY draw converts every banked level into a bonus point
-   * (`indexBonus`) and sets this to 0 (`materializeOffer`), so `pts` never
-   * advertises a level that can never be spent. `level` keeps counting.
+   * A HULL WITH NOTHING DEALABLE BANKS NOTHING (Story 10.7, R5; since Story
+   * 12.4, epic-12 amendment 5(c), with no conversion): an EMPTY draw sets
+   * this to 0 (`materializeOffer` → `convertBank`), so `pts` never advertises
+   * a level that can never be spent. `level` keeps counting — and every level
+   * still rolls its stats (`addXpMs`).
    * PRESERVED by redeployShip since Story 8.10 — the level the countdown
    * granted is the one the captain spends on live water.
    */
   bankedLevels: number;
   /**
-   * THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5, Eric 2026-11-06,
-   * epic-10 amendment 13): per index, how many levels met an EMPTY draw and
-   * became `CONFIG.offer.exhausted.indexPoints` on that index (picked by the
-   * shared `drawBonusIndex` off `drawRng`). All six keys, zero at addShip.
+   * THE BONUS INDEX POINTS (Story 10.7's seat; since Story 12.4, epic-12
+   * amendment 5(b)/(e)): per index, the points the LEVEL STAT ROLL
+   * (`rollLevelStats`, every completed level, on the isolated stat-roll
+   * stream — never `drawRng`) and WRECK pickups (`rollWreckStats`) added —
+   * one index point per count. All six keys, zero at addShip.
    * Folded ONLY through `effectiveStats()` (`refoldCards`, `redeployEconomy`)
    * and mirrored self-private onto `OwnShip.ib`. PER MATCH, like `cards`:
    * PRESERVED by redeployShip and respawn (the build persists).
@@ -1219,13 +1228,6 @@ export interface ShipRecord {
   deaths: number; // times this ship has been sunk
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
   /**
-   * XP ms this hull has been paid by RADIO BEACONS this match (Story 10.8) —
-   * the integer shares `tickBeacons` handed it, the beacon kill value NOT
-   * included. HARNESS / MatchRecord substrate only: never on the wire (the
-   * hull's own `xp` / `lvl` already carry the result, self-privately).
-   */
-  beaconXpMs: number;
-  /**
    * AIRDROPS this hull has collected this match (Story 10.9, epic-10
    * amendment 18) — scheduled crates and wreck pickups alike. HARNESS /
    * MatchRecord substrate only: never on the wire (the own row's `ib` and the
@@ -1262,21 +1264,19 @@ export interface StepContext {
 export type HitTargets = (mask: readonly TargetKind[]) => readonly Target[];
 
 /**
- * The MINE BLAST's target set. A blast damages hulls — and a surfaced RADIO
- * BEACON (Story 10.8, R12: a mine never TRIPS on a beacon — the trip masks
- * are the CONFIG rows' `HITS_TRIP` — but its blast damages one). It never
+ * The MINE BLAST's target set. A blast damages hulls (the radio beacons a
+ * blast also damaged were deleted with Story 12.4). It never
  * "finds" other mines through the collector — a chain is the mine system
  * propagating within its own store (chainMines), not an ordnance step looking
  * for targets, and routing it through the collector would hand a cascade a
  * snapshot that its own deletions immediately invalidate.
  */
-const MINE_BLAST_HITS: readonly TargetKind[] = ['hull', 'beacon'];
+const MINE_BLAST_HITS: readonly TargetKind[] = ['hull'];
 
 /** The FOUL ZONE stamp's subjects (Story 9.4): afloat hull OUTLINES only —
  *  the same per-tick snapshot the ballistic and mine rows test against, read
  *  through the collector so the memo is shared. A foul zone slows ships;
- *  mines, ordnance and RADIO BEACONS (Story 10.8 — an anchored body with no
- *  engines) have no prop to foul, so `beacon` is deliberately absent. */
+ *  mines and ordnance have no prop to foul. */
 const FOUL_ZONE_HITS: readonly TargetKind[] = ['hull'];
 
 /**
@@ -1491,6 +1491,18 @@ const DROP_STREAM_K = 0x5bd1e995;
 const PICKUP_DROP_K = 0x3c6ef35f;
 /** The target kinds a crate is collected by: afloat hull outlines only. */
 const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
+
+
+/**
+ * A crate as the server holds it (Story 12.4): the shared `DropState` plus,
+ * for a WRECK, the victim's completed `levels` at the sink — the count of
+ * +1 picks it grants (epic-12 amendment 5(e)), read at pickup after the
+ * victim may be gone. SERVER-SIDE ONLY: `dropSignal` materializes exactly
+ * `{id, x, y, c}`, so it never rides the wire.
+ */
+export interface CrateState extends DropState {
+  readonly levels?: number;
+}
 
 // ---------------------------------------------------------------------------
 // THE FOG DENSITY MEMO (Story 9.10) — see World.fogMemo.
@@ -1713,7 +1725,7 @@ export class World {
    *  body, a contact or a storm victim in the ship sense; spawned, collected
    *  and storm-destroyed by this world's own step rows; read by perception's
    *  drop scan (sight + the radar disc paint). */
-  readonly drops = new Map<string, DropState>();
+  readonly drops = new Map<string, CrateState>();
   /**
    * THE MULTI-SPECTRAL COUNTERMEASURE clouds (Story 9.3; Eric rulings
    * 2026-10-11, epic-9 amendments 40–47 — 8.18's smoke store's seat), keyed
@@ -1816,8 +1828,6 @@ export class World {
    *   spawnMine    — a new mine is not a target YET (still arming), but the
    *                  store changed and a memo must not outlive it.
    *   removeBurstOrdnance — a burst took a fish off the water (Story 8.15).
-   *   sinkBeacon   — a RADIO BEACON destroyed afloat stops being hittable at
-   *                  once (Story 10.8, R6): later shells this tick pass through.
    * Nothing else writes it; adding a writer means adding it here.
    */
   private targetsGen = 0;
@@ -2225,7 +2235,12 @@ export class World {
    * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
    * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
    * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key;
-   * the beacon stream 0x68e31da4, the retired dropout seed 0x2545f491 (Story 11.2), fog 0x3c6ef372).
+   * 0x68e31da4 was the radio beacons' stream (retired with them, Story 12.4)
+   * and briefly the supply drops'; 0xcc9e2d51 and 0x7feb352d were Story
+   * 12.4's first supply-scatter and stat-roll constants — all RETIRED at its
+   * review: the supply drops and the level stat roll now seed off the
+   * dispersion key by HMAC (`keyedStreamSeed`), like dispersion; the retired
+   * dropout seed 0x2545f491 (Story 11.2), fog 0x3c6ef372).
    * 0x2c1b3c6d was Story 11.1's first DISPERSION stream constant (XORed into
    * the pseudonym material) — RETIRED at its review: a shooter sees its own
    * exact landings, so a 32-bit seed off `priv` could be brute-forced back to
@@ -2244,31 +2259,32 @@ export class World {
   private readonly spawnPhase: number;
 
 
-  /** THE RADIO BEACON SWITCH (Story 10.8) — see WorldOptions.beacons. False
-   *  only when a dev smoke asked for no beacons. */
-  private readonly beaconsEnabled: boolean;
+  /** THE SUPPLY-DROP SWITCH (Story 12.4) — see WorldOptions.supplyDrops.
+   *  False only when a test or offline harness asked for none. */
+  private readonly supplyDropsEnabled: boolean;
   /**
-   * THE RADIO BEACONS (Story 10.8, Eric 2026-11-06, epic-10 amendment 14):
-   * the cycle's beacon store (game/beacons.ts). Public so the harness can
-   * read its counters (`beacons.inRangeTicks`, `beacons.records`); the ROOM
-   * and the bots read ONLY `beaconChart` — the public facts. A beacon is
-   * never a ShipRecord: it is absent from `ships`, so perception, the storm,
-   * the bounty and the win check cannot see one.
+   * THE SUPPLY DROPS (Story 12.4, Eric 2026-11-19, epic-12 amendment 5(f)):
+   * the cycle's charted spots and their landing (game/supplyDrops.ts). Public
+   * for tests and the harness; the ROOM and the bots read ONLY
+   * `supplyChart` — the public facts. A spot is never a ShipRecord, a target
+   * or a body; once landed its crates are ordinary `drops`.
    *
-   * Its placement stream is ROOM-PRIVATE (the pseudonym material under its
-   * own constant, 0x68e31da4 — unused by any other stream here): beacons are
-   * placed max-min against the captains' positions, so a stream a client
-   * could replay off the public map seed would turn the public chart into a
-   * position oracle. The map-seed fallback is for standalone Worlds only.
+   * Its streams are ROOM-PRIVATE and KEYED: HMACs of `dispersionKey`
+   * (labels 'supply-spot' / 'supply-scatter' — see game/supplyDrops.ts),
+   * never `priv`-derived, so the public chart — float32 outputs of the
+   * placement stream — cannot be brute-forced back to the pseudonym material
+   * (Story 12.4 review fix). The placement keeps out of the captains' discs,
+   * so a stream a client could replay would turn the chart into a position
+   * oracle. The seed-derived offline key is for standalone Worlds only.
    */
-  readonly beacons: BeaconField;
+  readonly supply: SupplyField;
 
   /** THE AIRDROP SWITCH (Story 10.9) — see WorldOptions.drops. False only
    *  when a dev smoke asked for no scheduled drops. */
   private readonly dropsEnabled: boolean;
   /**
    * THE AIRDROP STREAM SEED (Story 10.9, epic-10 amendment 18). ROOM-PRIVATE
-   * like the beacons' (the pseudonym material under its own constant,
+   * (the pseudonym material under its own constant,
    * DROP_STREAM_K = 0x5bd1e995 — unused by any other stream here; see the
    * spawnPhase doc for the roster): a drop's position and stat must not be
    * predictable from the public map seed. Every MINUTE BATCH (positions +
@@ -2301,6 +2317,11 @@ export class World {
   private wreckDrops = 0;
   /** Crates collected this World's life — the pickup sub-stream key. */
   private dropPickups = 0;
+  /** Level stat rolls made this World's life — the stat-roll sub-stream
+   *  ordinal (see rollStatsFor). */
+  private statRolls = 0;
+  /** The level roll's die (WorldOptions.statRoll; CONFIG in every room). */
+  private readonly statRollCfg: StatRollConfig;
 
   constructor(
     seed: number,
@@ -2313,13 +2334,15 @@ export class World {
     // The ROOM-PRIVATE entropy every private stream below mints from: the
     // caller's pseudonym material, or the TEST-ONLY map-seed fallback.
     const priv = opts.pseudonymSeed ?? (seed ^ 0x1b873593);
-    this.beaconsEnabled = opts.beacons !== false;
-    this.beacons = new BeaconField((priv ^ 0x68e31da4) >>> 0);
+    this.supplyDropsEnabled = opts.supplyDrops !== false;
     this.dropsEnabled = opts.drops !== false;
     this.dropSeed = (priv ^ DROP_STREAM_K) >>> 0;
+    this.statRollCfg = opts.statRoll ?? CONFIG.xp.statRoll;
     // A copy, so the caller's buffer cannot be mutated under the World; the
     // seed-derived key is the OFFLINE fallback only (see WorldOptions).
     this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
+    // The supply drops' streams are HMACs of the key (never `priv`-derived).
+    this.supply = new SupplyField(this.dispersionKey);
     this.paintKey = paintSaltKey(this.dispersionKey);
     this.playerCap = playerCap;
     this.seed = seed;
@@ -2743,7 +2766,7 @@ export class World {
       // AI-captain bots. The Story 4.6 `captainKills` split stays retired.
       kills: 0,
       deaths: 0,
-      damageDealt: 0, beaconXpMs: 0, dropsTaken: 0,
+      damageDealt: 0, dropsTaken: 0,
     };
     this.enrolShip(rec, p);
     return rec;
@@ -3117,7 +3140,6 @@ export class World {
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.deaths = 0;
     ship.damageDealt = 0;
-    ship.beaconXpMs = 0;
     ship.dropsTaken = 0;
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
     // a kept one would chain a bogus segment across the map — and start
@@ -3420,11 +3442,10 @@ export class World {
    * THE SPLIT LAW ITSELF, over any damage ledger (Story 10.8 extraction —
    * the body payKillValue has always had, unchanged): `pot` levels, the
    * killer's guaranteed share, the rest by damage among the ledger's eligible
-   * contributors. A hull's kill value reaches it through payKillValue; a
-   * destroyed RADIO BEACON's `CONFIG.beacons.killLevels` reaches it through
-   * sinkBeacon with the beacon's own ledger (R13: "divided among participants
-   * like ship kills would be"). `victimId` is the ledger owner's id — the
-   * self-damage guard's subject.
+   * contributors. A hull's kill value reaches it through payKillValue (the
+   * radio beacons' kill value, its other caller, was deleted with Story
+   * 12.4). `victimId` is the ledger owner's id — the self-damage guard's
+   * subject.
    */
   private payKillPot(
     pot: number,
@@ -3565,26 +3586,63 @@ export class World {
    *
    * The bank loop is a WHILE: one grant may cross several levels (a kill on
    * top of near-full progress, or a kill worth > 1 level), and each crossing
-   * banks its own point + pre-rolled offer through the unchanged grantPoint.
-   * The remainder always carries — no XP is ever snapped away (amendment 33).
+   * banks its own point + pre-rolled offer through the unchanged grantPoint
+   * and ROLLS ITS STATS (Story 12.4 — see `addXpMs`). The remainder always
+   * carries — no XP is ever snapped away (amendment 33).
    */
   grantXp(ship: ShipRecord, levels: number): void {
     if (!Number.isFinite(levels) || levels <= 0) return;
     this.addXpMs(ship, Math.round(CONFIG.xp.levelMs * levels));
   }
 
-  /** The raw ms form behind grantXp (and the passive tick's `+dtMs`): the
-   *  guard and the bank loop, in one place. The guard is FAIL-CLOSED on
-   *  non-finite input — a plain `<= 0` is false for NaN (which would poison
-   *  `xpMs` forever) and for Infinity (which would spin the bank loop). */
+  /**
+   * The raw ms form behind grantXp (and the passive tick's `+dtMs`): the
+   * guard and the bank loop, in one place. The guard is FAIL-CLOSED on
+   * non-finite input — a plain `<= 0` is false for NaN (which would poison
+   * `xpMs` forever) and for Infinity (which would spin the bank loop).
+   *
+   * THE LEVEL STAT ROLL (Story 12.4, Eric 2026-11-19, epic-12 amendment
+   * 5(b)): every completed level rolls the die once per stat
+   * (`rollStatsFor`) — whether or not the hull has cards left, so an
+   * exhausted hull and a full one roll identically — and the stats re-fold
+   * ONCE per call, after the loop.
+   *
+   * RE-ENTRANCY (review gate P5, inherited from the retired `convertBank`
+   * conversion): kill credit → grantXp → here, so this re-fold can run INSIDE
+   * damage resolution — replacing `ship.stats`, rescaling its reload clocks
+   * and possibly swapping `ship.wake` mid-step. No step may hold a ship's
+   * `stats` / `wake` reference across a call that can award a kill.
+   */
   private addXpMs(ship: ShipRecord, ms: number): void {
     if (!Number.isFinite(ms) || ms <= 0) return;
     ship.xpMs += ms;
+    const grants: (readonly [IndexId, number])[] = [];
     while (ship.xpMs >= CONFIG.xp.levelMs) {
       ship.xpMs -= CONFIG.xp.levelMs;
       ship.level += 1;
+      this.rollStatsFor(ship, grants);
       this.grantPoint(ship);
     }
+    this.addIndexBonus(ship, grants);
+  }
+
+  /**
+   * ONE LEVEL'S STAT ROLL (Story 12.4, AC 5–9; epic-12 amendment 5(b)):
+   * `rollLevelStats` on this World's k-th roll stream (k = `statRolls`),
+   * seeded HMAC(dispersionKey, 'stat-roll' | k) — ROOM-PRIVATE and isolated:
+   * a roll never shifts another, the hull's `drawRng` (the offer stream) is
+   * never touched, and a player who brute-forces one 32-bit roll seed back
+   * from his own `OwnShip.ib` learns nothing about the key or any other
+   * stream (Story 12.4 review fix; it was `priv ^ K` before). Appended to
+   * `out`. A SINKING or SUNK hull rolls nothing and spends no roll (R7's
+   * "once sinking, you're done"). Bots roll exactly like humans (same sim).
+   */
+  private rollStatsFor(ship: ShipRecord, out: (readonly [IndexId, number])[]): void {
+    if (isSinking(ship.lifecycle) || isSunk(ship.lifecycle)) return;
+    const k = this.statRolls;
+    this.statRolls += 1;
+    const rng = mulberry32(keyedStreamSeed(this.dispersionKey, 'stat-roll', k));
+    for (const grant of rollLevelStats(rng, this.statRollCfg)) out.push(grant);
   }
 
   /**
@@ -3595,11 +3653,11 @@ export class World {
    *
    * The self-private `pt` event fires whenever there IS a front offer after
    * materializing. An EXHAUSTED hull (nothing eligible: every ladder and all
-   * three slot weapons at cap, or an all-stub catalog) draws an EMPTY offer,
-   * and since Story 10.7 (R5, Eric 2026-11-06) the level becomes a BONUS
-   * POINT: `materializeOffer` converts it to +1 on a random index and zeroes
-   * `bankedLevels`, no offer opens, no `pt` fires and nothing throws. `level`
-   * still rose (the XP loop owns that).
+   * three slot weapons at cap, or an all-stub catalog) draws an EMPTY offer:
+   * `materializeOffer` zeroes `bankedLevels` (Story 12.4, epic-12 amendment
+   * 5(c) — the Story 10.7 +1 conversion is retired; the level's stat roll in
+   * `addXpMs` runs either way), no offer opens, no `pt` fires and nothing
+   * throws. `level` still rose (the XP loop owns that).
    * Reopening the refit window can never reroll — the front offer is drawn once
    * and frozen (FR19).
    */
@@ -3618,7 +3676,9 @@ export class World {
    * equipment line is a bare weapon. The level-zero guarantee (amendment 93)
    * is retired.
    *
-   * `level` does NOT move. The captain is at LV 0 with one banked level and a
+   * `level` does NOT move, so NOTHING ROLLS (Story 12.4 reading of record:
+   * the stat roll rides `level += 1` in `addXpMs` only). The captain is at
+   * LV 0 with one banked level and a
    * full hand — which is exactly what the HUD bar already renders (`LV 0`,
    * chip 1, empty strip) with no change to the bar at all. `xpMs` is 0 here
    * by construction (xpEnabled is false before `active`).
@@ -3706,11 +3766,12 @@ export class World {
    * EMPTY one is never materialized — `offer` stays null, no refit window
    * opens, nothing throws, nothing is logged.
    *
-   * AN EMPTY DRAW CONVERTS EVERY BANKED LEVEL INTO A BONUS POINT (Story 10.7,
-   * R5, Eric 2026-11-06 — replacing R3's "banks nothing"): `convertBank`.
-   * Exhaustion is permanent — only taking a card can make a new line
-   * eligible, and an exhausted hull has no card to take — so every level
-   * queued behind the empty one converts too. This one branch covers all
+   * AN EMPTY DRAW BANKS NOTHING (Story 12.4, epic-12 amendment 5(c) — the
+   * Story 10.7 R5 bonus-point conversion is retired; each level's stat roll
+   * already ran in `addXpMs`): `convertBank` zeroes the bank. Exhaustion is
+   * permanent — only taking a card can make a new line eligible, and an
+   * exhausted hull has no card to take — so every level queued behind the
+   * empty one is dropped too. This one branch covers all
    * three callers: a level earned by an exhausted hull (`grantPoint`), the
    * next-level draw after a hull spends its LAST eligible card with levels
    * queued (`spendCard`), and the redraw (`mulligan`). `level` is untouched.
@@ -3733,40 +3794,17 @@ export class World {
   }
 
   /**
-   * THE EXHAUSTED HULL'S CONVERSION (Story 10.7, R5, Eric 2026-11-06, epic-10
-   * amendment 13): every level still banked becomes ONE bonus point on an
-   * index picked by `drawBonusIndex` (one `drawRng.next()` per level), the
-   * bank drops to 0, and the stats re-fold through `effectiveStats()` with
-   * the same settle a card gets (pools, reload clocks, mounts, wake). No
-   * offer, no hand log, no `pt` — the own row's `ib` is the whole signal.
-   * A pick that is not one of the six indices (`drawBonusIndex` answers
-   * undefined — a misconfigured list or a bad rng, review gate P4) is that
-   * level's point skipped: no junk key is ever written.
-   *
-   * NO BONUS WHILE SINKING (Story 10.7, R7, Eric 2026-11-06, epic-10
-   * amendment 13 — "once sinking, you're done", the rule `spendPoint` refuses
-   * a card pick by): on a SINKING or SUNK hull every banked level is simply
-   * dropped — no point, bank 0, no `drawRng` value spent, no re-fold. Levels
-   * earned while sinking / sunk are gone even if the hull is later redeployed.
-   *
-   * RE-ENTRANCY (review gate P5): since R5 this re-fold can run INSIDE damage
-   * resolution — kill credit → grantXp → grantPoint → materializeOffer → here
-   * — replacing `ship.stats`, rescaling its reload clocks and possibly
-   * swapping `ship.wake` mid-step. No step may hold a ship's `stats` / `wake`
-   * reference across a call that can award a kill.
+   * THE EXHAUSTED HULL'S BANK (Story 10.7, R5; since Story 12.4, Eric
+   * 2026-11-19, epic-12 amendment 5(c)): an empty draw BANKS NOTHING — every
+   * level still banked is dropped (`bankedLevels` → 0). No point, no offer,
+   * no hand log, no `pt`, no `drawRng` value spent, no re-fold. The Story
+   * 10.7 +1 bonus conversion (`drawBonusIndex`, `CONFIG.offer.exhausted`) is
+   * retired: the level's stat roll (`addXpMs`) replaces it for every hull.
+   * A SINKING or SUNK hull drops its bank the same way (R7's "once sinking,
+   * you're done" — the guard kept from the conversion, now the same outcome).
    */
   private convertBank(ship: ShipRecord): void {
-    if (isSinking(ship.lifecycle) || isSunk(ship.lifecycle)) {
-      ship.bankedLevels = 0;
-      return;
-    }
-    for (let n = ship.bankedLevels; n > 0; n -= 1) {
-      const id = drawBonusIndex(ship.drawRng);
-      if (id !== undefined) ship.indexBonus[id] += 1;
-    }
     ship.bankedLevels = 0;
-    const prevStats = this.refoldCards(ship);
-    this.settleRefold(ship, prevStats);
   }
 
   /** The hand currently open in the log — the last entry, while it is neither
@@ -3928,11 +3966,12 @@ export class World {
 
   /**
    * Everything that follows a stats re-fold once the slots are settled —
-   * shared by `applyCard` and the exhausted hull's `convertBank` (Story 10.7,
-   * R5), so a bonus point moves pools, clocks, mounts and the wake exactly as
-   * a card of the same index would. Via `convertBank` this can run INSIDE
-   * damage resolution (a kill's level) — see the re-entrancy note there
-   * (review gate P5): never hold a ship's `stats` / `wake` across a kill.
+   * shared by `applyCard` and `addIndexBonus` (the level stat roll and the
+   * wreck pickup, Story 12.4), so a bonus point moves pools, clocks, mounts
+   * and the wake exactly as a card of the same index would. Via the level
+   * roll this can run INSIDE damage resolution (a kill's level) — see the
+   * re-entrancy note on `addXpMs` (review gate P5): never hold a ship's
+   * `stats` / `wake` across a kill.
    */
   private settleRefold(ship: ShipRecord, prevStats: EffectiveStats): void {
     this.reconcilePools(ship, prevStats);
@@ -3982,8 +4021,9 @@ export class World {
    * RE-DERIVE EVERYTHING THAT HANGS OFF `ship.cards`, and answer with the stats
    * that were live before. The ONE place the held-card fold is re-run (the
    * only edit that moves the card multiset is `applyCard`'s push since the
-   * consumable spend left with Story 10.5) — and, since Story 10.7 (R5), the
-   * exhausted hull's bonus points beside them (`convertBank`); `prevStats` is
+   * consumable spend left with Story 10.5) — and the bonus index points
+   * beside them (`indexBonus`: the level roll and wreck pickups, Story 12.4,
+   * via `addIndexBonus`); `prevStats` is
    * what the pool/timer reconciliation compares against. Clamps hp to the
    * new maxHp.
    */
@@ -4413,35 +4453,28 @@ export class World {
     // than trailing into the next one. Nothing downstream in the step reads XP,
     // so no other system's behavior can depend on where it sits.
     { name: 'tickXp', run: (w, ctx) => w.tickXp(ctx.dtMs) },
-    // RADIO BEACON PAYOUT (Story 10.8, R3 / R4) — DELIBERATE seat, directly
-    // after tickXp and for tickXp's own reasons: after respawns (the afloat
-    // gate reads post-respawn truth), after every damage row (a hull sunk
-    // this tick is not paid; a beacon destroyed this tick already carries its
-    // early sink time) and before the event swap, so a level a beacon banks
-    // publishes its `pt` on THIS tick's frame. It pays through the same XP
-    // door (`addXpMs`); nothing downstream in the step reads XP.
-    { name: 'tickBeacons', run: (w, ctx) => w.tickBeacons(ctx.dtMs) },
-    // RADIO BEACON PLACEMENT (Story 10.8, R2 / R10) — DELIBERATE step-order
-    // position: LAST but for the airdrop scatter (which must read this set —
-    // Story 10.9), after every row that touches a hull, and
-    // zone-clock driven: when the clock enters a new ring cycle the set is
-    // REPLACED. Last, so the placement reads every hull's settled end-of-tick
-    // position (the captain keep-out discs) and a beacon
-    // enters the world at a clean tick boundary — nothing this tick could
-    // have paid, hit or rammed it. (The retired PvE wave spawner held this
-    // seat for the same reason: a body placed mid-tick would be seen by the
-    // later rows unmoved, unwaked and never collision-resolved.) The room
-    // mirrors the new chart onto the schema right after the step.
-    { name: 'placeBeacons', run: (w) => w.placeBeacons() },
-    // AIRDROP SCATTER (Story 10.9, epic-10 amendment 18, R1) — DEAD LAST,
-    // DIRECTLY AFTER placeBeacons (not before it): ring cycles begin on
-    // minute marks, so on a cycle's first tick the new set must already be
-    // charted for the HARD KEEP-OUT to read it — scattered first, a batch
-    // would test against the outgoing set and could land inside a new
-    // beacon's circle. Zone-clock driven: every match minute not yet
-    // scattered (a long step catches up in order) places its batch inside
-    // the live ring, clear of land and of every non-gone beacon. A crate
-    // placed last enters the world at a clean tick boundary.
+    // SUPPLY-DROP CHARTING (Story 12.4, epic-12 amendment 5(f) — the radio
+    // beacons' Story 10.8 placement seat, R2 / R10, kept) — DELIBERATE
+    // step-order position: after every row that touches a hull, and
+    // zone-clock driven: when the clock enters a new ring cycle the chart is
+    // REPLACED. Late, so the placement reads every hull's settled end-of-tick
+    // position (the captain keep-out discs). The room mirrors the new chart
+    // onto the schema right after the step.
+    { name: 'placeSupplyDrops', run: (w) => w.placeSupplyDrops() },
+    // SUPPLY-DROP LANDING (Story 12.4, AC 21) — DIRECTLY BEFORE the airdrop
+    // scatter: on the first tick at or after the cycle start + `surfaceMs`,
+    // every charted spot drops its XP crates into `drops`, so they enter the
+    // world exactly as a minute batch does — last, at a clean tick boundary,
+    // through the very same pipeline (frame row, pickup, storm sweep). After
+    // the charting row, so a set charted and landing on one tick (a
+    // `surfaceMs` of 0 under `--tune`) lands the NEW set.
+    { name: 'landSupplyDrops', run: (w) => w.landSupplyDrops() },
+    // AIRDROP SCATTER (Story 10.9, epic-10 amendment 18, R1) — DEAD LAST.
+    // Zone-clock driven: every match minute not yet scattered (a long step
+    // catches up in order) places its batch inside the live ring, clear of
+    // land. A crate placed last enters the world at a clean tick boundary.
+    // (The beacon keep-out that pinned it directly after the beacon
+    // placement is gone with the beacons, Story 12.4.)
     { name: 'spawnDrops', run: (w) => w.spawnDrops() },
     // Each ROW is frozen too, not just the container (review finding F2b):
     // Object.freeze on the array alone leaves `STEP_ORDER[i].run` writable, so
@@ -4560,12 +4593,6 @@ export class World {
    *              a burst covering one REMOVES it (resolveBurst — no boom, no
    *              damage, no `hc`), and the owner's OWN fish are never victims
    *              (excluded at the burst, where the shooter is known).
-   *   beacon   — every RADIO BEACON that is HITTABLE right now (Story 10.8,
-   *              R6 / R8: afloat only — never charted, never once its sink has
-   *              started), as the shared octagon body. NOT burst-only: a
-   *              sweep stops on it like a hull, a burst covering it damages
-   *              it, a homing fish may lock it (R12). Named by every weapon
-   *              row's mask except the mine TRIP rows.
    */
   hitTargets(mask: readonly TargetKind[]): readonly Target[] {
     const key = [...mask].sort().join('|');
@@ -4577,8 +4604,6 @@ export class World {
     if (mask.includes('hull')) this.collectHulls(list);
     if (mask.includes('mine')) this.collectMines(list);
     if (mask.includes('ordnance')) this.collectOrdnance(list);
-    // ...and beacons LAST, so the three older kinds keep their relative order.
-    if (mask.includes('beacon')) this.beacons.collectTargets(this.now, list);
     this.tickTargets.set(key, { gen: this.targetsGen, list });
     return list;
   }
@@ -5296,11 +5321,6 @@ export class World {
       transformPolygon(hullSilhouette(ship.hullId), st.x, st.y, st.heading, ship.hullPoly);
       bodies.push(this.contactBodyOf(ship));
     }
-    // RADIO BEACONS (Story 10.8, R7 / R12): every SOLID beacon — afloat or
-    // sinking, the wreck law — is an IMMOVABLE body of mass = its ARMOR, so
-    // the shared resolver pushes the hull the whole way out and reports the
-    // pair for the damage row.
-    this.beacons.collectBodies(this.now, bodies);
     resolveHullContacts(bodies, this.hullContacts);
   }
 
@@ -5373,10 +5393,7 @@ export class World {
   private damagePair(c: HullContact, dt: number): void {
     const a = this.ships.get(c.a);
     const b = this.ships.get(c.b);
-    if (a === undefined || b === undefined) {
-      this.damageBeaconPair(c, dt, a ?? b);
-      return;
-    }
+    if (a === undefined || b === undefined) return; // every body is a hull (the beacon bodies left with Story 12.4)
     // MASS = ARMOR (Story 10.3, ruling 2): the folded ARMOR index, never the
     // HUNKER bonus and never maxHp.
     const mA = a.stats.armor;
@@ -5401,51 +5418,6 @@ export class World {
     const bleed = contactGrindRate(mA, mB, c.vt, c.vn, CONFIG.ram);
     this.bleedContact(a, bleed.a * dt, World.attackerId(b), 'hull');
     this.bleedContact(b, bleed.b * dt, World.attackerId(a), 'hull');
-  }
-
-  /**
-   * A HULL AGAINST A RADIO BEACON (Story 10.8, R7 / R12): the ramming law
-   * with the beacon as an anchored hull of mass = its ARMOR. `ship` is the
-   * pair's hull (undefined when neither id names one); the other id must name
-   * a beacon. The same two halves as a hull pair — the latched HIT over the
-   * allowance, then the BLEED — priced by the same shared functions:
-   *   - the SHIP's share goes through the gate with NO attacker (the wreck
-   *     row: a hull sunk on a beacon has no killer, no credit, no assist);
-   *   - the BEACON's share goes through `damageBeacon` credited to the
-   *     rammer while that hull is afloat (a wreck is never the attacker) —
-   *     and the door itself refuses it once the beacon's sink has started,
-   *     so a sinking beacon is solid yet takes nothing.
-   */
-  private damageBeaconPair(c: HullContact, dt: number, ship: ShipRecord | undefined): void {
-    if (ship === undefined) return;
-    const shipIsA = ship.id === c.a;
-    const beacon = this.beacons.get(shipIsA ? c.b : c.a);
-    if (beacon === undefined) return;
-    const mShip = ship.stats.armor;
-    const mBeacon = CONFIG.beacons.armor;
-    // The pair is priced in the contact's own (a, b) order; these read each
-    // side's share back out of it.
-    const shipShare = (split: { a: number; b: number }): number => (shipIsA ? split.a : split.b);
-    const beaconShare = (split: { a: number; b: number }): number => (shipIsA ? split.b : split.a);
-    const mA = shipIsA ? mShip : mBeacon;
-    const mB = shipIsA ? mBeacon : mShip;
-    const key = `${c.a}|${c.b}`;
-    if (!this.contactLatch.has(key) && c.vn > CONFIG.ram.allowanceU) {
-      this.contactLatch.add(key);
-      const hit = contactHitDamage(mA, mB, c.vn, CONFIG.ram);
-      const by = World.attackerId(ship); // read at the instant of impact
-      this.dealContact(ship, shipShare(hit), undefined, 'hull');
-      this.ramBeacon(beacon, beaconShare(hit), 'contact', by);
-    }
-    const bleed = contactGrindRate(mA, mB, c.vt, c.vn, CONFIG.ram);
-    this.bleedContact(ship, shipShare(bleed) * dt, undefined, 'hull');
-    this.ramBeacon(beacon, beaconShare(bleed) * dt, 'grind', World.attackerId(ship));
-  }
-
-  /** One half of a ram landing on a beacon: nothing unless it is a real blow
-   *  (the `isBlow` floor the hull halves share). */
-  private ramBeacon(beacon: BeaconRecord, amount: number, src: 'contact' | 'grind', byId: string | undefined): void {
-    if (World.isBlow(amount)) this.damageBeacon(beacon.id, amount, src, byId);
   }
 
   /** The id a blow is credited to, read AT THE BLOW: the other hull while it
@@ -5712,14 +5684,14 @@ export class World {
   // makes it a visible TARGET; nothing makes it a HITTABLE one).
 
   /** Every afloat PARTICIPANT's position — the centres of the captain
-   *  keep-out discs (radius `CONFIG.beacons.keepOutU`, its OWN fact since
-   *  Story 11.2, R20) that the RADIO BEACON placement treats as its soft
-   *  rule (Eric 2026-11-15, Story 11.7). THE one derivation of the keep-out
-   *  region.
+   *  keep-out discs (radius `CONFIG.supplyDrops.keepOutU`, its OWN fact since
+   *  Story 11.2, R20) that the SUPPLY-DROP placement (the radio beacons'
+   *  until Story 12.4) treats as its soft rule (Eric 2026-11-15, Story 11.7).
+   *  THE one derivation of the keep-out region.
    *
    *  KEYED ON THE PARTICIPANT READING (Story 6.3): every hull that contests
-   *  the match keeps beacons off the water around itself — a 6.4 AI captain
-   *  like any other combatant. */
+   *  the match keeps the spots off the water around itself — a 6.4 AI
+   *  captain like any other combatant. */
   private captainPositions(): Vec2[] {
     const out: Vec2[] = [];
     for (const s of this.ships.values()) {
@@ -6008,13 +5980,6 @@ export class World {
     let resolved = 0;
     for (const t of mineBlastVictims({ x: at.x, y: at.y, ownerId }, hulls, blastRadius)) {
       const victimId = t.id;
-      // A RADIO BEACON in the blast takes the mine's damage through its own
-      // door (Story 10.8, R12) and counts as RESOLVED for the layer's `hc`;
-      // it has no engines, so the fouling slow below never applies to it.
-      if (t.kind === 'beacon') {
-        if (this.damageBeacon(victimId, damage, 'mine', ownerId, MINE_WEAPON[kind])) resolved += 1;
-        continue;
-      }
       const victim = t.kind === 'hull' ? this.ships.get(victimId) : undefined;
       // Per-victim re-check against the DELIBERATELY STALE `hulls` snapshot: a
       // hull sunk earlier this tick is still in it, and damage semantics live
@@ -6250,8 +6215,8 @@ export class World {
    *  armorDamage's own arithmetic, unchanged): `amount` × the one curve at
    *  E = `armor` − the attacker's live POWER, a whole blow floored with the
    *  floor of one, a 'burn' / 'grind' fraction kept exact. A hull reaches it
-   *  with its ARMOR (+ HUNKER); a RADIO BEACON with `CONFIG.beacons.armor`
-   *  (R8: "exactly as a ship with ARMOR 100"). */
+   *  with its ARMOR (+ HUNKER) — its one caller since the radio beacons
+   *  left with Story 12.4. */
   private armorGate(
     armor: number,
     amount: number,
@@ -6262,71 +6227,6 @@ export class World {
     const power = this.powerOf(byId) + this.weaponPowerOf(byId, weapon);
     const scaled = amount * damageMultiplierFor(armor - power);
     return src === 'burn' || src === 'grind' ? scaled : World.floorBlow(amount, scaled);
-  }
-
-  /**
-   * THE BEACON DOOR (Story 10.8, Eric 2026-11-06, R5 / R6 / R8 / R12 / R13) —
-   * the ONE way a RADIO BEACON loses hp, as applyDamage is a hull's: every
-   * weapon path that finds a `beacon` target (interception, burst, mine
-   * blast, the phosphor burn) and the ram reach it and nothing else does.
-   * Returns true iff `id` names a beacon that is AFLOAT right now — i.e. the
-   * blow RESOLVED on it (the hit call's arithmetic) — whether or not hp moved.
-   *
-   *   - NOT AFLOAT, NOTHING (R6): charted, sinking or gone, the call is a
-   *     no-op and answers false.
-   *   - THE SAME ARMOR GATE a ship takes (R8), at ARMOR
-   *     `CONFIG.beacons.armor` against the attacker's LIVE POWER (a missing
-   *     attacker reads the average), same flooring.
-   *   - THE SHOOTER'S DAMAGE TOTAL COUNTS IT (R12) — the nominal post-armor
-   *     blow, exactly the figure a hull hit adds — and the beacon's OWN
-   *     ledger notes the clamped part for the kill split. No `dmg` row (no
-   *     victim client), no entry on any hull's assist ledger, no aggro.
-   *   - AT 0 HP IT SINKS EARLY (sinkBeacon).
-   * Weapons-safe phases lose no hp, as on a hull.
-   */
-  damageBeacon(
-    id: string,
-    amount: number,
-    src: DamageSource,
-    byId: string | undefined,
-    weapon?: EquipmentId,
-  ): boolean {
-    const beacon = this.beacons.get(id);
-    if (beacon === undefined || !this.beacons.hittable(beacon, this.now)) return false;
-    if (!this.damageEnabled || !World.isBlow(amount)) return true;
-    const net = this.armorGate(CONFIG.beacons.armor, amount, src, byId, weapon);
-    const dealt = Math.max(0, Math.min(net, beacon.hp)); // the overkill clamp, read before the write
-    beacon.hp -= dealt; // THE ONE BEACON-HP DECREMENT IN THE GAME
-    if (byId !== undefined) this.creditBeaconDamage(beacon, byId, net, dealt);
-    if (beacon.hp <= 0) this.sinkBeacon(beacon, byId);
-    return true;
-  }
-
-  /** The credit half of the beacon door: the attacker's results-screen total
-   *  takes the nominal blow (creditDamage's figure), the beacon's ledger the
-   *  clamped one (recordAssist's rule, on the beacon's own map). */
-  private creditBeaconDamage(beacon: BeaconRecord, byId: string, net: number, dealt: number): void {
-    const attacker = this.ships.get(byId);
-    if (attacker) attacker.damageDealt += net;
-    if (CONFIG.xp.assistWindowMs > 0 && dealt > 0) this.noteAssist(beacon.damageFrom, byId, dealt);
-  }
-
-  /**
-   * A RADIO BEACON DESTROYED AFLOAT (R6, R9, R13): its one-minute sink starts
-   * NOW — the early sink time is stamped (public: the room mirrors it onto
-   * the schema), the collector's generation bumps so later shells this tick
-   * pass through it, and `CONFIG.beacons.killLevels` is paid by THE KILL
-   * SPLIT LAW (payKillPot) over the beacon's own ledger: the guaranteed share
-   * to the hull that landed the last blow, the rest by damage among everyone
-   * with a live counter on it. Nothing else a ship kill does happens: no
-   * `sunk` row, no kill-feed line, no kill count, no bounty, no `pveKills`.
-   */
-  private sinkBeacon(beacon: BeaconRecord, byId: string | undefined): void {
-    this.beacons.sink(beacon, this.now);
-    this.targetsGen += 1;
-    const killer = byId !== undefined ? this.ships.get(byId) : undefined;
-    this.payKillPot(CONFIG.beacons.killLevels, beacon.damageFrom, beacon.id, killer);
-    beacon.damageFrom.clear(); // the ledger is spent with the payout
   }
 
   /** The attacker's POWER (Story 9.9's ARMOR PIERCING; `piercingOf` reading
@@ -6462,9 +6362,9 @@ export class World {
   }
 
   /** The rolling counter itself, on any ledger (Story 10.8 extraction —
-   *  recordAssist's body, unchanged): a hull's `damageFrom`, or a radio
-   *  beacon's. The caller has already checked the window is on and
-   *  `dealt > 0`. */
+   *  recordAssist's body, unchanged): a hull's `damageFrom` (the radio
+   *  beacons' ledger, its other caller, left with Story 12.4). The caller
+   *  has already checked the window is on and `dealt > 0`. */
   private noteAssist(ledger: Map<string, AssistTally>, byId: string, dealt: number): void {
     const prev = ledger.get(byId);
     if (prev === undefined || this.now - prev.at > CONFIG.xp.assistWindowMs) {
@@ -6589,10 +6489,7 @@ export class World {
     // every branch below — and every branch of resolveInterception — dispatches
     // on the KIND rather than on which store happens to hold the id.
     const kind = World.targetKindOf(hulls, outcome.victimId);
-    // A RADIO BEACON'S ID NEVER LEAVES THE SERVER (Story 10.8): the boom of a
-    // shell that stopped on one is the plain hit-less boom — `hit` names a
-    // SHIP, and the boom row forwards it raw to a spectator.
-    this.pending.push(this.ballisticBoom(shell, outcome, kind === 'beacon' ? undefined : outcome.victimId));
+    this.pending.push(this.ballisticBoom(shell, outcome, outcome.victimId));
     // A MINE CAN NEVER BE THE VICTIM HERE (amendment 20, Eric 2026-09-16):
     // the sweep list stepShell resolved against had no `mine` in it at all, so
     // there is no mine case to special-case and no mine-consumed shell to emit
@@ -6668,14 +6565,9 @@ export class World {
     // the aggro seam or emit a 0 `dmg` (Story 9.12 review gate).
     if (amount <= 0) return;
     // Selected by KIND, not by "the ships map had no such id" (P2): a hull
-    // takes contact damage through the gate, a RADIO BEACON through its own
-    // door (Story 10.8, R8 — the same amount, the same source); nothing else
-    // does (the decoy branch left with Story 10.5).
+    // takes contact damage through the gate; nothing else does (the decoy
+    // branch left with Story 10.5, the radio beacon's with Story 12.4).
     const src: DamageSource = shell.kind === 'torp' ? 'torpedo' : 'shell';
-    if (kind === 'beacon') {
-      this.damageBeacon(outcome.victimId, amount, src, shell.ownerId, shell.weapon);
-      return;
-    }
     if (kind !== 'hull') return;
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !isAfloat(victim.lifecycle)) return;
@@ -6833,11 +6725,6 @@ export class World {
     // That must not fire the aggro seam, credit damage or emit a `dmg`, so
     // nothing below runs.
     if (amount <= 0) return 0;
-    // A RADIO BEACON caught by the burst (Story 10.8, R8): the same settled
-    // amount through its own door; it RESOLVED iff it was still afloat.
-    if (t.kind === 'beacon') {
-      return this.damageBeacon(t.id, amount, landingSource(shell), shell.ownerId, shell.weapon) ? 1 : 0;
-    }
     if (t.kind !== 'hull') return 0;
     const victim = this.ships.get(t.id);
     if (!victim || !isAfloat(victim.lifecycle)) return 0;
@@ -6944,8 +6831,7 @@ export class World {
    * (epic-11 amendment 11). Like every gun shell's terminal boom it
    * carries the server-internal owner tag (`ballisticBoom`; it was the
    * main-battery-only `land` tag until then), which keeps the retired burst's
-   * owner arm. A beacon struck this way is never named (its id never leaves
-   * the server, Story 10.8).
+   * owner arm.
    */
   private announceLanding(shell: ShellState, at: Vec2, victims: readonly Target[]): void {
     if (shell.burstRadius > 0) {
@@ -7142,7 +7028,6 @@ export class World {
         this.burnShip(ship, dps * dt, ownerId);
       }
     }
-    this.burnBeacons(dt);
     // Every pair that did NOT burn this tick has stopped burning: flush its
     // remainder now so no applied damage is ever left unreported. The contact
     // bleed's `grind:` windows are applyContactDamage's to flush, not ours.
@@ -7179,31 +7064,14 @@ export class World {
     this.pending.push({ k: 'dmg', id: bucket.victimId, amount: bucket.amount, hp: Math.max(0, victim.hp) });
   }
 
-  /** THE PHOSPHOR BURN ON RADIO BEACONS (Story 10.8, R8: "special shells (the
-   *  phosphor burn included)"): every hittable beacon whose CENTRE a burning
-   *  zone covers takes that zone's `dps` per tick through its own door —
-   *  the hull rule exactly (centre test, the strongest zone per owner, the
-   *  fractional 'burn' amount unfloored), credited to the zone's owner. A
-   *  beacon has no owner, so no zone is "its own". No `dmg` window: there is
-   *  no victim client to report to. */
-  private burnBeacons(dt: number): void {
-    if (this.burnZones.size === 0) return;
-    for (const beacon of this.beacons.records) {
-      if (!this.beacons.hittable(beacon, this.now)) continue;
-      for (const [ownerId, dps] of this.markZoneEffects({ id: beacon.id, state: beacon })) {
-        this.damageBeacon(beacon.id, dps * dt, 'burn', ownerId, 'phosphorShells'); // only phosphor burns
-      }
-    }
-  }
-
   /** The per-ship BURN-ZONE scan (Story 8.17): the owners of every covering
    *  non-owned burning zone, each with the strongest `dps` among that owner's
    *  covering zones (deduped — at most one burn per owner per tick, whatever
    *  the overlap). Only `burnZones` is read: a lit zone burns nobody
    *  (amendment 134), a foul zone only slows (Story 9.4, its own store and
    *  its own row — applyFoulZones), and the dazzle branch left with the
-   *  verb. `ship` is any body with an id and a centre — a hull, or a radio
-   *  beacon (Story 10.8, burnBeacons). */
+   *  verb. `ship` is any body with an id and a centre (a hull; the radio
+   *  beacons that also burned left with Story 12.4). */
   private markZoneEffects(ship: { id: string; state: Vec2 }): Map<string, number> {
     const burnedBy = new Map<string, number>();
     for (const zone of this.burnZones.values()) {
@@ -7999,90 +7867,78 @@ export class World {
     }
   }
 
-  /** Are the RADIO BEACONS running? The match is live for XP, the zone clock
-   *  (their cycle clock) has started, and no dev smoke switched them off. */
-  private beaconsLive(): boolean {
-    return this.beaconsEnabled && this.xpEnabled && this.zoneStartT !== null;
+  /** Are the SUPPLY DROPS running? The match is live for XP, the zone clock
+   *  (their cycle clock) has started, and no test switched them off. */
+  private supplyDropsLive(): boolean {
+    return this.supplyDropsEnabled && this.xpEnabled && this.zoneStartT !== null;
   }
 
-  /** THE PUBLIC BEACON CHART (Story 10.8, R9): the current ring cycle, when
-   *  it began and each beacon's position and early sink time — exactly what
-   *  the room mirrors onto the schema, and the only beacon facts a bot's port
-   *  may read. Empty (cycle -1) when there are none. */
-  get beaconChart(): BeaconChart {
-    return this.beacons.chart;
-  }
-
-  /** Scratch: the hulls a beacon may pay this tick. */
-  private readonly beaconHulls: ShipRecord[] = [];
-
-  /** One hull's integer share of a beacon's pot, through THE XP door — so a
-   *  level, its offer and its `pt` behave exactly as passive XP's do — and
-   *  onto the hull's harness tally. */
-  private readonly payBeaconShare = (hull: ShipRecord, shareMs: number): void => {
-    this.addXpMs(hull, shareMs);
-    hull.beaconXpMs += shareMs;
-  };
-
-  /**
-   * RADIO BEACON PAYOUT (Story 10.8, R3 / R4; see the STEP_ORDER row). Every
-   * AFLOAT PARTICIPANT — captains and bots; a sinking or sunk hull is not
-   * afloat — whose centre is within range of a paying beacon splits that beacon's pot
-   * (BeaconField.payout). The receiver learns nothing but its own XP: no
-   * event, no paint.
-   */
-  private tickBeacons(dtMs: number): void {
-    if (!this.beaconsLive()) return;
-    const hulls = this.beaconHulls;
-    hulls.length = 0;
-    for (const ship of this.ships.values()) {
-      if (isAfloat(ship.lifecycle) && roleIsParticipant(ship)) hulls.push(ship);
-    }
-    this.beacons.payout(this.now, dtMs, hulls, this.payBeaconShare);
+  /** THE PUBLIC SUPPLY-DROP CHART (Story 12.4, the radio beacons' Story 10.8
+   *  R9 chart, renamed): the current cycle's spots, one row each
+   *  `{cycle, spot, x, y, cycleStartT}` — exactly what the room mirrors onto
+   *  the schema, and the only supply-drop facts a bot's port may read. Empty
+   *  when there are none. */
+  get supplyChart(): SupplyChart {
+    return this.supply.chart;
   }
 
   /**
-   * RADIO BEACON PLACEMENT (Story 10.8, R2 / R10; see the STEP_ORDER row;
-   * RANDOM since Eric 2026-11-15, Story 11.7). When the zone clock is in a
-   * ring cycle the field has not placed for, the set is REPLACED: each of
-   * `beaconCountFor(cycle)` beacons goes on a uniformly random spot
-   * (`pickBeaconSpot`) about the LIVE ring's centre, no farther out than the
-   * ring's radius minus `CONFIG.beacons.edgeMarginU` (the whole paying circle
-   * inside the ring), clear of land, at least `CONFIG.beacons.minSpacingFrac` × that
-   * radius from the beacons already placed this cycle, and — the soft rule —
-   * outside every captain's keep-out disc (`captainPositions`,
-   * `CONFIG.beacons.keepOutU`). There is no retry queue — the ruling is "at
-   * 0:00": a beacon that cannot clear the discs takes the first draw that met
-   * the hard rules and is LOGGED (`beacon.keepOutRelaxed`); one that cannot
-   * meet the hard rules is skipped and LOGGED (`beacon.placeSkipped`). A cycle
-   * with no beacons (sudden death) clears the set.
+   * SUPPLY-DROP CHARTING (Story 12.4 — the radio beacons' placement, Story
+   * 10.8 R2 / R10, RANDOM since Eric 2026-11-15, Story 11.7, kept exactly;
+   * see the STEP_ORDER row). When the zone clock is in a ring cycle the field
+   * has not placed for, the chart is REPLACED: each of `supplyCountFor(cycle)`
+   * spots goes on a uniformly random point (`pickSupplySpot`) about the LIVE
+   * ring's centre, no farther out than the ring's radius minus
+   * `CONFIG.supplyDrops.edgeMarginU` (the whole scatter inside the ring),
+   * clear of land, at least `minSpacingFrac` × that radius from the spots
+   * already placed this cycle, and — the soft rule — outside every captain's
+   * keep-out disc (`captainPositions`, `keepOutU`). No retry queue: a spot
+   * that cannot clear the discs takes the first draw that met the hard rules
+   * and is LOGGED (`supplyDrops.keepOutRelaxed`); one that cannot meet the
+   * hard rules is skipped and LOGGED (`supplyDrops.placeSkipped`). A cycle
+   * with no drops (sudden death) clears the chart.
    */
-  private placeBeacons(): void {
+  private placeSupplyDrops(): void {
     const zoneStartT = this.zoneStartT;
-    if (zoneStartT === null || !this.beaconsLive()) return;
-    const cycle = beaconCycleAt(this.now, zoneStartT, this.zoneCfg);
-    if (cycle === this.beacons.cycle) return;
+    if (zoneStartT === null || !this.supplyDropsLive()) return;
+    const cycle = supplyCycleAt(this.now, zoneStartT, this.zoneCfg);
+    if (cycle === this.supply.cycle) return;
+    const cfg = CONFIG.supplyDrops;
     const ring = this.zoneLiveRing;
     const centre = { x: ring.cx, y: ring.cy };
-    const radius = ring.r - CONFIG.beacons.edgeMarginU;
+    const radius = ring.r - cfg.edgeMarginU;
     const captains = this.captainPositions();
     // The spacing scales with the placement radius (`minSpacingFrac`).
-    const spot = { ...CONFIG.beacons, minSpacingU: Math.max(0, radius) * CONFIG.beacons.minSpacingFrac };
+    const spot = { ...cfg, minSpacingU: Math.max(0, radius) * cfg.minSpacingFrac };
     let request = 0; // the cycle's pick number — distinct per log line even after a skip
-    this.beacons.replace(cycle, beaconCycleStartMs(zoneStartT, cycle, this.zoneCfg), (rng, taken) => {
-      const at = pickBeaconSpot(centre, radius, this.map.islands, taken, captains, spot, rng);
+    this.supply.replace(cycle, supplyCycleStartMs(zoneStartT, cycle, this.zoneCfg), (rng, taken) => {
+      const at = pickSupplySpot(centre, radius, this.map.islands, taken, captains, spot, rng);
       const slot = taken.length;
       request += 1;
       if (at === null) {
-        logWarn('beacon.placeSkipped', { tick: this.tick, cycle, request, slot, attempts: CONFIG.beacons.placeAttempts });
+        logWarn('supplyDrops.placeSkipped', { tick: this.tick, cycle, request, slot, attempts: cfg.placeAttempts });
         return null;
       }
-      if (at.keepOutRelaxed) logWarn('beacon.keepOutRelaxed', { tick: this.tick, cycle, request, slot });
+      if (at.keepOutRelaxed) logWarn('supplyDrops.keepOutRelaxed', { tick: this.tick, cycle, request, slot });
       return at;
     });
   }
 
-  /** Are the scheduled AIRDROPS running? Mirrors `beaconsLive`: the match
+  /**
+   * SUPPLY-DROP LANDING (Story 12.4, AC 21; see the STEP_ORDER row): on the
+   * first live tick at or after the charted cycle's start + `surfaceMs`,
+   * every spot's crates (`SupplyField.land` → `scatterSupplyCrates`, the
+   * private per-(cycle, spot) stream) enter `drops` as ordinary XP crates,
+   * never overlapping a crate already on the water (AC 21). A crate that
+   * lands outside the live ring is eaten by the next `stormDrops` sweep like
+   * any crate.
+   */
+  private landSupplyDrops(): void {
+    if (!this.supplyDropsLive()) return;
+    this.supply.land(this.now, this.map.islands, this.drops.values(), (c) => this.drops.set(c.id, { id: c.id, x: c.x, y: c.y, kind: 'xp' }));
+  }
+
+  /** Are the scheduled AIRDROPS running? Mirrors `supplyDropsLive`: the match
    *  is live (`xpEnabled` — so the post-match results window, where the zone
    *  clock still runs, scatters nothing), the zone clock has started, and no
    *  dev smoke switched them off. */
@@ -8119,16 +7975,16 @@ export class World {
         continue;
       }
       const id = `drp-${minute}-${n}`;
-      this.drops.set(id, { id, x: at.x, y: at.y, kind: rollKind(rng, CONFIG.drops) });
+      this.drops.set(id, { id, x: at.x, y: at.y, kind: 'xp' }); // every airdrop is an XP crate (Story 12.4)
     }
   }
 
   /**
    * A uniform point in the live ring's disc of radius `r − radiusU` (sqrt-
-   * radius sampling: two draws per attempt), FLOAT32-EXACT like a beacon's,
-   * rejected on land (`islandClearance ≤ SPAWN_ISLAND_CLEARANCE`, the spawn
-   * ring's own test) and inside any live beacon's signal circle (R1). Null
-   * after `placeAttempts` rejections.
+   * radius sampling: two draws per attempt), FLOAT32-EXACT like a supply
+   * crate's, rejected on land (`islandClearance ≤ SPAWN_ISLAND_CLEARANCE`,
+   * the spawn ring's own test). Null after `placeAttempts` rejections. (The
+   * beacon keep-out, R1, left with the beacons — Story 12.4.)
    */
   private pickDropSpot(rng: Rng, ring: ZoneRing): Vec2 | null {
     // A ring too small to hold a whole crate places none (review gate, Codex
@@ -8142,30 +7998,18 @@ export class World {
       const a = rng.next() * Math.PI * 2;
       const p = { x: Math.fround(ring.cx + Math.cos(a) * r), y: Math.fround(ring.cy + Math.sin(a) * r) };
       if (islandClearance(p, this.map.islands) <= SPAWN_ISLAND_CLEARANCE) continue;
-      if (this.inBeaconKeepOut(p)) continue;
       return p;
     }
     return null;
   }
 
-  /** THE HARD KEEP-OUT (R1): `p` lies strictly inside the signal circle
-   *  (`CONFIG.beacons.rangeU`, centre to centre) of a beacon that is charted,
-   *  afloat or sinking — any phase but `gone`. */
-  private inBeaconKeepOut(p: Vec2): boolean {
-    const r2 = CONFIG.beacons.rangeU * CONFIG.beacons.rangeU;
-    for (const b of this.beacons.records) {
-      if (this.beacons.phaseOf(b, this.now) === 'gone') continue;
-      const dx = p.x - b.x;
-      const dy = p.y - b.y;
-      if (dx * dx + dy * dy < r2) return true;
-    }
-    return false;
-  }
-
   /**
-   * THE WRECK PICKUP (Story 10.9, R2): a sinking PARTICIPANT leaves one crate
-   * of kind `'wreck'` at its centre — its `wreckRolls` stat + amount rolls are
-   * drawn at PICKUP (`collectDrop`), nothing here. No land / keep-out / ring
+   * THE WRECK PICKUP (Story 10.9, R2; Story 12.4, epic-12 amendment 5(e)): a
+   * sinking PARTICIPANT that had completed at least one level leaves one crate
+   * of kind `'wreck'` at its centre, carrying the victim's `level` as the
+   * crate's `levels` (server-side only) — the count of +1 stat picks drawn at
+   * PICKUP (`collectDrop`), nothing here. A LEVEL-0 VICTIM LEAVES NONE
+   * (*"lvl 0 = none"*). No land / keep-out / ring
    * check — the hull was there; a wreck in the storm is taken by `stormDrops`
    * next tick. Placed whether or not the schedule is switched off
    * (WorldOptions.drops) — but ONLY ONCE THE ZONE HAS STARTED: a sink before
@@ -8184,13 +8028,13 @@ export class World {
    */
   private placeWreckDrop(ship: ShipRecord, scuttle: boolean): void {
     if (this.zoneStartT === null || this.respawnEnabled || !roleIsParticipant(ship)) return;
-    if (scuttle && !inCombat(ship, this.now)) return;
+    if (!(ship.level > 0) || (scuttle && !inCombat(ship, this.now))) return;
     const k = this.wreckDrops;
     this.wreckDrops += 1;
     const id = `drp-w-${k}`;
     const x = Math.fround(ship.state.x);
     const y = Math.fround(ship.state.y);
-    this.drops.set(id, { id, x, y, kind: 'wreck' });
+    this.drops.set(id, { id, x, y, kind: 'wreck', levels: ship.level });
   }
 
   /**
@@ -8213,7 +8057,7 @@ export class World {
   }
 
   /** The first afloat participant whose hull touches `drop`, or undefined. */
-  private dropTaker(drop: DropState, hulls: readonly Target[]): ShipRecord | undefined {
+  private dropTaker(drop: CrateState, hulls: readonly Target[]): ShipRecord | undefined {
     for (const t of hulls) {
       if (t.kind !== 'hull') continue;
       const ship = this.ships.get(t.id);
@@ -8224,25 +8068,46 @@ export class World {
   }
 
   /**
-   * ONE COLLECTION: the grant is rolled NOW (Eric 2026-11-08 — "the bonus is
-   * rolled AFTER I pick it up"; `rollPickup` on this World's k-th pickup
-   * sub-stream, see `dropSeed`), every roll lands on the hull's `indexBonus`
-   * (Story 10.7's seat, uncapped), then the stats re-fold and settle EXACTLY
-   * as `convertBank` does (pools, reload clocks, mounts, wake) — read its
-   * RE-ENTRANCY note: nothing here holds the ship's `stats` / `wake` across
-   * the re-fold. The crate is deleted and the collector alone is told (`dp`).
+   * ONE COLLECTION (Story 12.4, epic-12 amendment 5(a)/(e)). The crate is
+   * deleted FIRST — the grant below can re-enter the step (a level's re-fold;
+   * read `addXpMs`'s RE-ENTRANCY note) and must never meet it again — then:
+   *   - an XP crate (`'xp'`, every airdrop and supply crate) grants
+   *     `CONFIG.drops.xpLevels` of a level through THE one XP entry point
+   *     (`grantXp`), banking — and rolling — every level it crosses; its
+   *     `dp` carries no grant (`g` empty);
+   *   - a WRECK grants `rollWreckStats(rng, levels)` — +1 to a uniformly
+   *     random stat per level its victim had, drawn NOW on this World's k-th
+   *     pickup sub-stream (see `dropSeed`), merged per stat — onto the hull's
+   *     `indexBonus`, then the stats re-fold and settle (`refoldIndexBonus`);
+   *     its `dp` carries those grants.
+   * The collector alone is told (`dp`).
    */
-  private collectDrop(ship: ShipRecord, drop: DropState): void {
+  private collectDrop(ship: ShipRecord, drop: CrateState): void {
+    this.drops.delete(drop.id);
+    ship.dropsTaken += 1;
+    if (drop.kind !== 'wreck') {
+      this.grantXp(ship, CONFIG.drops.xpLevels);
+      this.pending.push({ k: 'dp', id: ship.id, t: this.now, g: [] });
+      return;
+    }
     const k = this.dropPickups;
     this.dropPickups += 1;
     const rng = mulberry32((this.dropSeed ^ Math.imul(PICKUP_DROP_K + k, 0x9e3779b9)) >>> 0);
-    const rolls = rollPickup(rng, drop.kind, CONFIG.drops);
-    for (const [stat, n] of rolls) ship.indexBonus[stat] += n;
+    const grants = rollWreckStats(rng, drop.levels ?? 0);
+    this.addIndexBonus(ship, grants);
+    this.pending.push({ k: 'dp', id: ship.id, t: this.now, g: grants });
+  }
+
+  /** Add `[stat, points]` grants onto the hull's `indexBonus` and, when any
+   *  landed, re-fold and settle the stats EXACTLY as a card does (pools,
+   *  reload clocks, mounts, wake) — the ONE writer of `indexBonus` (the level
+   *  roll and the wreck pickup). Read `addXpMs`'s RE-ENTRANCY note: nothing
+   *  here holds the ship's `stats` / `wake` across the re-fold. */
+  private addIndexBonus(ship: ShipRecord, grants: readonly (readonly [IndexId, number])[]): void {
+    if (grants.length === 0) return;
+    for (const [stat, n] of grants) ship.indexBonus[stat] += n;
     const prevStats = this.refoldCards(ship);
     this.settleRefold(ship, prevStats);
-    ship.dropsTaken += 1;
-    this.drops.delete(drop.id);
-    this.pending.push({ k: 'dp', id: ship.id, t: this.now, g: rolls });
   }
 
   /** THE STORM TAKES THE AIRDROPS (Story 10.9; see the STEP_ORDER row): every
@@ -8383,12 +8248,6 @@ export class World {
       ship.nextSmokeAt = this.now + CONFIG.smoke.puffIntervalMs;
       this.pending.push({ k: 'sm', x: ship.state.x, y: ship.state.y, tier: frac < bands.criticalBelow ? 2 : 1 });
     }
-    // A HURT RADIO BEACON SMOKES LIKE A SHIP (Story 10.8, R11): the SAME
-    // anonymous `sm` row — {k,x,y,tier} and nothing else — on the same bands
-    // and the same throttle, at the beacon's already-public position. The row
-    // carries no source handle, so a beacon's puff and a hull's are one kind
-    // to every observer and to the registry's gate.
-    this.beacons.smoke(this.now, (x, y, tier) => this.pending.push({ k: 'sm', x, y, tier }));
   }
 
   /** Bring sunk ships back on the ring once their respawn delay elapses.

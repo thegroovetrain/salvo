@@ -34,7 +34,6 @@ const POSTURE_ZERO: Record<BotPosture, number> = {
   pursue: 0,
   disengage: 0,
   reposition: 0,
-  farm: 0,
   ringRun: 0,
   ram: 0,
   kite: 0,

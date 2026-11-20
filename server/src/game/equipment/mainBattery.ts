@@ -39,11 +39,11 @@
 // along-shot spread (≈ 1 u per 50 u) likewise. Neither is a solution.
 //
 // THE SHELL (reading of record): family `'cannon'`, the mask
-// `CONFIG.mainBattery.hits` (hull + beacon, NO mine bit: a main shell never
+// `CONFIG.mainBattery.hits` (hull only, NO mine bit: a main shell never
 // hurts a mine — R3; the World's mask-driven `landOnMines` honours that
 // without a special case). DIRECT HITS ONLY (Eric 2026-11-13, epic-11
 // amendment 8 — "Only direct hits count", "Only the landing point counts"):
-// the shell ARCS OVER every ship and beacon between muzzle and landing
+// the shell ARCS OVER every ship between muzzle and landing
 // (`overShips` — the sweep never runs against them), and at the landing point
 // every afloat non-owner hull whose silhouette holds the point takes the full
 // `damage` (World.resolveBurst at radius 0 — a point test). The 15 u blast and
