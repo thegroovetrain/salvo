@@ -110,7 +110,7 @@ describe('the skins — today`s outlines, the preview amber, denied wins', () =>
 describe('the painters` pure parts', () => {
   const special = (c: ReturnType<typeof mountClock> | undefined): WeaponRowModel => ({
     kind: 'special', slot: 4, id: 'starShells', name: 'STAR SHELLS', emptyGlyph: null, state: 'cooling', readied: false,
-    tier: 1, tierNumeral: 'I', keyGlyph: 'R', clocks: c === undefined ? [] : [c], racks: [], heat: null, stats: [],
+    tiered: true, tier: 1, tierNumeral: 'I', keyGlyph: 'R', clocks: c === undefined ? [] : [c], racks: [], heat: null, stats: [],
   });
 
   it('the special prints READY when loaded, the seconds while it reloads, nothing on an empty slot', () => {

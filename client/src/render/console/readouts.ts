@@ -61,7 +61,7 @@ import { hmText, hmWithUnit, isDistanceField } from '../../util/hmText.js';
 import { CLIENT_CONFIG } from '../../config.js';
 import { abilityName, boonName, equipmentStatRows, indexWord } from '../../ui/boonCopy.js';
 import { romanTier } from '../../ui/tierRamp.js';
-import { EQUIPMENT_NAME, lineTier, slotTier } from '../equipmentInfo.js';
+import { EQUIPMENT_NAME, hasTierLadder, lineTier, slotTier } from '../equipmentInfo.js';
 import { rowSlot, WEAPON_ROW_KINDS, ABILITY_KINDS, type AbilityKind, type WeaponRowKind } from './layout.js';
 
 export * from './hull.js';
@@ -376,7 +376,7 @@ function weaponReadouts(kind: WeaponRowKind, src: ReadoutSource): Readout[] {
   const id = rowEquipment(kind, src.loadout);
   if (id === null) return [];
   const out = rowStatFields(kind, id, src.stats).map((f) => statReadout(kind, id, f, src));
-  const tier = slotTier(src.stats, src.cards, id);
+  const tier = hasTierLadder(id) ? slotTier(src.stats, src.cards, id) : 0;
   if (tier > 0) out.push({ key: READOUT_KEY.tier(kind), label: '', value: romanTier(tier), raw: tier, role: 'tier' });
   return [...out, ...countReadouts(kind, id, src.stats)];
 }
@@ -416,13 +416,22 @@ export interface ReadoutShip {
   window?: ShiftWindow;
 }
 
+/** Pure: the own ship's `effectiveStats` fold (plus an optional hovered card
+ *  line) — the fold `shipReadouts` reads, and the before / after pair a
+ *  ship-stat card's ability boxes compare. Null on an unknown class. */
+export function shipFold(you: ReadoutShip, extraLine?: string): EffectiveStats | null {
+  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return null;
+  const cards = extraLine === undefined ? you.cards : [...you.cards, extraLine];
+  return effectiveStats(CONFIG.shipClasses[you.cls], cards, CATALOG, you.ib);
+}
+
 /** Pure: fold the own ship (plus an optional hovered card line) and read
  *  every console number — the ONE path both the live consoles and the hover
  *  preview take. Null on an unknown class (fail-open, like the card rows). */
 export function shipReadouts(you: ReadoutShip, extraLine?: string): Readout[] | null {
-  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return null;
+  const stats = shipFold(you, extraLine);
+  if (stats === null) return null;
   const cards = extraLine === undefined ? you.cards : [...you.cards, extraLine];
-  const stats = effectiveStats(CONFIG.shipClasses[you.cls], cards, CATALOG, you.ib);
   const loadout = slotsWithCards(stats, cards, CATALOG, you.shift).map((s) => s.equipmentId);
   return consoleReadouts({ stats, loadout, cards, cls: you.cls, window: you.window });
 }
@@ -531,6 +540,10 @@ export interface WeaponRowModel {
   state: RowState;
   /** Q / E / R armed (the filled amber key chip) — independent of `state`. */
   readied: boolean;
+  /** Does a tier ladder climb this row? False for the secondaries and the
+   *  main battery (no catalog line targets it): the tier-mark slot stays
+   *  empty. An empty Q / E / R slot is tiered (five empty dots). */
+  tiered: boolean;
   tier: number;
   tierNumeral: string;
   keyGlyph: string;
@@ -616,7 +629,7 @@ function rowReady(kind: WeaponRowKind, clocks: readonly MountClock[], racks: rea
 function emptyRow(kind: WeaponRowKind): WeaponRowModel {
   return {
     kind, slot: rowSlot(kind), id: null, name: FAMILY_WORD[kind] ?? '', emptyGlyph: FAMILY_GLYPH[kind] ?? null,
-    state: 'empty', readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH[kind],
+    state: 'empty', readied: false, tiered: true, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH[kind],
     clocks: [], racks: [], heat: null, stats: [],
   };
 }
@@ -624,7 +637,7 @@ function emptyRow(kind: WeaponRowKind): WeaponRowModel {
 function secondariesRow(input: WeaponsInput): WeaponRowModel {
   return {
     kind: 'secondaries', slot: null, id: null, name: ROW_NAME.secondaries ?? '', emptyGlyph: null,
-    state: 'ready', readied: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH.secondaries,
+    state: 'ready', readied: false, tiered: false, tier: 0, tierNumeral: '', keyGlyph: ROW_KEY_GLYPH.secondaries,
     clocks: [], racks: [], heat: { heat: input.sec.heat }, stats: rowStats('secondaries', input.readouts),
   };
 }
@@ -633,6 +646,12 @@ function secondariesRow(input: WeaponsInput): WeaponRowModel {
 export function rowStats(kind: WeaponRowKind, readouts: readonly Readout[]): Readout[] {
   const prefix = `row.${kind}.`;
   return readouts.filter((r) => r.role === 'stat' && r.key.startsWith(prefix));
+}
+
+/** Pure: a fitted row's tier — 0 where no ladder climbs it (the main
+ *  battery), so it never paints a numeral. */
+function rowTier(input: WeaponsInput, id: EquipmentId): number {
+  return hasTierLadder(id) ? slotTier(input.stats, input.cards, id) : 0;
 }
 
 /** Pure: one weapon row-button (O4). */
@@ -646,10 +665,11 @@ export function weaponRowModel(kind: WeaponRowKind, input: WeaponsInput): Weapon
   const readied = kind !== 'mainBattery' && slot === input.primedSlot;
   const ready = rowReady(kind, clocks, racks, input.ammo[slot ?? -1] ?? null);
   const state: RowState = readied ? 'readied' : ready ? 'ready' : 'cooling';
-  const tier = slotTier(input.stats, input.cards, id);
+  const tiered = hasTierLadder(id);
+  const tier = rowTier(input, id);
   return {
     kind, slot, id, name: ROW_NAME[kind] ?? boonName(id).toUpperCase(), emptyGlyph: null,
-    state, readied, tier, tierNumeral: tier > 0 ? romanTier(tier) : '',
+    state, readied, tiered, tier, tierNumeral: tier > 0 ? romanTier(tier) : '',
     keyGlyph: ROW_KEY_GLYPH[kind], clocks, racks, heat: null, stats: rowStats(kind, input.readouts),
   };
 }
