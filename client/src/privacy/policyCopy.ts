@@ -42,8 +42,9 @@
 //     results are written to Postgres when DATABASE_URL is set — per ship the
 //     hull, Shift, placement, kills, damage, upgrade hands and final build, keyed
 //     by the per-match ship id. The callsign is dropped at the row mapping;
-//     there is no account column and no IP is ever recorded. No retention period
-//     has been ruled, so none is stated below.
+//     there is no account column and no IP is ever recorded. Kept with no set
+//     end date, and the copy deliberately does NOT call it anonymous (Eric
+//     2026-11-18: accounts are coming).
 //   * GA4: loaded at boot for everyone (Consent Mode ADVANCED, Story 7.4 —
 //     `analytics/index.ts` `boot()` always calls `startGa`), first-party cookie,
 //     exactly five events, `mode` the only parameter (NFR19). The GLOBAL consent
@@ -100,9 +101,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'Hullcracker.io has no accounts and no sign-up. Your callsign, class '
       + 'and settings live in your own browser and are never sent to Hullcracker.io as a profile. '
-      + 'Once your match is over, Hullcracker.io’s servers keep only the results of the match, '
-      + 'with no callsign, account or IP address attached, and ordinary server logs — both are '
-      + 'described below.',
+      + 'Once your match is over, Hullcracker.io’s servers keep the results of the match and '
+      + 'ordinary server logs — both are described below.',
       'Three things do involve other companies, and all three are set out in full below: the page '
       + 'loads its typefaces from Google Fonts, it uses Google Analytics to count how the game is '
       + 'used, and it shows advertising through Google AdSense — a full-screen ad when you return '
@@ -295,9 +295,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'HOW LONG THINGS ARE KEPT',
     paragraphs: [
       'Match state is discarded when the room closes, and the players-online value expires 30 '
-      + 'seconds after your last request. What is kept on Hullcracker.io’s game server is the '
-      + 'results of each finished match — such as each ship’s hull, Shift, placement, kills and '
-      + 'upgrade choices — with no callsign, account or IP address attached. '
+      + 'seconds after your last request. What is kept on Hullcracker.io’s game server, with no '
+      + 'set end date, is the results of each finished match — such as each ship’s hull, Shift, '
+      + 'placement, kills and upgrade choices. '
       + 'Operational logs are short-lived and are kept only as long as they are useful for '
       + 'diagnosing problems. What is stored in your browser stays there until you clear it. '
       + 'Analytics data is retained by Google under the retention period set on the property, at '
@@ -329,8 +329,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'The game has no age gate and does not ask how old you are. It is not directed at children, '
       + 'and Hullcracker.io does not knowingly collect information from them. Since there are no '
-      + 'accounts, and the match results that are kept carry no callsign, account or IP address, '
-      + 'there is nothing that identifies a child for Hullcracker.io to hold; if you believe a child has provided information through the game, write to '
+      + 'accounts, there is no profile of a child for Hullcracker.io to hold; if you believe a '
+      + 'child has provided information through the game, write to '
       + POLICY_CONTACT + ' and Hullcracker.io will look into it.',
     ],
   },
@@ -339,9 +339,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'Depending on where you live, you may have rights to access, correct, delete or object to '
       + 'the use of personal data about you, and to withdraw consent at any time.',
-      'In practice there is very little to act on: Hullcracker.io holds no accounts, and the match '
-      + 'results it keeps carry no callsign, account or IP address, so there is no profile to '
-      + 'retrieve or delete. Withdrawing consent is done in '
+      'In practice there is very little to act on: Hullcracker.io holds no accounts, so there is '
+      + 'no profile to retrieve or delete. Withdrawing consent is done in '
       + 'the ANALYTICS row in SETTINGS, and in Google’s Ads Settings for personalised '
       + 'advertising, as described above. For anything else — including a request about the '
       + 'Google Analytics or Google advertising data associated with your browser — write to '

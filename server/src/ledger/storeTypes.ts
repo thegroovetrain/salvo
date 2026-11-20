@@ -18,9 +18,10 @@ export interface LedgerStore {
   close(): Promise<void>;
 }
 
-/** The short category `ledger.disabled` logs — never the error text, which
- *  could carry a host or a connection string. */
-export type LedgerDisabledReason = 'driver' | 'connect' | 'migrate' | 'unknown';
+/** The short category `ledger.disabled` / `ledger.open.retry` log — never the
+ *  error text, which could carry a host or a connection string. `timeout` is
+ *  an open that outran the writer's deadline (writerSupport.ts). */
+export type LedgerDisabledReason = 'driver' | 'connect' | 'migrate' | 'timeout' | 'unknown';
 
 /** A store that could not be opened, tagged with the phase that failed. */
 export class StoreOpenError extends Error {

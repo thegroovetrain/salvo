@@ -23,6 +23,15 @@ const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../drizzle', import.meta.url
 
 type LedgerDb = PgDatabase<PgQueryResultHKT>;
 
+/** postgres-js connect deadline, seconds (its own unit). */
+const PG_CONNECT_TIMEOUT_S = 10;
+/** Server-side bounds sent as startup parameters, ms: no statement, lock wait
+ *  or idle-open transaction can hold the ledger's one connection forever. The
+ *  writer also bounds each attempt itself (writerSupport.ts). */
+const PG_STATEMENT_TIMEOUT_MS = 15_000;
+const PG_LOCK_TIMEOUT_MS = 5_000;
+const PG_IDLE_IN_TRANSACTION_TIMEOUT_MS = 15_000;
+
 /** One record = one transaction. ON CONFLICT DO NOTHING on every table makes a
  *  retry of a write that in fact committed a no-op rather than an error. */
 async function writeRows(db: LedgerDb, rows: LedgerRows): Promise<void> {
@@ -57,7 +66,16 @@ async function openPostgres(url: string): Promise<LedgerStore> {
   // ONE connection: the writer is strictly one record at a time. Notices
   // (e.g. "schema already exists, skipping" from the migrator) are dropped —
   // postgres-js would otherwise print them to stdout outside log.ts's format.
-  const client = postgres(url, { max: 1, onnotice: () => {} });
+  const client = postgres(url, {
+    max: 1,
+    onnotice: () => {},
+    connect_timeout: PG_CONNECT_TIMEOUT_S,
+    connection: {
+      statement_timeout: PG_STATEMENT_TIMEOUT_MS,
+      lock_timeout: PG_LOCK_TIMEOUT_MS,
+      idle_in_transaction_session_timeout: PG_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    },
+  });
   const close = () => client.end({ timeout: 5 });
   try {
     await inPhase('connect', () => client`select 1`);

@@ -287,9 +287,9 @@ services:
 #
 # COST: plan `0.1c-256mb` is Render's smallest PAID Postgres (Blueprint spec,
 # render.com/docs/blueprint-spec; ~$6/month on render.com/pricing) plus storage
-# at ~$0.30 per GB-month. `diskSizeGB` is left at Render's default for this
-# plan (15 GB, roughly $4.50/month more); it can be raised later but never
-# lowered, and `1` is the smallest it can be declared.
+# at ~$0.30 per GB-month. `diskSizeGB: 1` is the smallest it can be declared
+# (Eric 2026-11-18; Render's default for this plan would be 15 GB, ~$4.50/month).
+# It can be raised later but NEVER lowered.
 #
 # `ipAllowList: []` blocks EVERY public-internet connection: only Render's
 # private network (the staging service) can reach it. `region` must match the
@@ -301,5 +301,6 @@ services:
 databases:
   - name: hullcracker-dev-db
     plan: 0.1c-256mb
+    diskSizeGB: 1
     region: oregon
     ipAllowList: []

@@ -9,14 +9,15 @@
 //                        existed, and no database code is even loaded.
 //
 // The store opens asynchronously (store.ts, dynamically imported), so the
-// writer exists at once and queues until it is ready; if it never opens the
-// writer turns itself off (writer.ts). Boot never waits for, or fails on, the
+// writer exists at once and queues until it is ready; the writer retries a
+// failed or overlong open, and if it never opens turns itself off (writer.ts). Boot never waits for, or fails on, the
 // database.
 
 import { fileURLToPath } from 'node:url';
 import { NullWriter, type AccountWriter } from '../game/accountWriter.js';
 import { LedgerWriter } from './writer.js';
 import { inPhase, type LedgerStore, type StoreTarget } from './storeTypes.js';
+import type { LedgerWriterOptions } from './writerSupport.js';
 
 /** HC_DEV_DB=pglite's on-disk database: server/.pglite (gitignored), resolved
  *  from this module's file so src/ledger (tsx) and dist/ledger (node) agree. */
@@ -36,9 +37,10 @@ async function openTarget(target: StoreTarget): Promise<LedgerStore> {
   return openStore(target);
 }
 
-/** A ledger writer on an explicit target (the tests' in-memory PGlite). */
-export function createLedgerWriter(target: StoreTarget): LedgerWriter {
-  return new LedgerWriter(openTarget(target));
+/** A ledger writer on an explicit target; every open retry re-opens it.
+ *  `opts` lets the tests shrink the writer's time bounds. */
+export function createLedgerWriter(target: StoreTarget, opts: LedgerWriterOptions = {}): LedgerWriter {
+  return new LedgerWriter(() => openTarget(target), opts);
 }
 
 /** THE BOOT FACTORY: the ledger when the environment names a store, else the

@@ -2,7 +2,7 @@
 title: '12.1 The Match Ledger'
 type: 'feature'
 created: '2026-11-18'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '1de230e3'
 review_loop_iteration: 0
 context:
@@ -101,6 +101,21 @@ warnings: ['oversized']
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-11-18 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6 (high 2, medium 3, low 1)
+- defer: 1 (low 1)
+- reject: 1 (medium 1)
+- addressed_findings:
+  - `[high]` `[patch]` ledger.write.failed logged Drizzle's wrapper message (full SQL + every bound value) and hid the Postgres cause — log the root cause, redacted, truncated (Blind + Edge, reproduced)
+  - `[high]` `[patch]` no deadline on any database call: a hung open or write wedged the queue — server-side statement/lock/idle-in-tx timeouts + application deadlines on open and each write attempt (Codex + Blind + Edge)
+  - `[medium]` `[patch]` a disabled ledger read as idle on /metrics and dropped records went uncounted — drops counted in writeFailed, `ledger.enabled` added, close() accounts stranded records (Blind + Edge)
+  - `[medium]` `[patch]` one failed connect at boot disabled the ledger for the process life — open retried 3× 10 s apart (Blind)
+  - `[medium]` `[patch]` a stray shell DATABASE_URL made the server test suite open a real database — vitest env clears DATABASE_URL / HC_DEV_DB (Blind)
+  - `[low]` `[patch]` overflow warning re-armed after every write — reset at a half-cap low-water mark (Blind + Edge)
+  - rejected: disable the writer after repeated write failures (Codex only) — the spec makes a failure per-match by design
 
 ## Design Notes
 

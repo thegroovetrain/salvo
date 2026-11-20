@@ -41,6 +41,7 @@ import {
   recordCloudsLive,
   recordLedgerWriteOk,
   recordLedgerWriteFailed,
+  setLedgerEnabled,
   setLedgerQueueDepth,
   nearestRank,
   computeTickPercentiles,
@@ -270,7 +271,7 @@ describe('metricsPayload counts', () => {
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
       world: { minesLivePeak: 0, cloudLivePeak: 0 },
-      ledger: { writeOk: 0, writeFailed: 0, queueDepth: 0 },
+      ledger: { enabled: false, writeOk: 0, writeFailed: 0, queueDepth: 0 },
     });
   });
 });
@@ -354,16 +355,18 @@ describe('metricsEndpoint direct invocation', () => {
 });
 
 // Story 12.1 — the match ledger's counters: two since-start counts and one
-// live gauge, zeroed by resetMetrics like every other group.
+// live gauge, plus whether it is on at all, zeroed by resetMetrics like every
+// other group.
 describe('ledger group', () => {
-  it('counts writes, reports the live queue depth, and resets to zero', () => {
+  it('counts writes, reports the live queue depth and enabled flag, and resets', () => {
     recordLedgerWriteOk();
     recordLedgerWriteOk();
     recordLedgerWriteFailed();
     setLedgerQueueDepth(3);
     setLedgerQueueDepth(1); // a gauge: the latest value, not a peak
-    expect(metricsPayload().ledger).toEqual({ writeOk: 2, writeFailed: 1, queueDepth: 1 });
+    setLedgerEnabled(true);
+    expect(metricsPayload().ledger).toEqual({ enabled: true, writeOk: 2, writeFailed: 1, queueDepth: 1 });
     resetMetrics();
-    expect(metricsPayload().ledger).toEqual({ writeOk: 0, writeFailed: 0, queueDepth: 0 });
+    expect(metricsPayload().ledger).toEqual({ enabled: false, writeOk: 0, writeFailed: 0, queueDepth: 0 });
   });
 });

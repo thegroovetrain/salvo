@@ -63,7 +63,7 @@ function gate(): { wait: Promise<void>; open: () => void } {
 describe('LedgerWriter on PGlite with the real migrations', () => {
   it('writes a finished match as one match row + participants + hands, with no callsign column', async () => {
     const { client, store } = await freshDb();
-    const writer = new LedgerWriter(Promise.resolve(store));
+    const writer = new LedgerWriter(async () => store);
     const record = fixtureRecord();
     const handTotal = record.participants.reduce((n, p) => n + p.hands.length, 0);
 
@@ -98,7 +98,7 @@ describe('LedgerWriter on PGlite with the real migrations', () => {
     );
     expect(lh.rows).toEqual(leaver.hands.map((h) => ({ dealt_at_ms: h.dealtAtMs, placement: 0 })));
 
-    expect(metricsPayload().ledger).toEqual({ writeOk: 1, writeFailed: 0, queueDepth: 0 });
+    expect(metricsPayload().ledger).toEqual({ enabled: true, writeOk: 1, writeFailed: 0, queueDepth: 0 });
     expect(linesFor('ledger.write.ok')).toHaveLength(1);
     expect(linesFor('ledger.write.ok')[0]).toContain(`"rows":${1 + record.participants.length + handTotal}`);
     await writer.close();
@@ -106,7 +106,7 @@ describe('LedgerWriter on PGlite with the real migrations', () => {
 
   it('a draw stores its empty winner as-is', async () => {
     const { client, store } = await freshDb();
-    const writer = new LedgerWriter(Promise.resolve(store));
+    const writer = new LedgerWriter(async () => store);
     void writer.recordMatch(fixtureRecord('m-draw', 'draw'));
     await writer.flush();
     const res = await client.query<{ winner_id: string; outcome: string }>(`select winner_id, outcome from matches`);
@@ -122,7 +122,7 @@ describe('LedgerWriter on PGlite with the real migrations', () => {
       await real.write(rows);
       if (calls === 1) throw new Error('connection lost after commit');
     });
-    const writer = new LedgerWriter(Promise.resolve(flaky));
+    const writer = new LedgerWriter(async () => flaky);
     const record = fixtureRecord();
     void writer.recordMatch(record);
     await writer.flush();
@@ -140,13 +140,13 @@ describe('LedgerWriter on PGlite with the real migrations', () => {
       if (rows.match.id === 'm-bad') throw new Error('write refused for postgres://ledger:hunter2@db.internal:5432/hc');
       await real.write(rows);
     });
-    const writer = new LedgerWriter(Promise.resolve(broken));
+    const writer = new LedgerWriter(async () => broken);
 
     await expect(writer.recordMatch(fixtureRecord('m-bad'))).resolves.toBeUndefined();
     await expect(writer.recordMatch(fixtureRecord('m-good'))).resolves.toBeUndefined();
     await writer.flush();
 
-    expect(metricsPayload().ledger).toEqual({ writeOk: 1, writeFailed: 1, queueDepth: 0 });
+    expect(metricsPayload().ledger).toEqual({ enabled: true, writeOk: 1, writeFailed: 1, queueDepth: 0 });
     const failed = linesFor('ledger.write.failed');
     expect(failed).toHaveLength(1);
     expect(failed[0]).toContain('"matchId":"m-bad"');
@@ -159,14 +159,14 @@ describe('LedgerWriter on PGlite with the real migrations', () => {
   it('records arriving before the store opens wait, and flush drains them all', async () => {
     const { client, store } = await freshDb();
     const opened = gate();
-    const writer = new LedgerWriter(opened.wait.then(() => store));
+    const writer = new LedgerWriter(() => opened.wait.then(() => store));
     for (const id of ['m-1', 'm-2', 'm-3']) void writer.recordMatch(fixtureRecord(id));
     expect(metricsPayload().ledger.queueDepth).toBe(3);
 
     opened.open();
     await writer.flush();
     expect(await count(client, 'matches')).toBe(3);
-    expect(metricsPayload().ledger).toEqual({ writeOk: 3, writeFailed: 0, queueDepth: 0 });
+    expect(metricsPayload().ledger).toEqual({ enabled: true, writeOk: 3, writeFailed: 0, queueDepth: 0 });
     expect(linesFor('ledger.ready')).toHaveLength(1);
     await writer.close();
   });
@@ -181,7 +181,7 @@ describe('LedgerWriter bounds', () => {
       await real.write(rows);
     });
     const cap = 2;
-    const writer = new LedgerWriter(Promise.resolve(slow), { queueCap: cap });
+    const writer = new LedgerWriter(async () => slow, { queueCap: cap });
     await writer.recordMatch(fixtureRecord('m-0'));
     await new Promise((r) => setImmediate(r)); // the store is up; m-0 is in flight
     const dropped = 3;
@@ -193,7 +193,7 @@ describe('LedgerWriter bounds', () => {
     held.open();
     await writer.flush();
     expect(await count(client, 'matches')).toBe(cap);
-    expect(metricsPayload().ledger).toEqual({ writeOk: cap, writeFailed: dropped, queueDepth: 0 });
+    expect(metricsPayload().ledger).toMatchObject({ writeOk: cap, writeFailed: dropped, queueDepth: 0 });
 
     // A new burst after the queue drained logs again.
     for (let i = 0; i < cap + 1; i++) void writer.recordMatch(fixtureRecord(`m-next-${i}`));
@@ -205,31 +205,34 @@ describe('LedgerWriter bounds', () => {
 
   it('flush is bounded: a store that never answers cannot hold shutdown', async () => {
     const { store } = await freshDb();
+    // (Each write attempt has its own deadline too — ledgerWriterFaults.test.ts.)
     const stuck = wrapped(store, () => new Promise<void>(() => {}));
-    const writer = new LedgerWriter(Promise.resolve(stuck), { flushTimeoutMs: 20 });
+    const writer = new LedgerWriter(async () => stuck, { flushTimeoutMs: 20 });
     void writer.recordMatch(fixtureRecord());
     await expect(writer.flush()).resolves.toBeUndefined();
     expect(linesFor('ledger.flush.timeout')).toHaveLength(1);
     expect(linesFor('ledger.flush.timeout')[0]).toContain('"left":1');
-    await store.close();
+    await writer.close();
   });
 });
 
 describe('a store that never opens', () => {
-  it('turns the writer off with exactly one ledger.disabled, drops silently, never leaks the URL', async () => {
+  it('retries, then turns the writer off with exactly one ledger.disabled, counts every drop, never leaks the URL', async () => {
     const url = 'postgres://nobody:s3cret-pw@127.0.0.1:1/x';
-    const writer = createLedgerWriter({ kind: 'postgres', url });
+    const writer = createLedgerWriter({ kind: 'postgres', url }, { openRetryDelayMs: 1 });
     for (const id of ['m-1', 'm-2']) await expect(writer.recordMatch(fixtureRecord(id))).resolves.toBeUndefined();
     await writer.flush();
     for (const id of ['m-3', 'm-4']) await expect(writer.recordMatch(fixtureRecord(id))).resolves.toBeUndefined();
     await writer.flush();
 
+    expect(linesFor('ledger.open.retry')).toHaveLength(2);
     const disabled = linesFor('ledger.disabled');
     expect(disabled).toHaveLength(1);
     expect(disabled[0]).toContain('"reason":"connect"');
     expect(lines.join('\n')).not.toMatch(/postgres:\/\/|s3cret-pw|nobody/);
     expect(linesFor('ledger.write.failed')).toHaveLength(0);
-    expect(metricsPayload().ledger).toEqual({ writeOk: 0, writeFailed: 0, queueDepth: 0 });
+    // Two queued while opening (cleared by disable) + two arriving while off.
+    expect(metricsPayload().ledger).toEqual({ enabled: false, writeOk: 0, writeFailed: 4, queueDepth: 0 });
     await writer.close();
   });
 });

@@ -3879,3 +3879,10 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low - Eric's if it matters - 2026-11-16
   summary: THE STAR-SHELL LIT LIFT NO LONGER HELPS A BOT'S MAIN BATTERY IN PRACTICE - a shot past gun reach is far below the 20 % hit bar, so the bot holds; the lift still works for a human captain.
   evidence: review gate (Blind Hunter); `server/src/game/ai/doctrine.ts` `effectiveReach`, `battery.ts` `clearsHitBar`.
+
+## 2026-11-18 - Story 12.1 The Match Ledger
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-1-the-match-ledger.md`
+  status: open - low - dev only - 2026-11-18
+  summary: TWO LOCAL SERVERS WITH HC_DEV_DB=pglite SHARE ONE server/.pglite DIRECTORY - PGlite is single-process and nothing locks the folder, so a second process can fail to open it (ledger.disabled) or corrupt the dev data. Production (DATABASE_URL) is unaffected; plain npm run dev is ledger-OFF.
+  evidence: review gate (Edge Case Hunter); `server/src/ledger/index.ts` fixed dev path, `server/src/ledger/store.ts` openPglite.
