@@ -144,8 +144,8 @@ export function interactionLine(
  *
  * THE MAIN BATTERY (a captain's slot 0 since Story 10.4) joins it (Story 12.3
  * Part B, AC 40 — every weapon row wears a tier mark): its fold row carries a
- * `tier` like theirs. No ladder hosts on it today, so it reads its fold's
- * tier I. [reading: Story 12.3 Part B — the main battery's tier]
+ * `tier` like theirs. No ladder hosts on it, so it reads its fold's tier I —
+ * but the HUD bar prints NO mark for it (`hasTierLadder`, Eric 2026-11-20).
  */
 const GUN_FAMILY: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak', 'mainBattery']);
 
@@ -197,6 +197,14 @@ const EQUIPMENT_LINE: ReadonlyMap<string, string> = new Map(
 /** Pure: the catalog line whose first copy FITS this equipment, or null. */
 export function lineForEquipment(id: EquipmentId): string | null {
   return EQUIPMENT_LINE.get(id) ?? null;
+}
+
+/** Pure: does any catalog ladder climb this equipment? False for the main
+ *  battery (no line targets it — Eric 2026-11-20: *"The Main Gun DOES NOT
+ *  HAVE A TIERED UPGRADE"*), so the HUD bar leaves its tier-mark slot empty
+ *  even though its fold row carries a structural `tier` of 1. */
+export function hasTierLadder(id: EquipmentId): boolean {
+  return EQUIPMENT_LINE.has(id);
 }
 
 /**

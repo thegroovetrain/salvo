@@ -48,6 +48,8 @@ import {
   type WeaponsInput,
 } from '../render/console/readouts.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { lineForEquipment } from '../render/equipmentInfo.js';
+import { tierMarkModel } from '../render/console/skins.js';
 
 const CLS = DEFAULT_CLASS_ID;
 const SHIP: ReadoutShip = { cls: CLS, cards: [], ib: {}, shift: 'boost' };
@@ -288,6 +290,36 @@ describe('a non-finite distance reads EMPTY, never a bare unit (Story 11.2 gate 
     const rs = byKey(consoleReadouts({ stats, loadout, cards: [], cls: CLS }));
     expect(rs.get(READOUT_KEY.stat('secondaries', 'rangeU'))?.value).toBe('');
     expect(rs.get(READOUT_KEY.stat('mainBattery', 'rangeU'))?.value).toBe('');
+  });
+});
+
+describe('the tier mark follows the data: a row with no ladder has no mark (Eric 2026-11-20)', () => {
+  it('a row is tiered exactly when a catalog line climbs its equipment; an untiered row reads tier 0 and emits no tier readout', () => {
+    const input = weaponsInput(['heavyTorpedo']);
+    const rows = weaponRowModels(input);
+    const keys = new Set(input.readouts.map((r) => r.key));
+    for (const row of rows) {
+      if (row.id === null) continue;
+      expect(row.tiered, row.kind).toBe(lineForEquipment(row.id) !== null);
+      if (!row.tiered) {
+        expect(row.tier).toBe(0);
+        expect(row.tierNumeral).toBe('');
+        expect(keys.has(READOUT_KEY.tier(row.kind))).toBe(false);
+      }
+    }
+  });
+
+  it('the main battery has no ladder, so its row is untiered (an empty tier slot) while a fitted torpedo is tiered', () => {
+    const rows = weaponRowModels(weaponsInput(['heavyTorpedo']));
+    const mb = rows[WEAPON_ROW_KINDS.indexOf('mainBattery')];
+    expect(lineForEquipment('mainBattery')).toBeNull();
+    expect(mb.tiered).toBe(false);
+    expect(tierMarkModel(mb.tier, undefined, mb.tiered)).toBeNull();
+    const torp = rows[WEAPON_ROW_KINDS.indexOf('torpedo')];
+    expect(torp.tiered).toBe(true);
+    expect(tierMarkModel(torp.tier, undefined, torp.tiered)).not.toBeNull();
+    // An empty Q / E / R slot keeps its five empty dots.
+    expect(rows[WEAPON_ROW_KINDS.indexOf('mines')].tiered).toBe(true);
   });
 });
 

@@ -113,17 +113,28 @@ import {
   hullFraction,
   hullHoldsLit,
   NO_SHIFT_WINDOW,
+  shipFold,
   shiftWindowFor,
   weaponRowModels,
   type AbilityModel,
   type PreviewMarks,
   type Readout,
+  type ReadoutShip,
   type ShiftWindow,
   type WeaponRowModel,
 } from './render/console/readouts.js';
 import { HudBar, type HudBarView } from './render/console/hudBar.js';
-import { abilityFlyout, cardFlyout, previewTarget, weaponFlyout, type FlyoutModel, type PreviewTarget } from './render/console/flyout.js';
-import { HudFlyout } from './ui/hudFlyout.js';
+import {
+  abilityFlyout,
+  cardFlyout,
+  previewTarget,
+  shipCardFlyouts,
+  weaponFlyout,
+  type FlyoutModel,
+  type FoldPair,
+  type PreviewTarget,
+} from './render/console/flyout.js';
+import { HudFlyout, type FlyoutItem } from './ui/hudFlyout.js';
 import {
   followSpectateTarget,
   pickSpectateTarget,
@@ -774,6 +785,13 @@ interface ConsoleCache {
   preview: PreviewMarks | null;
   /** The tile the hover marks point at (`previewTarget`), with them. */
   target: PreviewTarget | null;
+  /** A hovered SHIP-stat card's before / after folds (its ability boxes
+   *  compare them); null for any other card. */
+  folds: FoldPair | null;
+  /** A hovered ship-stat card's boxes, placed — memoised on (marks,
+   *  readouts, layout) so a held hover allocates nothing per frame. */
+  shipItems: readonly FlyoutItem[];
+  shipItemsKey: { preview: PreviewMarks | null; readouts: readonly Readout[] | null; layout: ConsoleLayout | null };
   /** The bar's denied flags, reused frame to frame. */
   denied: { rows: boolean[]; abilities: boolean[] };
 }
@@ -791,6 +809,9 @@ function freshConsoleCache(): ConsoleCache {
     previewWindow: NO_SHIFT_WINDOW,
     preview: null,
     target: null,
+    folds: null,
+    shipItems: [],
+    shipItemsKey: { preview: null, readouts: null, layout: null },
     denied: { rows: WEAPON_ROW_KINDS.map(() => false), abilities: ABILITY_KINDS.map(() => false) },
   };
 }
@@ -3424,7 +3445,7 @@ function updateConsoles(
   g.consolesShown = true;
   // Space-home at the centre of the open water beside the SCALED bar (fix 10).
   g.camera.setFocusOffset(openWaterOffset(layout.side, layout.bar.scale) * g.uiScale);
-  updateFlyout(g, layout, flyoutNow(g, status, rows, abilities, hover));
+  updateFlyout(g, layout, status, rows, abilities, hover);
 }
 
 /** One frame's shared bar inputs. */
@@ -3518,10 +3539,25 @@ function hoverMarksNow(g: Game, shiftWin: ShiftWindow): PreviewMarks | null {
   c.previewLine = g.hoverLine;
   c.previewStats = g.ownStats;
   c.previewWindow = shiftWin;
-  const you = g.state.net.you;
-  c.preview = you ? hoverPreview({ cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT, window: shiftWin }, g.hoverLine, g.ownSlots) : null;
+  const ship = ownReadoutShip(g, shiftWin);
+  c.preview = ship ? hoverPreview(ship, g.hoverLine, g.ownSlots) : null;
   c.target = previewTarget(c.preview);
+  c.folds = ship !== null && c.target?.kind === 'ship' ? foldPair(ship, g.hoverLine) : null;
   return c.preview;
+}
+
+/** The own ship's fold inputs under the running Shift window, or null. */
+function ownReadoutShip(g: Game, shiftWin: ShiftWindow): ReadoutShip | null {
+  const you = g.state.net.you;
+  return you ? { cls: you.cls, cards: you.cards, ib: you.ib ?? {}, shift: you.shift ?? DEFAULT_SHIFT, window: shiftWin } : null;
+}
+
+/** The own fold without and with a hovered card line, or null. */
+function foldPair(ship: ReadoutShip, line: string | null): FoldPair | null {
+  if (line === null) return null;
+  const before = shipFold(ship);
+  const after = shipFold(ship, line);
+  return before === null || after === null ? null : { before, after };
 }
 
 /** The bar's frame — the sources the consoles read, unchanged: the hull off
@@ -3573,17 +3609,18 @@ interface FlyoutAt {
   ability: boolean;
 }
 
-/** What the flyout shows this frame and where (AC 34 / 36), or null: a hovered
- *  card that changes a weapon or ability tile opens its changes there; else
- *  the tile under the pointer opens its stats. A ship-stat card opens nothing. */
+/** What the ONE flyout shows this frame and where (AC 34 / 36), or null: a
+ *  hovered card that changes a weapon or ability tile opens its changes
+ *  there; else the tile under the pointer opens its stats. (A ship-stat card
+ *  opens its boxes in `updateFlyout`.) */
 function flyoutNow(
   g: Game,
   status: OwnStatus,
   rows: readonly WeaponRowModel[],
   abilities: readonly AbilityModel[],
   hover: BarHover | null,
+  card: { name: string; rows: Parameters<typeof cardFlyout>[1] } | null,
 ): FlyoutAt | null {
-  const card = g.hoverLine === null ? null : g.offerGroup.hoveredCard();
   if (card !== null) return cardFlyoutAt(g.consoleCache.target, card.name, card.rows);
   if (hover === null) return null;
   if (hover.kind === 'ability') {
@@ -3605,19 +3642,53 @@ function cardFlyoutAt(t: PreviewTarget | null, name: string, rows: Parameters<ty
     : { model, row: ABILITY_KINDS.indexOf(t.ability), ability: true };
 }
 
-/** Open the flyout beside the bar, level with its row — or close it. */
-function updateFlyout(g: Game, layout: ConsoleLayout, f: FlyoutAt | null): void {
-  if (f === null) {
-    g.flyout.hide();
+/** Open the flyout(s) beside the bar, level with their rows — or close them.
+ *  A hovered SHIP-stat card opens one box per tile whose shown stats it
+ *  moves (Eric 2026-11-20); anything else opens at most one. */
+function updateFlyout(
+  g: Game,
+  layout: ConsoleLayout,
+  status: OwnStatus,
+  rows: readonly WeaponRowModel[],
+  abilities: readonly AbilityModel[],
+  hover: BarHover | null,
+): void {
+  const card = g.hoverLine === null ? null : g.offerGroup.hoveredCard();
+  if (card !== null && g.consoleCache.target?.kind === 'ship') {
+    const items = shipFlyoutItems(g, layout, rows, abilities);
+    if (items.length === 0) g.flyout.hide();
+    else g.flyout.showAll(items, g.uiScale, g.stage.app.screen.height);
     return;
   }
+  const f = flyoutNow(g, status, rows, abilities, hover, card);
+  const anchor = f === null ? null : flyoutAnchor(layout, f);
+  if (f === null || anchor === null) g.flyout.hide();
+  else g.flyout.show(f.model, anchor, g.uiScale, g.stage.app.screen.height);
+}
+
+/** Where a box opens: the bar's water-side edge, level with its tile's top
+ *  (bar space × the bar's fit factor to the logical screen); null for a
+ *  tile the layout does not hold. */
+function flyoutAnchor(layout: ConsoleLayout, f: { row: number; ability: boolean }): FlyoutItem['anchor'] | null {
   const tile = f.ability ? layout.bar.abilities.tiles[f.row] : layout.bar.weapons.tiles[f.row];
-  if (tile === undefined) {
-    g.flyout.hide();
-    return;
-  }
-  // The tile's top is in bar space: × the bar's fit factor to the logical screen.
-  g.flyout.show(f.model, { x: layout.bar.openEdge, y: tile.y * layout.bar.scale, side: layout.side }, g.uiScale, g.stage.app.screen.height);
+  return tile === undefined ? null : { x: layout.bar.openEdge, y: tile.y * layout.bar.scale, side: layout.side };
+}
+
+/** A hovered ship-stat card's boxes, placed (`shipCardFlyouts`), memoised on
+ *  the marks, the readouts the rows print and the layout. */
+function shipFlyoutItems(g: Game, layout: ConsoleLayout, rows: readonly WeaponRowModel[], abilities: readonly AbilityModel[]): readonly FlyoutItem[] {
+  const c = g.consoleCache;
+  const key = c.shipItemsKey;
+  if (key.preview === c.preview && key.readouts === c.readouts && key.layout === layout) return c.shipItems;
+  key.preview = c.preview;
+  key.readouts = c.readouts;
+  key.layout = layout;
+  const boxes = c.preview === null ? [] : shipCardFlyouts(rows, abilities, c.preview, c.folds, g.state.net.you?.shift ?? DEFAULT_SHIFT);
+  c.shipItems = boxes.flatMap((b) => {
+    const anchor = flyoutAnchor(layout, b);
+    return anchor === null ? [] : [{ model: b.model, anchor }];
+  });
+  return c.shipItems;
 }
 
 /** The five rows' inputs (readouts.ts `WeaponsInput`). */

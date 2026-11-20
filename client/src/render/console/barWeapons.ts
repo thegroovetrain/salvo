@@ -2,10 +2,11 @@
 // section's five tiles, a thin Pixi painter over the pure model (readouts.ts),
 // the spine (layout.ts) and the fixed icon slots (slots.ts):
 //
-//   MAIN BATTERY      II ●●○○○ [LMB]  every row: NAME, the TIER MARK (AC 40)
+//   MAIN BATTERY               [LMB]  every row: NAME, the TIER MARK (AC 40)
 //   ▯ ▯ ▯ ▯                            in ONE column, the key chip in its
 //                                      fixed slot; one shell per turret,
 //                                      filling from the bottom, seconds inside
+//                                      (no ladder climbs it: no mark)
 //   SECONDARIES                [RMB]   the heat bar (untiered: no mark)
 //   HEAVY TORPEDO     II ●●○○○ [ Q ]   four tubes in two pairs (fore, aft);
 //   ▯▯  ▯▯                             locked tubes dashed gray, in place
@@ -165,7 +166,7 @@ export class WeaponTiles {
     place(tt.name, row.name, l.x, cy, this.uiScale);
     tt.name.alpha = row.state === 'empty' ? EMPTY_NAME_ALPHA : 1;
     drawChip(this.gfx, tt.chip, row.keyGlyph, r.chipSlot.x + r.chipSlot.w, cy, { armed: row.readied, denied, uiScale: this.uiScale });
-    drawTierMark(this.gfx, tt.tier, r.tierMark, tierMarkModel(row.tier, preview?.get(READOUT_KEY.tier(row.kind)), row.kind !== 'secondaries'), this.uiScale);
+    drawTierMark(this.gfx, tt.tier, r.tierMark, tierMarkModel(row.tier, preview?.get(READOUT_KEY.tier(row.kind)), row.tiered), this.uiScale);
   }
 
   private drawBody(row: WeaponRowModel, body: Rect, tt: TileTexts, f: Frame): void {
