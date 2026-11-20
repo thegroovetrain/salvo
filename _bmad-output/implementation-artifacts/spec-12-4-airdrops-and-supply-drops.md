@@ -49,7 +49,7 @@ The story file (`12-4-airdrops-and-radio-beacons.md`) holds the ACs; epic-12 ame
 
 ## Verification
 
-- `npm run check` green — final counts: <final counts at PR> (shared / server / client / hook test).
+- `npm run check` green — final counts: shared 1459, server 2986, client 4443, hooks 266 (shared / server / client / hook test).
 - Review gate: two Fable reviewers + Codex. Findings and fixes:
   - Supply crates could overlap crates of another spot (both models): a supply crate now never lands within 2 x the crate radius of any crate on the water.
   - Room streams recoverable from the public chart (Fable, reproduced in about 34 s): spot, scatter and roll streams keyed by HMAC from the room key; the story's pseudonym-material seeding is NOT used.
@@ -57,7 +57,7 @@ The story file (`12-4-airdrops-and-radio-beacons.md`) holds the ACs; epic-12 ame
   - Flash re-rasterized text: now via tint.
   - A landing cue played after the match was over: suppressed.
   - A bot could stall on an unreachable supply spot: it drops the spot and bars it for the retry time.
-- Pre-PR: `tickCost.mjs` old vs new: <tickCost old vs new at PR>; `glBudget.mjs`, `playCheck.mjs`, `matchSmoke` + `weaponsSmoke` — results in the PR body.
+- Pre-PR: `tickCost.mjs` old vs new: seed 7, 16 hulls, 90 s: mean 4.11 -> 4.54 ms/tick, p95 6.52 -> 7.26, p99 8.26 -> 9.01, max 12.76 -> 13.87; playCheck PASS, glBudget PASS; matchSmoke + weaponsSmoke + soloSmoke OK (matchSmoke's first run failed on a pinned damage that the level roll now changes; fixed by the dev-only `matchOverride.statRoll: false`); `glBudget.mjs`, `playCheck.mjs`, `matchSmoke` + `weaponsSmoke` — results in the PR body.
 
 ## Files changed
 
