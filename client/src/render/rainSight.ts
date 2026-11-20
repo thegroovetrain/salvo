@@ -233,9 +233,50 @@ export function rainLookMode(vis: ArrayLike<number> | null, filterSupported: boo
   return filterSupported ? 'filter' : 'fade';
 }
 
+/**
+ * Pure: V at ONE point seen from `eye` — τ = rain + smoke + distance haze,
+ * the term a hull's grid point at that spot gets (`hullVisGrid`), floored at
+ * `SENT_FLOOR_V` (the server SENT the thing, so it is never drawn fully
+ * gone). The CRATE's visibility (2026-11-20, epic-12 amendment 10: a crate is
+ * seen "exactly like a hull" — one small mark, one alpha, asked of its centre,
+ * the point the server's `crateHeld` gates it on).
+ */
+export function pointVisibility(eye: RainEye, px: number, py: number): number {
+  const rain = eye.frame === null ? 0 : fogDepthAlong(eye.frame, eye.x, eye.y, px, py);
+  const tau = rain + smokeDepthAlong(eye.smoke ?? NO_SMOKE, eye.x, eye.y, px, py, SMOKE_SIGHT) + hazeDepth(eye, px, py);
+  return Math.max(SENT_FLOOR_V, fogVisibility(tau, CONFIG.fog));
+}
+
 /** Successive hulls start their re-march clocks this far apart (ms), so a fleet never marches on one frame. */
 const STAGGER_MS = 37;
 let staggerSeq = 0;
+
+/** The re-march cadence of one drawn thing: due on first sight, then every
+ *  `visRefreshMs`, never twice for one frame. */
+class RefreshClock {
+  fresh = true;
+  private sinceMs: number;
+
+  constructor(phaseMs: number = (staggerSeq++ * STAGGER_MS) % L.visRefreshMs) {
+    this.sinceMs = phaseMs;
+  }
+
+  /** Advance by `dt`: is a march due this frame? */
+  due(dt: number): boolean {
+    this.sinceMs += dt;
+    if (!this.fresh && this.sinceMs < L.visRefreshMs) return false;
+    this.sinceMs = this.fresh ? this.sinceMs % L.visRefreshMs : this.sinceMs - L.visRefreshMs;
+    if (this.sinceMs >= L.visRefreshMs) this.sinceMs = 0; // a long gap
+    return true;
+  }
+}
+
+/** The per-frame ease share toward the latest march over `dt` ms. */
+function easeShare(dt: number): number {
+  return L.visEaseMs > 0 ? 1 - Math.exp(-dt / L.visEaseMs) : 1;
+}
+
+const cleanDt = (dtMs: number): number => (Number.isFinite(dtMs) && dtMs > 0 ? dtMs : 0);
 
 /**
  * One hull's drawn visibility grid over time: re-marched on the cadence,
@@ -247,11 +288,10 @@ export class HullRainVis {
   readonly vis = new Float32Array(RAIN_GRID_N).fill(1);
   private readonly target = new Float32Array(RAIN_GRID_N).fill(1);
   private readonly pts = new Float64Array(2 * RAIN_GRID_N);
-  private sinceMs: number;
-  private fresh = true;
+  private readonly clock: RefreshClock;
 
-  constructor(phaseMs: number = (staggerSeq++ * STAGGER_MS) % L.visRefreshMs) {
-    this.sinceMs = phaseMs;
+  constructor(phaseMs?: number) {
+    this.clock = new RefreshClock(phaseMs);
   }
 
   /**
@@ -263,28 +303,56 @@ export class HullRainVis {
   step(rawEye: RainEye | null, x: number, y: number, heading: number, lengthU: number, beamU: number, dtMs: number): Float32Array | null {
     const eye = eyeForHull(rawEye, x, y);
     if (eye === null) {
-      this.fresh = true;
+      this.clock.fresh = true;
       return null;
     }
-    const dt = Number.isFinite(dtMs) && dtMs > 0 ? dtMs : 0;
-    if (this.due(dt)) hullVisGrid(eye, x, y, heading, lengthU, beamU, this.pts, this.target);
-    if (this.fresh) {
+    const dt = cleanDt(dtMs);
+    if (this.clock.due(dt)) hullVisGrid(eye, x, y, heading, lengthU, beamU, this.pts, this.target);
+    if (this.clock.fresh) {
       this.vis.set(this.target);
-      this.fresh = false;
+      this.clock.fresh = false;
       return this.vis;
     }
-    const k = L.visEaseMs > 0 ? 1 - Math.exp(-dt / L.visEaseMs) : 1;
+    const k = easeShare(dt);
     for (let i = 0; i < RAIN_GRID_N; i++) this.vis[i] += (this.target[i] - this.vis[i]) * k;
     return floorSentHull(this.vis); // easing between two floored grids can dip every part under the floor
   }
+}
 
-  /** Advance the re-march clock by `dt`: is a march due this frame? (always on first sight; never twice for one frame) */
-  private due(dt: number): boolean {
-    this.sinceMs += dt;
-    if (!this.fresh && this.sinceMs < L.visRefreshMs) return false;
-    this.sinceMs = this.fresh ? this.sinceMs % L.visRefreshMs : this.sinceMs - L.visRefreshMs;
-    if (this.sinceMs >= L.visRefreshMs) this.sinceMs = 0; // a long gap
-    return true;
+/**
+ * One POINT's drawn visibility over time (a crate, 2026-11-20): `HullRainVis`
+ * for a single point — the same cadence (one march per `visRefreshMs`,
+ * staggered), the same ease, snapped on first sight. No allocation.
+ */
+export class PointRainVis {
+  /** The drawn V. */
+  v = 1;
+  private target = 1;
+  private readonly clock: RefreshClock;
+
+  constructor(phaseMs?: number) {
+    this.clock = new RefreshClock(phaseMs);
+  }
+
+  /** Advance by `dtMs` with the point at (x, y) seen from `eye`. Returns the
+   *  drawn V — 1 with no eye (a spectator, or lit from above by an own star
+   *  shell; the next eye snaps again). */
+  step(rawEye: RainEye | null, x: number, y: number, dtMs: number): number {
+    const eye = eyeForHull(rawEye, x, y);
+    if (eye === null) {
+      this.clock.fresh = true;
+      this.v = 1;
+      return 1;
+    }
+    const dt = cleanDt(dtMs);
+    if (this.clock.due(dt)) this.target = pointVisibility(eye, x, y);
+    if (this.clock.fresh) {
+      this.clock.fresh = false;
+      this.v = this.target;
+      return this.v;
+    }
+    this.v += (this.target - this.v) * easeShare(dt);
+    return this.v; // between two floored values: never under the floor
   }
 }
 

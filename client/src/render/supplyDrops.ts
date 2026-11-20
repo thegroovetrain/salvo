@@ -7,28 +7,28 @@
 // before they drop … It disappears when the crates land, it should fade out
 // over 10 sec or something"): the APPROVED bench's style B — a DASHED ring at
 // the scatter radius (`CONFIG.supplyDrops.scatterU`, the circle the crates
-// land inside), a translucent fill of that circle, and the +XP crate icon at
-// its centre, ALL in the XP gauge's color (`drops.kindColors.xp`). On EVERY
-// captain's chart (fog-immune, the `supplyChart` layer) from charting.
+// land inside) and a translucent fill of that circle, both in the XP gauge's
+// color (`drops.kindColors.xp`). NO icon (Eric 2026-11-20, epic-12 amendment
+// 9: "I don't want players confusing it for something they can collect. The
+// circle itself is enough."). On EVERY captain's chart (fog-immune, the
+// `supplyChart` layer) from charting.
 //
 // THE FADE: full strength until the crates land (`landT`); from the landing,
-// ring + fill + icon fade TOGETHER, LINEARLY, to nothing over
+// ring + fill fade TOGETHER, LINEARLY, to nothing over
 // `CLIENT_CONFIG.supplyDrops.fadeMs`; then the mark is gone. Information,
 // not motion: the motion setting never touches it. No text, no timer.
 //
 // SHAPE (fire.ts's): a PURE core (no Pixi; unit-tested in
 // __tests__/supplyChart.test.ts) — the fade and the ring's geometry — and a
-// thin adapter that pools one sprite pair per wire slot, re-strokes the ring
-// only on a zoom change, draws the icon once, and per frame touches only
-// position, alpha, visibility and the icon's screen scale (no allocation).
+// thin adapter that pools one ring per wire slot, re-strokes it only on a
+// zoom change, and per frame touches only position, alpha and visibility (no
+// allocation).
 
 import { Container, Graphics } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { clamp01, dashArcs, strokeWorldWidth } from '../util/math.js';
 import type { SupplyChartRow } from '../sim/supplyChart.js';
-import { drawCrateIcon } from './drops.js';
-import { screenScale } from './chartMarks.js';
 
 const S = CLIENT_CONFIG.supplyDrops;
 
@@ -81,7 +81,6 @@ export function drawSupplyRing(g: Graphics, zoom: number): void {
 /** One wire slot's pooled sprites. */
 interface SupplySprite {
   ring: Graphics;
-  icon: Graphics;
   /** The zoom the ring was stroked for (0 = never). */
   drawnZoom: number;
 }
@@ -101,7 +100,6 @@ export class SupplyDrops {
     for (const s of this.sprites) {
       if (s === undefined) continue; // a hole: a lower slot was never charted
       s.ring.visible = false;
-      s.icon.visible = false;
     }
     for (const row of rows) {
       const a = supplyMarkAlpha(nowMs, row.landT);
@@ -123,20 +121,14 @@ export class SupplyDrops {
     s.ring.visible = true;
     s.ring.alpha = a;
     s.ring.position.set(row.x, row.y);
-    s.icon.visible = true;
-    s.icon.alpha = a;
-    s.icon.position.set(row.x, row.y);
-    s.icon.scale.set(screenScale(zoom));
   }
 
   private spriteFor(slot: number): SupplySprite {
     let s = this.sprites[slot];
     if (s === undefined) {
       const ring = new Graphics();
-      const icon = new Graphics();
-      drawCrateIcon(icon, 'xp', CLIENT_CONFIG.drops.glyphAlpha, S.iconPx);
-      this.layer.addChild(ring, icon);
-      s = { ring, icon, drawnZoom: 0 };
+      this.layer.addChild(ring);
+      s = { ring, drawnZoom: 0 };
       this.sprites[slot] = s;
     }
     return s;

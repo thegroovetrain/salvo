@@ -176,9 +176,6 @@ export interface StageLayers {
   projectile: Container;
   /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
   mineWorld: Container;
-  /** AIRDROPS (render/drops.ts, Story 10.9) — fogged and sight-only, like an
-   *  enemy mine: a crate is never on the chart (on radar it is a plain blip). */
-  dropWorld: Container;
   // chartRoot children
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
@@ -206,13 +203,22 @@ export interface StageLayers {
    *  drew here until 2026-10-12; they have their own `cloud` layer now.) */
   smoke: Container;
   /** SUPPLY-DROP chart marks (render/supplyDrops.ts, Story 12.4; the radio
-   *  beacons' seat until then) — the dashed scatter ring, its fill and the
-   *  +XP icon, fog-immune: public on every chart at every zoom. Above `smoke`
+   *  beacons' seat until then) — the dashed scatter ring and its fill (no
+   *  icon since 2026-11-20), fog-immune: public on every chart at every zoom. Above `smoke`
    *  (a tactical mark outranks soft plume texture), below the mines and every
    *  hull. */
   supplyChart: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
+  /** CRATES — airdrops, supply crates and wrecks (render/drops.ts). ABOVE THE
+   *  FOG since 2026-11-20 (epic-12 amendment 10, Eric: "the xp crates and
+   *  wrecks are not mines and they should be able to be visually seen by the
+   *  same rules other ships are" — "Exactly like a hull"): the server sends a
+   *  crate wherever a hull at its spot would be sent, so like `ship` it must
+   *  not be eaten by the fog, and it carries the hull's haze fade itself. It
+   *  was the fogged `dropWorld` world layer (Story 10.9). Directly BELOW
+   *  `ship`: a hull collecting a crate sails over it. */
+  dropChart: Container;
   /**
    * CONTACT HULL SILHOUETTES — every other hull (render/contacts.ts). The own
    * hull moved to `ownShip` on 2026-10-12.
@@ -298,7 +304,7 @@ export type LayerName = keyof StageLayers;
 // keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
-export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'dropWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5); the beacon bodies with the beacons (Story 12.4)
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5); the beacon bodies with the beacons (Story 12.4); the crates moved above the fog (`dropChart`, 2026-11-20)
 /** chartRoot, bottom → top: everything above the fog. The legibility contract,
  *  read upward: `ship` (contact hulls), `plate` (the name that outranks terrain
  *  and hulls), `cloud` (countermeasure smoke), `blip` (radar paint), `ownShip`
@@ -324,6 +330,7 @@ export const CHART_LAYER_ORDER = [
   'smoke',
   'supplyChart',
   'mineChart',
+  'dropChart',
   'ship',
   'plate',
   'cloud',

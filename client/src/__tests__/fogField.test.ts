@@ -487,7 +487,7 @@ describe('the declared seat', () => {
   it('fog sits directly above litZone and directly below smoke, under every hull and mark', () => {
     expect(at('fog')).toBe(at('litZone') + 1);
     expect(at('smoke')).toBe(at('fog') + 1);
-    for (const above of ['mineChart', 'ship', 'plate', 'cloud', 'blip', 'ownShip']) {
+    for (const above of ['mineChart', 'dropChart', 'ship', 'plate', 'cloud', 'blip', 'ownShip']) {
       expect(at(above)).toBeGreaterThan(at('fog'));
     }
   });

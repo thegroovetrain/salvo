@@ -30,7 +30,7 @@ import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { freshDispersionKey } from '../game/dispersionKey.js';
 
-import { buildFrame } from '../game/frames.js';
+import { buildFrame, DropSendLedger } from '../game/frames.js';
 import {
   Match,
   defaultTimings,
@@ -276,6 +276,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private lastResults: ResultsMsg | null = null;
   /** Per-client D1 ping/RTT state; entries live from first ping to teardown. */
   private readonly pings = new Map<string, PingState>();
+  /** The crate channel's per-client send memos (frames.ts `dropsToSend`: the list is sent on change). */
+  private readonly dropSends = new DropSendLedger();
   /**
    * Seats whose captain has gone but whose SCUTTLED hull is still in its Story
    * 5.2 sinking window (Story 6.7, R5). The `PlayerMeta` row outlives the
@@ -1020,6 +1022,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * so this takes the warnQuietly posture every other room hook uses.
    */
   onReconnect(client: Client): void {
+    this.dropSends.reset(client.sessionId); // a resumed client (maybe a fresh page) holds no crate list: keyframe
     try {
       client.send(MSG.welcome, this.buildWelcome(client.sessionId));
     } catch (err) {
@@ -1199,6 +1202,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (this.match) this.match.onPlayerLeave(sessionId);
     else this.world.removeShip(sessionId);
     this.pings.delete(sessionId); // D1 ping/RTT state dies with the seat
+    this.dropSends.forget(sessionId); // ...and its crate-channel send memo
     // THE SCUTTLE LEAVES THE HULL ON THE WATER (Story 6.7): when onPlayerLeave
     // sank it rather than removing it, the roster row must outlive the seat
     // until the wreck is reaped, or the `sunk` event framed next tick has no
@@ -1433,8 +1437,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // reconnect-ack window): sends to those enqueue into an unbounded
       // transport buffer instead of the wire, and a resuming client only
       // needs live frames from its first acked tick onward.
-      if (client.state !== ClientState.JOINED) continue;
-      client.send(MSG.frame, buildFrame(this.world, client.sessionId, phase));
+      // ...and a client skipped here has a hole in its frame sequence: its
+      // next frame carries the whole crate list again (the keyframe).
+      if (client.state !== ClientState.JOINED) {
+        this.dropSends.reset(client.sessionId);
+        continue;
+      }
+      client.send(MSG.frame, buildFrame(this.world, client.sessionId, phase, this.dropSends.memoFor(client.sessionId)));
     }
   }
 

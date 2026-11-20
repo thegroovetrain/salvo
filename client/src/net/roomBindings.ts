@@ -61,7 +61,7 @@ import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { Drops } from '../render/drops.js';
 import { pegKindFor, type SplashPegs } from '../render/pegs.js';
-import { sanitizeDrops } from '../sim/dropView.js';
+import { dropsUpdate } from '../sim/dropView.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
 import type { FoulZones } from '../render/foulZones.js';
@@ -132,7 +132,7 @@ export interface RoomBindingDeps {
    *  no chart simply lays none. */
   pegs?: Pick<SplashPegs, 'add'>;
   /** AIRDROPS (render/drops.ts, Story 10.9) — synced contact-like from
-   *  FrameMsg.drops every tick (omitted key = none), sanitized fail-closed. */
+   *  FrameMsg.drops when the key is present (omitted key = unchanged, PV 113), sanitized fail-closed. */
   drops: Pick<Drops, 'sync'>;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
@@ -844,9 +844,12 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // f.t — not a local clock reading: the arming dim measures a server-side
   // window, so both ends of it have to come off the server's own timestamps.
   deps.mines.sync(f.mines, deps.ownMineRings(f.t));
-  // AIRDROPS (Story 10.9), same reconcile, same omitted-key rule — and every
-  // view through the fail-closed gate: a malformed crate is not drawn.
-  deps.drops.sync(sanitizeDrops(f.drops ?? []));
+  // CRATES (Story 10.9), same reconcile — SENT ON CHANGE (PV 113): an omitted
+  // key means "unchanged", so the held crates stay; a present list replaces
+  // them (`[]` clears). Every view through the fail-closed gate: a malformed
+  // crate is not drawn.
+  const drops = dropsUpdate(f.drops);
+  if (drops !== null) deps.drops.sync(drops);
   const ownId = net.sessionId;
   // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
   // sees no zones, so treat a missing key as an empty list.
