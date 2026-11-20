@@ -9,9 +9,12 @@
  *  are", "Exactly like a hull". No wire shape changes (`DropView` is still
  *  `{id,x,y,c}`), but the `drop` row now delivers a crate out to the
  *  observer's hull sight, and the client must draw it above the fog with the
- *  hull's fade (a 112 client would bury it under the fog). CONFIG the client
- *  reads: `vision.crateKindSight` is RETIRED. Perception exception count
- *  stays SIX.
+ *  hull's fade (a 112 client would bury it under the fog). `FrameMsg.drops`
+ *  is SENT ON CHANGE: absent = unchanged since the last list this client was
+ *  sent (it used to mean "none"), present = the full list, `[]` when the last
+ *  crate left; the first frame of a session or a resume carries it. CONFIG
+ *  the client reads: `vision.crateKindSight` is RETIRED. Perception
+ *  exception count stays SIX.
  *  112 — AIRDROPS AND SUPPLY DROPS (2026-11-19, Eric; epic-12 amendment 5;
  *  Story 12.4 (number re-checked at PR time)): `DropView.c` narrows to
  *  `'xp' | 'wreck'` (every airdrop is an XP crate; a wreck's `dp.g` carries

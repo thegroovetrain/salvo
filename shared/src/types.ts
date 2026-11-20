@@ -1699,8 +1699,12 @@ export interface FrameMsg {
   // per-observer COUNTERMEASURE cloud visibility (Story 9.3 — contact-like;
   // omitted when none, the litZones rule). NOT the wounded `sm` SmokeEvent.
   clouds?: CloudView[];
-  // per-observer AIRDROP visibility (Story 10.9 — sight-gated, contact-like;
-  // omitted when none, the litZones rule). Radar sees a drop only as a blip.
+  // per-observer CRATE visibility (Story 10.9 — sight-gated by the hull rule,
+  // contact-like). Radar sees a drop only as a blip. SENT ON CHANGE since PV
+  // 113 (2026-11-20; server frames.ts `dropsToSend`): ABSENT = unchanged since
+  // the last list this client was sent (the client keeps what it holds);
+  // PRESENT = the full current list, replacing the held one — `[]` when the
+  // last crate left. The first frame of a session, and of a resume, carries it.
   drops?: DropView[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on

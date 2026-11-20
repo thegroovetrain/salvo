@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, SLOT_COUNT, abilityReadyAt, encodeTurretAngles, hullBlocks } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
-import { buildFrame } from '../game/frames.js';
+import { buildFrame, dropsToSend, DropSendLedger } from '../game/frames.js';
 import { clearWater } from './rainFixture.js';
 
 const input = (seq: number, extra = {}) => ({
@@ -306,6 +306,88 @@ describe('buildFrame — the `drops` channel (Story 10.9, R3)', () => {
     // Delete the crate: the key is gone again, not [].
     w.drops.delete('d1');
     expect('drops' in buildFrame(w, 'a')).toBe(false);
+  });
+});
+
+// SEND ON CHANGE (Eric 2026-11-20: "Fix that the list is sent only when
+// something changes"): with a client's send memo the `drops` key is absent
+// while the visible list is the one last sent, and present — the FULL list —
+// whenever it differs, an emptied list included.
+describe('the `drops` channel is sent on change (dropsToSend / DropSendLedger)', () => {
+  const row = (id: string, x = 0): { id: string; x: number; y: number; c: 'xp' } => ({ id, x, y: 0, c: 'xp' });
+
+  it('the first frame carries the list (even an empty one); an unchanged list omits the key; any change sends the full list again', () => {
+    const memo = new DropSendLedger().memoFor('a');
+    expect(dropsToSend([], memo)).toEqual([]); // the keyframe, empty
+    expect(dropsToSend([], memo)).toBeUndefined(); // unchanged
+    const two = [row('d1'), row('d2')];
+    expect(dropsToSend(two, memo)).toBe(two); // a crate came into sight: the full list
+    expect(dropsToSend([row('d1'), row('d2')], memo)).toBeUndefined(); // the same rows in a fresh array: unchanged
+    expect(dropsToSend([row('d1')], memo)).toEqual([row('d1')]); // one left
+    expect(dropsToSend([row('d2')], memo)).toEqual([row('d2')]); // same length, another crate
+    expect(dropsToSend([row('d2', 5)], memo)).toEqual([row('d2', 5)]); // same id, another row
+    expect(dropsToSend([{ ...row('d2', 5), c: 'wreck' }], memo)).toEqual([{ ...row('d2', 5), c: 'wreck' }]);
+    expect(dropsToSend([], memo)).toEqual([]); // the last one left: sent EMPTY, never omitted
+    expect(dropsToSend([], memo)).toBeUndefined();
+  });
+
+  it('a reset memo (reconnect, a skipped tick) sends the list on the next frame whatever it is; memos are per client; without a memo the full list rides every frame (omitted when empty)', () => {
+    const ledger = new DropSendLedger();
+    const list = [row('d1')];
+    expect(dropsToSend(list, ledger.memoFor('a'))).toBe(list);
+    expect(dropsToSend(list, ledger.memoFor('a'))).toBeUndefined();
+    expect(dropsToSend(list, ledger.memoFor('b'))).toBe(list); // b was never sent it
+    ledger.reset('a');
+    expect(dropsToSend(list, ledger.memoFor('a'))).toBe(list); // the keyframe
+    ledger.reset('a');
+    expect(dropsToSend([], ledger.memoFor('a'))).toEqual([]); // ...an empty keyframe too
+    ledger.forget('b');
+    expect(dropsToSend(list, ledger.memoFor('b'))).toBe(list); // a new seat under the old id starts over
+    expect(dropsToSend(list)).toBe(list);
+    expect(dropsToSend(list)).toBe(list);
+    expect(dropsToSend([])).toBeUndefined();
+  });
+
+  it('buildFrame with a memo: a client replaying replace-on-present holds exactly the memo-less full list at every tick — a crate appearing, staying, leaving, the spectator switch and a reconnect', () => {
+    const w = makeWorld();
+    const ledger = new DropSendLedger();
+    let held: unknown[] = ['stale'];
+    const count = { sent: 0, omitted: 0 };
+    const tick = (phase?: 'finished'): void => {
+      w.step();
+      const full = buildFrame(w, 'a', phase).drops ?? []; // what a full send would deliver this tick
+      const wire = buildFrame(w, 'a', phase, ledger.memoFor('a'));
+      if ('drops' in wire) {
+        held = wire.drops!;
+        count.sent += 1;
+      } else {
+        count.omitted += 1;
+      }
+      expect(held).toEqual(full);
+    };
+    tick(); // the keyframe: no crates → []
+    expect(held).toEqual([]);
+    tick();
+    w.drops.set('d1', { id: 'd1', x: 300, y: 200, kind: 'xp' }); // clear of both hulls (a step collects a crate under one)
+    tick();
+    expect(held).toHaveLength(1);
+    tick();
+    w.drops.set('d2', { id: 'd2', x: -300, y: 250, kind: 'xp' });
+    tick();
+    w.drops.delete('d1');
+    tick();
+    const sentBefore = count.sent;
+    tick('finished'); // the spectator view of the same one crate: unchanged, omitted
+    expect(count.sent).toBe(sentBefore);
+    ledger.reset('a'); // a reconnect: whatever the client holds is not to be trusted
+    held = ['stale'];
+    tick();
+    w.drops.clear();
+    tick(); // the last crate left: []
+    tick();
+    expect(held).toEqual([]);
+    expect(count.sent).toBeGreaterThan(0);
+    expect(count.omitted).toBeGreaterThan(0);
   });
 });
 

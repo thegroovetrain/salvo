@@ -14,9 +14,10 @@
 // vi.fn() spies, and the private methods are reached through a structural cast.
 
 import { describe, it, expect, vi } from 'vitest';
-import { MSG } from '@salvo/shared';
+import { MSG, type FrameMsg } from '@salvo/shared';
 import { ClientState, CloseCode } from 'colyseus';
 import { World } from '../game/world.js';
+import { clearWater } from './rainFixture.js';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
 
 interface FakeClient {
@@ -91,6 +92,47 @@ describe('ArenaRoom.afterStep JOINED frame guard', () => {
     room.afterStep();
     expect(client.send).toHaveBeenCalledTimes(1);
     expect(client.send.mock.calls[0][0]).toBe(MSG.frame);
+  });
+});
+
+// --- the crate channel's keyframe (sent on change, Eric 2026-11-20) ------------
+
+describe('ArenaRoom.afterStep — the crate list is sent on change, and again after any hole in a client\'s frames', () => {
+  const lastFrame = (c: FakeClient): FrameMsg => c.send.mock.calls[c.send.mock.calls.length - 1][1] as FrameMsg;
+
+  it('first frame carries the list; unchanged frames omit it; a tick the client was not sent (the reconnect window) and a resume each bring it back', () => {
+    const client = fakeClient('c', ClientState.JOINED);
+    const room = bareRoom([client]) as BareRoom & { onReconnect(c: FakeClient): void };
+    clearWater(room.world);
+    const me = room.world.ships.get('c')!.state;
+    const crate = { id: 'd1', x: me.x + 300, y: me.y + 200, kind: 'xp' as const };
+    room.world.drops.set(crate.id, crate);
+    const row = [{ id: crate.id, x: crate.x, y: crate.y, c: 'xp' }];
+
+    room.afterStep();
+    expect(lastFrame(client).drops).toEqual(row); // the first frame: the list
+    room.afterStep();
+    expect('drops' in lastFrame(client)).toBe(false); // unchanged: omitted
+    // The socket drops: no frame this tick, so the sequence has a hole...
+    client.state = ClientState.RECONNECTING;
+    const sentBefore = client.send.mock.calls.length;
+    room.afterStep();
+    expect(client.send.mock.calls.length).toBe(sentBefore);
+    client.state = ClientState.JOINED;
+    room.afterStep();
+    expect(lastFrame(client).drops).toEqual(row); // ...and the next frame carries the list again
+    room.afterStep();
+    expect('drops' in lastFrame(client)).toBe(false);
+    // A resume the room is told about (a refreshed page holds no list at all).
+    room.onReconnect(client);
+    room.afterStep();
+    expect(lastFrame(client).drops).toEqual(row);
+    // The crate is taken: the list goes out EMPTY, once.
+    room.world.drops.clear();
+    room.afterStep();
+    expect(lastFrame(client).drops).toEqual([]);
+    room.afterStep();
+    expect('drops' in lastFrame(client)).toBe(false);
   });
 });
 
