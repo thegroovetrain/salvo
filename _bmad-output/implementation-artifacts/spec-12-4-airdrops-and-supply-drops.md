@@ -70,3 +70,5 @@ See `deferred-work.md` (2026-11-19, Story 12.4): the 10 px +XP chart icon smudge
 ## Follow-up 2026-11-20 (cycle 245, 0.20.3, PV 112 unchanged, epic-12 amendment 9)
 
 The supply-drop map mark loses its centre +XP icon (Eric: players must not read it as a collectible; "The circle itself is enough."). `client/src/render/supplyDrops.ts` pools one ring per slot; `CLIENT_CONFIG.supplyDrops.iconPx` removed; `supplyChart.test.ts` updated; DESIGN.md row amended. Client-only.
+
+Same cycle (245), 2026-11-20, epic-12 amendment 10, PV 112 → 113: crates and wrecks are seen by the hull rule (hull reach, haze, rain/smoke, island LOS on the crate centre; `crateKindSight` retired) and drawn above the fog on `dropChart` with the hull fade; the frame's `drops` list is sent only when it changes (absent = unchanged; full list or `[]` otherwise; keyframe on reset/reconnect; ~25× fewer crate bytes); bots forget a remembered crate only on a clear island line. tickCost seed 7, 16 hulls, 90 s: mean ~5.5 → ~7.9 ms/tick, p99 ~11 → ~22 (accepted by Eric).
