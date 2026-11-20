@@ -398,6 +398,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       dispersionKey: freshDispersionKey(),
       drops: sanitized.matchOverride?.drops,
       supplyDrops: sanitized.matchOverride?.supplyDrops,
+      // Story 12.4 dev arm: `statRoll: false` = an empty die (no level rolls).
+      statRoll: sanitized.matchOverride?.statRoll === false ? { ...CONFIG.xp.statRoll, faces: [] } : undefined,
     });
   }
 

@@ -295,6 +295,15 @@ export interface MatchOverride {
    * matchOverride.
    */
   supplyDrops?: boolean;
+  /**
+   * DEV SMOKE ARM (Story 12.4): `false` switches the LEVEL STAT ROLL off — a
+   * completed level rolls an empty die (every roll 0), so a scripted smoke
+   * that pins damage per hit from base stats stays deterministic. Only the
+   * boolean `false` disables; absent / anything else is the shipped die. It
+   * rides into the World as `WorldOptions.statRoll`. Dev-gated with the rest
+   * of matchOverride.
+   */
+  statRoll?: boolean;
 }
 
 /**

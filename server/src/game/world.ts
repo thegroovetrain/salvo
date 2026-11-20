@@ -328,7 +328,8 @@ export interface WorldOptions {
   supplyDrops?: boolean;
   /**
    * THE LEVEL STAT ROLL'S DIE (Story 12.4) — `CONFIG.xp.statRoll` when
-   * absent (every room). A TEST SEAM only, never passed by a room: a fixture
+   * absent (every room). A TEST SEAM; a room passes it ONLY from the
+   * dev-gated `matchOverride.statRoll: false` (an empty die): a fixture
    * that pins pre-12.4 per-level economy arithmetic hands in a die with no
    * faces (every roll 0) so its levels leave the stats alone.
    */

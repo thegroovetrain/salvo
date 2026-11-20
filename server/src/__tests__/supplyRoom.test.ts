@@ -16,7 +16,7 @@ import { ArenaRoom } from '../rooms/ArenaRoom.js';
 import { ArenaState } from '../rooms/schema/ArenaState.js';
 import type { SanitizedRoomOptions } from '../rooms/roomOptions.js';
 import type { World } from '../game/world.js';
-import { DT, bareWorld, openCycle, run } from './worldFixture.js';
+import { DT, bareWorld, captain, openCycle, run } from './worldFixture.js';
 
 const S = CONFIG.supplyDrops;
 
@@ -139,5 +139,18 @@ describe('ArenaRoom.buildWorld — the supply stream reaches the World', () => {
   it('`matchOverride.supplyDrops: false` (already past the dev gate) switches them off; absent leaves them on', () => {
     expect(placed(buildWorld(77, { matchOverride: { supplyDrops: false } }))).toEqual([]);
     expect(placed(buildWorld(77, { matchOverride: { sandbox: true } })).length).toBe(supplyCountFor(0));
+  });
+
+  it('`matchOverride.statRoll: false` rolls nothing on a level; absent rolls', () => {
+    const bonusAfterLevels = (sanitized: SanitizedRoomOptions): number => {
+      const w = buildWorld(77, sanitized);
+      const ship = captain(w, 'a', 0, 0);
+      w.grantXp(ship, 60);
+      return CONFIG.xp.statRoll.indices.reduce((n, k) => n + ship.indexBonus[k], 0);
+    };
+    expect(bonusAfterLevels({ matchOverride: { statRoll: false } })).toBe(0);
+    expect(bonusAfterLevels({ matchOverride: { sandbox: true } })).toBeGreaterThan(0);
+    // only the boolean false disables: junk leaves the shipped die
+    expect(bonusAfterLevels({ matchOverride: { statRoll: 'false' as never } })).toBeGreaterThan(0);
   });
 });

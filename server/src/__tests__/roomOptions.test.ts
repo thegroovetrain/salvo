@@ -477,3 +477,17 @@ describe('sanitizeRoomOptions — matchOverride.supplyDrops (the dev no-supply-d
     expect(out.rejectedKeys).toEqual(['matchOverride']);
   });
 });
+
+describe('sanitizeRoomOptions — matchOverride.statRoll (the dev no-level-roll switch, Story 12.4)', () => {
+  it('statRoll: false survives under devEnabled', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, statRoll: false } }, true);
+    expect(out.sanitized.matchOverride?.statRoll).toBe(false);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('is stripped WITH matchOverride without HC_DEV_OPTIONS', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { statRoll: false } }, false);
+    expect(out.sanitized.matchOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['matchOverride']);
+  });
+});

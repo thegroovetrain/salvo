@@ -198,7 +198,8 @@ const FIGHT_BUDGET_MS = PLAN.salvos * FISH.reloadMs + FISH.reloadMs;
  * post-join sleep + CHARLIE's join round-trip can't eat it on a slow box.
  */
 const COUNTDOWN_MS = Math.ceil(LAUNCHER_TRAIN_MS + FLIGHT_MS + FISH.reloadMs + SLACK_MS);
-const MATCH_OVERRIDE = { countdownMs: COUNTDOWN_MS, resultsMs: 3000, joinWindowMs: 5000 };
+// Story 12.4: level rolls are random per room; a scripted smoke turns them off
+const MATCH_OVERRIDE = { countdownMs: COUNTDOWN_MS, resultsMs: 3000, joinWindowMs: 5000, statRoll: false };
 /**
  * The storm: offsetCap 0 keeps every ring concentric on the map centre, where
  * both poses sit, so the storm reaches a hull only once a ring SMALLER than
