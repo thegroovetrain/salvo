@@ -3048,7 +3048,7 @@ So that nothing I can tune, read or shoot at is a mystery.
 The match-data store Eric asked for *"strictly for collecting match data right now so I can see trends, balance, and tune bots from games that include human players."* The server already builds a complete server-only `MatchRecord` at every finished match and hands it to a `NullWriter`; this epic mounts the first persistent store behind it and a script that reads it back in the harness's report shapes. Every row is anonymous — no account column exists yet (Epic 14 adds it), and the callsign is dropped at the writer (Eric 2026-10-25). Standing constraints: **the ledger never takes the game down** (absence-gated on `DATABASE_URL`; nothing in a tick ever awaits it; a failed write is a log line and a metric); `game/world.ts` and `game/match.ts` keep zero persistence imports; `render.yaml` `databases:` entries land in the same PR as the code that reads them, never ahead (AR24); every log line obeys the PII rule (NFR24); a dependency lands in the story that mounts it (project-context, 2026-10-24).
 **FRs covered:** none new — delivers the "every deck in every match server-side for Eric's own metrics" half of the GDD's Account progression section (now "every loadout"), anonymously · **Also:** AR22–AR25 (store half only), NFR25–NFR27
 
-### Story 12.1: The Match Ledger (floor story)
+### Story 12.1: The Match Ledger (floor story) *(DEFERRED 2026-11-20 by Eric until accounts exist — epic-12 amendment 11: not anonymous, data format to be ruled at a sitting first)*
 
 As the operator (Eric),
 I want every finished match written to a database the game never depends on,
@@ -3067,7 +3067,7 @@ So that I can see trends, balance and bot behaviour from real matches with peopl
 **And** local dev and the server test suite run the REAL schema on PGlite (`HC_DEV_DB=pglite`) so `npm run check` exercises the real SQL with no Postgres installed; plain `npm run dev` is ledger-OFF (AR55, NFR26)
 **And** `/metrics` gains `ledger.writeOk / writeFailed / queueDepth`; the log gains `ledger.write.ok { matchId, rows }` / `ledger.write.failed` under the PII rule; the privacy policy (`policyCopy.ts`) gains ONE sentence that match results (hull, gun, placement, cards) are stored server-side with no name attached; the staging host gets its own database so the writer is QA'd there; `PROTOCOL_VERSION` does NOT bump.
 
-### Story 12.2: Reading the Ledger
+### Story 12.2: Reading the Ledger *(DEFERRED 2026-11-20 with 12.1 — epic-12 amendment 11)*
 
 As the operator (Eric),
 I want the balance readouts I already know from the batch-sim harness, over the real matches in the ledger,
