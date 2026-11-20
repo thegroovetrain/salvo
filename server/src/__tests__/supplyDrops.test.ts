@@ -35,8 +35,11 @@ import { SupplyField, scatterSupplyCrates, type SupplyChartRow } from '../game/s
 import { SPAWN_ISLAND_CLEARANCE, islandClearance, pickSupplySpot } from '../game/spawn.js';
 import { circleIsland } from './islandFixture.js';
 import { DT, bareWorld, openCycle, run, seatSupply } from './worldFixture.js';
+import { offlineDispersionKey } from '../game/dispersionKey.js';
 
 const S = CONFIG.supplyDrops;
+/** A distinct 32-byte room key per `n` (the offline derivation — any fixed bytes would do). */
+const key = (n: number): Buffer => offlineDispersionKey(0, n);
 const dist = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.y - b.y);
 /** The first ring cycle with NO drops (the sudden-death cycle). */
 const EMPTY_CYCLE = S.counts.length;
@@ -128,6 +131,18 @@ describe('supply drops — charting at each ring cycle (the beacon placement, ke
     expect(place(11)).toEqual(one);
     expect(place(12)).not.toEqual(one);
   });
+
+  it('the chart is KEYED by the room key, not by the pseudonym material: same map seed + same pseudonym seed, another dispersion key → another chart', () => {
+    const place = (dispersionKey: Buffer): readonly Vec2[] => {
+      const w = bareWorld(4400, { pseudonymSeed: 11, dispersionKey });
+      openCycle(w, 0);
+      return w.supplyChart.map((p) => ({ x: p.x, y: p.y }));
+    };
+    const one = place(key(1));
+    expect(one.length).toBeGreaterThan(0);
+    expect(place(key(1))).toEqual(one);
+    expect(place(key(2))).not.toEqual(one);
+  });
 });
 
 describe('pickSupplySpot — one random spot (Story 11.7)', () => {
@@ -204,7 +219,7 @@ describe('SupplyField.replace — the charting loop', () => {
   };
 
   it('a null pick is SKIPPED: the chart is shorter and the slots stay dense', () => {
-    const field = new SupplyField(7);
+    const field = new SupplyField(key(7));
     let n = 0;
     field.replace(0, 1000, (rng, taken) => (n++ === 1 ? null : pickFrom([])(rng, taken)));
     expect(field.chart).toHaveLength(supplyCountFor(0) - 1);
@@ -212,7 +227,7 @@ describe('SupplyField.replace — the charting loop', () => {
   });
 
   it("every pick is handed the spots ALREADY picked this cycle (each pick enters the next one's occupied set)", () => {
-    const field = new SupplyField(7);
+    const field = new SupplyField(key(7));
     const seen: Vec2[][] = [];
     field.replace(0, 1000, pickFrom(seen));
     const placed = field.chart.map((r) => ({ x: r.x, y: r.y }));
@@ -221,7 +236,7 @@ describe('SupplyField.replace — the charting loop', () => {
   });
 
   it('every charted coordinate is FLOAT32-EXACT (the schema carries float32)', () => {
-    const field = new SupplyField(7);
+    const field = new SupplyField(key(7));
     field.replace(0, 1000, pickFrom([]));
     expect(field.chart.length).toBeGreaterThan(0);
     for (const r of field.chart) expect([r.x, r.y]).toEqual([Math.fround(r.x), Math.fround(r.y)]);
@@ -231,7 +246,7 @@ describe('SupplyField.replace — the charting loop', () => {
     const cfg = { ...S, counts: [SUPPLY_WIRE_SLOTS + 2] };
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      const field = new SupplyField(7, cfg);
+      const field = new SupplyField(key(7), cfg);
       field.replace(0, 1000, pickFrom([]));
       expect(field.chart).toHaveLength(SUPPLY_WIRE_SLOTS);
       expect(log.mock.calls.some(([line]) => String(line).includes('supplyDrops.count_clamped'))).toBe(true);
@@ -241,7 +256,7 @@ describe('SupplyField.replace — the charting loop', () => {
   });
 
   it('each cycle draws from its OWN stream of the private seed, and a replace drops the previous chart whole', () => {
-    const field = new SupplyField(7);
+    const field = new SupplyField(key(7));
     field.replace(0, 0, pickFrom([]));
     const first = field.chart;
     field.replace(1, 5000, pickFrom([]));
@@ -250,10 +265,10 @@ describe('SupplyField.replace — the charting loop', () => {
     for (const r of field.chart) expect([r.cycle, r.cycleStartT]).toEqual([1, 5000]);
     for (const r of first) expect(field.chart.some((q) => q.x === r.x && q.y === r.y)).toBe(false);
     // The cycle stream is a pure function of (seed, cycle).
-    const again = new SupplyField(7);
+    const again = new SupplyField(key(7));
     again.replace(1, 5000, pickFrom([]));
     expect(again.chart).toEqual(field.chart);
-    const other = new SupplyField(8);
+    const other = new SupplyField(key(8));
     other.replace(1, 5000, pickFrom([]));
     expect(other.chart).not.toEqual(field.chart);
   });
@@ -268,7 +283,7 @@ describe('scatterSupplyCrates — the landing scatter (AC 21)', () => {
   const R = CONFIG.drops.radiusU;
 
   it('drops `crates` points within `scatterU` of the spot, float32-exact, never overlapping, with ids sup-<cycle>-<spot>-<n>', () => {
-    const crates = scatterSupplyCrates(11, row, []);
+    const crates = scatterSupplyCrates(key(11), row, []);
     expect(crates).toHaveLength(S.crates);
     crates.forEach((c, i) => {
       expect(c.id).toBe(`sup-${row.cycle}-${row.spot}-${i}`);
@@ -280,14 +295,14 @@ describe('scatterSupplyCrates — the landing scatter (AC 21)', () => {
 
   it('follows its dials: another crate count and another radius', () => {
     const cfg = { ...S, crates: 3, scatterU: 60 };
-    const crates = scatterSupplyCrates(11, row, [], cfg);
+    const crates = scatterSupplyCrates(key(11), row, [], cfg);
     expect(crates).toHaveLength(3);
     for (const c of crates) expect(dist(c, row)).toBeLessThanOrEqual(60);
   });
 
   it('never lands on land: a spot beside an island keeps every crate clear of it', () => {
     const island = circleIsland(row.x + S.scatterU / 2, row.y, S.scatterU / 3);
-    const crates = scatterSupplyCrates(11, row, [island]);
+    const crates = scatterSupplyCrates(key(11), row, [island]);
     expect(crates.length).toBeGreaterThan(0);
     for (const c of crates) expect(islandClearance(c, [island])).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
   });
@@ -296,7 +311,7 @@ describe('scatterSupplyCrates — the landing scatter (AC 21)', () => {
     const island = circleIsland(row.x, row.y, S.scatterU * 3); // the whole disc is land
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      expect(scatterSupplyCrates(11, row, [island])).toEqual([]);
+      expect(scatterSupplyCrates(key(11), row, [island])).toEqual([]);
       const skips = log.mock.calls.filter(([line]) => String(line).includes('supplyDrops.crateSkipped'));
       expect(skips).toHaveLength(S.crates);
     } finally {
@@ -305,12 +320,49 @@ describe('scatterSupplyCrates — the landing scatter (AC 21)', () => {
   });
 
   it('is deterministic per (seed, cycle, spot), and each key has its own stream', () => {
-    const one = scatterSupplyCrates(11, row, []);
-    expect(scatterSupplyCrates(11, row, [])).toEqual(one);
+    const one = scatterSupplyCrates(key(11), row, []);
+    expect(scatterSupplyCrates(key(11), row, [])).toEqual(one);
     const pos = (cs: { x: number; y: number }[]) => cs.map((c) => [c.x - row.x, c.y - row.y]);
-    expect(pos(scatterSupplyCrates(12, row, []))).not.toEqual(pos(one));
-    expect(pos(scatterSupplyCrates(11, { ...row, spot: 3 }, []))).not.toEqual(pos(one));
-    expect(pos(scatterSupplyCrates(11, { ...row, cycle: 2 }, []))).not.toEqual(pos(one));
+    expect(pos(scatterSupplyCrates(key(12), row, []))).not.toEqual(pos(one));
+    expect(pos(scatterSupplyCrates(key(11), { ...row, spot: 3 }, []))).not.toEqual(pos(one));
+    expect(pos(scatterSupplyCrates(key(11), { ...row, cycle: 2 }, []))).not.toEqual(pos(one));
+  });
+
+  it('never overlaps a crate already on the water (`occupied`)', () => {
+    // A ring of occupied crates hemming the spot: every new crate keeps 2 × radiusU from each.
+    const occupied = Array.from({ length: 12 }, (_, i) => ({
+      x: row.x + Math.cos(i) * S.scatterU * 0.6,
+      y: row.y + Math.sin(i) * S.scatterU * 0.6,
+    }));
+    occupied.push({ x: row.x, y: row.y });
+    const crates = scatterSupplyCrates(key(11), row, [], S, R, occupied);
+    expect(crates.length).toBeGreaterThan(0);
+    for (const c of crates) for (const o of occupied) expect(dist(c, o)).toBeGreaterThanOrEqual(2 * R);
+  });
+});
+
+describe('SupplyField.land — no two crate centres closer than 2 × radiusU (AC 21)', () => {
+  it('two spots with OVERLAPPING scatter circles plus crates already on the water: every pair of centres keeps 2 × radiusU', () => {
+    const R = CONFIG.drops.radiusU;
+    const field = new SupplyField(key(5));
+    const spots = [
+      { x: 0, y: 0 },
+      { x: S.scatterU * 0.5, y: 0 }, // the two scatter discs overlap over most of their area
+    ];
+    field.replace(0, 0, (_rng, taken) => spots[taken.length] ?? null);
+    expect(field.chart).toHaveLength(2);
+    // Crates on the water inside both discs (minute crates, a wreck, an earlier set).
+    const onWater = Array.from({ length: 10 }, (_, i) => ({
+      x: S.scatterU * 0.25 + Math.cos(i * 0.7) * S.scatterU * 0.5,
+      y: Math.sin(i * 0.7) * S.scatterU * 0.5,
+    }));
+    const landed: Vec2[] = [];
+    expect(field.land(supplyLandMs(0), [], onWater, (c) => landed.push(c))).toBe(true);
+    expect(landed.length).toBeGreaterThan(S.crates); // both spots placed crates
+    const all = [...onWater, ...landed];
+    for (const c of landed) {
+      for (const o of all) if (o !== c) expect(dist(c, o)).toBeGreaterThanOrEqual(2 * R);
+    }
   });
 });
 

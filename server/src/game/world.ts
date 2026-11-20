@@ -196,7 +196,7 @@ import type { BoomSubject, BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { SupplyField, type SupplyChart } from './supplyDrops.js';
-import { dispersionShellSeed, offlineDispersionKey } from './dispersionKey.js';
+import { dispersionShellSeed, keyedStreamSeed, offlineDispersionKey } from './dispersionKey.js';
 import { paintSalt, paintSaltKey, type PaintKind } from './paintSalt.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
@@ -1491,10 +1491,6 @@ const PICKUP_DROP_K = 0x3c6ef35f;
 /** The target kinds a crate is collected by: afloat hull outlines only. */
 const DROP_TAKER_MASK: readonly TargetKind[] = ['hull'];
 
-/** The level stat-roll stream's mint constant (Story 12.4 — see
- *  World.statRollSeed), XORed into the room-private pseudonym material;
- *  unused by any other stream (see the spawnPhase roster). */
-const STAT_ROLL_K = 0x7feb352d;
 
 /**
  * A crate as the server holds it (Story 12.4): the shared `DropState` plus,
@@ -2238,10 +2234,12 @@ export class World {
    * (Story 10.5) and 0x94d049bb the retired CHAFF fake stream's; the
    * room-private airdrop stream is 0x5bd1e995, its pickup sub-stream key
    * 0x3c6ef35f — Story 10.9; 0x51ed270b was its retired wreck sub-stream key;
-   * the supply-drop stream 0x68e31da4 (the radio beacons' until Story 12.4)
-   * with its landing-scatter sub-stream key 0xcc9e2d51 (game/supplyDrops.ts),
-   * the level stat-roll stream 0x7feb352d (Story 12.4), the retired dropout
-   * seed 0x2545f491 (Story 11.2), fog 0x3c6ef372).
+   * 0x68e31da4 was the radio beacons' stream (retired with them, Story 12.4)
+   * and briefly the supply drops'; 0xcc9e2d51 and 0x7feb352d were Story
+   * 12.4's first supply-scatter and stat-roll constants — all RETIRED at its
+   * review: the supply drops and the level stat roll now seed off the
+   * dispersion key by HMAC (`keyedStreamSeed`), like dispersion; the retired
+   * dropout seed 0x2545f491 (Story 11.2), fog 0x3c6ef372).
    * 0x2c1b3c6d was Story 11.1's first DISPERSION stream constant (XORed into
    * the pseudonym material) — RETIRED at its review: a shooter sees its own
    * exact landings, so a 32-bit seed off `priv` could be brute-forced back to
@@ -2270,12 +2268,13 @@ export class World {
    * `supplyChart` — the public facts. A spot is never a ShipRecord, a target
    * or a body; once landed its crates are ordinary `drops`.
    *
-   * Its streams are ROOM-PRIVATE (the pseudonym material under its own
-   * constant, 0x68e31da4 — the radio beacons' until Story 12.4, unused by any
-   * other stream here): the placement keeps out of the captains' discs, so a
-   * stream a client could replay off the public map seed would turn the
-   * public chart into a position oracle. The map-seed fallback is for
-   * standalone Worlds only.
+   * Its streams are ROOM-PRIVATE and KEYED: HMACs of `dispersionKey`
+   * (labels 'supply-spot' / 'supply-scatter' — see game/supplyDrops.ts),
+   * never `priv`-derived, so the public chart — float32 outputs of the
+   * placement stream — cannot be brute-forced back to the pseudonym material
+   * (Story 12.4 review fix). The placement keeps out of the captains' discs,
+   * so a stream a client could replay would turn the chart into a position
+   * oracle. The seed-derived offline key is for standalone Worlds only.
    */
   readonly supply: SupplyField;
 
@@ -2284,7 +2283,7 @@ export class World {
   private readonly dropsEnabled: boolean;
   /**
    * THE AIRDROP STREAM SEED (Story 10.9, epic-10 amendment 18). ROOM-PRIVATE
-   * like the supply drops' (the pseudonym material under its own constant,
+   * (the pseudonym material under its own constant,
    * DROP_STREAM_K = 0x5bd1e995 — unused by any other stream here; see the
    * spawnPhase doc for the roster): a drop's position and stat must not be
    * predictable from the public map seed. Every MINUTE BATCH (positions +
@@ -2317,17 +2316,8 @@ export class World {
   private wreckDrops = 0;
   /** Crates collected this World's life — the pickup sub-stream key. */
   private dropPickups = 0;
-  /**
-   * THE LEVEL STAT-ROLL STREAM SEED (Story 12.4, Eric 2026-11-19, epic-12
-   * amendment 5(b)). ROOM-PRIVATE (the pseudonym material under its own
-   * constant, STAT_ROLL_K — see the spawnPhase roster) and ISOLATED: the k-th
-   * level roll of this World draws on
-   * `statRollSeed ^ imul(k + 1, 0x9e3779b9)` (k = `statRolls`), so a roll
-   * never shifts another, and the per-ship `drawRng` (the offer stream) is
-   * never touched — a roll there would shift every later offer.
-   */
-  private readonly statRollSeed: number;
-  /** Level stat rolls made this World's life — the stat-roll sub-stream key. */
+  /** Level stat rolls made this World's life — the stat-roll sub-stream
+   *  ordinal (see rollStatsFor). */
   private statRolls = 0;
   /** The level roll's die (WorldOptions.statRoll; CONFIG in every room). */
   private readonly statRollCfg: StatRollConfig;
@@ -2344,14 +2334,14 @@ export class World {
     // caller's pseudonym material, or the TEST-ONLY map-seed fallback.
     const priv = opts.pseudonymSeed ?? (seed ^ 0x1b873593);
     this.supplyDropsEnabled = opts.supplyDrops !== false;
-    this.supply = new SupplyField((priv ^ 0x68e31da4) >>> 0);
     this.dropsEnabled = opts.drops !== false;
     this.dropSeed = (priv ^ DROP_STREAM_K) >>> 0;
-    this.statRollSeed = (priv ^ STAT_ROLL_K) >>> 0;
     this.statRollCfg = opts.statRoll ?? CONFIG.xp.statRoll;
     // A copy, so the caller's buffer cannot be mutated under the World; the
     // seed-derived key is the OFFLINE fallback only (see WorldOptions).
     this.dispersionKey = opts.dispersionKey !== undefined ? Buffer.from(opts.dispersionKey) : offlineDispersionKey(seed, priv);
+    // The supply drops' streams are HMACs of the key (never `priv`-derived).
+    this.supply = new SupplyField(this.dispersionKey);
     this.paintKey = paintSaltKey(this.dispersionKey);
     this.playerCap = playerCap;
     this.seed = seed;
@@ -3636,9 +3626,13 @@ export class World {
   }
 
   /**
-   * ONE LEVEL'S STAT ROLL (Story 12.4, AC 5–9): `rollLevelStats` on this
-   * World's k-th roll sub-stream (`statRollSeed`, k = `statRolls`) — never
-   * the hull's `drawRng`, so the offer sequence is untouched — appended to
+   * ONE LEVEL'S STAT ROLL (Story 12.4, AC 5–9; epic-12 amendment 5(b)):
+   * `rollLevelStats` on this World's k-th roll stream (k = `statRolls`),
+   * seeded HMAC(dispersionKey, 'stat-roll' | k) — ROOM-PRIVATE and isolated:
+   * a roll never shifts another, the hull's `drawRng` (the offer stream) is
+   * never touched, and a player who brute-forces one 32-bit roll seed back
+   * from his own `OwnShip.ib` learns nothing about the key or any other
+   * stream (Story 12.4 review fix; it was `priv ^ K` before). Appended to
    * `out`. A SINKING or SUNK hull rolls nothing and spends no roll (R7's
    * "once sinking, you're done"). Bots roll exactly like humans (same sim).
    */
@@ -3646,7 +3640,7 @@ export class World {
     if (isSinking(ship.lifecycle) || isSunk(ship.lifecycle)) return;
     const k = this.statRolls;
     this.statRolls += 1;
-    const rng = mulberry32((this.statRollSeed ^ Math.imul(k + 1, 0x9e3779b9)) >>> 0);
+    const rng = mulberry32(keyedStreamSeed(this.dispersionKey, 'stat-roll', k));
     for (const grant of rollLevelStats(rng, this.statRollCfg)) out.push(grant);
   }
 
@@ -7933,13 +7927,14 @@ export class World {
    * SUPPLY-DROP LANDING (Story 12.4, AC 21; see the STEP_ORDER row): on the
    * first live tick at or after the charted cycle's start + `surfaceMs`,
    * every spot's crates (`SupplyField.land` → `scatterSupplyCrates`, the
-   * private per-(cycle, spot) stream) enter `drops` as ordinary XP crates.
-   * A crate that lands outside the live ring is eaten by the next
-   * `stormDrops` sweep like any crate.
+   * private per-(cycle, spot) stream) enter `drops` as ordinary XP crates,
+   * never overlapping a crate already on the water (AC 21). A crate that
+   * lands outside the live ring is eaten by the next `stormDrops` sweep like
+   * any crate.
    */
   private landSupplyDrops(): void {
     if (!this.supplyDropsLive()) return;
-    this.supply.land(this.now, this.map.islands, (c) => this.drops.set(c.id, { id: c.id, x: c.x, y: c.y, kind: 'xp' }));
+    this.supply.land(this.now, this.map.islands, this.drops.values(), (c) => this.drops.set(c.id, { id: c.id, x: c.x, y: c.y, kind: 'xp' }));
   }
 
   /** Are the scheduled AIRDROPS running? Mirrors `supplyDropsLive`: the match

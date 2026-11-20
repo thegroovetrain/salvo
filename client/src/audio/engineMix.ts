@@ -293,7 +293,7 @@ export class EngineMix {
     const boost = f.own ? f.boostConfirmed : null;
     if (boost !== null && boostRose(this.boostPrev, boost)) this.audio.playCue('boostSurge');
     this.boostPrev = boost;
-    if (supplyLanded(this.supply, f.supplyCycle, f.supplyLanded)) this.audio.playCue('beacon'); // a supply drop landed
+    if (!f.matchOver && supplyLanded(this.supply, f.supplyCycle, f.supplyLanded)) this.audio.playCue('beacon'); // a supply drop landed
     if (f.listener) this.humTorpedoes(f.listener, f.drawn, f.listenerKind);
   }
 

@@ -21,11 +21,18 @@
 //      with none in sight it makes for the spot again.
 //   4. RELEASE once it is ON the spot and sees no crate in the circle (then
 //      it patrols on), or when the spot leaves the chart or the disc.
+//   5. UNREACHABLE (Story 12.4 review fix): a spot on a non-navigable nav
+//      cell counts as reached at its snapped anchor (navigate.ts
+//      reachedAshoreGoal — `heldAshore`), so the bot waits and clears there;
+//      a drop the ROUTER failed on (a failed — empty — route cached toward
+//      its spot or a crate in its circle) is released and BARRED from
+//      picking for `CONFIG.bots.nav.routeRetryMs`, the router's own retry
+//      clock (supplyBarsOf) — never held for the whole cycle.
 //
 // Pure functions over plain data: no world import, no rng, no clock read.
 
 import { CONFIG, type Vec2, type ZoneRing } from '@salvo/shared';
-import type { BotSupplyDrop } from './types.js';
+import type { BotRoute, BotSupplyBar, BotSupplyDrop } from './types.js';
 
 /** Is `p` within `r` of `c` (rim inclusive)? */
 function within(p: Vec2, c: Vec2, r: number): boolean {
@@ -42,13 +49,29 @@ export function supplyPending(d: BotSupplyDrop, now: number): boolean {
   return now < d.landT;
 }
 
-/** The nearest charted drop still to land whose spot is inside `disc`, or
- *  null. */
-export function pickSupplyDrop(drops: readonly BotSupplyDrop[], disc: ZoneRing, pos: Vec2, now: number): BotSupplyDrop | null {
+/** Same chart row (spot and landing)? */
+function sameDrop(a: BotSupplyDrop, b: BotSupplyDrop): boolean {
+  return a.x === b.x && a.y === b.y && a.landT === b.landT;
+}
+
+/** Is `d` barred at `now` (the router failed on it — see supplyBarsOf)? */
+function barred(d: BotSupplyDrop, bars: readonly BotSupplyBar[], now: number): boolean {
+  return bars.some((b) => now < b.until && sameDrop(b, d));
+}
+
+/** The nearest charted drop still to land whose spot is inside `disc` and
+ *  that is not barred, or null. */
+export function pickSupplyDrop(
+  drops: readonly BotSupplyDrop[],
+  disc: ZoneRing,
+  pos: Vec2,
+  now: number,
+  bars: readonly BotSupplyBar[] = [],
+): BotSupplyDrop | null {
   let best: BotSupplyDrop | null = null;
   let bestD = Infinity;
   for (const d of drops) {
-    if (!supplyPending(d, now) || !inDisc(d, disc)) continue;
+    if (!supplyPending(d, now) || !inDisc(d, disc) || barred(d, bars, now)) continue;
     const dist = Math.hypot(d.x - pos.x, d.y - pos.y);
     if (dist < bestD) {
       best = d;
@@ -87,22 +110,54 @@ export function supplyCrateOf<T extends Vec2>(
   return best;
 }
 
-/** Same chart row (spot and landing)? */
-function sameDrop(a: BotSupplyDrop, b: BotSupplyDrop): boolean {
-  return a.x === b.x && a.y === b.y && a.landT === b.landT;
+/** ON the spot: within `slackU` of it, or held at the snapped anchor of a
+ *  spot on a non-navigable cell (`heldAshore`). */
+function onSpot(goal: BotSupplyDrop, bot: SupplyReading): boolean {
+  return atSupplySpot(goal, bot.pos, bot.slackU) || bot.heldAshore?.(goal) === true;
 }
 
 /** Done with a LANDED drop: on its spot with no sighted crate left in its
  *  circle. */
 function cleared(goal: BotSupplyDrop, bot: SupplyReading, scatterU: number): boolean {
-  return atSupplySpot(goal, bot.pos, bot.slackU) && supplyCrateOf(goal, bot.sighted, bot.pos, scatterU) === null;
+  return onSpot(goal, bot) && supplyCrateOf(goal, bot.sighted, bot.pos, scatterU) === null;
 }
 
-/** The previous goal, KEPT: still on the chart, still inside the disc, and
- *  not yet cleared after its landing. Else null. */
+/** The previous goal, KEPT: still on the chart, still inside the disc, not
+ *  barred, and not yet cleared after its landing. Else null. */
 function keptGoal(prev: BotSupplyDrop | null, drops: readonly BotSupplyDrop[], disc: ZoneRing, bot: SupplyReading, scatterU: number): BotSupplyDrop | null {
   if (prev === null || !inDisc(prev, disc) || !drops.some((d) => sameDrop(d, prev))) return null;
+  if (barred(prev, bot.bars ?? [], bot.now)) return null;
   return !supplyPending(prev, bot.now) && cleared(prev, bot, scatterU) ? null : prev;
+}
+
+/** Has the router FAILED toward `goal`: the cached route is an empty (failed)
+ *  one whose goal is the spot or a point in its scatter circle (a crate),
+ *  within the router's own re-plan distance? */
+export function routeFailedToward(
+  route: BotRoute | null | undefined,
+  goal: Vec2,
+  scatterU: number = CONFIG.supplyDrops.scatterU,
+): boolean {
+  if (route === null || route === undefined || route.waypoints.length > 0) return false;
+  return within(route.goal, goal, scatterU + CONFIG.bots.nav.routeReplanGoalMoveU);
+}
+
+/**
+ * THE BARS for this deliberation: the bars still in force (unexpired, the
+ * drop still on the chart), plus the previous goal when the router failed
+ * on it (`bot.routeFailed`) — barred for `retryMs` (the router's own retry
+ * clock), after which it may be picked and tried again.
+ */
+export function supplyBarsOf(
+  drops: readonly BotSupplyDrop[],
+  bars: readonly BotSupplyBar[],
+  prev: BotSupplyDrop | null,
+  bot: Pick<SupplyReading, 'now' | 'routeFailed'>,
+  retryMs: number = CONFIG.bots.nav.routeRetryMs,
+): readonly BotSupplyBar[] {
+  const live = bars.filter((b) => bot.now < b.until && drops.some((d) => sameDrop(d, b)));
+  if (prev === null || bot.routeFailed?.(prev) !== true || barred(prev, live, bot.now)) return live;
+  return [...live, { x: prev.x, y: prev.y, landT: prev.landT, until: bot.now + retryMs }];
 }
 
 /** What a deliberation hands supplyGoalOf about the bot. */
@@ -113,6 +168,15 @@ export interface SupplyReading {
   readonly sighted: readonly Vec2[];
   /** u — how close to the spot counts as ON it. */
   readonly slackU: number;
+  /** Is the bot held at the snapped anchor of this spot, the spot lying on a
+   *  non-navigable cell (navigate.ts reachedAshoreGoal)? Counts as ON it.
+   *  Absent = never. */
+  readonly heldAshore?: (spot: Vec2) => boolean;
+  /** Has the router failed toward this drop (routeFailedToward on the
+   *  mind's cached route)? Absent = never. */
+  readonly routeFailed?: (goal: BotSupplyDrop) => boolean;
+  /** The bars in force (supplyBarsOf). Absent = none. */
+  readonly bars?: readonly BotSupplyBar[];
 }
 
 /**
@@ -130,13 +194,14 @@ export function supplyGoalOf(
 ): BotSupplyDrop | null {
   const kept = keptGoal(prev, drops, disc, bot, scatterU);
   if (kept !== null) return kept;
-  const pick = pickSupplyDrop(drops, disc, bot.pos, bot.now);
+  const pick = pickSupplyDrop(drops, disc, bot.pos, bot.now, bot.bars ?? []);
   return pick === null ? null : { x: pick.x, y: pick.y, landT: pick.landT };
 }
 
-/** Waiting on the spot for the landing: on it, crates not down yet. */
-export function waitingForSupply(goal: BotSupplyDrop, pos: Vec2, now: number, slackU: number): boolean {
-  return supplyPending(goal, now) && atSupplySpot(goal, pos, slackU);
+/** Waiting on the spot for the landing: on it (or held at its snapped
+ *  anchor — `heldAshore`), crates not down yet. */
+export function waitingForSupply(goal: BotSupplyDrop, pos: Vec2, now: number, slackU: number, heldAshore = false): boolean {
+  return supplyPending(goal, now) && (heldAshore || atSupplySpot(goal, pos, slackU));
 }
 
 /** The point the helm steers for on a supply run: before the landing the

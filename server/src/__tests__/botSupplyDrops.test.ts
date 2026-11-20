@@ -14,10 +14,19 @@ import type { PerceptionView } from '../game/perception.js';
 import { makeBotPort, supplyRowsOf, type BotPortSource } from '../game/botPort.js';
 import type { SupplyChart, SupplyChartRow } from '../game/supplyDrops.js';
 import { COMBAT_BRAIN } from '../game/ai/tactics.js';
-import { atSupplySpot, pickSupplyDrop, supplyCrateOf, supplyGoalOf, waitingForSupply } from '../game/ai/supplyDrops.js';
+import {
+  atSupplySpot,
+  pickSupplyDrop,
+  routeFailedToward,
+  supplyBarsOf,
+  supplyCrateOf,
+  supplyGoalOf,
+  waitingForSupply,
+} from '../game/ai/supplyDrops.js';
 import { hullLengthU } from '../game/ai/navigate.js';
 import type { BotMind, BotProfileId, BotSupplyDrop, BotWorldPort, RememberedContact } from '../game/ai/types.js';
-import { flatRaster } from './islandFixture.js';
+import { circleIsland, flatRaster } from './islandFixture.js';
+import { navCacheFor } from '../game/navCache.js';
 
 const DT = CONFIG.tick.simDtMs;
 const SURFACE_MS = CONFIG.supplyDrops.surfaceMs;
@@ -218,6 +227,46 @@ describe('ai/supplyDrops — pick, keep, release', () => {
     expect(waitingForSupply(g, { x: SLACK + 1, y: 0 }, NOW, SLACK)).toBe(false);
     expect(waitingForSupply(g, { x: 0, y: 0 }, g.landT, SLACK)).toBe(false);
   });
+
+  it('HELD ASHORE of a spot (at its snapped anchor, navigate.ts reachedAshoreGoal) counts as ON it: it waits there, and releases there once cleared', () => {
+    const g = pending(0, 0);
+    const far = { x: 10 * SLACK, y: 0 };
+    expect(waitingForSupply(g, far, NOW, SLACK, true)).toBe(true);
+    expect(waitingForSupply(g, far, g.landT, SLACK, true)).toBe(false);
+    const after = g.landT + 1;
+    const held = { ...at(far, after), heldAshore: () => true };
+    expect(supplyGoalOf([g], disc, held, g)).toBeNull(); // cleared at the anchor, not held for the cycle
+    expect(supplyGoalOf([g], disc, at(far, after), g)).toBe(g); // without it: still sailing for the spot
+  });
+
+  it('routeFailedToward: only a FAILED (empty) cached route aimed at the spot or into its circle', () => {
+    const g = pending(500, 0);
+    const failed = (goal: Vec2) => ({ goal, waypoints: [], builtAt: NOW });
+    expect(routeFailedToward(failed({ x: 500, y: 0 }), g)).toBe(true);
+    expect(routeFailedToward(failed({ x: 500 + SCATTER_U / 2, y: 0 }), g)).toBe(true); // toward a crate in the circle
+    expect(routeFailedToward({ ...failed({ x: 500, y: 0 }), waypoints: [{ x: 500, y: 0 }] }, g)).toBe(false); // a live route
+    expect(routeFailedToward(failed({ x: -2000, y: 0 }), g)).toBe(false); // some other goal
+    expect(routeFailedToward(null, g)).toBe(false);
+  });
+
+  it('a drop the ROUTER failed on is RELEASED and BARRED (not picked) for the router retry clock, then may be tried again', () => {
+    const a = pending(500, 0);
+    const b = pending(-900, 0);
+    const g = supplyGoalOf([a, b], disc, at(pos, NOW), null)!;
+    expect([g.x, g.y]).toEqual([a.x, a.y]);
+    const retry = CONFIG.bots.nav.routeRetryMs;
+    const failedOnA = { now: NOW, routeFailed: (d: BotSupplyDrop) => d.x === a.x };
+    const bars = supplyBarsOf([a, b], [], g, failedOnA);
+    expect(bars).toEqual([{ x: a.x, y: a.y, landT: a.landT, until: NOW + retry }]);
+    const next = supplyGoalOf([a, b], disc, { ...at(pos, NOW), bars }, g)!;
+    expect([next.x, next.y]).toEqual([b.x, b.y]); // released, the next one picked
+    expect(supplyGoalOf([a], disc, { ...at(pos, NOW), bars }, null)).toBeNull(); // never picked while barred
+    // The bar lapses on the router's retry clock, or with the row.
+    const later = NOW + retry;
+    expect(supplyBarsOf([a, b], bars, null, { now: later })).toEqual([]);
+    expect(supplyBarsOf([b], bars, null, { now: NOW })).toEqual([]);
+    expect(supplyGoalOf([a], disc, { ...at(pos, later), bars: supplyBarsOf([a], bars, null, { now: later }) }, null)).toEqual(a);
+  });
 });
 
 // --- the brain -------------------------------------------------------------------
@@ -294,6 +343,22 @@ describe('COMBAT_BRAIN — the supply run', () => {
     expect(nudged.rudder).toBeGreaterThan(straight.rudder); // the crate lies to port of the line
   });
 
+  it('a spot the ROUTER cannot reach is released on the next deliberation and the reachable one is sought instead', () => {
+    const w = openWorld(1317);
+    const blocked = pending(1200, 0);
+    const open = pending(-1500, 0);
+    // The blocked spot sits deep inside an island, beyond the router's shore snap.
+    w.map.islands.push(circleIsland(blocked.x, blocked.y, 700));
+    expect(navCacheFor(w.map).routeTo({ x: 0, y: 0 }, blocked)).toBeNull();
+    const rec = mkBot(w, 0, 0);
+    const mind = mkMind('trapper');
+    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [blocked, open]));
+    expect(mind.supplyGoal).toEqual(blocked); // nearest: picked, and the router tried
+    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [blocked, open], NOW + DT));
+    expect(mind.supplyGoal).toEqual(open);
+    expect(mind.supplyBars?.map((b) => [b.x, b.y])).toEqual([[blocked.x, blocked.y]]);
+  });
+
   it('a TARGET outranks the drop: the helm is the target\'s, never the spot\'s', () => {
     const w = openWorld(1315);
     const port = fakePort(w, [pending(1200, 0)]);
@@ -350,7 +415,9 @@ describe('a real World — a bot is on the spot for the landing and clears the c
     expect((mind.view?.drops ?? []).filter(inCircle)).toEqual([]);
     // ... and it released ON the spot, having taken the crates that are gone.
     expect(atSupplySpot(at, rec.state, slack)).toBe(true);
-    const left = circleCrates();
+    // (Only the crates that were there at the landing: a minute airdrop may
+    // drop into the circle meanwhile.)
+    const left = circleCrates().filter((id) => landed.includes(id));
     expect(left.length).toBeLessThan(landed.length);
     expect(rec.dropsTaken - taken0).toBe(landed.length - left.length);
   });

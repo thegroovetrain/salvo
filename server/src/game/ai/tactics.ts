@@ -139,7 +139,7 @@ import { gunBand, kiteHoldOf, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
 import { probeExit } from './unbeachProbe.js';
-import { supplyGoalOf, supplySteerPoint, waitingForSupply } from './supplyDrops.js';
+import { routeFailedToward, supplyBarsOf, supplyGoalOf, supplySteerPoint, waitingForSupply, type SupplyReading } from './supplyDrops.js';
 import { laneDrop } from './drops.js';
 import {
   RUDDER_GAIN,
@@ -159,6 +159,7 @@ import {
   sideRayHitU,
   patrolBearing,
   patrolDisc,
+  reachedAshoreGoal,
   ringClamped,
   ringGoalOf,
   ringRunBearing,
@@ -795,7 +796,7 @@ function supplySlackU(self: BotSelf): number {
 function sitsStill(self: BotSelf, mind: BotMind, port: BotWorldPort, target: BotTrack | null, posture: BotPosture): boolean {
   if (posture === 'hold') return true;
   const supply = seekingSupply(mind, target, posture);
-  if (supply !== null) return waitingForSupply(supply, self.state, port.now, supplySlackU(self));
+  if (supply !== null) return waitingForSupply(supply, self.state, port.now, supplySlackU(self), reachedAshoreGoal(navCtxOf(self, mind, port, false), supply));
   if (posture !== 'hide') return false;
   return atCover({ x: self.state.x, y: self.state.y, hullLength: hullLengthU(self.hullId) }, mind.coverPoint);
 }
@@ -1007,12 +1008,24 @@ function deliberateNow(self: BotSelf, mind: BotMind, sit: BotSituation, port: Bo
  *  2026-11-19 "Every bot") for this deliberation: the kept goal (still due,
  *  or landed with sighted crates left in its circle), else the nearest
  *  charted drop still to land inside the disc the bot patrols; null when
- *  there is none (or no chart). The helm sails for it only when there is no
- *  target (posture.ts clause 5). */
+ *  there is none (or no chart). A drop the router failed on is released and
+ *  barred for the router's retry clock (supplyBarsOf); a spot on a
+ *  non-navigable cell is ON at its snapped anchor (reachedAshoreGoal). The
+ *  helm sails for it only when there is no target (posture.ts clause 5). */
 function refreshSupplyGoal(self: BotSelf, mind: BotMind, sit: BotSituation, port: BotWorldPort): void {
   const drops = port.supplyDrops?.() ?? [];
-  const bot = { pos: sit, now: port.now, sighted: mind.view?.drops ?? [], slackU: supplySlackU(self) };
-  mind.supplyGoal = drops.length === 0 ? null : supplyGoalOf(drops, patrolDisc(port, sit), bot, mind.supplyGoal ?? null);
+  const ctx = navCtxOf(self, mind, port, false);
+  const reading: SupplyReading = {
+    pos: sit,
+    now: port.now,
+    sighted: mind.view?.drops ?? [],
+    slackU: supplySlackU(self),
+    heldAshore: (spot) => reachedAshoreGoal(ctx, spot),
+    routeFailed: (goal) => routeFailedToward(mind.route, goal),
+  };
+  const prev = mind.supplyGoal ?? null;
+  mind.supplyBars = supplyBarsOf(drops, mind.supplyBars ?? [], prev, reading);
+  mind.supplyGoal = drops.length === 0 ? null : supplyGoalOf(drops, patrolDisc(port, sit), { ...reading, bars: mind.supplyBars }, prev);
 }
 
 /** The extended chain's inputs (Story 9.13, amendment 193): the mind (latch,

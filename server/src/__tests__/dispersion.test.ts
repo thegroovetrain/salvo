@@ -232,23 +232,25 @@ describe('(b) the dispersion key: replay, and independence from every other stre
   const KEY_A = new Uint8Array(32).fill(0xa5);
   const KEY_B = new Uint8Array(32).fill(0x5a);
 
-  it('(a) INDEPENDENCE: another key moves every landing and nothing else; another pseudonym seed moves everything else and no landing', () => {
+  it('(a) INDEPENDENCE: another key moves every landing and the KEYED supply chart (Story 12.4 review fix), never the pseudonym streams; another pseudonym seed moves those and no landing', () => {
     const base = run({ pseudonymSeed: 0xabc, dispersionKey: KEY_A });
     expect(base.landings.length).toBeGreaterThan(0);
     expect(base.tracks.length).toBe(2);
     expect(JSON.parse(base.supply).length).toBeGreaterThan(0); // non-vacuous: supply drops charted
     expect(JSON.parse(base.drops).length).toBeGreaterThan(0); // non-vacuous: airdrops rolled
-    // Same seeds, another key: the same shells land elsewhere; the private streams are untouched.
+    // Same seeds, another key: the same shells land elsewhere and the keyed
+    // supply chart moves; the pseudonym-material streams are untouched.
     const otherKey = run({ pseudonymSeed: 0xabc, dispersionKey: KEY_B });
     expect(otherKey.landings.map((s) => s.split(':')[0])).toEqual(base.landings.map((s) => s.split(':')[0]));
     expect(otherKey.landings).not.toEqual(base.landings);
     expect(otherKey.tracks).toEqual(base.tracks);
-    expect(otherKey.supply).toBe(base.supply);
+    expect(otherKey.supply).not.toBe(base.supply);
     expect(otherKey.drops).toBe(base.drops);
-    // Same key, another pseudonym seed: the private streams move, the landings do not.
+    // Same key, another pseudonym seed: the pseudonym-material streams move;
+    // the landings and the keyed supply chart do not.
     const otherPriv = run({ pseudonymSeed: 0xdef, dispersionKey: KEY_A });
     expect(otherPriv.tracks).not.toEqual(base.tracks);
-    expect(otherPriv.supply).not.toBe(base.supply);
+    expect(otherPriv.supply).toBe(base.supply);
     expect(otherPriv.drops).not.toBe(base.drops);
     expect(otherPriv.landings).toEqual(base.landings);
   });

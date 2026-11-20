@@ -147,6 +147,18 @@ describe('SupplyDrops — the pooled adapter', () => {
     expect(icon.scale.x).toBeCloseTo(1 / 0.5, 9);
   });
 
+  it('survives a hole in the slot pool (only slot 1 charted), render after render', () => {
+    const layer = new Container();
+    const m = new SupplyDrops(layer);
+    expect(() => {
+      m.render([row(1)], LAND - 1, 1);
+      m.render([row(1)], LAND - 1, 1);
+      m.render([], LAND - 1, 1);
+    }).not.toThrow();
+    expect(m.alphaAt(0)).toBe(0);
+    expect(m.alphaAt(1)).toBe(0);
+  });
+
   it('hides a faded-out mark and a slot absent from the rows, and reuses its sprites', () => {
     const layer = new Container();
     const m = new SupplyDrops(layer);

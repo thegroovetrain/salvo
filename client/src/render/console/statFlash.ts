@@ -17,8 +17,9 @@
 // caller's rule, barShip.ts).
 //
 // ALLOCATION: none per frame — the memory is two fixed arrays, the blend is
-// plain number math, and the caller's `setFill` writes only when the color
-// actually changes (so a row repaints only while its flash runs).
+// plain number math, and the caller drives the value Text's `tint` (the Text
+// is filled WHITE), writing only when the color changes — a tint is a vertex
+// color, so the fade never re-rasterizes the glyphs.
 
 import { INDEX_IDS, bonusCount, type IndexBonus } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';

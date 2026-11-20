@@ -244,6 +244,14 @@ export interface BotSupplyDrop {
   readonly landT: number;
 }
 
+/** A supply drop the router could not reach (Story 12.4 review fix,
+ *  ai/supplyDrops.ts supplyBarsOf): never picked or kept until `until`
+ *  (server ms — `CONFIG.bots.nav.routeRetryMs` after the failure, the
+ *  router's own retry clock) or until it leaves the chart. */
+export interface BotSupplyBar extends BotSupplyDrop {
+  readonly until: number;
+}
+
 /**
  * THE NARROW WORLD PORT — everything the bot driver needs from World beyond
  * its per-tick entries, and nothing else. World builds it with
@@ -591,6 +599,9 @@ export interface BotMind {
    *  crates land), re-checked every deliberation; null = none (patrol as
    *  usual). */
   supplyGoal?: BotSupplyDrop | null;
+  /** The supply drops the router reported unreachable, barred for a while
+   *  (see BotSupplyBar); empty = none. */
+  supplyBars?: readonly BotSupplyBar[];
   /** u — the closest the bot has come to `patrolWaypoint`, and the server ms
    *  it last gained a hull length on it: the no-progress re-pick after
    *  CONFIG.bots.nav.waypointTimeoutMs (amendment 202). */

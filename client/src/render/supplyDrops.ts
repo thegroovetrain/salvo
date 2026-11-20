@@ -17,7 +17,7 @@
 // not motion: the motion setting never touches it. No text, no timer.
 //
 // SHAPE (fire.ts's): a PURE core (no Pixi; unit-tested in
-// __tests__/supplyDrops.test.ts) — the fade and the ring's geometry — and a
+// __tests__/supplyChart.test.ts) — the fade and the ring's geometry — and a
 // thin adapter that pools one sprite pair per wire slot, re-strokes the ring
 // only on a zoom change, draws the icon once, and per frame touches only
 // position, alpha, visibility and the icon's screen scale (no allocation).
@@ -99,6 +99,7 @@ export class SupplyDrops {
    */
   render(rows: readonly SupplyChartRow[], nowMs: number, zoom: number): void {
     for (const s of this.sprites) {
+      if (s === undefined) continue; // a hole: a lower slot was never charted
       s.ring.visible = false;
       s.icon.visible = false;
     }

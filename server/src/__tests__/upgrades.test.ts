@@ -47,6 +47,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { offlineDispersionKey } from '../game/dispersionKey.js';
 import { flatRaster } from './islandFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 
@@ -994,6 +995,19 @@ describe('the EXHAUSTED hull — a short or empty offer never throws, and an emp
     const two = play(12);
     expect(two.offers).toEqual(one.offers);
     expect(two.bonus).not.toEqual(one.bonus);
+  });
+
+  it('the roll is KEYED by the room key, not the pseudonym material: same map + pseudonym seed, another dispersion key → other rolls; the same key → the same rolls', () => {
+    const roll = (dispersionKey: Buffer): Record<string, number> => {
+      const w = bareWorld(5, { pseudonymSeed: 11, dispersionKey, statRoll: CONFIG.xp.statRoll });
+      const a = place(w, 'a', 0, 0);
+      exhaust(w, a);
+      bank(w, a, 8);
+      return { ...a.indexBonus };
+    };
+    const one = roll(offlineDispersionKey(0, 1));
+    expect(roll(offlineDispersionKey(0, 1))).toEqual(one);
+    expect(roll(offlineDispersionKey(0, 2))).not.toEqual(one);
   });
 
   it('the points survive the activation redeploy and a respawn, folded into the rebuilt stats', () => {

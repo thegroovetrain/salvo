@@ -16,11 +16,18 @@
 // landing points are NOT on the chart: they are ordinary crates, delivered
 // only through perception (signals.ts `dropSignal`).
 //
-// THE STREAMS ARE ROOM-PRIVATE. The placement keeps out of every captain's
-// disc, so a stream a client could replay off the public map seed would turn
-// the public chart into a position oracle; the landing scatter is private for
-// the same reason a minute crate's spot is. The timing model is shared
-// (`shared/src/sim/supplyDrops.ts`).
+// THE STREAMS ARE ROOM-PRIVATE AND KEYED. The placement keeps out of every
+// captain's disc, so a stream a client could replay off the public map seed
+// would turn the public chart into a position oracle; the landing scatter is
+// private for the same reason a minute crate's spot is. Both seeds are HMACs
+// of the room's 32-byte random key (`dispersionKey.ts keyedStreamSeed`, the
+// labels 'supply-spot' | cycle and 'supply-scatter' | cycle | spot) — NOT a
+// 32-bit value XORed off the pseudonym material: a charted spot is a public
+// float32 output of its stream, so a 32-bit seed behind it could be
+// brute-forced from the chart (Story 12.4 review, reproduced in ~34 s) and,
+// were it `priv ^ K`, would hand back `priv`. A seed recovered from an HMAC
+// stream reveals neither the key nor any other stream. The timing model is
+// shared (`shared/src/sim/supplyDrops.ts`).
 
 import {
   CONFIG,
@@ -34,6 +41,7 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { logWarn } from '../log.js';
+import { keyedStreamSeed } from './dispersionKey.js';
 import { SPAWN_ISLAND_CLEARANCE, islandClearance } from './spawn.js';
 
 /** One charted supply-drop spot as every client (and every bot) is told
@@ -66,10 +74,6 @@ export interface SupplyCrate {
   readonly y: number;
 }
 
-/** The landing scatter's sub-stream mint constant (odd; unused by any other
- *  stream — see World's spawnPhase roster). */
-const SCATTER_K = 0xcc9e2d51;
-
 /** Spots placed for `cycle`: `supplyCountFor`, capped at the wire's slot
  *  count (`SUPPLY_WIRE_SLOTS`, shared) so the server never charts a spot no
  *  client was told about. The shipped CONFIG cannot exceed it (shared throws
@@ -83,11 +87,18 @@ function wireCount(cycle: number, cfg: SupplyDropConfig): number {
 
 const NO_CHART: SupplyChart = Object.freeze([]);
 
+/** The placement's private stream for ring cycle `cycle`:
+ *  HMAC(key, 'supply-spot' | cycle). */
+export function spotStream(key: Uint8Array, cycle: number): Rng {
+  return mulberry32(keyedStreamSeed(key, 'supply-spot', cycle));
+}
+
 /** The landing scatter's private stream for spot `spot` of cycle `cycle`:
- *  keyed by the pair, so a skipped crate, another spot or another cycle
- *  never shifts this spot's draws. */
-export function scatterStream(seed: number, cycle: number, spot: number): Rng {
-  return mulberry32((seed ^ Math.imul(cycle * SUPPLY_WIRE_SLOTS + spot + 1, SCATTER_K)) >>> 0);
+ *  HMAC(key, 'supply-scatter' | cycle | spot) — keyed by the pair, so a
+ *  skipped crate, another spot or another cycle never shifts this spot's
+ *  draws. */
+export function scatterStream(key: Uint8Array, cycle: number, spot: number): Rng {
+  return mulberry32(keyedStreamSeed(key, 'supply-scatter', cycle, spot));
 }
 
 /** Is `p` clear of every point of `placed` by at least `gap` (centre to
@@ -114,7 +125,7 @@ function drawInDisc(rng: Rng, centre: Vec2, r: number): Vec2 | null {
 
 /** One crate's point: up to `cfg.placeAttempts` draws inside the scatter
  *  disc, rejected on land (the spawn ring's own clearance test, as a minute
- *  crate's) or overlapping a crate already placed (centres closer than
+ *  crate's) or overlapping any crate in `placed` (centres closer than
  *  `2 × radiusU`). Null when every draw failed. */
 function pickCratePoint(
   rng: Rng,
@@ -134,26 +145,32 @@ function pickCratePoint(
 
 /**
  * THE LANDING SCATTER (AC 21): `cfg.crates` points uniformly within
- * `cfg.scatterU` of the charted spot, clear of land, never overlapping
- * (centres at least `2 × radiusU` apart). A crate that finds no point in
- * `cfg.placeAttempts` draws is SKIPPED and LOGGED (`supplyDrops.crateSkipped`),
- * never thrown. Deterministic per (seed, cycle, spot).
+ * `cfg.scatterU` of the charted spot, clear of land, never overlapping —
+ * centres at least `2 × radiusU` from each other AND from every crate in
+ * `occupied` (every crate already on the water, and the crates other spots of
+ * this landing placed first: spots can sit closer than two scatter radii).
+ * A crate that finds no point in `cfg.placeAttempts` draws is SKIPPED and
+ * LOGGED (`supplyDrops.crateSkipped`), never thrown. Deterministic per
+ * (key, cycle, spot, occupied).
  */
 export function scatterSupplyCrates(
-  seed: number,
+  key: Uint8Array,
   row: SupplyChartRow,
   islands: readonly Island[],
   cfg: SupplyDropConfig = CONFIG.supplyDrops,
   radiusU: number = CONFIG.drops.radiusU,
+  occupied: readonly Vec2[] = [],
 ): SupplyCrate[] {
-  const rng = scatterStream(seed, row.cycle, row.spot);
+  const rng = scatterStream(key, row.cycle, row.spot);
+  const taken: Vec2[] = [...occupied];
   const out: SupplyCrate[] = [];
   for (let n = 0; n < cfg.crates; n += 1) {
-    const p = pickCratePoint(rng, row, islands, out, cfg, radiusU);
+    const p = pickCratePoint(rng, row, islands, taken, cfg, radiusU);
     if (p === null) {
       logWarn('supplyDrops.crateSkipped', { cycle: row.cycle, spot: row.spot, crate: n, attempts: cfg.placeAttempts });
       continue;
     }
+    taken.push(p);
     out.push({ id: `sup-${row.cycle}-${row.spot}-${n}`, x: p.x, y: p.y });
   }
   return out;
@@ -168,12 +185,12 @@ export class SupplyField {
   /** Has the current set landed? (A set lands once.) */
   private landed = false;
 
-  /** `seed` is SERVER-PRIVATE material (the World mints it off the room's
-   *  private entropy, never the public map seed). The placement stream is
-   *  `seed ^ imul(cycle + 1, 0x9e3779b9)`; the landing scatter's is
-   *  `scatterStream(seed, cycle, spot)`. */
+  /** `key` is the room's SERVER-PRIVATE 32-byte key (the World's
+   *  `dispersionKey` — random per real room). The placement stream is
+   *  `spotStream(key, cycle)`; the landing scatter's
+   *  `scatterStream(key, cycle, spot)` — both HMACs (see the header). */
   constructor(
-    private readonly seed: number,
+    private readonly key: Uint8Array,
     private readonly cfg: SupplyDropConfig = CONFIG.supplyDrops,
   ) {}
 
@@ -205,7 +222,7 @@ export class SupplyField {
       this.rows = NO_CHART;
       return;
     }
-    const rng = mulberry32((this.seed ^ Math.imul(cycle + 1, 0x9e3779b9)) >>> 0);
+    const rng = spotStream(this.key, cycle);
     const taken: Vec2[] = [];
     const rows: SupplyChartRow[] = [];
     for (let n = 0; n < count; n += 1) {
@@ -222,15 +239,21 @@ export class SupplyField {
   /**
    * LAND THE SET if it is due (AC 20–21): once per set, on the first call at
    * or after `cycleStartT + surfaceMs`, every charted spot scatters its
-   * crates (`scatterSupplyCrates`) and they are handed to `put`. Returns
-   * whether the set landed on this call. The chart is left as it is — the
-   * mark's fade is the client's, derived from the same clock.
+   * crates (`scatterSupplyCrates`) in slot order and they are handed to
+   * `put`. No crate overlaps one in `onWater` (every crate already on the
+   * water) or one an earlier spot of this landing placed. Returns whether
+   * the set landed on this call. The chart is left as it is — the mark's
+   * fade is the client's, derived from the same clock.
    */
-  land(now: number, islands: readonly Island[], put: (crate: SupplyCrate) => void): boolean {
+  land(now: number, islands: readonly Island[], onWater: Iterable<Vec2>, put: (crate: SupplyCrate) => void): boolean {
     if (this.landed || this.rows.length === 0 || !supplyDropLanded(now, this.cycleStartT, this.cfg)) return false;
     this.landed = true;
+    const occupied: Vec2[] = [...onWater];
     for (const row of this.rows) {
-      for (const crate of scatterSupplyCrates(this.seed, row, islands, this.cfg)) put(crate);
+      for (const crate of scatterSupplyCrates(this.key, row, islands, this.cfg, CONFIG.drops.radiusU, occupied)) {
+        occupied.push(crate);
+        put(crate);
+      }
     }
     return true;
   }

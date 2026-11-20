@@ -230,6 +230,17 @@ describe('EngineMix — the sink fade and the edge cues', () => {
     expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'beacon')).toHaveLength(1);
   });
 
+  it('a supply landing neither plays nor arms while the match is over', () => {
+    const r = rig();
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: false, matchOver: true }));
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: true, matchOver: true }));
+    expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'beacon')).toHaveLength(0);
+    // the over-state armed nothing: a live set still arms and fires normally after
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: false }));
+    r.mix.update(frame({ supplyCycle: 2, supplyLanded: true }));
+    expect(r.audio.playCue.mock.calls.filter(([id]) => id === 'beacon')).toHaveLength(1);
+  });
+
   it('reseedEdges forgets a charted set: its landing after the reseed is silent', () => {
     const r = rig();
     r.mix.update(frame({ supplyCycle: 2, supplyLanded: false }));

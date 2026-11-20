@@ -8,8 +8,8 @@
 // shell's ordinal is public (its id is `s<ordinal>`), so one shell's 32-bit
 // seed is brute-forceable from its landing in seconds. Under the first cut
 // (`priv ^ const ^ imul(ordinal, K)`) that recovered the room's pseudonym
-// material and with it EVERY room-private stream (track ids, supply
-// drops, airdrops, stat rolls, dropout, fog) plus every later shell. Under an HMAC a recovered
+// material and with it every `priv`-derived stream (track ids, airdrops,
+// dropout, fog at the time) plus every later shell. Under an HMAC a recovered
 // seed reveals nothing about the key, about any other shell's seed or about
 // any other stream — and the key is independent of `priv` by construction.
 //
@@ -45,5 +45,29 @@ export function offlineDispersionKey(mapSeed: number, pseudonymMaterial: number)
 export function dispersionShellSeed(key: Uint8Array, ordinal: number): number {
   const msg = Buffer.alloc(8);
   msg.writeBigUInt64BE(BigInt(Math.max(0, Math.trunc(ordinal))), 0);
+  return createHmac('sha256', key).update(msg).digest().readUInt32BE(0);
+}
+
+/**
+ * A ROOM-PRIVATE STREAM SEED off the same key (Story 12.4 review fix —
+ * anti-cheat): the first 4 bytes (big-endian uint32) of
+ *
+ *   HMAC-SHA256(key, utf8(label) ‖ 0x00 ‖ ordinal₀ ‖ ordinal₁ ‖ …)
+ *
+ * each ordinal an 8-byte big-endian unsigned integer. The `label` separates
+ * the domains (`'supply-spot'`, `'supply-scatter'`, `'stat-roll'`), so no two
+ * streams share a seed, and a seed brute-forced back from one stream's public
+ * outputs (a charted spot, a player's own stat rolls) reveals nothing about
+ * the key or any other stream — the same argument as `dispersionShellSeed`.
+ * Its messages are never exactly 8 bytes (a non-empty label + the separator +
+ * whole 8-byte ordinals), so they never collide with a shell seed's message.
+ * A label must be non-empty and NUL-free.
+ */
+export function keyedStreamSeed(key: Uint8Array, label: string, ...ordinals: number[]): number {
+  if (label.length === 0 || label.includes('\0')) throw new Error(`keyedStreamSeed: bad label ${JSON.stringify(label)}`);
+  const head = Buffer.from(label, 'utf8');
+  const msg = Buffer.alloc(head.length + 1 + ordinals.length * 8);
+  head.copy(msg, 0);
+  ordinals.forEach((o, i) => msg.writeBigUInt64BE(BigInt(Math.max(0, Math.trunc(o))), head.length + 1 + i * 8));
   return createHmac('sha256', key).update(msg).digest().readUInt32BE(0);
 }

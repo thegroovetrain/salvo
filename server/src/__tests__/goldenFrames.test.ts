@@ -396,6 +396,13 @@
 // Diffed key by key against the old snapshot: no other row, frame, tick,
 // event, contact, paint or count moved; the six exceptions and every proof
 // are unchanged. `ib` is self-private (`you` only), as before.
+//
+// RE-RECORDED 2026-11-19, again (Story 12.4 review fix — the level stat roll
+// is now seeded HMAC(dispersionKey, 'stat-roll' | k), no longer
+// `priv ^ K`). The SAME three `you` rows moved, in the same two keys only:
+// each row's rolled `ib` points and, with its INTEL points, its `sweep`.
+// Diffed key by key against the old snapshot (167 rows each): no other row,
+// frame, tick, event, contact, paint or count moved.
 
 import { describe, it, expect } from 'vitest';
 import {

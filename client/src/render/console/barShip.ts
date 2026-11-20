@@ -21,7 +21,7 @@ import { INDEX_IDS, type IndexBonus } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
 import type { MotionLevel } from '../../settings/store.js';
 import { indexWord } from '../../ui/boonCopy.js';
-import { drawBox, drawChip, drawRefill, drawTierMark, monoText, place, setFill } from './barDraw.js';
+import { drawBox, drawChip, drawRefill, drawTierMark, monoText, place } from './barDraw.js';
 import { HOVER_WASH, abilitySkin, indexValueText, tierMarkModel } from './skins.js';
 import type { AbilityTileRect, ShipRowRect } from './layout.js';
 import { READOUT_KEY, type AbilityModel, type PreviewMarks, type Readout } from './readouts.js';
@@ -138,7 +138,7 @@ export class ShipRows {
     INDEX_IDS.forEach((id, i) => {
       this.labels[i].text = indexWord(id);
     });
-    this.values = INDEX_IDS.map(() => monoText(T.indexValue, '600', C.phosphor));
+    this.values = INDEX_IDS.map(() => monoText(T.indexValue, '600', C.white));
     this.tiers = INDEX_IDS.map(() => monoText(T.tier, '600', C.phosphor, 1));
     this.root.addChild(this.gfx, ...this.labels, ...this.values, ...this.tiers);
   }
@@ -162,7 +162,9 @@ export class ShipRows {
       const cy = row.y + row.h / 2;
       this.labels[i].position.set(row.label.x, cy);
       const mark = preview?.get(INDEX_KEYS[i]);
-      setFill(this.values[i], mark === undefined ? flashColor(nowMs - this.rises.roseAt(i), C.phosphor) : C.amber);
+      // WHITE fill + tint: a tint is a vertex color, so no re-rasterization.
+      const tint = mark === undefined ? flashColor(nowMs - this.rises.roseAt(i), C.phosphor) : C.amber;
+      if (this.values[i].tint !== tint) this.values[i].tint = tint;
       place(this.values[i], indexValueText(value, mark), row.value.x, cy, uiScale);
       drawTierMark(this.gfx, this.tiers[i], row.tierMark, tierMarkModel(held, preview?.get(HELD_KEYS[i])), uiScale);
     });
@@ -180,7 +182,7 @@ export class ShipRows {
   }
 
   valueColor(i: number): number {
-    return this.values[i].style.fill as number;
+    return this.values[i].tint as number;
   }
 
   /** The tier numeral a row prints (test seam). */
