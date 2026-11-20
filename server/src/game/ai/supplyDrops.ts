@@ -26,7 +26,9 @@
 //      holds a goal, the crates it has SEEN in the circle (id + position,
 //      from its own `PerceptionView.drops` only) stay on its mind — a small
 //      bounded array reused in place (noteSupplyCrates). One is forgotten
-//      when the bot's eye (`CONFIG.vision.crateKindSight`) covers its spot
+//      when the bot's eye (`CONFIG.vision.hullSight`, nominal — the reach
+//      the `drop` row holds a crate to since epic-12 amendment 10: a crate is
+//      seen by the hull rule) covers its spot
 //      and it is not sighted (taken — by this bot or another — or eaten), and
 //      all are forgotten when the goal changes or is released.
 //   5. UNREACHABLE (Story 12.4 review fix): a spot on a non-navigable nav
@@ -156,7 +158,7 @@ export function noteSupplyCrates(
   memory: BotRememberedCrate[],
   sighted: readonly BotRememberedCrate[],
   eye: Vec2,
-  eyeU: number = CONFIG.vision.crateKindSight,
+  eyeU: number = CONFIG.vision.hullSight,
   scatterU: number = CONFIG.supplyDrops.scatterU,
   cap: number = CONFIG.supplyDrops.crates,
 ): void {

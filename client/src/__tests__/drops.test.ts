@@ -3,8 +3,10 @@
 // the XP crate (+XP linework) and the wreck.
 import { describe, expect, it } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
-import { isDropKind, type DropKind, type DropView } from '@salvo/shared';
-import { Drops, crateStyleFor, drawCrate } from '../render/drops.js';
+import { CONFIG, isDropKind, type DropKind, type DropView } from '@salvo/shared';
+import { CRATE_SIDE_U, Drops, crateFadeAlpha, crateStyleFor, drawCrate } from '../render/drops.js';
+import { dissolveAlpha } from '../render/hullDissolve.js';
+import { RAIN_GRID_N, hullVisGrid, type RainEye } from '../render/rainSight.js';
 import { drawEquipmentIcon, glyphPaths } from '../render/equipmentIcons.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -39,9 +41,78 @@ describe('Drops — the add/remove reconcile', () => {
     const layer = new Container();
     const d = new Drops(layer);
     d.sync([crate('a')]);
-    d.render(1.5);
+    d.render(null, 16);
     d.destroy();
     expect(layer.children).toHaveLength(0);
+  });
+});
+
+// Eric 2026-11-20 (epic-12 amendment 10): a crate is seen "exactly like a
+// hull" — so it wears the hull's fade.
+describe('Drops — the hull\'s fade (crisp to sight, fading to the hull sight)', () => {
+  const SIGHT = CONFIG.vision.sight;
+  const HULL_SIGHT = CONFIG.vision.hullSight;
+  const eye = (over: Partial<RainEye> = {}): RainEye => ({ frame: null, sightU: SIGHT, hullSightU: HULL_SIGHT, x: 0, y: 0, ...over });
+  /** The alpha a hull part AT that spot is drawn with (the shader's plain-fade
+   *  branch): V from the hull's own grid march, for a hull of no size there. */
+  const hullAlphaAt = (e: RainEye, x: number, y: number): number => {
+    const vis = hullVisGrid(e, x, y, 0, 0, 0, new Float64Array(2 * RAIN_GRID_N), new Float32Array(RAIN_GRID_N));
+    return dissolveAlpha(vis[0], 0, 0);
+  };
+  const DISTANCES = [SIGHT * 0.3, SIGHT, SIGHT + (HULL_SIGHT - SIGHT) * 0.25, (SIGHT + HULL_SIGHT) / 2, SIGHT + (HULL_SIGHT - SIGHT) * 0.9, HULL_SIGHT];
+
+  it('a crate\'s fade is the hull\'s alpha at the same spot, at every distance: 1 out to the class-and-name sight, falling through the band, never gone', () => {
+    const d = new Drops(new Container());
+    d.sync(DISTANCES.map((x, i) => crate(`c${i}`, x, 0)));
+    d.render(eye(), 16);
+    const fades = DISTANCES.map((_, i) => d.fadeOf(`c${i}`)!);
+    DISTANCES.forEach((x, i) => expect(fades[i], `at ${x}`).toBeCloseTo(hullAlphaAt(eye(), x, 0), 6));
+    expect(fades[0]).toBe(1);
+    expect(fades[1]).toBe(1);
+    for (let i = 2; i < fades.length; i++) expect(fades[i], `band step ${i}`).toBeLessThanOrEqual(fades[i - 1]);
+    expect(fades[2]).toBeLessThan(fades[1]); // the band really fades...
+    expect(fades[3]).toBeLessThan(fades[2]); // ...until the sent floor holds the far end
+    expect(fades[fades.length - 1]).toBeGreaterThan(0); // the server sent it: never drawn fully gone
+  });
+
+  it('the fade follows the eye\'s own reaches (a part-cleared whiteout), not the CONFIG numbers', () => {
+    const half = eye({ sightU: SIGHT / 2, hullSightU: HULL_SIGHT / 2 });
+    const x = SIGHT * 0.75; // crisp for a clear eye, in the band of the half-cleared one
+    const d = new Drops(new Container());
+    d.sync([crate('a', x, 0)]);
+    d.render(half, 16);
+    expect(d.fadeOf('a')).toBeCloseTo(hullAlphaAt(half, x, 0), 6);
+    expect(d.fadeOf('a')).toBeLessThan(1);
+  });
+
+  it('a spectator (no eye) and a crate under an own star shell (lit from above) draw clear', () => {
+    const x = (SIGHT + HULL_SIGHT) / 2;
+    const d = new Drops(new Container());
+    d.sync([crate('a', x, 0)]);
+    d.render(eye(), 16);
+    expect(d.fadeOf('a')).toBeLessThan(1);
+    d.render(eye({ lit: [{ x, y: 0, r: 50 }] }), 16);
+    expect(d.fadeOf('a')).toBe(1);
+    d.render(null, 16);
+    expect(d.fadeOf('a')).toBe(1);
+  });
+
+  it('the fade multiplies both sides of the chart-icon handover', () => {
+    const x = (SIGHT + HULL_SIGHT) / 2;
+    const d = new Drops(new Container());
+    d.sync([crate('a', x, 0)]);
+    d.render(eye(), 16);
+    const fade = d.fadeOf('a')!;
+    d.renderIcons(40 / CRATE_SIDE_U); // far above the icon size: the true crate alone
+    expect(d.spriteOf('a')?.alpha).toBeCloseTo(fade, 9);
+    expect(d.iconAlphaAt('a')).toBe(0);
+    d.renderIcons(4 / CRATE_SIDE_U); // far below it: the icon alone
+    expect(d.iconAlphaAt('a')).toBeCloseTo(fade, 9);
+  });
+
+  it('crateFadeAlpha is 1 in clear water and never above the visibility it is given', () => {
+    expect(crateFadeAlpha(1)).toBe(1);
+    for (const V of [0.9, 0.5, 0.2]) expect(crateFadeAlpha(V)).toBeLessThanOrEqual(V);
   });
 });
 

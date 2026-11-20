@@ -278,7 +278,7 @@ describe('ai/supplyDrops — pick, keep, release', () => {
 // --- the memory ------------------------------------------------------------------
 
 describe('ai/supplyDrops — the remembered crates (Eric 2026-11-19, remember if not expensive)', () => {
-  const EYE = CONFIG.vision.crateKindSight;
+  const EYE = CONFIG.vision.hullSight; // the nominal reach the `drop` row holds a crate to (epic-12 amendment 10)
   const CAP = CONFIG.supplyDrops.crates;
   const goal = pending(0, 0);
   const after = goal.landT + 1;
@@ -420,20 +420,25 @@ describe('COMBAT_BRAIN — the supply run', () => {
     expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the crate
   });
 
-  it('steers for a REMEMBERED crate it no longer sees, and forgets it when the goal is released', () => {
+  // 2026-11-20 (epic-12 amendment 10): the bot's nominal eye is now the hull
+  // sight, which covers the whole scatter circle from anywhere in it — so a
+  // remembered crate the bot does not see is forgotten on the spot, and the
+  // "steers for a remembered crate it no longer sees" half of this test has no
+  // seat inside a circle (the steer-point rule itself is pinned above, pure).
+  it('steers for a crate in the circle it sees and remembers, and forgets it when the goal is released', () => {
     const w = openWorld(1318);
     const rec = mkBot(w, 0, 0, 0); // bow due east
     const drop = pending(0, 0);
     const mind = mkMind('bulwark');
     COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop]));
-    const farY = -Math.min(SCATTER_U, 1.5 * CONFIG.vision.crateKindSight); // due south, past the eye
-    mind.supplyCrates = [{ id: 'c1', x: 0, y: farY }];
-    mind.view = { drops: [], mines: [] } as unknown as PerceptionView;
+    const crate: DropView = { id: 'c1', x: 0, y: -SCATTER_U, c: 'xp' }; // due south, on the circle's rim
+    mind.supplyCrates = [{ id: 'c1', x: crate.x, y: crate.y }];
+    mind.view = { drops: [crate], mines: [] } as unknown as PerceptionView;
     const d = COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop], drop.landT));
     expect(mind.supplyGoal).toEqual(drop);
     expect(mind.supplyCrates).toHaveLength(1);
     expect(d.throttle).toBe(1);
-    expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the remembered crate
+    expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the crate
     COMBAT_BRAIN.decide(rec, mind, fakePort(w, [], drop.landT)); // the drop leaves the chart
     expect(mind.supplyGoal ?? null).toBeNull();
     expect(mind.supplyCrates).toEqual([]);

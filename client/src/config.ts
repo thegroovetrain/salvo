@@ -1174,7 +1174,7 @@ export const CLIENT_CONFIG = {
   /**
    * THE AIRDROPS ON THE WATER (Story 10.9, epic-10 amendment 18, R3/R4; Eric's
    * rulings of 2026-11-08 on the rendered page) — render/drops.ts. A crate is
-   * drawn at SIGHT only (fogged world layer `dropWorld`); on radar it is a
+   * drawn wherever a hull at its spot would be (above the fog on `dropChart`, with the hull's fade — epic-12 amendment 10); on radar it is a
    * plain anonymous blip, no client art. ONE body (the 15 u disc's inscribed
    * square) with its KIND's glyph inside, outline and glyph both in the kind's
    * color at `glyphAlpha` (the mine marker's 0.9). NO numerals.

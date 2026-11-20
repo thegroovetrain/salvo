@@ -4893,6 +4893,29 @@ export class World {
   }
 
   /**
+   * THE EYE'S QUESTION FOR A HAZED POINT (2026-11-20, epic-12 amendment 10 —
+   * a crate is seen "exactly like a hull"): `fogHullAdmits` for ONE point B
+   * instead of a hull's grid —
+   *
+   *     fogDepthAlong(A → B) <= (T − haze(B)) − smokeDepthAlong(A → B)
+   *
+   * with the same shared `fogHazeDepth(|A → B|, sightU, hullSightU, T)` and
+   * the same walk (`fogSightWalked`). The caller has established the range
+   * cap (the hull sight) and island line of sight. `held` as in
+   * `fogSightAdmits`. With no rain and no cloud: true, no work (the haze
+   * alone never hides a point inside the cap). No memo: one question per
+   * crate per observer, never repeated in a tick.
+   */
+  fogHazedAdmits(ax: number, ay: number, bx: number, by: number, sightU: number, hullSightU: number, held?: ReadonlySet<string>): boolean {
+    const smoky = this.smokeRefresh(held) > 0;
+    if (!smoky && !this.fogFrame.on) return true;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const haze = fogHazeDepth(Math.sqrt(dx * dx + dy * dy), sightU, hullSightU, this.fogMaxDepthU);
+    return this.fogSightWalked(ax, ay, bx, by, smoky, haze);
+  }
+
+  /**
    * The CURRENT island index (see `islandIdx`): validated against
    * `map.islands` on every read — one identity pass over the list — so a
    * caller takes it ONCE per pass (one observe(), one shell step) and hands

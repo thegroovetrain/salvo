@@ -203,11 +203,23 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
     expect(EVERY_ROOT_PLACED).toBe(true);
   });
 
-  it('the world layers stack ocean → wake → projectile → mines → drops, and the HUD vignette → hud → foghorn', () => {
+  it('the world layers stack ocean → wake → projectile → mines, and the HUD vignette → hud → foghorn', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
-      'ocean', 'wake', 'projectile', 'mineWorld', 'dropWorld', // the buoy layer went with the buoys (Story 10.5); drops Story 10.9; the beacon bodies went with the beacons (Story 12.4)
+      'ocean', 'wake', 'projectile', 'mineWorld', // the buoy layer went with the buoys (Story 10.5); the beacon bodies with the beacons (Story 12.4); the crates moved above the fog (2026-11-20)
     ]);
     expect(HUD_LAYER_ORDER as readonly string[]).toEqual(['vignette', 'hud', 'foghorn']);
+  });
+
+  // Eric 2026-11-20 (epic-12 amendment 10): "the xp crates and wrecks are not
+  // mines and they should be able to be visually seen by the same rules other
+  // ships are" — drawn above the fog like ships.
+  it('crates are charted like hulls: `dropChart` is a chart layer above the fog and the own mines, directly under the contact hulls — and no world layer holds them', () => {
+    const chart = CHART_LAYER_ORDER as readonly string[];
+    expect(chart).toContain('dropChart');
+    expect(chart.indexOf('dropChart')).toBeGreaterThan(chart.indexOf('fog'));
+    expect(chart.indexOf('dropChart')).toBeGreaterThan(chart.indexOf('mineChart'));
+    expect(chart.indexOf('dropChart')).toBe(chart.indexOf('ship') - 1);
+    expect((WORLD_LAYER_ORDER as readonly string[]).some((l) => l.startsWith('drop'))).toBe(false);
   });
 });
 

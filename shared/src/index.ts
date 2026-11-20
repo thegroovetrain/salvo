@@ -3,6 +3,15 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  113 — 2026-11-20 crates seen by the hull rule (epic-12 amendment 10,
+ *  numbers re-checked at PR): Eric — "the xp crates and wrecks are not mines
+ *  and they should be able to be visually seen by the same rules other ships
+ *  are", "Exactly like a hull". No wire shape changes (`DropView` is still
+ *  `{id,x,y,c}`), but the `drop` row now delivers a crate out to the
+ *  observer's hull sight, and the client must draw it above the fog with the
+ *  hull's fade (a 112 client would bury it under the fog). CONFIG the client
+ *  reads: `vision.crateKindSight` is RETIRED. Perception exception count
+ *  stays SIX.
  *  112 — AIRDROPS AND SUPPLY DROPS (2026-11-19, Eric; epic-12 amendment 5;
  *  Story 12.4 (number re-checked at PR time)): `DropView.c` narrows to
  *  `'xp' | 'wreck'` (every airdrop is an XP crate; a wreck's `dp.g` carries
@@ -77,7 +86,7 @@
  *  The CONFIG the client reads changed: the twelfths ladder retires — every
  *  reach is a named hectometer fact (`vision.sight` 200 hm, new
  *  `vision.hullSight` / `splashSight` / `shellSight` / `torpedoSight` /
- *  `mineSight` / `crateKindSight`, `vision.radar` 400 hm, the weapon reaches);
+ *  `mineSight` / `crateKindSight` (retired at 113), `vision.radar` 400 hm, the weapon reaches);
  *  `vision.detect` / `detectFactor` / `muzzleFlashFactor` / `dropout` and
  *  `torpedo.homingMaxRangeU` are RETIRED; every torpedo kind gains `runU` /
  *  `runUAtV` and the equipment row `runU`; hull `battery.reachFrac` replaces
@@ -1146,7 +1155,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 112;
+export const PROTOCOL_VERSION = 113;
 
 // Tunables
 export * from './constants.js';

@@ -33,6 +33,8 @@ import { CLIENT_CONFIG } from '../config.js';
 import {
   CLEAR_V,
   HullRainVis,
+  PointRainVis,
+  pointVisibility,
   RAIN_GRID_COLS,
   RAIN_GRID_N,
   RAIN_GRID_ROWS,
@@ -315,6 +317,54 @@ describe('HullRainVis — the cadence', () => {
     expect(rv.step(null, 0, 0, 0, HULL.length, HULL.beam, 16)).toBeNull();
     const back = rv.step(PART.eye, PART.x, PART.y, PART.h, HULL.length, HULL.beam, 16);
     expect(Array.from(back!)).toEqual(Array.from(PART.vis));
+  });
+});
+
+// 2026-11-20 (epic-12 amendment 10): a crate is seen "exactly like a hull" —
+// one mark, so one point of the hull's own visibility math.
+describe('pointVisibility / PointRainVis — one point of the hull\'s visibility (the crate)', () => {
+  const pts = new Float64Array(2 * RAIN_GRID_N);
+  /** V of a hull of no size at (x, y): every grid point is the point itself. */
+  const hullPointV = (eye: RainEye, x: number, y: number): number => hullVisGrid(eye, x, y, 0, 0, 0, pts, new Float32Array(RAIN_GRID_N))[0];
+
+  it('is the V a hull grid point at that spot gets — through rain, through smoke and through the distance haze — floored like a sent hull', () => {
+    const sight = CONFIG.vision.sight;
+    const hullSight = CONFIG.vision.hullSight;
+    const smoky: RainEye = { frame: null, smoke: [{ x: 300, y: 0, r: 260 }], x: 0, y: 0 };
+    const hazed: RainEye = { frame: null, sightU: sight, hullSightU: hullSight, x: 0, y: 0 };
+    const cases: Array<[string, RainEye, number, number]> = [
+      ['rain', PART.eye, PART.x, PART.y],
+      ['clear', clearEye(), CLEAR_POSE.x, CLEAR_POSE.y],
+      ['smoke', smoky, 600, 0],
+      ['haze, mid band', hazed, (sight + hullSight) / 2, 0],
+      ['haze, at the hull sight', hazed, hullSight, 0],
+    ];
+    for (const [name, eye, x, y] of cases) expect(pointVisibility(eye, x, y), name).toBeCloseTo(hullPointV(eye, x, y), 6);
+    expect(pointVisibility(clearEye(), CLEAR_POSE.x, CLEAR_POSE.y)).toBe(1);
+    expect(pointVisibility(hazed, (sight + hullSight) / 2, 0)).toBeLessThan(1);
+    expect(pointVisibility(hazed, hullSight, 0)).toBe(SENT_FLOOR_V); // gone by the haze, yet sent: the floor
+  });
+
+  it('PointRainVis snaps on first sight, holds between refreshes, eases to the next march, and reads 1 with no eye', () => {
+    const hazed: RainEye = { frame: null, sightU: CONFIG.vision.sight, hullSightU: CONFIG.vision.hullSight, x: 0, y: 0 };
+    const far = (CONFIG.vision.sight + CONFIG.vision.hullSight) / 2;
+    const dim = pointVisibility(hazed, far, 0);
+    const pv = new PointRainVis(0);
+    expect(pv.step(hazed, far, 0, 16)).toBe(dim);
+    // the eye closes to plain sight, but no march is due yet: the drawn V holds
+    const near: RainEye = { ...hazed, x: far - 10 };
+    let t = 16;
+    while (t + 16 < L.visRefreshMs) {
+      expect(pv.step(near, far, 0, 16)).toBe(dim);
+      t += 16;
+    }
+    for (let k = 0; k < 4; k++) pv.step(near, far, 0, 16);
+    expect(pv.v).toBeGreaterThan(dim);
+    expect(pv.v).toBeLessThanOrEqual(1);
+    for (let k = 0; k < 200; k++) pv.step(near, far, 0, 16);
+    expect(pv.v).toBeCloseTo(1, 6);
+    expect(pv.step(null, far, 0, 16)).toBe(1);
+    expect(pv.step(hazed, far, 0, 16)).toBe(dim); // ...and the next eye snaps again
   });
 });
 

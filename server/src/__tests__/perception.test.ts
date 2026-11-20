@@ -15,8 +15,11 @@
 //   - EVERY POINT HAS ITS OWN NAMED EYE REACH (`eyeSeen` at a CONFIG.vision
 //     fact, whiteout-scaled, fog-tolled, island LOS): booms and bursts at
 //     `splashSight`, shells at `shellSight`, torpedoes and their updates at
-//     `torpedoSight`, mines at `mineSight`, a crate's kind at
-//     `crateKindSight`; mz / sm at `muzzleFlash` (never whiteout-scaled).
+//     `torpedoSight`, mines at `mineSight`; mz / sm at `muzzleFlash` (never
+//     whiteout-scaled). A CRATE IS SEEN BY THE HULL RULE (Eric 2026-11-20,
+//     epic-12 amendment 10 — "Exactly like a hull"; `crateSeen`): the hull
+//     reach and island LOS on its centre, rain + held smoke + distance haze
+//     on its centre line (a crate is one mark, not a grid of parts).
 //   - IDENTITY STAYS ON THE CLASS REACH: a boom's `hit`, the sunk row's
 //     `seen` and the whole spawn row.
 //   - THE RADAR DROPOUT IS GONE: every in-range, swept, unshadowed subject
@@ -722,9 +725,17 @@ function mineSeen(w: World, me: ShipRecord, p: { x: number; y: number }, bound: 
   return eyeSeen(w, me, p, CONFIG.vision.mineSight, bound);
 }
 
-/** A crate's KIND: the crate-kind reach. */
+/** A CRATE, BY THE HULL RULE (Eric 2026-11-20, epic-12 amendment 10):
+ *  `hullHeldWithin` with the crate in the hull's place — its centre inside the
+ *  observer's HULL-sight cap on an island-clear ray, and its centre line
+ *  through the rain, the held smoke and the distance haze (`hullLineAdmits`,
+ *  the hull grid's own per-line comparison; a crate is one point). */
 function crateSeen(w: World, me: ShipRecord, p: { x: number; y: number }, bound: Bound = 'loose'): boolean {
-  return eyeSeen(w, me, p, CONFIG.vision.crateKindSight, bound);
+  const reaches = hullReaches(w, me);
+  if (!(reaches.hullSightU > 0)) return false;
+  if (!(dist(me.state, p) <= reaches.hullSightU) || !sightClearOracle(w, me, p)) return false;
+  if (!w.fogFrameForTest().on && w.clouds.size === 0) return true;
+  return hullLineAdmits(w, me, p, reaches, bound);
 }
 
 // The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
@@ -3536,9 +3547,11 @@ const DROP_WITHHELD = { n: 0 };
 const DROP_PAINTED = { n: 0 };
 const DROP_BY_ZONE = { n: 0 };
 
-/** The drop SIGHT gate, independently re-derived — the mine oracle MINUS the
- *  owner clause (a crate has no owner): spectator always; else the centre
- *  within the CRATE-KIND eye reach (Story 11.2 — island LOS, fog-tolled) OR inside a lit zone
+/** The drop SIGHT gate, independently re-derived — THE CONTACT ORACLE with the
+ *  crate in the hull's place (Eric 2026-11-20, epic-12 amendment 10: a crate
+ *  is seen "exactly like a hull"; a crate has no owner): spectator always;
+ *  else the centre held by the hull rule (`crateSeen` — hull reach, island
+ *  LOS, rain + smoke + haze) OR inside a lit zone
  *  the observer OWNS. Never radar: a crate's radar presence is an anonymous
  *  blip, never a `drops[]` row. `bound` grants the tolled oracle's dead band
  *  (delivered → loose passes; withheld → strict fails). */
