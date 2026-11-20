@@ -252,6 +252,15 @@ export interface BotSupplyBar extends BotSupplyDrop {
   readonly until: number;
 }
 
+/** A crate a bot SAW inside its supply goal's circle (Eric 2026-11-19,
+ *  "Remember if it's not expensive"; ai/supplyDrops.ts noteSupplyCrates):
+ *  its id and position, copied from the bot's own `PerceptionView.drops`. */
+export interface BotRememberedCrate {
+  id: string;
+  x: number;
+  y: number;
+}
+
 /**
  * THE NARROW WORLD PORT — everything the bot driver needs from World beyond
  * its per-tick entries, and nothing else. World builds it with
@@ -602,6 +611,11 @@ export interface BotMind {
   /** The supply drops the router reported unreachable, barred for a while
    *  (see BotSupplyBar); empty = none. */
   supplyBars?: readonly BotSupplyBar[];
+  /** The crates SEEN inside the supply goal's circle and not yet known gone
+   *  (ai/supplyDrops.ts noteSupplyCrates): at most
+   *  `CONFIG.supplyDrops.crates` entries, reused in place, emptied whenever
+   *  the goal changes or is released. */
+  supplyCrates?: BotRememberedCrate[];
   /** u — the closest the bot has come to `patrolWaypoint`, and the server ms
    *  it last gained a hull length on it: the no-progress re-pick after
    *  CONFIG.bots.nav.waypointTimeoutMs (amendment 202). */

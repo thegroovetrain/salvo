@@ -16,15 +16,17 @@ import type { SupplyChart, SupplyChartRow } from '../game/supplyDrops.js';
 import { COMBAT_BRAIN } from '../game/ai/tactics.js';
 import {
   atSupplySpot,
+  noteSupplyCrates,
   pickSupplyDrop,
   routeFailedToward,
   supplyBarsOf,
   supplyCrateOf,
   supplyGoalOf,
+  supplySteerPoint,
   waitingForSupply,
 } from '../game/ai/supplyDrops.js';
 import { hullLengthU } from '../game/ai/navigate.js';
-import type { BotMind, BotProfileId, BotSupplyDrop, BotWorldPort, RememberedContact } from '../game/ai/types.js';
+import type { BotMind, BotProfileId, BotRememberedCrate, BotSupplyDrop, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 import { navCacheFor } from '../game/navCache.js';
 
@@ -269,6 +271,61 @@ describe('ai/supplyDrops — pick, keep, release', () => {
   });
 });
 
+// --- the memory ------------------------------------------------------------------
+
+describe('ai/supplyDrops — the remembered crates (Eric 2026-11-19, remember if not expensive)', () => {
+  const EYE = CONFIG.vision.crateKindSight;
+  const CAP = CONFIG.supplyDrops.crates;
+  const goal = pending(0, 0);
+  const after = goal.landT + 1;
+  const crate = (id: string, x: number, y: number): BotRememberedCrate => ({ id, x, y });
+  /** A point in the circle the eye at the spot cannot cover when the scatter
+   *  outreaches the eye (else the circle's rim). */
+  const farX = Math.min(SCATTER_U, EYE * 1.5);
+
+  it('a crate seen in the circle is remembered (a copy), one outside it is not, never twice and never past the cap', () => {
+    const memory: BotRememberedCrate[] = [];
+    const a = crate('a', SCATTER_U / 2, 0);
+    noteSupplyCrates(goal, memory, [a, crate('out', SCATTER_U * 2, 0)], { x: 0, y: 0 });
+    expect(memory).toEqual([a]);
+    expect(memory[0]).not.toBe(a);
+    noteSupplyCrates(goal, memory, [a], { x: 0, y: 0 });
+    expect(memory).toHaveLength(1);
+    const many = Array.from({ length: CAP + 3 }, (_, i) => crate(`m${i}`, 0, (i * SCATTER_U) / (CAP + 3)));
+    noteSupplyCrates(goal, memory, many, { x: 0, y: 0 });
+    expect(memory).toHaveLength(CAP);
+  });
+
+  it('a remembered crate is KEPT while out of sight (the eye does not cover its spot)', () => {
+    const memory: BotRememberedCrate[] = [];
+    const far = crate('far', farX, 0);
+    noteSupplyCrates(goal, memory, [far], { x: farX, y: 0 }); // seen from beside it
+    noteSupplyCrates(goal, memory, [], { x: farX - EYE - 1, y: 0 }); // backed off past the eye
+    expect(memory).toEqual([far]);
+  });
+
+  it('a remembered crate is FORGOTTEN when the eye covers its spot and it is not sighted (taken or gone)', () => {
+    const memory: BotRememberedCrate[] = [];
+    const a = crate('a', farX, 0);
+    const b = crate('b', -farX, 0);
+    noteSupplyCrates(goal, memory, [a, b], { x: 0, y: 0 });
+    noteSupplyCrates(goal, memory, [b], { x: farX, y: 0 }); // on a's spot, a absent; b still sighted
+    expect(memory).toEqual([b]);
+    noteSupplyCrates(goal, memory, [], { x: -farX + EYE, y: 0 }); // b's spot on the eye's rim, b absent
+    expect(memory).toEqual([]);
+  });
+
+  it('the steer point and the release count the remembered crates', () => {
+    const far = crate('far', farX, 0);
+    expect(supplySteerPoint(goal, [], { x: 0, y: 0 }, after, [far])).toBe(far);
+    expect(supplySteerPoint(goal, [], { x: 0, y: 0 }, after, [])).toBe(goal);
+    const disc = { cx: 0, cy: 0, r: 4 * SCATTER_U };
+    const onSpot = { pos: { x: 0, y: 0 }, now: after, sighted: [], slackU: 50 };
+    expect(supplyGoalOf([goal], disc, { ...onSpot, remembered: [far] }, goal)).toBe(goal); // kept: a remembered crate left
+    expect(supplyGoalOf([goal], disc, { ...onSpot, remembered: [] }, goal)).toBeNull(); // released
+  });
+});
+
 // --- the brain -------------------------------------------------------------------
 
 describe('COMBAT_BRAIN — the supply run', () => {
@@ -325,6 +382,25 @@ describe('COMBAT_BRAIN — the supply run', () => {
     expect(mind.supplyGoal).toEqual(drop);
     expect(d.throttle).toBe(1);
     expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the crate
+  });
+
+  it('steers for a REMEMBERED crate it no longer sees, and forgets it when the goal is released', () => {
+    const w = openWorld(1318);
+    const rec = mkBot(w, 0, 0, 0); // bow due east
+    const drop = pending(0, 0);
+    const mind = mkMind('bulwark');
+    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop]));
+    const farY = -Math.min(SCATTER_U, 1.5 * CONFIG.vision.crateKindSight); // due south, past the eye
+    mind.supplyCrates = [{ id: 'c1', x: 0, y: farY }];
+    mind.view = { drops: [], mines: [] } as unknown as PerceptionView;
+    const d = COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop], drop.landT));
+    expect(mind.supplyGoal).toEqual(drop);
+    expect(mind.supplyCrates).toHaveLength(1);
+    expect(d.throttle).toBe(1);
+    expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the remembered crate
+    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [], drop.landT)); // the drop leaves the chart
+    expect(mind.supplyGoal ?? null).toBeNull();
+    expect(mind.supplyCrates).toEqual([]);
   });
 
   it('a sighted crate in its lane on the way is taken (the lane nudge rides the supply run)', () => {
@@ -409,8 +485,17 @@ describe('a real World — a bot is on the spot for the landing and clears the c
     const landed = circleCrates();
     expect(landed.length).toBeGreaterThan(0);
     const taken0 = rec.dropsTaken;
-    for (let i = 0; i < (2 * SURFACE_MS) / DT && (mind.supplyGoal ?? null) !== null; i += 1) w.step();
+    const seen = new Set<string>();
+    const noteSeen = (): void => {
+      for (const c of mind.view?.drops ?? []) if (landed.includes(c.id)) seen.add(c.id);
+    };
+    noteSeen();
+    for (let i = 0; i < (2 * SURFACE_MS) / DT && (mind.supplyGoal ?? null) !== null; i += 1) {
+      w.step();
+      noteSeen();
+    }
     expect(mind.supplyGoal ?? null).toBeNull(); // released
+    expect(mind.supplyCrates ?? []).toEqual([]); // forgotten on the release
     // At the release no crate in the circle is in its sight ...
     expect((mind.view?.drops ?? []).filter(inCircle)).toEqual([]);
     // ... and it released ON the spot, having taken the crates that are gone.
@@ -420,5 +505,9 @@ describe('a real World — a bot is on the spot for the landing and clears the c
     const left = circleCrates().filter((id) => landed.includes(id));
     expect(left.length).toBeLessThan(landed.length);
     expect(rec.dropsTaken - taken0).toBe(landed.length - left.length);
+    // Every crate of the drop it EVER saw is taken (Eric 2026-11-19,
+    // remember if not expensive), not only the ones still in sight.
+    expect(seen.size).toBeGreaterThan(0);
+    expect([...seen].filter((id) => w.drops.has(id))).toEqual([]);
   });
 });

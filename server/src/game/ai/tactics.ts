@@ -139,7 +139,7 @@ import { gunBand, kiteHoldOf, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
 import { probeExit } from './unbeachProbe.js';
-import { routeFailedToward, supplyBarsOf, supplyGoalOf, supplySteerPoint, waitingForSupply, type SupplyReading } from './supplyDrops.js';
+import { noteSupplyCrates, routeFailedToward, supplyBarsOf, supplyGoalOf, supplySteerPoint, waitingForSupply, type SupplyReading } from './supplyDrops.js';
 import { laneDrop } from './drops.js';
 import {
   RUDDER_GAIN,
@@ -632,12 +632,12 @@ function idleBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): number
 
 /** THE SUPPLY RUN (Story 12.4, ai/supplyDrops.ts): a target-less
  *  `reposition` with a supply goal on its mind steers (routed) for the
- *  charted spot — once landed, for the nearest SIGHTED crate in its circle;
- *  else the idle bearing. */
+ *  charted spot — once landed, for the nearest SIGHTED or REMEMBERED crate
+ *  in its circle; else the idle bearing. */
 function supplyOrIdleBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, posture: BotPosture): number {
   const goal = seekingSupply(ctx.mind, null, posture);
   if (goal === null) return idleBearing(ctx, port, sit);
-  return steerToward(ctx, supplySteerPoint(goal, ctx.mind.view?.drops ?? [], ctx.pos, ctx.now));
+  return steerToward(ctx, supplySteerPoint(goal, ctx.mind.view?.drops ?? [], ctx.pos, ctx.now, ctx.mind.supplyCrates));
 }
 
 /** The supply goal the helm follows this tick: only a `reposition` with NO
@@ -936,6 +936,9 @@ function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   mind.lastSweep = self.sweepAngle;
   // Story 8.15, amendment 115: the seen-torpedo table (HUNKER's (was DAMAGE CUT until Story 9.9) inbound trigger).
   noteTorpedoes(mind, self, port.now);
+  // Story 12.4: the crates seen in the supply goal's circle (Eric
+  // 2026-11-19, "Remember if it's not expensive").
+  if (mind.supplyGoal) noteSupplyCrates(mind.supplyGoal, (mind.supplyCrates ??= []), mind.view.drops, self.state);
 }
 
 /** The trigger half of a decision. A LEVEL shot (the machine gun, Story 8.15)
@@ -1019,6 +1022,7 @@ function refreshSupplyGoal(self: BotSelf, mind: BotMind, sit: BotSituation, port
     pos: sit,
     now: port.now,
     sighted: mind.view?.drops ?? [],
+    remembered: mind.supplyCrates,
     slackU: supplySlackU(self),
     heldAshore: (spot) => reachedAshoreGoal(ctx, spot),
     routeFailed: (goal) => routeFailedToward(mind.route, goal),
@@ -1026,6 +1030,8 @@ function refreshSupplyGoal(self: BotSelf, mind: BotMind, sit: BotSituation, port
   const prev = mind.supplyGoal ?? null;
   mind.supplyBars = supplyBarsOf(drops, mind.supplyBars ?? [], prev, reading);
   mind.supplyGoal = drops.length === 0 ? null : supplyGoalOf(drops, patrolDisc(port, sit), { ...reading, bars: mind.supplyBars }, prev);
+  // A new goal, or none: what was remembered was another drop's.
+  if (mind.supplyGoal !== prev && mind.supplyCrates) mind.supplyCrates.length = 0;
 }
 
 /** The extended chain's inputs (Story 9.13, amendment 193): the mind (latch,

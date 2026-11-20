@@ -78,6 +78,7 @@ function freshStory913Seats(): Required<
     | 'patrolWaypoint'
     | 'supplyGoal'
     | 'supplyBars'
+    | 'supplyCrates'
     | 'patrolBestU'
     | 'patrolProgressAt'
     | 'hitVolleyAt'
@@ -100,6 +101,7 @@ function freshStory913Seats(): Required<
     patrolWaypoint: null,
     supplyGoal: null,
     supplyBars: [],
+    supplyCrates: [],
     patrolBestU: Infinity,
     patrolProgressAt: 0,
     hitVolleyAt: new Map(),

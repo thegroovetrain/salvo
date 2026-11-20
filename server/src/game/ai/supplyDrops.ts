@@ -16,11 +16,19 @@
 //      (ai/navigate.ts patrolDisc).
 //   2. SAIL (routed) for the spot; arriving before the landing it waits there
 //      dead in the water, so the hull is on the spot around `landT`.
-//   3. COLLECT. Once landed, it steers for the nearest crate it can SEE
-//      within `CONFIG.supplyDrops.scatterU` of the spot, one after another;
-//      with none in sight it makes for the spot again.
-//   4. RELEASE once it is ON the spot and sees no crate in the circle (then
-//      it patrols on), or when the spot leaves the chart or the disc.
+//   3. COLLECT. Once landed, it steers for the nearest crate it can SEE or
+//      REMEMBERS (below) within `CONFIG.supplyDrops.scatterU` of the spot,
+//      one after another; with none it makes for the spot again.
+//   4. RELEASE once it is ON the spot and neither sees nor remembers a crate
+//      in the circle (then it patrols on), or when the spot leaves the chart
+//      or the disc.
+//   REMEMBER (Eric 2026-11-19, "Remember if it's not expensive"): while it
+//      holds a goal, the crates it has SEEN in the circle (id + position,
+//      from its own `PerceptionView.drops` only) stay on its mind — a small
+//      bounded array reused in place (noteSupplyCrates). One is forgotten
+//      when the bot's eye (`CONFIG.vision.crateKindSight`) covers its spot
+//      and it is not sighted (taken — by this bot or another — or eaten), and
+//      all are forgotten when the goal changes or is released.
 //   5. UNREACHABLE (Story 12.4 review fix): a spot on a non-navigable nav
 //      cell counts as reached at its snapped anchor (navigate.ts
 //      reachedAshoreGoal — `heldAshore`), so the bot waits and clears there;
@@ -32,7 +40,7 @@
 // Pure functions over plain data: no world import, no rng, no clock read.
 
 import { CONFIG, type Vec2, type ZoneRing } from '@salvo/shared';
-import type { BotRoute, BotSupplyBar, BotSupplyDrop } from './types.js';
+import type { BotRememberedCrate, BotRoute, BotSupplyBar, BotSupplyDrop } from './types.js';
 
 /** Is `p` within `r` of `c` (rim inclusive)? */
 function within(p: Vec2, c: Vec2, r: number): boolean {
@@ -86,28 +94,78 @@ export function atSupplySpot(goal: Vec2, pos: Vec2, slackU: number): boolean {
   return within(pos, goal, slackU);
 }
 
+/** The nearest to `pos` of `list` lying within `scatterU` of `goal` when it
+ *  is nearer than `best`; else `best`. */
+function nearerIn<T extends Vec2>(goal: Vec2, list: readonly T[], pos: Vec2, scatterU: number, best: T | null): T | null {
+  let out = best;
+  let outD = best === null ? Infinity : Math.hypot(best.x - pos.x, best.y - pos.y);
+  for (const c of list) {
+    if (!within(c, goal, scatterU)) continue;
+    const dist = Math.hypot(c.x - pos.x, c.y - pos.y);
+    if (dist < outD) {
+      out = c;
+      outD = dist;
+    }
+  }
+  return out;
+}
+
 /**
  * The crate to collect next: the nearest to `pos` of the SIGHTED crates
- * (`sighted` — the bot's `PerceptionView.drops`) lying within `scatterU` of
- * the goal's spot. Null = none in the circle.
+ * (`sighted` — the bot's `PerceptionView.drops`) and the REMEMBERED ones
+ * (`remembered` — noteSupplyCrates) lying within `scatterU` of the goal's
+ * spot. Null = none in the circle.
  */
 export function supplyCrateOf<T extends Vec2>(
   goal: Vec2,
   sighted: readonly T[],
   pos: Vec2,
   scatterU: number = CONFIG.supplyDrops.scatterU,
+  remembered: readonly T[] = [],
 ): T | null {
-  let best: T | null = null;
-  let bestD = Infinity;
-  for (const c of sighted) {
-    if (!within(c, goal, scatterU)) continue;
-    const dist = Math.hypot(c.x - pos.x, c.y - pos.y);
-    if (dist < bestD) {
-      best = c;
-      bestD = dist;
-    }
+  return nearerIn(goal, remembered, pos, scatterU, nearerIn(goal, sighted, pos, scatterU, null));
+}
+
+/** Is a crate with this id in the sighted list? */
+function sightedId(sighted: readonly BotRememberedCrate[], id: string): boolean {
+  for (const c of sighted) if (c.id === id) return true;
+  return false;
+}
+
+/** Drop from `memory` (in place) every crate whose spot the eye at `eye`
+ *  covers (within `eyeU`) and that is not sighted: it is gone. */
+function forgetGone(memory: BotRememberedCrate[], sighted: readonly BotRememberedCrate[], eye: Vec2, eyeU: number): void {
+  let keep = 0;
+  for (const c of memory) {
+    if (within(c, eye, eyeU) && !sightedId(sighted, c.id)) continue;
+    memory[keep] = c;
+    keep += 1;
   }
-  return best;
+  memory.length = keep;
+}
+
+/**
+ * THE MEMORY (Eric 2026-11-19, "Remember if it's not expensive"), updated in
+ * place from one view: forget each remembered crate the eye at `eye` covers
+ * (within `eyeU`) that is not in `sighted`, then remember each sighted crate
+ * within `scatterU` of `goal`'s spot not yet remembered — at most `cap`
+ * entries. `sighted` is the bot's own `PerceptionView.drops`, nothing else.
+ */
+export function noteSupplyCrates(
+  goal: Vec2,
+  memory: BotRememberedCrate[],
+  sighted: readonly BotRememberedCrate[],
+  eye: Vec2,
+  eyeU: number = CONFIG.vision.crateKindSight,
+  scatterU: number = CONFIG.supplyDrops.scatterU,
+  cap: number = CONFIG.supplyDrops.crates,
+): void {
+  forgetGone(memory, sighted, eye, eyeU);
+  for (const c of sighted) {
+    if (memory.length >= cap) return;
+    if (!within(c, goal, scatterU) || sightedId(memory, c.id)) continue;
+    memory.push({ id: c.id, x: c.x, y: c.y });
+  }
 }
 
 /** ON the spot: within `slackU` of it, or held at the snapped anchor of a
@@ -116,10 +174,10 @@ function onSpot(goal: BotSupplyDrop, bot: SupplyReading): boolean {
   return atSupplySpot(goal, bot.pos, bot.slackU) || bot.heldAshore?.(goal) === true;
 }
 
-/** Done with a LANDED drop: on its spot with no sighted crate left in its
- *  circle. */
+/** Done with a LANDED drop: on its spot with no sighted and no remembered
+ *  crate left in its circle. */
 function cleared(goal: BotSupplyDrop, bot: SupplyReading, scatterU: number): boolean {
-  return onSpot(goal, bot) && supplyCrateOf(goal, bot.sighted, bot.pos, scatterU) === null;
+  return onSpot(goal, bot) && supplyCrateOf(goal, bot.sighted, bot.pos, scatterU, bot.remembered) === null;
 }
 
 /** The previous goal, KEPT: still on the chart, still inside the disc, not
@@ -166,6 +224,9 @@ export interface SupplyReading {
   readonly now: number;
   /** The bot's sighted crates (`PerceptionView.drops`). */
   readonly sighted: readonly Vec2[];
+  /** The crates remembered in the goal's circle (noteSupplyCrates). Absent
+   *  = none. */
+  readonly remembered?: readonly Vec2[];
   /** u — how close to the spot counts as ON it. */
   readonly slackU: number;
   /** Is the bot held at the snapped anchor of this spot, the spot lying on a
@@ -205,8 +266,15 @@ export function waitingForSupply(goal: BotSupplyDrop, pos: Vec2, now: number, sl
 }
 
 /** The point the helm steers for on a supply run: before the landing the
- *  spot; after it the next sighted crate in the circle, else the spot. */
-export function supplySteerPoint(goal: BotSupplyDrop, sighted: readonly Vec2[], pos: Vec2, now: number): Vec2 {
+ *  spot; after it the next sighted or remembered crate in the circle, else
+ *  the spot. */
+export function supplySteerPoint(
+  goal: BotSupplyDrop,
+  sighted: readonly Vec2[],
+  pos: Vec2,
+  now: number,
+  remembered: readonly Vec2[] = [],
+): Vec2 {
   if (supplyPending(goal, now)) return goal;
-  return supplyCrateOf(goal, sighted, pos) ?? goal;
+  return supplyCrateOf(goal, sighted, pos, CONFIG.supplyDrops.scatterU, remembered) ?? goal;
 }
