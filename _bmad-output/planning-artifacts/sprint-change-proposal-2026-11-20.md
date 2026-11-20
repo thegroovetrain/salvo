@@ -1,6 +1,6 @@
 # Sprint Change Proposal — 2026-11-20: the Ledger waits for accounts — 12.1 / 12.2 fold into Epic 14; Epic 12 renamed The Supply Run and closed
 
-**Status:** DRAFT for Eric's approval (gds-correct-course, batch mode; four structural rulings by AskUserQuestion this session)
+**Status:** APPROVED by Eric 2026-11-20 ("yes"; gds-correct-course, batch mode; four structural rulings by AskUserQuestion this session)
 **Trigger:** Eric, 2026-11-20: `/gds-correct-course 12-1 and 12-2 will be deferred until accounts exist, as there is no point building a system that will be replaced as soon as I need actual match history.`
 **Author:** Developer agent with Eric
 **Predecessors:** `sprint-change-proposal-2026-10-25.md` (the Ledger inserted; Epic 14.1's store half pulled forward), `sprint-change-proposal-2026-11-08.md` (Ledger → Epic 12, text whole), `sprint-change-proposal-2026-11-18.md` (12.3 + 12.4 added; order 12.3 → 12.4 → 12.1 → 12.2)
