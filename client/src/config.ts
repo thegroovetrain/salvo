@@ -1033,70 +1033,46 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE RADIO BEACONS (Story 10.8, render/beacons.ts) — how a beacon LOOKS.
-   * Nothing here is gameplay: the lifecycle, the 500 u range and the body size
-   * are shared `CONFIG.beacons`. IMPLEMENTER DRAFTS pending Eric's yes on the
-   * rendered candidate (the spec's Block-If).
+   * THE SUPPLY-DROP MARK (Story 12.4, epic-12 amendments 5(g) and 6(c),
+   * render/supplyDrops.ts) — how a charted supply drop LOOKS on the chart.
+   * Nothing here is gameplay: the spot, its cycle clock, the landing time and
+   * the scatter radius the ring draws are shared `CONFIG.supplyDrops`.
    *
-   * THE LOOK (Eric 2026-11-07: "What does this radio beacon look like? Make
-   * that."): a LARGE NAVIGATION BUOY seen from directly above, at true size,
-   * drawn like the battleship hulls — skin fills under linework. The hull is
-   * the shared `beaconPolygon` octagon itself, so the drawn edge IS the hit
-   * edge. Linework is `silver` (DESIGN.md: neutral linework — a beacon is no
-   * one's, so never a relation color, never phosphor, amber or purple).
-   *
-   * Phase is coded by STYLE, not hue: the chart icon is a DASHED outline with
-   * no fills while only charted (the storm plane's dashed-future grammar),
-   * the solid painted buoy once it is in the water; the sink is the hull's
-   * settle (ship `hullLook`) plus a fade. Chart widths are SCREEN px divided
-   * by the camera zoom (`strokeWorldWidth`); the water body's are world units
-   * (fractions of the body radius), like the hull art.
+   * THE LOOK — APPROVED on the bench, style B (Eric 2026-11-19): a dashed
+   * ring at the scatter radius, a translucent fill of the circle and the
+   * +XP icon at its centre, all in the XP gauge's color
+   * (`drops.kindColors.xp`). Full strength from charting until the crates
+   * land; from the landing, ring + fill + icon fade together LINEARLY to
+   * nothing over `fadeMs`, then the mark is gone. The ring and icon widths
+   * are SCREEN px at every zoom (`strokeWorldWidth`).
    */
-  beacons: {
-    /** THE CHART ICON's side (screen px): the same buoy from above at a
-     *  constant size, so it reads at every zoom out to the whole-ring view.
-     *  HANDOVER: once the real buoy would draw larger than this, the icon
-     *  hides and the true-size buoy on the water is what you see. */
-    iconPx: 16,
-    /** Chart icon linework (screen px): the hull rim and the inner lines. */
-    iconRimPx: 1.25,
-    iconInnerPx: 0.75,
-    /** The icon's light never shrinks under this radius (screen px). */
-    iconLampMinPx: 1.5,
-    /** Dash / gap (screen px) of the icon's rim while only charted. */
-    iconDashPx: 3,
-    iconGapPx: 2,
-    ringStrokePx: 1.5,
-    /** Icon linework alpha while only charted (nothing in the water) / live. */
-    markerChartedAlpha: 0.6,
-    markerLiveAlpha: 0.95,
-    /** Range-ring alpha while only charted / live — subordinate to the icon
-     *  and to the storm edge. */
-    ringChartedAlpha: 0.3,
-    ringLiveAlpha: 0.5,
-    /** Dash count and lit fraction of the charted range ring. */
+  supplyDrops: {
+    /** Dash count of the scatter ring (half lit, half gap). */
     ringDashes: 72,
-    dashDuty: 0.5,
-    /** The water body's linework as fractions of the body radius: the hull
-     *  rim (bold, like a hull outline) and every inner line. */
-    rimLineFrac: 0.1,
-    innerLineFrac: 0.035,
-    /** The deck rail's alpha (a hairline, quieter than the rim). */
-    railAlpha: 0.6,
-    /** THE SKIN — the battleship greys (`skins`): a dark fender/hull side, a
-     *  steel-grey deck, near-black-navy solar panels, a dark lattice tower and
-     *  the white light at the masthead. */
-    skin: { fender: 0x2f3539, deck: 0x6f787e, panel: 0x1f2f42, tower: 0x3f474c, lamp: 0xe2e8f0 },
-    /** DECORATION ONLY (scaled by the motion setting, gone at `off`): a
-     *  broadcast ring growing `pulseGrowPx` out from the buoy's edge every
-     *  `pulsePeriodMs` while it is in the water. */
-    pulsePeriodMs: 2400,
-    pulseGrowPx: 16,
-    pulseAlpha: 0.45,
-    pulseStrokePx: 1.25,
+    ringWidthPx: 1.5,
+    ringAlpha: 0.5,
+    /** The circle's fill alpha. */
+    fillAlpha: 0.08,
+    /** The centre icon's side (screen px). */
+    iconPx: 10,
+    /** ms — the mark's linear fade-out from the landing moment (Eric: "it
+     *  should fade out over 10 sec or something"). */
+    fadeMs: 10_000,
     /** Re-stroke throttle: a zoom change under this fraction keeps the drawn
-     *  linework (the zone/terrain discipline). */
+     *  ring (the zone/terrain discipline). */
     redrawZoomFrac: 0.02,
+  },
+
+  /**
+   * THE LEVEL-UP STAT FLASH (Story 12.4, epic-12 amendments 5(d) and 6(b)) —
+   * a HUD bar index value whose bonus (`you.ib`) just ROSE turns amber,
+   * holds `holdMs`, then blends back to its normal color over `fadeMs` on a
+   * smoothstep. APPROVED on the bench. Not motion: it is information, so
+   * motion-off keeps it.
+   */
+  statFlash: {
+    holdMs: 600,
+    fadeMs: 1500,
   },
 
   /**
@@ -1131,7 +1107,7 @@ export const CLIENT_CONFIG = {
     glowPx: 4,
     glowAlpha: 0.3,
     /** Mines, airdrops and salvage wrecks draw their own look at this fixed
-     *  size while their true drawing would be smaller (the beacon handover). */
+     *  size while their true drawing would be smaller (the chart handover). */
     iconPx: 10,
     iconLinePx: 1.5,
     /** Splash pegs: an X this many px across, this line, a thin dark halo. */
@@ -1202,16 +1178,15 @@ export const CLIENT_CONFIG = {
    * drawn at SIGHT only (fogged world layer `dropWorld`); on radar it is a
    * plain anonymous blip, no client art. ONE body (the 15 u disc's inscribed
    * square) with its KIND's glyph inside, outline and glyph both in the kind's
-   * color at `glyphAlpha` (the mine marker's 0.9). NO numerals: the bonus is
-   * rolled AT PICKUP, so a crate shows only WHAT it is (icon + color) and the
-   * amount arrives on the pickup toast. The wreck pickup is ONE crate in its
-   * own color with its own glyph (it is not limited to one stat).
+   * color at `glyphAlpha` (the mine marker's 0.9). NO numerals.
    *
-   * `kindColors` are ERIC'S (2026-11-09, on the v2 page): armor `pink`,
-   * power `alertOrange`, reload `amber`, engines `info`, intel `phosphor`,
-   * range `stormReadout` (the rung ramp's tier-III purple), wreck `white` —
-   * the FIRST time a stat has a color anywhere in the game. The wreck crate
-   * wears the 'salvage' glyph (a crate under a star; Eric's pick).
+   * TWO KINDS since Story 12.4 (epic-12 amendment 5(a)/(e), the bench
+   * approved in amendment 6(a)): every airdrop is an XP crate — the "+XP"
+   * glyph in the XP GAUGE's color (`xp` = the token the HUD bar's XP track
+   * fills with, render/console/barGauges.ts `paintTrack`: `phosphorBright`)
+   * — and the WRECK crate keeps its own `white` and the 'salvage' glyph (a
+   * crate under a star; Eric's pick, 2026-11-09). The per-stat crate colors
+   * left with the stat crates.
    *
    * `glow` — Eric 2026-11-09: "give all of them a small glow effect in their
    * color". A soft underlay under the body square in the kind's color, the
@@ -1223,12 +1198,7 @@ export const CLIENT_CONFIG = {
     /** Body + glyph linework alpha (the mine marker's). */
     glyphAlpha: 0.9,
     kindColors: {
-      armor: COLORS.pink,
-      power: COLORS.alertOrange,
-      reload: COLORS.amber,
-      engines: COLORS.info,
-      intel: COLORS.phosphor,
-      // `range` (stormReadout) left with the RANGE crate kind (Story 11.2, R9).
+      xp: COLORS.phosphorBright, // the XP gauge's fill token (barGauges.ts `paintTrack`)
       wreck: COLORS.white,
     } satisfies Record<DropKind, number>,
     glow: {

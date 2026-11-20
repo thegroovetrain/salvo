@@ -23,6 +23,7 @@
 // gauges do not.
 
 import { Container, Graphics, type Text } from 'pixi.js';
+import type { IndexBonus } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
 import type { MotionLevel } from '../../settings/store.js';
 import { AbilityTiles, ShipRows, type AbilityTilesView } from './barShip.js';
@@ -55,6 +56,9 @@ export interface HudBarView extends GaugesView {
   readouts: readonly Readout[];
   /** The hovered offer card's marks, or null (AC 36). */
   preview: PreviewMarks | null;
+  /** The own hull's index bonus (`you.ib`), or null with no `you` — the
+   *  level-up flash's source (Story 12.4). */
+  ib?: IndexBonus | null;
   /** The tile those marks point at (`previewTarget`), or null. */
   previewTarget: PreviewTarget | null;
   /** The tile under the pointer, or null (the hover wash). */
@@ -133,7 +137,7 @@ export class HudBar {
     this.controls.alpha = v.dim ? K.dimAlpha : 1;
     this.weapons.update(weaponTilesView(v), layout.weapons.tiles);
     this.abilityTiles.update(abilityTilesView(v, breathAt(this.stepBreath(v.nowSec), v.motion)), layout.abilities.tiles);
-    this.shipRows.update(v.readouts, v.preview, layout.ship.rows, v.uiScale);
+    this.shipRows.update(v.readouts, v.preview, layout.ship.rows, v.uiScale, v.ib ?? null, v.nowMs);
     this.gauges.update(v, layout.footer);
   }
 
@@ -166,6 +170,7 @@ export class HudBar {
   hide(): void {
     this.root.visible = false;
     this.gauges.reset();
+    this.shipRows.reset();
     this.breathPhase = 0;
     this.lastBreathSec = null;
   }

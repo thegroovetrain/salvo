@@ -99,21 +99,20 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'advanceSweeps',
       'processRespawns',
       'tickXp',
-      // Story 10.8's RADIO BEACON payout — directly after tickXp, for
-      // tickXp's own reasons (post-respawn afloat truth, after every damage
-      // row, before the event swap). See the row comment in world.ts.
-      'tickBeacons',
-      // Story 10.8's RADIO BEACON placement — dead LAST, an APPEND rather than
-      // a splice, in the seat Story 5.6's PvE wave scheduler held (that row,
-      // `spawnFleetWaves`, retired with the fleet at 10.8): zone-clock driven,
-      // it replaces the set on a ring-cycle change against the tick's SETTLED
-      // hull positions, and a body placed dead last enters the world at a
-      // clean tick boundary. See the row comment in world.ts.
-      'placeBeacons',
-      // Story 10.9's AIRDROP SCATTER — the new dead-LAST row, an APPEND
-      // directly AFTER placeBeacons: ring cycles begin on minute marks, so a
-      // cycle's new beacons must already be charted when the batch reads the
-      // hard keep-out (R1). See the row comment in world.ts.
+      // (Story 10.8's `tickBeacons` payout row left with the radio beacons,
+      // Story 12.4 — nothing pays any more.)
+      // Story 12.4's SUPPLY-DROP CHARTING — the seat Story 10.8's beacon
+      // placement held (and Story 5.6's PvE wave scheduler before it):
+      // zone-clock driven, it replaces the chart on a ring-cycle change
+      // against the tick's SETTLED hull positions (the captain keep-out). See
+      // the row comment in world.ts.
+      'placeSupplyDrops',
+      // Story 12.4's SUPPLY-DROP LANDING — a deliberate insertion directly
+      // BEFORE the airdrop scatter: on the landing tick each charted spot's
+      // XP crates enter `drops` exactly as a minute batch does. See world.ts.
+      'landSupplyDrops',
+      // Story 10.9's AIRDROP SCATTER — still dead LAST (the beacon keep-out
+      // that pinned it right after the beacon placement left with Story 12.4).
       'spawnDrops',
     ]);
   });

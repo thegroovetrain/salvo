@@ -8,7 +8,7 @@
 //     The true-size hull always still draws inside. Never on radar paints.
 //   • CHART ICONS (render/mines.ts, render/drops.ts) — a mine, airdrop or
 //     salvage wreck draws ITS OWN look at a fixed 10 px while its true drawing
-//     would be smaller (the beacon handover, render/beacons.ts), cross-fading
+//     would be smaller (the chart handover), cross-fading
 //     with the true-size drawing. Own-mine range rings are untouched.
 //   • SPLASH PEGS (render/pegs.ts) — an X where each own shell ended.
 //

@@ -644,7 +644,6 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
 
   it('INTEL has NO sweep ceiling (Story 10.7, R6): on every hull, one more INTEL index point — card-folded or bonus — raises sweepRpm by the same linear increment, at the card cap and past it', () => {
     const perPoint = CONFIG.vision.sweepRpm / CONFIG.index.base; // rpm per INTEL index point — the linear law
-    const POINTS = CONFIG.offer.exhausted.indexPoints;
     const step = (CATALOG.intel.tiers[0].find((e) => e.kind === 'stat') as { add: number }).add;
     for (const clsId of SHIP_CLASS_IDS) {
       const cls = CONFIG.shipClasses[clsId];
@@ -652,7 +651,7 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
         for (const b of [0, 1, 7]) {
           const s = effectiveStats(cls, stack('intel', n), CATALOG, { intel: b });
           const more = effectiveStats(cls, stack('intel', n), CATALOG, { intel: b + 1 });
-          expect(more.sweepRpm - s.sweepRpm, `${clsId} x${n} +${b}`).toBeCloseTo(perPoint * POINTS, 9);
+          expect(more.sweepRpm - s.sweepRpm, `${clsId} x${n} +${b}`).toBeCloseTo(perPoint, 9);
           expect(s.sweepPeriodMs, `${clsId} x${n} +${b}`).toBe(60000 / s.sweepRpm);
           if (n < CATALOG.intel.cap) {
             const card = effectiveStats(cls, stack('intel', n + 1), CATALOG, { intel: b });
@@ -1547,9 +1546,13 @@ describe('deriveMineRings — the mine rings re-pinned from the folded row', () 
   });
 });
 
-describe('THE EXHAUSTED HULL\'S BONUS POINTS — folded after the cards, beyond the cap (Story 10.7, R5)', () => {
-  const POINTS = CONFIG.offer.exhausted.indexPoints;
-  const BONUS_IDS = CONFIG.offer.exhausted.indices;
+// THE BONUS INDEX POINTS (Story 10.7's seat; since 2026-11-19, Story 12.4,
+// epic-12 amendment 5, filled by the level stat roll and wreck crates — the
+// exhausted conversion and its `indexPoints` multiplier are retired: one
+// count is one index point).
+describe('THE BONUS INDEX POINTS — folded after the cards, beyond the cap (Story 10.7 seat, Story 12.4)', () => {
+  const POINTS = 1; // one index point per count — the fold's contract since Story 12.4 (5(c))
+  const BONUS_IDS = CONFIG.xp.statRoll.indices;
   /** The index step one card of `id`'s ladder authors. */
   const cardStep = (id: LineId): number => (CATALOG[id].tiers[0].find((e) => e.kind === 'stat') as { add: number }).add;
   /** Every numeric path that moved from `a` to `b`, with the sign of the move. */
@@ -1565,7 +1568,7 @@ describe('THE EXHAUSTED HULL\'S BONUS POINTS — folded after the cards, beyond 
     return out;
   };
 
-  it('the stats a level may land on are distinct indices, exactly the index list — nothing else (no HULL REPAIR, no SMOKE SCREEN, no RANGE since Story 11.2)', () => {
+  it('the stats a roll may land on are distinct indices, exactly the index list — nothing else (no HULL REPAIR, no SMOKE SCREEN, no RANGE since Story 11.2)', () => {
     expect(new Set(BONUS_IDS).size).toBe(BONUS_IDS.length);
     expect([...BONUS_IDS].sort()).toEqual([...INDEX_IDS].sort());
   });

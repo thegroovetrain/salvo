@@ -16,7 +16,7 @@
 //   - DAMAGED A HULL: on the tick the shell leaves the table, either a `boom`
 //     names it with a `hit` (a direct hit on a ship), or its `boom` / `burst`
 //     came with its owner's `hc` at the same point (the landing resolved a
-//     victim — the World's hit-call rule, which also counts a radio beacon).
+//     victim — the World's hit-call rule).
 //     Since the blast retired (2026-11-13, epic-11 amendment 8) a main-battery
 //     landing is a `boom`; the `burst` arm stays for every blast shell.
 //   - BLIND SPOT: a shell created and spent inside one tick is never seen.

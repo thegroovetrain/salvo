@@ -27,7 +27,6 @@ import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
 import { BotCollector, hullTouchesLand, layoutOf, lifeSamples, repairStyleOf, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
-import { buildAggregate, histLine, renderBatchReport, sumHist } from '../report.js';
 import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
 import { TEST_PROFILE_IDS, profileOf } from '../../../src/game/ai/profiles.js';
@@ -130,7 +129,6 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     shots: 20,
     minesLaid: 0,
     damageDealt: 200,
-    beaconXpLevels: 0,
     dropsTaken: 0,
     indexBonus: {},
     indexBonusTotal: 0,
@@ -644,29 +642,10 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
     expect(run()).toEqual(first);
   });
 
-  it('Story 10.8: beacon levels per bot and the field-wide hulls-in-range hist ride the sample and the reports', () => {
-    for (const b of first.bots!) {
-      expect(Number.isFinite(b.beaconXpLevels)).toBe(true);
-      expect(b.beaconXpLevels).toBeGreaterThanOrEqual(0);
-    }
-    const hist = first.beaconInRangeHist!;
-    expect(Array.isArray(hist)).toBe(true);
-    for (const n of hist) expect(Number.isInteger(n) && n >= 0).toBe(true);
-    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
-    for (const g of agg.byClass) {
-      const rows = first.bots!.filter((b) => b.cls === g.key);
-      expect(g.beaconLevels.mean).toBeCloseTo(rows.reduce((a, b) => a + b.beaconXpLevels, 0) / rows.length, 9);
-    }
-    expect(sumHist([hist, hist])).toEqual(hist.map((n) => 2 * n));
-    const batch = buildAggregate({ matches: [first], failures: [] }, 0);
-    expect(batch.beaconInRangeHist).toEqual(hist);
-    expect(renderBatchReport('x', batch).some((l) => l.endsWith(histLine(hist)))).toBe(true);
-  });
-
   it('Story 10.9: drops taken and the bonus index points per bot ride the sample and the by-class table', () => {
     for (const b of first.bots!) {
       expect(Number.isInteger(b.dropsTaken) && b.dropsTaken >= 0).toBe(true);
-      expect(Object.keys(b.indexBonus)).toEqual([...CONFIG.drops.indices]);
+      expect(Object.keys(b.indexBonus)).toEqual([...CONFIG.xp.statRoll.indices]);
       expect(b.indexBonusTotal).toBe(Object.values(b.indexBonus).reduce((a, n) => a + n, 0));
     }
     const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
@@ -675,7 +654,7 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
       expect(g.drops.mean).toBeCloseTo(rows.reduce((a, b) => a + b.dropsTaken, 0) / rows.length, 9);
       expect(g.indexBonus.mean).toBeCloseTo(rows.reduce((a, b) => a + b.indexBonusTotal, 0) / rows.length, 9);
     }
-    const header = renderBotReport('x', agg).find((l) => /\bbcnLv\b/.test(l))!;
+    const header = renderBotReport('x', agg).find((l) => /\bdrops\b/.test(l))!;
     expect(header).toMatch(/\bdrops\b.*\bib\b/);
   });
 });
@@ -713,7 +692,7 @@ describe('Story 9.13 — the readout counters on a staged world', () => {
     col.observe(world, 1);
     world.shells.clear();
     stageEvents(world, [
-      { k: 'boom', id: 'near', x: reach * 0.1, y: 0 }, // a hit-less landing boom WITH the owner's `hc` (a beacon struck)
+      { k: 'boom', id: 'near', x: reach * 0.1, y: 0 }, // a hit-less landing boom WITH the owner's `hc`
       { k: 'hc', id: bot.id, x: reach * 0.1, y: 0 },
       { k: 'boom', id: 'far', x: reach * 0.9, y: 0 }, // no `hc` there: a miss
     ]);
@@ -802,7 +781,7 @@ describe('Story 9.13 — postureEdges names the transitions', () => {
     expect(postureEdges('engage', 'hide')).toEqual(['brokenOff', 'hid']);
     expect(postureEdges('disengage', 'hide')).toEqual(['hid']);
     expect(postureEdges('engage', 'kite')).toEqual(['kited']);
-    expect(postureEdges('farm', 'hold')).toEqual(['held']);
+    expect(postureEdges('reposition', 'hold')).toEqual(['held']);
     expect(postureEdges('disengage', 'ram')).toEqual(['rammed']);
   });
 });

@@ -3,7 +3,8 @@
 //     edge it crosses (addShip, the countdown→active redeploy, respawn), and a
 //     placement only: hp is the redeploy's/respawn's to restore, never the pose's.
 //   (The second arm, the FLEET-WAVES SWITCH, retired with the PvE fleet at
-//   Story 10.8; `WorldOptions.beacons` is its successor, pinned in beacons.test.ts.)
+//   Story 10.8; its successor, `WorldOptions.beacons`, left with the radio
+//   beacons at Story 12.4.)
 // The room-side gate (dev-only, value-sanitized) is pinned in roomOptions.test.ts.
 
 import { describe, it, expect, vi } from 'vitest';

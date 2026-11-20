@@ -1,6 +1,9 @@
+---
+baseline_commit: 49a4b654
+---
 # Story 12.4: Airdrops and Radio Beacons
 
-Status: ready-for-dev
+Status: done
 
 <!-- Created 2026-11-19 by gds-create-story from Eric's sitting (the `/gds-create-story 12-4` args + two AskUserQuestion rounds), recorded as epic-12 amendment 5. Build order: after 12.3 (epic-12 amendment 1(d)). -->
 
@@ -80,33 +83,33 @@ The full ruling, with the readings of record, is **epic-12 amendment 5** (`epic-
 
 ## Tasks / Subtasks
 
-- [ ] **T1 Shared: XP crates + the level roll** (AC 1–2, 5–8, 15, 27)
-  - [ ] `CONFIG.drops`: drop `bonusMin` / `bonusMax` / `wreckRolls` / `indices`, add `xpLevels: 0.1`. `CONFIG.xp.statRoll { faces, indices: RANDOM_INDEX_STATS }`. Delete `CONFIG.offer.exhausted`.
-  - [ ] `sim/drops.ts`: kinds `'xp' | 'wreck'`; delete `rollKind` / `rollDrop` / `rollAmount`; keep the count law, `dropMinuteAt`, `dropTouches`, `isDropKind` (now xp|wreck), `isDropRoll` (wreck grants). A wreck pickup roll function: `n` uniform stat picks.
-  - [ ] New `sim/levelRoll.ts` (`rollDie`, `rollLevelStats`), exported from the barrel.
-  - [ ] `sim/stats.ts`: the bonus fold reads `bonusCount` directly. `sim/draw.ts`: delete `drawBonusIndex`.
-  - [ ] Unit tests: the die's slices, one draw per stat, fail-closed faces, distribution within tolerance, following the dials (never pinning Eric's numbers).
-- [ ] **T2 Server: XP pickup, the roll, wrecks** (AC 1, 5–9, 15–18)
-  - [ ] `collectDrop`: `'xp'` → `grantXp(ship, xpLevels)`; `'wreck'` → n picks onto `indexBonus` + refold/settle (the existing path).
-  - [ ] `addXpMs`: after each `level += 1`, roll (afloat only) on the isolated stream, then refold/settle once per grant. Mind the RE-ENTRANCY note on `convertBank` (a roll can run inside damage resolution via kill credit).
-  - [ ] `convertBank` → bank 0, nothing else (keep the "sinking drops the bank" guard).
-  - [ ] `placeWreckDrop`: skip at level 0; store the level on the crate. `scatterBatch`: kind `'xp'`.
-  - [ ] Server tests: crate = 0.1 level (bank crossing incl.), roll per level independent of the offer, exhausted hull rolls and banks nothing, sinking rolls nothing, opening hand doesn't roll, wreck count = victim level, level-0 no wreck, `drawRng` untouched by the roll (an offer sequence identical with and without rolls).
-- [ ] **T3 Beacons out, supply drops in** (AC 19–24, 27–28)
-  - [ ] Follow the Dev Notes footprint, section by section. Rename rather than rewrite the placement / chart / schema / client chart view. Delete the rest.
-  - [ ] STEP_ORDER: `placeBeacons` → `placeSupplyDrops` (charting), plus a landing step (crates placed on the landing tick). Re-pin `stepOrder.test.ts` deliberately.
-  - [ ] Port the `pickBeaconSpot` + per-cycle placement tests. Add scatter tests (count, radius, spacing, land, determinism). Delete the beacon-only test files.
-  - [ ] Move `beaconFixture.ts`'s generic helpers (`DT`, `bareWorld`, `captain`, `moveTo`, `inp`, `run`, `xpMsOf`, `openCycle`) to a neutral fixture before deleting the beacon ones. `drops.test.ts`, `dropPerception.test.ts` and `botDrops.test.ts` import them.
-- [ ] **T4 Bots** (AC 25–26): port rename, selection, arrival, pickup. Prune `botBeacons.test.ts` to the surviving behavior. `botPosture` / `botArcs` / `botTactics` / `bots.test.ts` stay green.
-- [ ] **T5 Client** (AC 3–4, 11–14, 17, 23–24)
-  - [ ] `render/drops.ts`: the +XP linework glyph, XP-gauge color, chart icon. `config.ts`: `kindColors` xp + wreck, flash knobs, mark fade knob.
-  - [ ] `net/roomBindings.ts` `handleDropPickup`: chime always, toast only for wreck grants.
-  - [ ] The flash (AC 14's location): remember `ib` per stat, stamp a rise time, blend amber → normal per frame without allocation. Unit-test the pure blend and the rise detector (seed / no flash on first read / only risen stats).
-  - [ ] `render/beacons.ts` → supply-drop chart only (water body, pulse, buoy art gone); landing fade. `sim/beaconView.ts` → chart view (drop `BeaconBodies`). Clean up the `main.ts` wiring and the stage layers (`beaconWorld` goes; the chart layer stays).
-- [ ] **T6 Harness, records, smokes**: delete the batch-sim beacon metrics. Update `soloSmoke.mjs`'s B1 assert to the supply-drop chart. Remove `beacons: false` from `fogSmoke.mjs` if its dev switch goes. Update `matchRecord` / `match.ts` telemetry.
-- [ ] **T7 Match the approved bench** (AC 3, 13, 23, 30): the looks were APPROVED at create-story (amendment 6; bench https://claude.ai/artifact/SWNR8gecZypZ4HArWiwPSJ v2). Build them to the bench, then show Eric the built crate, flash and mark (staging or a page from the real render modules) before the PR. A deviation from the bench is a new candidate and needs his yes. DESIGN.md rows record the approved looks.
-- [ ] **T8 Docs + records** (AC 29): How-to-Play draft, GDD stamp, `spec-12-4-*.md`, ONE-LINE tracker stamps, VERSION / package.json +1 patch, PV bump. Numbers at PR time after `git fetch`.
-- [ ] **T9 Gate**: `npm run lint` explicitly, then `npm run check`. Run `matchSmoke` + `weaponsSmoke` (+ `soloSmoke`) on your own booted server with `HC_DEV_OPTIONS=1`, then kill the PID and its tsx child. Run `tickCost.mjs` old vs new in the PR body (crate counts change: up to 70 supply crates per cycle). Bound every run with a wall-clock kill.
+- [x] **T1 Shared: XP crates + the level roll** (AC 1–2, 5–8, 15, 27)
+  - [x] `CONFIG.drops`: drop `bonusMin` / `bonusMax` / `wreckRolls` / `indices`, add `xpLevels: 0.1`. `CONFIG.xp.statRoll { faces, indices: RANDOM_INDEX_STATS }`. Delete `CONFIG.offer.exhausted`.
+  - [x] `sim/drops.ts`: kinds `'xp' | 'wreck'`; delete `rollKind` / `rollDrop` / `rollAmount`; keep the count law, `dropMinuteAt`, `dropTouches`, `isDropKind` (now xp|wreck), `isDropRoll` (wreck grants). A wreck pickup roll function: `n` uniform stat picks.
+  - [x] New `sim/levelRoll.ts` (`rollDie`, `rollLevelStats`), exported from the barrel.
+  - [x] `sim/stats.ts`: the bonus fold reads `bonusCount` directly. `sim/draw.ts`: delete `drawBonusIndex`.
+  - [x] Unit tests: the die's slices, one draw per stat, fail-closed faces, distribution within tolerance, following the dials (never pinning Eric's numbers).
+- [x] **T2 Server: XP pickup, the roll, wrecks** (AC 1, 5–9, 15–18)
+  - [x] `collectDrop`: `'xp'` → `grantXp(ship, xpLevels)`; `'wreck'` → n picks onto `indexBonus` + refold/settle (the existing path).
+  - [x] `addXpMs`: after each `level += 1`, roll (afloat only) on the isolated stream, then refold/settle once per grant. Mind the RE-ENTRANCY note on `convertBank` (a roll can run inside damage resolution via kill credit).
+  - [x] `convertBank` → bank 0, nothing else (keep the "sinking drops the bank" guard).
+  - [x] `placeWreckDrop`: skip at level 0; store the level on the crate. `scatterBatch`: kind `'xp'`.
+  - [x] Server tests: crate = 0.1 level (bank crossing incl.), roll per level independent of the offer, exhausted hull rolls and banks nothing, sinking rolls nothing, opening hand doesn't roll, wreck count = victim level, level-0 no wreck, `drawRng` untouched by the roll (an offer sequence identical with and without rolls).
+- [x] **T3 Beacons out, supply drops in** (AC 19–24, 27–28)
+  - [x] Follow the Dev Notes footprint, section by section. Rename rather than rewrite the placement / chart / schema / client chart view. Delete the rest.
+  - [x] STEP_ORDER: `placeBeacons` → `placeSupplyDrops` (charting), plus a landing step (crates placed on the landing tick). Re-pin `stepOrder.test.ts` deliberately.
+  - [x] Port the `pickBeaconSpot` + per-cycle placement tests. Add scatter tests (count, radius, spacing, land, determinism). Delete the beacon-only test files.
+  - [x] Move `beaconFixture.ts`'s generic helpers (`DT`, `bareWorld`, `captain`, `moveTo`, `inp`, `run`, `xpMsOf`, `openCycle`) to a neutral fixture before deleting the beacon ones. `drops.test.ts`, `dropPerception.test.ts` and `botDrops.test.ts` import them.
+- [x] **T4 Bots** (AC 25–26): port rename, selection, arrival, pickup. Prune `botBeacons.test.ts` to the surviving behavior. `botPosture` / `botArcs` / `botTactics` / `bots.test.ts` stay green.
+- [x] **T5 Client** (AC 3–4, 11–14, 17, 23–24)
+  - [x] `render/drops.ts`: the +XP linework glyph, XP-gauge color, chart icon. `config.ts`: `kindColors` xp + wreck, flash knobs, mark fade knob.
+  - [x] `net/roomBindings.ts` `handleDropPickup`: chime always, toast only for wreck grants.
+  - [x] The flash (AC 14's location): remember `ib` per stat, stamp a rise time, blend amber → normal per frame without allocation. Unit-test the pure blend and the rise detector (seed / no flash on first read / only risen stats).
+  - [x] `render/beacons.ts` → supply-drop chart only (water body, pulse, buoy art gone); landing fade. `sim/beaconView.ts` → chart view (drop `BeaconBodies`). Clean up the `main.ts` wiring and the stage layers (`beaconWorld` goes; the chart layer stays).
+- [x] **T6 Harness, records, smokes**: delete the batch-sim beacon metrics. Update `soloSmoke.mjs`'s B1 assert to the supply-drop chart. Remove `beacons: false` from `fogSmoke.mjs` if its dev switch goes. Update `matchRecord` / `match.ts` telemetry.
+- [x] **T7 Match the approved bench** (AC 3, 13, 23, 30): the looks were APPROVED at create-story (amendment 6; bench https://claude.ai/artifact/SWNR8gecZypZ4HArWiwPSJ v2). Build them to the bench, then show Eric the built crate, flash and mark (staging or a page from the real render modules) before the PR. A deviation from the bench is a new candidate and needs his yes. DESIGN.md rows record the approved looks.
+- [x] **T8 Docs + records** (AC 29): How-to-Play draft, GDD stamp, `spec-12-4-*.md`, ONE-LINE tracker stamps, VERSION / package.json +1 patch, PV bump. Numbers at PR time after `git fetch`.
+- [x] **T9 Gate**: `npm run lint` explicitly, then `npm run check`. Run `matchSmoke` + `weaponsSmoke` (+ `soloSmoke`) on your own booted server with `HC_DEV_OPTIONS=1`, then kill the PID and its tsx child. Run `tickCost.mjs` old vs new in the PR body (crate counts change: up to 70 supply crates per cycle). Bound every run with a wall-clock kill.
 
 ## Dev Notes
 
@@ -214,10 +217,162 @@ The full ruling, with the readings of record, is **epic-12 amendment 5** (`epic-
 
 ### Agent Model Used
 
+Claude Opus 5.5 (orchestrator, /orchestrate); implementation subagents Opus 5.5 (shared, server, bots, client, review fixes, bot crate memory + throttle) and Sonnet 5.5 (client review fixes, docs, smoke switch); review gate Fable 5.2 x2 + Codex gpt-5.6-sol.
+
 ### Debug Log References
+
+- matchSmoke's first run FAILED on its pinned per-torpedo damage (240 -> 243 after a mid-fight level roll raised the shooter's POWER): a stale assumption, not a regression. Fixed by a dev-only `matchOverride.statRoll: false` that the scripted smokes pass; matchSmoke, weaponsSmoke and soloSmoke then OK.
+- tickCost seed 7, 16 hulls, 90 s: baseline 49a4b654 mean 4.11 / p95 6.52 / p99 8.26 / max 12.76 ms/tick; 12.4 mean 4.54 / p95 7.26 / p99 9.01 / max 13.87 (fog walks 170 -> 187 per tick: up to 70 more crates on the water). playCheck PASS (Chromium + Firefox, 2x); glBudget PASS.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed: comprehensive developer guide created (sitting 2026-11-19, epic-12 amendment 5).
+- Built in waves: W1 shared (XP crates, `levelRoll.ts`, `rollWreckStats`, `supplyDrops.ts`, beacon target kind + masks deleted, `CONFIG.offer.exhausted` deleted, PV 112); W2 server (XP grant, isolated level roll, wreck +1/level, supply charting + landing in `game/supplyDrops.ts`, every beacon path deleted), bots (`ai/supplyDrops.ts`), client (+XP glyph, amber flash on the 12.3 bar, supply mark B, landing cue); W3 review fixes; bot crate memory + crate-approach throttle; dev smoke switch.
+- Eric rulings during the build (epic-12 amendment 8): every bot seeks; collect what it sees; remember if cheap; the roll applies instantly mid-collision; mint #7fffc4; the 10 px chart icon is left for later.
+- Review gate (Fable x2 + Codex). Fixed: cross-spot crate overlap (both models); room streams recoverable from the public chart in ~34 s -> supply spot / scatter / level roll seeded by HMAC from the room key; sparse-slot crash; flash re-rasterizing Text -> tint; landing cue after match over; unreachable supply spot escape. Found during the bot work and fixed: bots orbiting a crate inside their turning circle (20-seed sweep 107 -> 196 of 207 crates).
+- Gate: `npm run lint` 0 errors; `npm run check` green (shared 1459, server 2986, client 4443, hooks 266). Smokes OK. Deferred: chart icon smudge, remaining `priv`-derived streams, minute crates over supply crates, reconnect flash (`deferred-work.md`).
 
 ### File List
+
+- modified: `VERSION`
+- modified: `_bmad-output/gds-workflow-status.yaml`
+- modified: `_bmad-output/implementation-artifacts/12-4-airdrops-and-radio-beacons.md`
+- modified: `_bmad-output/implementation-artifacts/deferred-work.md`
+- modified: `_bmad-output/implementation-artifacts/epic-12-context-amendments.md`
+- added: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+- modified: `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- modified: `_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md`
+- modified: `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md`
+- deleted: `client/src/__tests__/beaconView.test.ts`
+- deleted: `client/src/__tests__/beacons.test.ts`
+- modified: `client/src/__tests__/chartMarks.test.ts`
+- modified: `client/src/__tests__/dropView.test.ts`
+- modified: `client/src/__tests__/drops.test.ts`
+- modified: `client/src/__tests__/nameplatesAboveTerrain.test.ts`
+- modified: `client/src/__tests__/roomBindings.test.ts`
+- added: `client/src/__tests__/statFlash.test.ts`
+- added: `client/src/__tests__/supplyChart.test.ts`
+- modified: `client/src/audio/__tests__/cueEdges.test.ts`
+- modified: `client/src/audio/__tests__/engineMix.test.ts`
+- modified: `client/src/audio/cueEdges.ts`
+- modified: `client/src/audio/engineMix.ts`
+- modified: `client/src/audio/twinMap.ts`
+- modified: `client/src/config.ts`
+- modified: `client/src/how-to-play/copy.ts`
+- modified: `client/src/main.ts`
+- modified: `client/src/net/roomBindings.ts`
+- deleted: `client/src/render/beacons.ts`
+- modified: `client/src/render/chartMarks.ts`
+- modified: `client/src/render/console/barShip.ts`
+- modified: `client/src/render/console/hudBar.ts`
+- added: `client/src/render/console/statFlash.ts`
+- modified: `client/src/render/drops.ts`
+- modified: `client/src/render/equipmentIcons.ts`
+- modified: `client/src/render/stage.ts`
+- added: `client/src/render/supplyDrops.ts`
+- deleted: `client/src/sim/beaconView.ts`
+- modified: `client/src/sim/contactBodies.ts`
+- modified: `client/src/sim/dropView.ts`
+- added: `client/src/sim/supplyChart.ts`
+- modified: `package-lock.json`
+- modified: `package.json`
+- modified: `server/scripts/batchsim/__tests__/batchSim.test.ts`
+- modified: `server/scripts/batchsim/__tests__/botHarness.test.ts`
+- modified: `server/scripts/batchsim/__tests__/rangeBands.test.ts`
+- modified: `server/scripts/batchsim/botMetrics.ts`
+- modified: `server/scripts/batchsim/botReadouts.ts`
+- modified: `server/scripts/batchsim/botReport.ts`
+- modified: `server/scripts/batchsim/rangeBands.ts`
+- modified: `server/scripts/batchsim/report.ts`
+- modified: `server/scripts/batchsim/runner.ts`
+- modified: `server/scripts/fogSmoke.mjs`
+- modified: `server/scripts/matchSmoke.mjs`
+- modified: `server/scripts/rl/worker.ts`
+- modified: `server/scripts/soloSmoke.mjs`
+- modified: `server/scripts/weaponsSmoke.mjs`
+- modified: `server/src/__tests__/__snapshots__/goldenFrames.test.ts.snap`
+- modified: `server/src/__tests__/assistSplit.test.ts`
+- deleted: `server/src/__tests__/beaconDamage.test.ts`
+- deleted: `server/src/__tests__/beaconPerception.test.ts`
+- deleted: `server/src/__tests__/beaconRoom.test.ts`
+- deleted: `server/src/__tests__/beacons.test.ts`
+- modified: `server/src/__tests__/botArcs.test.ts`
+- deleted: `server/src/__tests__/botBeacons.test.ts`
+- modified: `server/src/__tests__/botDrops.test.ts`
+- modified: `server/src/__tests__/botPersonality.test.ts`
+- modified: `server/src/__tests__/botPosture.test.ts`
+- added: `server/src/__tests__/botSupplyDrops.test.ts`
+- modified: `server/src/__tests__/botTactics.test.ts`
+- modified: `server/src/__tests__/bots.test.ts`
+- modified: `server/src/__tests__/contactDamage.test.ts`
+- modified: `server/src/__tests__/damageGate.test.ts`
+- modified: `server/src/__tests__/devPose.test.ts`
+- modified: `server/src/__tests__/dispersion.test.ts`
+- modified: `server/src/__tests__/draft.test.ts`
+- modified: `server/src/__tests__/dropPerception.test.ts`
+- modified: `server/src/__tests__/drops.test.ts`
+- modified: `server/src/__tests__/flak.test.ts`
+- modified: `server/src/__tests__/frames.test.ts`
+- modified: `server/src/__tests__/goldenFrames.test.ts`
+- added: `server/src/__tests__/keyedStreamSeed.test.ts`
+- modified: `server/src/__tests__/matchRecord.test.ts`
+- modified: `server/src/__tests__/matchTelemetry.test.ts`
+- modified: `server/src/__tests__/mulligan.test.ts`
+- modified: `server/src/__tests__/operability.test.ts`
+- modified: `server/src/__tests__/perception.test.ts`
+- modified: `server/src/__tests__/roomOptions.test.ts`
+- modified: `server/src/__tests__/signals.test.ts`
+- modified: `server/src/__tests__/stepOrder.test.ts`
+- added: `server/src/__tests__/supplyDrops.test.ts`
+- added: `server/src/__tests__/supplyPerception.test.ts`
+- added: `server/src/__tests__/supplyRoom.test.ts`
+- modified: `server/src/__tests__/upgrades.test.ts`
+- renamed: `server/src/__tests__/worldFixture.ts`
+- deleted: `server/src/game/ai/beacons.ts`
+- modified: `server/src/game/ai/botDriver.ts`
+- modified: `server/src/game/ai/drops.ts`
+- modified: `server/src/game/ai/equipment.ts`
+- modified: `server/src/game/ai/navigate.ts`
+- modified: `server/src/game/ai/posture.ts`
+- modified: `server/src/game/ai/profiles.ts`
+- modified: `server/src/game/ai/shift.ts`
+- added: `server/src/game/ai/supplyDrops.ts`
+- modified: `server/src/game/ai/tactics.ts`
+- modified: `server/src/game/ai/types.ts`
+- deleted: `server/src/game/beacons.ts`
+- modified: `server/src/game/botPort.ts`
+- modified: `server/src/game/dispersionKey.ts`
+- modified: `server/src/game/equipment/ballistics.ts`
+- modified: `server/src/game/equipment/mainBattery.ts`
+- modified: `server/src/game/equipment/secondaries.ts`
+- modified: `server/src/game/match.ts`
+- modified: `server/src/game/matchRecord.ts`
+- modified: `server/src/game/spawn.ts`
+- added: `server/src/game/supplyDrops.ts`
+- modified: `server/src/game/world.ts`
+- modified: `server/src/rooms/ArenaRoom.ts`
+- modified: `server/src/rooms/roomOptions.ts`
+- modified: `server/src/rooms/schema/ArenaState.ts`
+- modified: `shared/src/__tests__/barrel.test.ts`
+- deleted: `shared/src/__tests__/beacons.test.ts`
+- modified: `shared/src/__tests__/draw.test.ts`
+- modified: `shared/src/__tests__/drops.test.ts`
+- added: `shared/src/__tests__/levelRoll.test.ts`
+- modified: `shared/src/__tests__/shell.test.ts`
+- modified: `shared/src/__tests__/stats.test.ts`
+- added: `shared/src/__tests__/supplyDrops.test.ts`
+- modified: `shared/src/constants.ts`
+- modified: `shared/src/index.ts`
+- deleted: `shared/src/sim/beacons.ts`
+- modified: `shared/src/sim/draw.ts`
+- modified: `shared/src/sim/drops.ts`
+- added: `shared/src/sim/levelRoll.ts`
+- modified: `shared/src/sim/shell.ts`
+- modified: `shared/src/sim/stats.ts`
+- added: `shared/src/sim/supplyDrops.ts`
+- modified: `shared/src/sim/zone.ts`
+- modified: `shared/src/types.ts`
+
+## Change Log
+
+- 2026-11-19: Story 12.4 built (cycle 244, 0.20.2, PV 111 -> 112, epic-12 amendment 8); status review.

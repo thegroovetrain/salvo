@@ -6,15 +6,15 @@
 // parity; a crate's radar blip is never plotted, ai/plot.ts
 // `isCrateSizedPaint`). No port widening.
 //
-// WHAT IT DOES: in the non-combat bearings only (idle / patrol / beacon farm
-// in transit — ai/tactics.ts `postureBearing`), the nearest sighted crate
+// WHAT IT DOES: in the non-combat bearings only (idle / patrol / a supply
+// run, Story 12.4 — ai/tactics.ts `postureBearing`), the nearest sighted crate
 // lying AHEAD along the bearing the bot already wants, within
 // `CONFIG.bots.dropAheadU` along that line and `CONFIG.bots.dropLaneU` either
 // side of it, becomes this tick's waypoint. No posture, no goal state: the
 // crate stays in the lane as the bot closes on it (its along / lateral
 // offsets shrink together), and once it is collected or out of sight the
-// bearing falls back to the goal's. A bot stationed on a beacon never leaves
-// station for a crate.
+// bearing falls back to the goal's. Supply-drop crates (Story 12.4) are
+// ordinary crates once down: this lane takes them like any other.
 //
 // Pure functions over plain data: no world import, no rng, no clock read.
 

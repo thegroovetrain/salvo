@@ -45,8 +45,6 @@ export interface ParticipantRecord {
   placement: number;
   kills: number;
   damageDealt: number;
-  /** XP ms paid to this combatant by RADIO BEACONS (Story 10.8). */
-  beaconXpMs: number;
   /** Airdrops this combatant collected (Story 10.9; a wreck pickup counts
    *  once). Their points ride `indexBonus`. */
   dropsTaken: number;
@@ -107,7 +105,6 @@ function participantRecord(match: Match, id: string, p: Readonly<Participant>, p
     placement,
     kills: p.kills,
     damageDealt: p.damageDealt,
-    beaconXpMs: p.beaconXpMs,
     dropsTaken: p.dropsTaken,
     cards: [...p.cards],
     hands: p.hands.map((h) => toTPlus(h, match.activatedAt)),

@@ -71,7 +71,7 @@ import { Drops } from './render/drops.js';
 import { HullBrackets, bracketHalfPx } from './render/brackets.js';
 import { SplashPegs } from './render/pegs.js';
 import { renderChartMarks } from './render/chartMarks.js';
-import { Beacons, BEACON_COLOR } from './render/beacons.js';
+import { SupplyDrops } from './render/supplyDrops.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
 import { FoulZones } from './render/foulZones.js';
@@ -187,7 +187,7 @@ import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { ContactBodies } from './sim/contactBodies.js';
-import { BeaconBodies, beaconViewsFrom, isBeaconBodyId, type BeaconPlane, type BeaconView } from './sim/beaconView.js';
+import { supplyChartFrom, type SupplyChartRow, type SupplyPlane } from './sim/supplyChart.js';
 import { ContactFx } from './render/contactFx.js';
 import { bleedSpeed } from './sim/contactBleed.js';
 import { InputSampler, type Aiming } from './sim/inputSampler.js';
@@ -295,13 +295,12 @@ interface Game {
   /** The predictor's contact bodies (Story 9.5), rebuilt every render frame
    *  from the poses the contact renderer draws (sim/contactBodies.ts). */
   contactBodies: ContactBodies;
-  /** THE RADIO BEACONS (Story 10.8): this frame's live beacons, derived once
-   *  per render frame from the public schema (sim/beaconView.ts) — drawn by
-   *  `beacons` and handed to the predictor as immovable bodies by
-   *  `beaconBodies`. The array is reused frame to frame. */
-  beaconViews: BeaconView[];
-  beaconBodies: BeaconBodies;
-  beacons: Beacons;
+  /** THE SUPPLY DROPS (Story 12.4): this frame's charted drops, derived once
+   *  per render frame from the public schema (sim/supplyChart.ts) — drawn by
+   *  `supplyDrops` and read by the landing cue. The array is reused frame to
+   *  frame. */
+  supplyRows: SupplyChartRow[];
+  supplyDrops: SupplyDrops;
   /** HULL CONTACT sparks + the grind scrape (render/contactFx.ts, Story 9.5) —
    *  render-only, read off the predictor's last live tick. */
   contactFx: ContactFx;
@@ -1171,9 +1170,9 @@ function handleConfirm(g: Game): void {
 
 
 /** The public plane fields this client polls off the room schema. The
- *  radio-beacon fields (Story 10.8: `beaconCycle`, `beaconCount`, `bcnN…`)
- *  come in through `BeaconPlane` (sim/beaconView.ts). */
-interface PublicState extends BeaconPlane {
+ *  supply-drop chart fields (Story 12.4: `supplyCycle`, `supplyCount`,
+ *  `supN…`) come in through `SupplyPlane` (sim/supplyChart.ts). */
+interface PublicState extends SupplyPlane {
   zoneState?: string;
   zoneStartT?: number;
   zoneCurCx?: number;
@@ -1471,7 +1470,7 @@ function updateShipAudio(g: Game, now: number): void {
  * The ENGINE FRAME, from state the client already holds and draws: the own
  * engine while a hull is conned (alive or sinking, start line and countdown
  * included — `helmAxes` is the dead helm there), the hulls in the contact
- * store (the true-sight gate), the drawn ballistics and the beacon set.
+ * store (the true-sight gate), the drawn ballistics and the supply chart.
  * The listener is the own hull while we have one, else the camera centre —
  * roomBindings' `listenerPos` rule.
  */
@@ -1479,7 +1478,7 @@ function shipAudioFrame(g: Game, now: number): EngineFrame {
   const { spectating, matchOver, net } = g.state;
   const you = net.you;
   const conned = !spectating && !matchOver && conningFlag(you, now, spectating) === true ? you : null;
-  const plane = publicState(g); // ONE snapshot for the beacon cycle and the views (review P14)
+  const plane = publicState(g); // ONE snapshot for the supply cycle and the rows (review P14)
   return {
     own: conned ? ownEngine(g, conned.speed, now) : null,
     boostConfirmed: boostConfirmed(conned, now),
@@ -1490,8 +1489,8 @@ function shipAudioFrame(g: Game, now: number): EngineFrame {
     ...listenerOf(g, conned),
     hulls: remoteHulls(g, now),
     drawn: g.projectiles.drawnBallistics(now),
-    beaconCycle: plane.beaconCycle,
-    beaconAfloat: beaconAfloat(g.beaconViews),
+    supplyCycle: plane.supplyCycle,
+    supplyLanded: supplyLandedNow(g.supplyRows, now),
     inStorm: g.wasInStorm,
     matchOver,
   };
@@ -1508,9 +1507,10 @@ function listenerOf(g: Game, conned: OwnShip | null): Pick<EngineFrame, 'listene
   return conned ? { listener: { x: conned.x, y: conned.y }, listenerKind: 'own' } : { listener: g.camera.center, listenerKind: 'camera' };
 }
 
-/** Any beacon afloat this frame — or null with no beacon data at all (P14). */
-function beaconAfloat(views: readonly BeaconView[]): boolean | null {
-  return views.length === 0 ? null : views.some((v) => v.phase === 'afloat');
+/** Has this frame's supply set landed (its rows crossed `landT`) — or null
+ *  with no chart data at all (P14). One set: every row shares the landing. */
+function supplyLandedNow(rows: readonly SupplyChartRow[], now: number): boolean | null {
+  return rows.length === 0 ? null : now >= rows[0].landT;
 }
 
 /** 0..1 through the own sinking window, or null when not sinking. */
@@ -2825,9 +2825,8 @@ function buildGame(
     contacts: new ContactStore(),
     predictor: makePredictor(map, cls),
     contactBodies: new ContactBodies(),
-    beaconViews: [],
-    beaconBodies: new BeaconBodies(),
-    beacons: new Beacons(stage.layers.beaconChart, stage.layers.beaconWorld),
+    supplyRows: [],
+    supplyDrops: new SupplyDrops(stage.layers.supplyChart),
     contactFx: contactFx(stage, grindCue),
     grindCue,
     lastBleedMs: -Infinity,
@@ -3555,6 +3554,7 @@ function hudBarView(g: Game, f: ConsoleFrame, rows: readonly WeaponRowModel[], a
     abilities,
     readouts: f.readouts,
     preview: f.preview,
+    ib: you?.ib ?? null, // the level-up flash (Story 12.4)
     previewTarget: g.consoleCache.target,
     hover,
     turrets: turretMounts(status.cls).length,
@@ -5145,9 +5145,9 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateEliminationUx(g); // converge the placement, then open a deferred modal at founder
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);
-      renderBeacons(g, now); // public: the same for a captain and a spectator
-      // Story 10.13: engines, sink fade, boost / beacon / torpedo edges — AFTER
-      // the beacon views are derived, so the cue reads this frame's set (P14).
+      renderSupplyDrops(g, now); // public: the same for a captain and a spectator
+      // Story 10.13: engines, sink fade, boost / supply-landing / torpedo edges
+      // — AFTER the supply rows are derived, so the cue reads this frame's set (P14).
       updateShipAudio(g, now);
       // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
       // cycle-69 review gate P11): a spectator's frames are UNFOGGED, so every
@@ -5194,21 +5194,20 @@ function feedContactBodies(g: Game, now: number): void {
     p.setContacts(NO_CONTACT_BODIES);
     return;
   }
-  const beacons = g.beaconBodies.build(g.beaconViews); // Story 10.8: solid beacons, immovable
-  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId, beacons));
+  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId));
 }
 const NO_CONTACT_BODIES: readonly ContactBody[] = [];
 
 /**
- * THE RADIO BEACONS (Story 10.8), once per render frame after the camera
- * moved: derive this frame's live set from the public schema against the
- * server clock (sim/beaconView.ts — the shared lifecycle, never re-derived),
- * then draw it (render/beacons.ts). The pulse is decoration: it alone reads
- * the motion setting.
+ * THE SUPPLY DROPS (Story 12.4), once per render frame after the camera
+ * moved: derive this frame's charted set from the public schema against the
+ * server clock (sim/supplyChart.ts — the shared landing clock, never
+ * re-derived), then draw the marks (render/supplyDrops.ts). No motion
+ * setting: the mark and its fade are information.
  */
-function renderBeacons(g: Game, now: number): void {
-  beaconViewsFrom(publicState(g), now, g.beaconViews);
-  g.beacons.render(g.beaconViews, now, g.camera.zoom, motionIntensity(settings.current.motion));
+function renderSupplyDrops(g: Game, now: number): void {
+  supplyChartFrom(publicState(g), now, g.supplyRows);
+  g.supplyDrops.render(g.supplyRows, now, g.camera.zoom);
 }
 
 /**
@@ -5253,7 +5252,6 @@ function stampContactBleeding(g: Game, live: boolean, nowMs: number): void {
 
 /** The other hull's color for a strike spark — the color its hull is drawn in. */
 function contactFxColor(g: Game, id: string): number {
-  if (isBeaconBodyId(id)) return BEACON_COLOR; // a radio beacon's own linework (Story 10.8)
   return relationStroke(relationFor(g, id));
 }
 

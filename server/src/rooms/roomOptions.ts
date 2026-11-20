@@ -275,25 +275,35 @@ export interface MatchOverride {
   mulligan?: boolean;
   sandbox?: boolean;
   /**
-   * DEV SMOKE ARM (Story 10.8, in the retired `fleetWaves` arm's seat): `false`
-   * switches the RADIO BEACONS off — no beacon is ever placed, nothing is paid
-   * and the public chart stays empty (`beaconCycle` -1, `beaconCount` 0). Only
-   * the boolean `false` disables; absent / anything else is the shipped
-   * beacons. It rides into the World as `WorldOptions.beacons` (sandbox rooms
-   * too — no Match needed), and is read ONLY by the beacon rows: bots, `solo`
-   * and `botFill` are untouched. Dev-gated with the rest of matchOverride.
-   */
-  beacons?: boolean;
-  /**
    * DEV SMOKE ARM (Story 10.9, epic-10 amendment 18): `false` switches the
    * SCHEDULED AIRDROPS off — no crate is ever scattered by the minute
    * schedule. Wreck pickups are still placed, and collection and the storm
    * sweep run as ever. Only the boolean `false` disables; absent / anything
    * else is the shipped schedule. It rides into the World as
-   * `WorldOptions.drops` (sandbox rooms too), exactly the `beacons` pattern.
-   * Dev-gated with the rest of matchOverride.
+   * `WorldOptions.drops` (sandbox rooms too). Dev-gated with the rest of
+   * matchOverride.
    */
   drops?: boolean;
+  /**
+   * DEV SMOKE ARM (Story 12.4 — the radio beacons' Story 10.8 `beacons` arm,
+   * renamed with them): `false` switches the SUPPLY DROPS off — no spot is
+   * ever charted (`supplyCycle` -1, `supplyCount` 0) and no supply crate
+   * lands. Only the boolean `false` disables; absent / anything else is the
+   * shipped supply drops. It rides into the World as `WorldOptions.supplyDrops`
+   * (sandbox rooms too). Kept because fogSmoke counts anonymous radar
+   * returns, and a landed crate is one. Dev-gated with the rest of
+   * matchOverride.
+   */
+  supplyDrops?: boolean;
+  /**
+   * DEV SMOKE ARM (Story 12.4): `false` switches the LEVEL STAT ROLL off — a
+   * completed level rolls an empty die (every roll 0), so a scripted smoke
+   * that pins damage per hit from base stats stays deterministic. Only the
+   * boolean `false` disables; absent / anything else is the shipped die. It
+   * rides into the World as `WorldOptions.statRoll`. Dev-gated with the rest
+   * of matchOverride.
+   */
+  statRoll?: boolean;
 }
 
 /**

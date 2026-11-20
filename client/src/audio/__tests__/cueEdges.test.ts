@@ -4,13 +4,13 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  beaconSurfaced,
   boostRose,
-  freshBeaconCueState,
   freshCloudCueState,
+  freshSupplyCueState,
   freshTorpedoHumState,
   newClouds,
   ownHitGain,
+  supplyLanded,
   torpedoHumCandidates,
   markHumHeard,
   unseedTorpedoHum,
@@ -42,26 +42,28 @@ describe('newClouds (smoke deployed)', () => {
   });
 });
 
-describe('beaconSurfaced', () => {
-  it('fires once when a watched set surfaces, never again for that set', () => {
-    const s = freshBeaconCueState();
-    expect(beaconSurfaced(s, 1, false)).toBe(false); // charted: armed
-    expect(beaconSurfaced(s, 1, true)).toBe(true); // surfaced
-    expect(beaconSurfaced(s, 1, true)).toBe(false);
-    expect(beaconSurfaced(s, 1, false)).toBe(false); // sinking / gone
-    expect(beaconSurfaced(s, 1, true)).toBe(false);
+describe('supplyLanded (Story 12.4 — the `beacon` cue now marks a supply drop landing)', () => {
+  it('fires once when a watched set lands, never again for that set', () => {
+    const s = freshSupplyCueState();
+    expect(supplyLanded(s, 1, false)).toBe(false); // charted: armed
+    expect(supplyLanded(s, 1, true)).toBe(true); // landed
+    expect(supplyLanded(s, 1, true)).toBe(false);
+    expect(supplyLanded(s, 1, false)).toBe(false);
+    expect(supplyLanded(s, 1, true)).toBe(false);
   });
 
-  it('a set first seen already afloat (a resume mid-set) is silent; the next set still sounds', () => {
-    const s = freshBeaconCueState();
-    expect(beaconSurfaced(s, 4, true)).toBe(false);
-    expect(beaconSurfaced(s, 5, false)).toBe(false);
-    expect(beaconSurfaced(s, 5, true)).toBe(true);
+  it('a set first seen already landed (a join or resume mid-set) is silent; the next set still sounds', () => {
+    const s = freshSupplyCueState();
+    expect(supplyLanded(s, 4, true)).toBe(false);
+    expect(supplyLanded(s, 5, false)).toBe(false);
+    expect(supplyLanded(s, 5, true)).toBe(true);
   });
 
-  it('no set (missing / negative / junk cycle) never fires', () => {
-    const s = freshBeaconCueState();
-    for (const c of [undefined, -1, NaN]) expect(beaconSurfaced(s, c, true)).toBe(false);
+  it('no set (missing / negative / junk cycle) or no chart data never fires', () => {
+    const s = freshSupplyCueState();
+    for (const c of [undefined, -1, NaN]) expect(supplyLanded(s, c, true)).toBe(false);
+    expect(supplyLanded(s, 2, null)).toBe(false);
+    expect(supplyLanded(s, 2, true)).toBe(false); // null never armed it
   });
 });
 

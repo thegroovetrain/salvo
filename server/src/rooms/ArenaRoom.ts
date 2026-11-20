@@ -12,7 +12,7 @@ import {
   CONFIG,
   MSG,
   SHIP_CLASS_IDS,
-  BEACON_WIRE_SLOTS,
+  SUPPLY_WIRE_SLOTS,
   isAfloat,
   mulberry32,
   sanitizeClassId,
@@ -384,9 +384,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // The pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
     // posture): track ids must never be derivable from the client-known
     // mapSeed.
-    // beacons (Story 10.8) is read off the SANITIZED matchOverride — the
-    // dev-gated door — not off the Match, so a sandbox room (no Match) honours
-    // it too. Undefined on every production room.
+    // drops (Story 10.9) and supplyDrops (Story 12.4) are read off the
+    // SANITIZED matchOverride — the dev-gated door — not off the Match, so a
+    // sandbox room (no Match) honours them too. Undefined on every production
+    // room.
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
@@ -395,9 +396,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // can brute-force one shell's 32-bit seed off its landing; under the
       // World's HMAC that reveals nothing else).
       dispersionKey: freshDispersionKey(),
-      beacons: sanitized.matchOverride?.beacons,
-      // drops (Story 10.9) rides the same dev-gated door, the same way.
       drops: sanitized.matchOverride?.drops,
+      supplyDrops: sanitized.matchOverride?.supplyDrops,
+      // Story 12.4 dev arm: `statRoll: false` = an empty die (no level rolls).
+      statRoll: sanitized.matchOverride?.statRoll === false ? { ...CONFIG.xp.statRoll, faces: [] } : undefined,
     });
   }
 
@@ -1422,7 +1424,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.releaseDeparted(); // scuttled hulls reaped this tick free their seats
     this.syncRoster();
     this.syncZone();
-    this.syncBeacons();
+    this.syncSupplyDrops();
     this.syncMatch();
     this.syncBounty();
     const phase = this.match?.phase ?? 'waiting';
@@ -1469,26 +1471,26 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /**
-   * Mirror THE RADIO BEACON CHART onto the public schema (Story 10.8, R2 /
-   * R9): the cycle, the count, and each live slot's position and early sink
-   * time. STATE-DERIVED from `World.beaconChart` every step with guarded
-   * assigns, exactly like the zone — so a patch goes out only when a set is
-   * placed or cleared or a beacon is destroyed, and a late joiner or a
-   * reconnect reads the current set from plain schema sync. Slots at or past
-   * `beaconCount` are left as they were (the count gates them).
+   * Mirror THE SUPPLY-DROP CHART onto the public schema (Story 12.4; the
+   * radio beacons' Story 10.8 mirror, renamed): the cycle, the count, and
+   * each live slot's position. STATE-DERIVED from `World.supplyChart` every
+   * step with guarded assigns, exactly like the zone — so a patch goes out
+   * only when a set is charted or cleared, and a late joiner or a reconnect
+   * reads the current set from plain schema sync. Slots at or past
+   * `supplyCount` are left as they were (the count gates them).
    */
-  private syncBeacons(): void {
+  private syncSupplyDrops(): void {
     const s = this.state;
-    const chart = this.world.beaconChart;
-    const count = Math.min(chart.beacons.length, BEACON_WIRE_SLOTS);
-    if (s.beaconCycle !== chart.cycle) s.beaconCycle = chart.cycle;
-    if (s.beaconCount !== count) s.beaconCount = count;
+    const chart = this.world.supplyChart;
+    const count = Math.min(chart.length, SUPPLY_WIRE_SLOTS);
+    const cycle = count > 0 ? chart[0].cycle : -1;
+    if (s.supplyCycle !== cycle) s.supplyCycle = cycle;
+    if (s.supplyCount !== count) s.supplyCount = count;
     const slots = s as unknown as Record<string, number>;
     for (let i = 0; i < count; i += 1) {
-      const b = chart.beacons[i];
-      if (slots[`bcn${i}X`] !== b.x) slots[`bcn${i}X`] = b.x;
-      if (slots[`bcn${i}Y`] !== b.y) slots[`bcn${i}Y`] = b.y;
-      if (slots[`bcn${i}SinkT`] !== b.sinkT) slots[`bcn${i}SinkT`] = b.sinkT;
+      const row = chart[i];
+      if (slots[`sup${i}X`] !== row.x) slots[`sup${i}X`] = row.x;
+      if (slots[`sup${i}Y`] !== row.y) slots[`sup${i}Y`] = row.y;
     }
   }
 

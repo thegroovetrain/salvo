@@ -1,12 +1,14 @@
 // THE SOUND PASS'S EDGE DETECTORS (Story 10.13, wave B) — the pure decisions
 // behind the four cues the game had no event for: a smoke cloud deployed, a
-// beacon set surfacing, the own boost kicking in, a torpedo coming close. Each
-// reads only state the client already holds and already DRAWS (the held cloud
-// set, the beacon views, the own boost window, the projectiles it renders), so
-// no cue tells the player anything the frame did not already show.
+// supply drop landing (the radio beacons' surfacing until Story 12.4 — it
+// still plays the `'beacon'` cue), the own boost kicking in, a torpedo coming
+// close. Each reads only state the client already holds and already DRAWS
+// (the held cloud set, the supply chart, the own boost window, the
+// projectiles it renders), so no cue tells the player anything the frame did
+// not already show.
 //
 // THE RECONNECT RULE every detector shares: the FIRST observation after a
-// (re)bind or a resume only SEEDS the memory. A cloud, beacon set or boost
+// (re)bind or a resume only SEEDS the memory. A cloud, supply set or boost
 // that already existed when we started watching is not an event we witnessed,
 // so it makes no sound.
 //
@@ -48,30 +50,30 @@ export function newClouds<C extends CloudLike>(state: CloudCueState, clouds: rea
   return clouds.filter((c) => !prev.has(c.id) && Number.isFinite(c.t0) && t - c.t0 <= freshMs);
 }
 
-/** The beacon detector's memory: the set (cycle) last seen not yet afloat,
- *  and the last set already heard surfacing. */
-export interface BeaconCueState {
-  /** Cycle we have seen in a pre-afloat phase (charted), else null. */
+/** The supply-landing detector's memory: the set (cycle) last seen charted
+ *  and not yet landed, and the last set whose landing was already heard. */
+export interface SupplyCueState {
+  /** Cycle we have seen before its landing (charted), else null. */
   armed: number | null;
-  /** Cycle whose surfacing already sounded (or was first seen afloat). */
+  /** Cycle whose landing already sounded (or was first seen landed). */
   heard: number | null;
 }
 
-export const freshBeaconCueState = (): BeaconCueState => ({ armed: null, heard: null });
+export const freshSupplyCueState = (): SupplyCueState => ({ armed: null, heard: null });
 
 /**
- * Pure-ish (mutates `state`): did a NEW set of beacons just surface? `cycle` is
- * the set's identity (`beaconCycle`, -1 / non-finite = no set); `afloat` says
- * whether any beacon of it is afloat this frame, or NULL when there is no
- * beacon data at all this frame (an unsynced schema — review P14: no data must
- * never arm a set). Fires ONCE per set, and only for a set we watched before
- * it surfaced: a set first seen already afloat (joining or resuming mid-set)
- * is marked heard without a sound.
+ * Pure-ish (mutates `state`): did a supply set just LAND (its chart rows
+ * crossed their `landT`)? `cycle` is the set's identity (`supplyCycle`, -1 /
+ * non-finite = no set); `landed` says whether its crates have landed this
+ * frame, or NULL when there is no chart data at all this frame (an unsynced
+ * schema — review P14: no data must never arm a set). Fires ONCE per set,
+ * and only for a set we watched before it landed: a set first seen already
+ * landed (joining or resuming mid-set) is marked heard without a sound.
  */
-export function beaconSurfaced(state: BeaconCueState, cycle: number | undefined, afloat: boolean | null): boolean {
-  if (afloat === null || cycle === undefined || !Number.isFinite(cycle) || cycle < 0) return false;
+export function supplyLanded(state: SupplyCueState, cycle: number | undefined, landed: boolean | null): boolean {
+  if (landed === null || cycle === undefined || !Number.isFinite(cycle) || cycle < 0) return false;
   if (state.heard === cycle) return false;
-  if (!afloat) {
+  if (!landed) {
     state.armed = cycle;
     return false;
   }

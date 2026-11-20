@@ -205,7 +205,7 @@ describe('the chart icon handover — airdrops and the salvage wreck', () => {
   it('every crate kind hands over to its icon below 10 px and back above', () => {
     const layer = new Container();
     const d = new Drops(layer);
-    d.sync([{ id: 'w', x: 1, y: 2, c: 'wreck' }, { id: 'a', x: 3, y: 4, c: 'armor' }]);
+    d.sync([{ id: 'w', x: 1, y: 2, c: 'wreck' }, { id: 'a', x: 3, y: 4, c: 'xp' }]);
     d.renderIcons(zoomFor(4));
     expect(d.iconAlphaAt('w')).toBeCloseTo(1, 9);
     expect(d.iconAlphaAt('a')).toBeCloseTo(1, 9);

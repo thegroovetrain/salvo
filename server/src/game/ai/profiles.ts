@@ -33,11 +33,11 @@
 // (`forager` — beacon farming for a level lead — was RETIRED by Story 10.12,
 // Eric 2026-11-11, R6: "hunting drones is no longer a thing".)
 //
-// THREE PERSONALITY TRAITS (Story 10.12, Eric 2026-11-11, epic-10 amendment
-// 21): `repairStyle` (R3 — when HULL REPAIR is pressed, ai/abilities.ts),
-// `contestsBeacon` (R4 — whether a target pulls the bot off a beacon,
-// ai/posture.ts) and `shiftFit` (R5 — the Shift its weighted roll favors,
-// `rollShift` below).
+// TWO PERSONALITY TRAITS (Story 10.12, Eric 2026-11-11, epic-10 amendment
+// 21): `repairStyle` (R3 — when HULL REPAIR is pressed, ai/abilities.ts)
+// and `shiftFit` (R5 — the Shift its weighted roll favors, `rollShift`
+// below). R4's `contestsBeacon` went with the beacons (Story 12.4): every
+// bot heads for a charted supply drop (Eric 2026-11-19, "Every bot").
 //
 // Each row also carries a build TASTE (Eric ruling 2026-09-30, R5, approved
 // verbatim) — the only thing the card scorer in ai/spending.ts reads from a
@@ -170,11 +170,6 @@ export interface BotProfile {
    *  ai/abilities.ts. 'early': the moment the whole heal of one press fits
    *  the missing hull with no waste. 'late': when the bot breaks off. */
   repairStyle: 'early' | 'late';
-  /** DOES A TARGET PULL IT OFF A BEACON (Story 10.12, Eric 2026-11-11, R4) —
-   *  read by ai/posture.ts. true: it leaves station to fight (raider,
-   *  duelist). false: it stays parked in `farm`, collecting and shooting from
-   *  where it sits. */
-  contestsBeacon: boolean;
   /** THE FITTING SHIFT (Story 10.12, Eric 2026-11-11, R5): the Shift
    *  `rollShift` deals with probability CONFIG.bots.shiftFitWeight. */
   shiftFit: ShiftId;
@@ -234,7 +229,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.0, damaged: 1.6, isolated: 1.8 },
     disengageHpFrac: 0.5, // leaves EARLY — a hit torpedo boat is a dead one
     repairStyle: 'early',
-    contestsBeacon: true,
     shiftFit: 'boost',
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
@@ -264,7 +258,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.4, damaged: 0.9, isolated: 0.5 },
     disengageHpFrac: 0.3,
     repairStyle: 'early',
-    contestsBeacon: true,
     shiftFit: 'boost',
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
@@ -292,7 +285,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.2, damaged: 1.0, isolated: 0.4 },
     disengageHpFrac: 0.22, // trades far longer than any other profile
     repairStyle: 'early', // HP IS its plan
-    contestsBeacon: false,
     shiftFit: 'hunker',
     // Bulwark CARRIES star shells and now genuinely uses them — reluctantly
     // (above neutral, below eager: it waits for a plot to go properly cold
@@ -325,7 +317,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.2, damaged: 1.1, isolated: 0.6 },
     disengageHpFrac: 0.4,
     repairStyle: 'late',
-    contestsBeacon: false,
     shiftFit: 'instantReload',
     // EAGER flares (C2 — the BS DOES use star shells: the eager tier keeps
     // the shipped 1.5s staleness trigger); an acquired
@@ -357,7 +348,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.0, damaged: 1.0, isolated: 0.8 },
     disengageHpFrac: 0.45, // breaks off early — the trap fights on without it
     repairStyle: 'late',
-    contestsBeacon: false,
     shiftFit: 'hunker',
     // EAGER mines — the standing plan (the old usesMinesProactively: true,
     // now the eager tier of the ONE shared mine tactic). (Its radar-buoy entry
@@ -373,8 +363,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
  * threshold (1.0), no lean-in, no hold (Story 9.13 — the band 0.15–0.55 they
  * carried until amendment 198 retired the fractions), flat target weights, CONFIG
  * default disengage, the EARLY repair style (Story 10.12: the no-waste press
- * reads only the hull's own folded heal — no profile line), contesting a
- * beacon (the chain as it stood before Story 10.12) and SPEED BOOST as the
+ * reads only the hull's own folded heal — no profile line), and SPEED BOOST as the
  * fitting Shift (the DEFAULT_SHIFT — a row has to name one; the harness deals
  * a test row's Shift by the same weighted roll unless `--shift` forces one),
  * EVERY appetite entry at or above APPETITE_EAGER (2)
@@ -430,7 +419,6 @@ const testRow = (id: TestProfileId): BotProfile => ({
   targetWeights: { captain: 1.0, damaged: 1.0, isolated: 1.0 },
   disengageHpFrac: DEFAULT_DISENGAGE,
   repairStyle: 'early',
-  contestsBeacon: true,
   shiftFit: 'boost',
   appetite: { ...TEST_APPETITE },
 });

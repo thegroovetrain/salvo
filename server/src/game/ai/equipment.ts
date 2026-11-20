@@ -461,15 +461,12 @@ function captiveMineWant(ctx: TacticContext): boolean {
 /** The postures in which a PREPARED lay is allowed: the bot is safe — nothing
  *  is being fought or fled — so a round spent seeding the water costs it no
  *  answer to a live threat. */
-const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm', 'hold']; // `hold` (Story 9.13): a bot lying in wait in cover may seed the water
+const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'hold']; // `hold` (Story 9.13): a bot lying in wait in cover may seed the water
 
-/** Is the bot SAFE to seed the water this tick? A safe posture — except that
- *  `farm` counts only with NO target (Story 10.12 review gate): a beacon
- *  stayer keeps `farm` while it fights from its station (ai/posture.ts), and
- *  a round spent on a prepared lay mid-fight is an answer not given. */
+/** Is the bot SAFE to seed the water this tick? A safe posture. (The beacon
+ *  `farm` posture, safe only with no target, went with Story 12.4.) */
 function safeToLay(ctx: TacticContext): boolean {
-  if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
-  return ctx.posture !== 'farm' || ctx.target === null;
+  return SAFE_LAY_POSTURES.includes(ctx.posture);
 }
 
 /**

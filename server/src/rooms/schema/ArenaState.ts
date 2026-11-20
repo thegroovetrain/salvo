@@ -84,53 +84,46 @@ export class ArenaState extends Schema {
    */
   @type('string') bountyId = '';
 
-  // --- THE RADIO BEACONS (Story 10.8, Eric 2026-11-06, epic-10 amendment 14) ---
+  // --- THE SUPPLY-DROP CHART (Story 12.4, Eric 2026-11-19, epic-12 amendment
+  // 5(f)/(g); the radio beacons' Story 10.8 seat, renamed) ---
   //
-  // GLOBAL WORLD OBJECTS, PUBLIC BY RULING: every chart shows the cycle's
-  // beacons at once (R2), and a beacon destroyed afloat fades early on every
-  // chart (R9). They are NOT per-ship facts — a beacon belongs to nobody —
-  // so they ride the public plane like the zone rings, and nothing about one
-  // ever enters a frame. FLAT SCALARS on purpose: no third Schema class, no
-  // ArraySchema (the two-class pin in colyseus018.test.ts stands).
+  // GLOBAL WORLD FACTS, PUBLIC BY RULING: every player's chart shows the
+  // cycle's spots from charting until the crates land, then the mark fades
+  // (*"I want their locations marked on the map before they drop"*). They are
+  // NOT per-ship facts — a spot belongs to nobody — so they ride the public
+  // plane like the zone rings, and nothing about one ever enters a frame (the
+  // landed crates are ordinary airdrops, delivered by perception). FLAT
+  // SCALARS on purpose: no third Schema class, no ArraySchema (the two-class
+  // pin in colyseus018.test.ts stands).
   //
-  // The client derives everything else — charted / afloat / sinking / gone,
-  // the rate, the body — from these fields plus the zone clock (`zoneStartT`)
-  // through the SAME shared model the server pays by
-  // (shared/src/sim/beacons.ts). A beacon's hp, pot and damage ledger never
-  // leave the server. State-derived each step from `World.beaconChart`
-  // (ArenaRoom.syncBeacons), so a late joiner reads the same set.
+  // The client derives the landing time from these fields plus the zone clock
+  // (`zoneStartT`) through the shared model (`supplyCycleStartMs`,
+  // `supplyLandMs` in shared/src/sim/supplyDrops.ts). State-derived each step
+  // from `World.supplyChart` (ArenaRoom.syncSupplyDrops), so a late joiner
+  // reads the same set. The beacons' per-slot early sink time is gone.
 
   /** The ring cycle the charted set belongs to (its clock is
-   *  `beaconCycleStartMs(zoneStartT, cycle)`); -1 = no beacons. Explicit so a
+   *  `supplyCycleStartMs(zoneStartT, cycle)`); -1 = no spots. Explicit so a
    *  client can never pair one cycle's positions with another cycle's clock. */
-  @type('int8') beaconCycle = -1;
-  /** How many of the slots below are live (0..8). Slots at or past it hold
-   *  STALE values and must be ignored. */
-  @type('uint8') beaconCount = 0;
-  // Slot N: position (u) and the EARLY sink time (server ms; 0 = the natural
-  // schedule — set only when the beacon was destroyed afloat, R6).
-  @type('float32') bcn0X = 0;
-  @type('float32') bcn1X = 0;
-  @type('float32') bcn2X = 0;
-  @type('float32') bcn3X = 0;
-  @type('float32') bcn4X = 0;
-  @type('float32') bcn5X = 0;
-  @type('float32') bcn6X = 0;
-  @type('float32') bcn7X = 0;
-  @type('float32') bcn0Y = 0;
-  @type('float32') bcn1Y = 0;
-  @type('float32') bcn2Y = 0;
-  @type('float32') bcn3Y = 0;
-  @type('float32') bcn4Y = 0;
-  @type('float32') bcn5Y = 0;
-  @type('float32') bcn6Y = 0;
-  @type('float32') bcn7Y = 0;
-  @type('float64') bcn0SinkT = 0;
-  @type('float64') bcn1SinkT = 0;
-  @type('float64') bcn2SinkT = 0;
-  @type('float64') bcn3SinkT = 0;
-  @type('float64') bcn4SinkT = 0;
-  @type('float64') bcn5SinkT = 0;
-  @type('float64') bcn6SinkT = 0;
-  @type('float64') bcn7SinkT = 0;
+  @type('int8') supplyCycle = -1;
+  /** How many of the slots below are live (0..SUPPLY_WIRE_SLOTS). Slots at
+   *  or past it hold STALE values and must be ignored. */
+  @type('uint8') supplyCount = 0;
+  // Slot N: the spot's position (u).
+  @type('float32') sup0X = 0;
+  @type('float32') sup1X = 0;
+  @type('float32') sup2X = 0;
+  @type('float32') sup3X = 0;
+  @type('float32') sup4X = 0;
+  @type('float32') sup5X = 0;
+  @type('float32') sup6X = 0;
+  @type('float32') sup7X = 0;
+  @type('float32') sup0Y = 0;
+  @type('float32') sup1Y = 0;
+  @type('float32') sup2Y = 0;
+  @type('float32') sup3Y = 0;
+  @type('float32') sup4Y = 0;
+  @type('float32') sup5Y = 0;
+  @type('float32') sup6Y = 0;
+  @type('float32') sup7Y = 0;
 }

@@ -1157,8 +1157,7 @@ const RELOAD_UNSCALED: ReadonlySet<EquipmentId> = new Set(RELOAD_UNSCALED_ROWS);
  * it is why there is no exported "resolve then fold" two-step to get wrong.
  * Unknown ids fail closed (ignored). `catalog` is the test seam.
  *
- * `bonus` is the exhausted hull's per-index BONUS POINTS (Story 10.7, R5 —
- * `IndexBonus` below): a real ship passes its own; a caller with no ship
+ * `bonus` is the hull's per-index BONUS POINTS (`IndexBonus` below): a real ship passes its own; a caller with no ship
  * passes nothing (or null), which is byte-identical to the fold before R5.
  */
 export function effectiveStats(
@@ -1176,10 +1175,11 @@ export function effectiveStats(
 }
 
 /**
- * THE EXHAUSTED HULL'S BONUS POINTS (Story 10.7, R5, Eric 2026-11-06,
- * epic-10 amendment 13): per index, how many levels this ship converted
- * into that index because its draw had nothing left to deal. A missing key
- * is zero. The server holds all six (`ShipRecord.indexBonus`); the own row
+ * THE HULL'S BONUS INDEX POINTS: per index, how many points this ship has
+ * gained outside the cards. Since 2026-11-19 (Story 12.4, epic-12 amendment
+ * 5) they come from the level stat roll (sim/levelRoll.ts) and wreck crates
+ * (sim/drops.ts); the exhausted hull's +1 conversion (Story 10.7, R5) is
+ * retired. One count = one index point. A missing key is zero. The server holds all six (`ShipRecord.indexBonus`); the own row
  * carries the non-zero ones (`OwnShip.ib`).
  */
 export type IndexBonus = Readonly<Partial<Record<IndexId, number>>>;
@@ -1202,17 +1202,17 @@ export function bonusCount(n: unknown): number {
   return Number.isSafeInteger(whole) && whole >= 0 ? whole : 0;
 }
 
-/** The INDEX POINTS the bonus adds to one index: its accepted count ×
- *  `CONFIG.offer.exhausted.indexPoints`. */
+/** The INDEX POINTS the bonus adds to one index: its accepted count (one
+ *  point per count — 2026-11-19, Story 12.4, epic-12 amendment 5(c)). */
 function bonusIndexPoints(bonus: IndexBonus, id: IndexId): number {
-  return bonusCount(bonus[id]) * CONFIG.offer.exhausted.indexPoints;
+  return bonusCount(bonus[id]);
 }
 
 /**
  * Fold the bonus points into the indices — AFTER the cards, BEFORE the clamps,
  * so every derivation an index feeds (speed, sweep, haste, reach, the damage
  * multiplier) re-runs over it in `clampStats` exactly as it does for a card.
- * Each point adds `CONFIG.offer.exhausted.indexPoints`; no card cap reaches
+ * Each count adds one index point; no card cap reaches
  * it (a cap bounds card COPIES, never an index). A count is read through
  * `bonusCount` (malformed → 0). With no points this touches nothing, so the
  * output is byte-identical to a fold without the argument.

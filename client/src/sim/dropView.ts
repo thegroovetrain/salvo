@@ -1,10 +1,10 @@
 // THE AIRDROP INGEST GATE (Story 10.9, epic-10 amendment 18) — FrameMsg.drops
 // as the renderer may see it. FAIL-CLOSED, per WHOLE VIEW: a crate whose id is
 // not a string, whose position is not finite, or whose KIND `c` is not a
-// `DropKind` (an index stat, or `'wreck'` — the shared `isDropKind`) is
-// DROPPED, never drawn. A crate carries only its kind: the bonus is rolled AT
-// PICKUP (Eric 2026-11-08), so there is no amount on the wire to check. Pure;
-// no Pixi.
+// `DropKind` (`'xp'` or `'wreck'` since Story 12.4 — the shared `isDropKind`)
+// is DROPPED, never drawn. A crate carries only its kind: a wreck's grants are
+// rolled AT PICKUP and its level count never rides the wire, so there is no
+// amount to check. Pure; no Pixi.
 
 import { isDropKind, type DropView } from '@salvo/shared';
 

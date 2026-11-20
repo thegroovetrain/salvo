@@ -3289,7 +3289,7 @@ describe('own-fire correlation (Story 8.15) — the machine gun stream and the f
 });
 
 describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup', () => {
-  const crate = { id: 'd1', x: 10, y: 20, c: 'armor' };
+  const crate = { id: 'd1', x: 10, y: 20, c: 'xp' };
 
   it('adopts FrameMsg.drops into the renderer, and an OMITTED key is no crates', () => {
     const { sink, deps } = setupWater();
@@ -3302,11 +3302,12 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
   it('a malformed crate is dropped whole before the renderer sees it', () => {
     const { sink, deps } = setupWater();
     const bad = { id: 'd2', x: 0, y: 0, c: 'speed' };
-    sink.handler(victimFrame([], {}, { drops: [bad, crate] }));
+    const oldStat = { id: 'd3', x: 0, y: 0, c: 'armor' }; // a stat crate kind (retired, Story 12.4)
+    sink.handler(victimFrame([], {}, { drops: [bad, oldStat, crate] }));
     expect(deps.drops.sync).toHaveBeenLastCalledWith([crate]);
   });
 
-  it('a `dp` for the own id toasts the stat row (one roll and a bundle) with the pickup chime (Story 10.13)', () => {
+  it('a WRECK `dp` for the own id toasts its grants (one roll and a bundle) with the pickup chime (Story 10.13)', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     const g = [['armor', 3]] as const;
@@ -3315,6 +3316,16 @@ describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup'
     sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: bundle }, { alive: true }));
     expect(toastLines()).toEqual([dropToastLine(g), dropToastLine(bundle)]);
     expect(play.mock.calls.map(([id]) => id)).toEqual(['airdropChime', 'airdropChime']);
+  });
+
+  it('an XP crate `dp` (no grants) chimes and shows NO toast (Story 12.4, AC 4); a junk `g` reads as none', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: [] }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300, g: [['speed', 2], ['armor', 0]] }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', t: 300 }, { alive: true }));
+    expect(toastLines()).toEqual([]);
+    expect(play.mock.calls.map(([id]) => id)).toEqual(['airdropChime', 'airdropChime', 'airdropChime']);
   });
 
   it('is suppressed while dead or spectating, and for someone else — toast and chime alike', () => {

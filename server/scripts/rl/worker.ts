@@ -50,8 +50,8 @@ function main(): void {
     return;
   }
   // STDOUT IS THE PROTOCOL. The server's structured logger (log.ts) writes to
-  // stdout — a single `warn beacon.keepOutRelaxed {...}` or
-  // `warn beacon.placeSkipped {...}` line would corrupt the
+  // stdout — a single `warn supply.placeSkipped {...}`-style line would
+  // corrupt the
   // JSON stream — so every console channel is rehomed to stderr before any
   // sim code runs. The protocol writes below go through process.stdout.write
   // directly and are the only stdout producers left.

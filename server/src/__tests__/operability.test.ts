@@ -32,7 +32,6 @@ const SUMMARY: MatchEndSummary = {
   durationS: 42.5,
   winnerClass: 'bismarck',
   killsByClass: { torpedoBoat: 5, battleship: 0 },
-  beaconXpMsByClass: { torpedoBoat: 1500 }, // Story 10.8 — keyed by the EARNER's hull
   stormDeaths: 1,
   endedBy: 'fieldCleared',
   outcome: 'winner', // amendment 16's discriminator rides the same spread

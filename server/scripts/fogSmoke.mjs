@@ -198,11 +198,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
 // combat policy, storm (and rain) at the 2nd join. The 10-minute beat parks the
-// first close 30 minutes out, so the whole run is on the full-map ring. Beacons
-// and airdrops are switched off: a crate is an anonymous radar return, and this
-// smoke counts returns.
+// first close 30 minutes out, so the whole run is on the full-map ring. Supply
+// drops and airdrops are switched off: a crate is an anonymous radar return,
+// and this smoke counts returns.
 const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
-const MATCH_OVERRIDE = { sandbox: true, beacons: false, drops: false };
+const MATCH_OVERRIDE = { sandbox: true, supplyDrops: false, drops: false };
 
 /** Every joined client still in the room — the input pump's list and the
  *  seat-separation oracle. */

@@ -3894,3 +3894,20 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low - 2026-11-19
   summary: A CAPTAIN PARKED AT THE OLD ZOOM-OUT LIMIT KEEPS IT WHEN THE BAR OFFSET FIRST APPLIES - the new open-water fit re-clamps on the next zoom input only (a silent re-clamp inside setFocusOffset would skip the fog re-bake).
   evidence: review fix pass; `client/src/render/camera.ts` `setFocusOffset`, `cameraZoom.ts` `openWaterFitSpanU`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - low - Eric's (only if it proves an issue) - 2026-11-19
+  summary: THE 10 PX +XP CHART ICON READS AS A SMUDGE AT TRUE SIZE - Eric: "Not sure if it matters. We'll address later if it's an issue."
+  evidence: amendment 8(e); `client/src/render/supplyDrops.ts`, `drops.ts` chart-icon handover.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - pre-existing, not 12.4's - 2026-11-19
+  summary: THE REMAINING ROOM STREAMS ARE STILL DERIVED FROM THE 32-BIT PSEUDONYM MATERIAL `priv` - track ids `trk-<hex>` (raw mulberry32(priv) outputs, likely brute-forceable to priv), minute-airdrop positions (`dropSeed = priv ^ K`), pickup / wreck rolls (`dropSeed ^ ...`, visible in the own `ib`). Candidate fix: key them by HMAC from the room dispersion key, like the supply-spot / supply-scatter / stat-roll streams.
+  evidence: review gate (Fable, reproduced the supply streams' recovery from the public chart); `server/src/game/dispersionKey.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - low (cosmetic) - 2026-11-19
+  summary: MINUTE-CRATE AND WRECK PLACEMENT DO NOT CHECK SUPPLY CRATES - a later minute crate can land on top of a supply crate. Supply crates already avoid every crate on the water; the reverse check is missing.
+  evidence: review gate; `server/src/game/supplyDrops.ts` vs the minute-airdrop and wreck placement in `world.ts` / `drops`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-12-4-airdrops-and-supply-drops.md`
+  status: open - low - 2026-11-19
+  summary: A RECONNECT WHILE THE HUD BAR STAYS UP MAY FLASH STATS THAT ROSE WHILE DISCONNECTED - AC 12 names only join / redeploy as seed points.
+  evidence: review gate; `client/src/render/console/statFlash.ts` first-observation seeding.
