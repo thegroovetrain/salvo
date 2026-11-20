@@ -28,7 +28,8 @@
 // `pc` channel are REMOVED): a hull is a full `Contact` out to the
 // observer's HULL sight, crisp to its class-and-name sight and fading beyond
 // it — a distance haze joins the rain and the smoke in the hull gate's one
-// optical depth. Explosions, shells, torpedoes, mines and crate kinds each
+// optical depth — and a CRATE is seen by that same hull rule (2026-11-20,
+// epic-12 amendment 10). Explosions, shells, torpedoes and mines each
 // ride their own named eye reach (signals.ts); every identity-bearing EVENT
 // field (the boom's victim id, `sunk.seen`, the spawn row) stays on the
 // class-and-name reach.
@@ -90,7 +91,7 @@ export interface PerceptionView {
   clouds: CloudView[];
   /** Per-observer AIRDROP visibility (Story 10.9 — contact-like, recomputed
    *  every tick through the `drop` row: spectator always, else the crate's
-   *  centre DETECTED or inside an owned lit zone; in placement order). The
+   *  centre held by the HULL rule (epic-12 amendment 10) or inside an owned lit zone; in placement order). The
    *  SIGHTED list only, `{id,x,y,c}` — the crate's radar paint is an anonymous
    *  blip in `events`, never here. Bots read this list for the same crates a
    *  human sees (human parity, no wider port). */
@@ -128,6 +129,8 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by, me.heldClouds),
     fogRainAdmits: (ax, ay, bx, by) => world.fogRainAdmits(ax, ay, bx, by),
     fogHullAdmits: (q) => world.fogHullAdmits(q, me.heldClouds),
+    // 2026-11-20 (epic-12 amendment 10): the hull gate's one-point form — the `drop` row's (a crate is seen by the hull rule).
+    fogHazedAdmits: (ax, ay, bx, by, sightU, hullSightU) => world.fogHazedAdmits(ax, ay, bx, by, sightU, hullSightU, me.heldClouds),
     // Story 11.2 follow-up: the island broadphase index (validated ONCE here,
     // for this whole pass) — the same answers as `islands`, without the work
     // that cannot change them.
@@ -165,6 +168,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     fogAdmits: (ax, ay, bx, by) => world.fogSightAdmits(ax, ay, bx, by),
     fogRainAdmits: (ax, ay, bx, by) => world.fogRainAdmits(ax, ay, bx, by),
     fogHullAdmits: (q) => world.fogHullAdmits(q),
+    fogHazedAdmits: (ax, ay, bx, by, sightU, hullSightU) => world.fogHazedAdmits(ax, ay, bx, by, sightU, hullSightU),
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
@@ -310,7 +314,7 @@ function mineScan(world: World, ctx: SignalContext): MineView[] {
 
 /** Per-observer AIRDROP visibility (Story 10.9) — contact-like state exactly
  *  like mines, recomputed every tick through the `drop` row (spectator always,
- *  else inside the crate-kind eye reach or inside an owned lit zone), in Map-insertion (placement)
+ *  else held by the hull rule — epic-12 amendment 10 — or inside an owned lit zone), in Map-insertion (placement)
  *  order. The crate's radar paint is NOT here — see dropBlipScan. */
 function dropScan(world: World, ctx: SignalContext): DropView[] {
   const out: DropView[] = [];

@@ -328,6 +328,64 @@ describe('World.fogHullAdmits — THE DISTANCE HAZE joins the rain and the smoke
   });
 });
 
+// THE HAZED POINT (2026-11-20, epic-12 amendment 10 — a crate is seen "exactly
+// like a hull"): `World.fogHazedAdmits`, the hull gate asked of ONE point.
+describe('World.fogHazedAdmits — the hull gate\'s one-point form (the crate\'s weather gate)', () => {
+  const SIGHT = CONFIG.vision.sight;
+  const HULL_SIGHT = CONFIG.vision.hullSight;
+
+  it('equals `fogDepthAlong(eye → point) <= T − fogHazeDepth(|eye → point|)` AND the hull gate of a zero-size hull at that point, for seeded eyes, points and reaches (full and whiteout-scaled) under the real storm and uniform rain; held, hidden and hid-by-haze points all occur', () => {
+    let held = 0;
+    let hidden = 0;
+    let hidByHaze = 0;
+    WEATHERS.forEach(([name, build], wi) => {
+      const { gate, ref } = pair(build);
+      const R = gate.map.radius;
+      const rng = mulberry32(0xc8a7e ^ wi);
+      for (let n = 0; n < 500; n++) {
+        const scale = n % 4 === 0 ? 0.2 + rng.next() * 0.8 : 1;
+        const [sightU, hullSightU] = [SIGHT * scale, HULL_SIGHT * scale];
+        const ax = (rng.next() * 2 - 1) * R * 0.5;
+        const ay = (rng.next() * 2 - 1) * R * 0.5;
+        const ang = rng.next() * 6.283185307179586;
+        const d = n % 5 === 0 ? rng.next() * sightU : sightU * 0.8 + rng.next() * (hullSightU - sightU * 0.8);
+        const [bx, by] = [ax + Math.cos(ang) * d, ay + Math.sin(ang) * d];
+        const tau = ref.fogDepthAlong(ax, ay, bx, by);
+        const want = tau <= T - fogHazeDepth(Math.hypot(bx - ax, by - ay), sightU, hullSightU, T);
+        expect(gate.fogHazedAdmits(ax, ay, bx, by, sightU, hullSightU), `${name} point ${n}`).toBe(want);
+        expect(gate.fogHullAdmits(hq(ax, ay, bx, by, 0, 0, 0, sightU, hullSightU)), `${name} point ${n}: a hull of no size at the spot`).toBe(want);
+        if (want) held += 1;
+        else hidden += 1;
+        if (!want && tau <= T) hidByHaze += 1;
+      }
+    });
+    expect(held).toBeGreaterThan(0);
+    expect(hidden).toBeGreaterThan(0);
+    expect(hidByHaze).toBeGreaterThan(0);
+  });
+
+  it('the haze alone never hides and never walks; a held cloud on the line spends the same budget it spends for a hull, and only for the observer who holds it', () => {
+    const { gate } = pair(clearFrame);
+    const before = gate.fogWalks;
+    for (const d of [SIGHT * 0.5, SIGHT, (SIGHT + HULL_SIGHT) / 2, HULL_SIGHT]) {
+      expect(gate.fogHazedAdmits(-d / 2, 0, d / 2, 0, SIGHT, HULL_SIGHT), `at ${d}`).toBe(true);
+    }
+    expect(gate.fogWalks).toBe(before);
+    const far = SIGHT + (HULL_SIGHT - SIGHT) * 0.9; // the haze alone is ~0.9 T
+    for (let off = SMOKE.r0; off > 0; off -= 0.5) {
+      seatCloud(gate, 'c', 300, off, 0);
+      if (gate.smokeDepthAlong(0, 0, far, 0) > 0.2 * T) break;
+    }
+    const smoke = gate.smokeDepthAlong(0, 0, far, 0);
+    expect(smoke).toBeGreaterThan(0.2 * T); // premises: such a cloud exists...
+    expect(smoke).toBeLessThan(0.8 * T); // ...and alone it hides nothing
+    expect(gate.fogHazedAdmits(0, 0, SIGHT * 0.5, 0, SIGHT, HULL_SIGHT)).toBe(true); // near: smoke alone, seen through
+    expect(gate.fogHazedAdmits(0, 0, far, 0, SIGHT, HULL_SIGHT)).toBe(false); // out in the haze: smoke + haze past T
+    expect(gate.fogHazedAdmits(0, 0, far, 0, SIGHT, HULL_SIGHT, new Set(['c']))).toBe(false); // the holder
+    expect(gate.fogHazedAdmits(0, 0, far, 0, SIGHT, HULL_SIGHT, new Set<string>())).toBe(true); // an observer who holds no cloud
+  });
+});
+
 // ---------------------------------------------------------------------------
 // THE SMOKE TERM
 // ---------------------------------------------------------------------------

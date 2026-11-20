@@ -327,8 +327,8 @@ interface Game {
   aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
-  /** AIRDROPS (render/drops.ts, Story 10.9) — synced from FrameMsg.drops on the
-   *  fogged `dropWorld` layer; sight-only. */
+  /** CRATES (render/drops.ts, Story 10.9) — synced from FrameMsg.drops on the
+   *  above-fog `dropChart` layer; seen and faded like a hull (epic-12 amendment 10). */
   drops: Drops;
   /** Story 11.8: corner brackets on small hulls + own splash pegs (render/chartMarks.ts). */
   brackets: HullBrackets;
@@ -2850,7 +2850,7 @@ function buildGame(
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.playCue('mineDrop')),
-    drops: new Drops(stage.layers.dropWorld),
+    drops: new Drops(stage.layers.dropChart),
     brackets: new HullBrackets(stage.layers.chartMark),
     pegs: new SplashPegs(stage.layers.chartMark),
     litZones: new LitZones(stage.layers.litZone),
@@ -4650,7 +4650,6 @@ function renderAlive(
   // timestamp expiry, the PHOSPHOR burning zones too (white fire, flickering),
   // each zone tinted own white / another's by that clock.
   g.mines.render(now / 1000);
-  g.drops.render(now / 1000);
   g.litZones.render(now, now / 1000);
   g.burnZones.render(now, now / 1000);
   g.foulZones.render(now, now / 1000); // ...and the weed sways (motion-gated)
@@ -4672,6 +4671,7 @@ function renderAlive(
   // the bubble ends.
   g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
   g.rainEye = rainEyeFor(g, pose, now, ownZones);
+  g.drops.render(g.rainEye, frameDt * 1000); // crates fade like hulls, through the same eye (epic-12 amendment 10)
 }
 
 /** The alive rain raster: about the own hull, or the screen once it is panned
@@ -4957,7 +4957,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // bearing must agree (review fix).
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
   g.mines.render(now / 1000); // the shared alert clock, first (Story 9.11)
-  g.drops.render(now / 1000); // spectators see every drop
+  g.drops.render(null, frameDt * 1000); // spectators see every drop, clear
   g.litZones.render(now, now / 1000); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying

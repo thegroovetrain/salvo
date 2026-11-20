@@ -285,6 +285,34 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
   return { sink, deps };
 }
 
+describe('bindRoom crate channel — sent on change (PV 113)', () => {
+  const base = { t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] };
+  const crate = { id: 'd1', x: 10, y: 20, c: 'xp' };
+
+  it('a present list is handed to the renderer; an absent key leaves the held crates alone; [] clears them', () => {
+    const sync = vi.fn();
+    const { sink } = setupChannels({ drops: { sync } as never });
+    sink.handler({ ...base, drops: [crate] });
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenLastCalledWith([crate]);
+    sink.handler({ ...base, tick: 2 }); // unchanged: no reconcile, the crates stay
+    sink.handler({ ...base, tick: 3 });
+    expect(sync).toHaveBeenCalledTimes(1);
+    sink.handler({ ...base, tick: 4, drops: [] }); // the last crate left
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(sync).toHaveBeenLastCalledWith([]);
+  });
+
+  it('a present list replaces the held one wholesale, through the fail-closed gate', () => {
+    const sync = vi.fn();
+    const { sink } = setupChannels({ drops: { sync } as never });
+    sink.handler({ ...base, drops: [crate] });
+    const other = { id: 'd2', x: -5, y: 7, c: 'wreck' };
+    sink.handler({ ...base, tick: 2, drops: [other, { id: 'bad', x: Number.NaN, y: 0, c: 'xp' }] });
+    expect(sync).toHaveBeenLastCalledWith([other]);
+  });
+});
+
 describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
   // FrameMsg.clouds (CloudView {id,x,y,t0}) is contact-like state, but NOT
   // reconciled by absence (epic-9 amendment 51): delivery is per-sweep, so a
@@ -3291,11 +3319,13 @@ describe('own-fire correlation (Story 8.15) — the machine gun stream and the f
 describe('the AIRDROP channel (Story 10.9) — FrameMsg.drops + the `dp` pickup', () => {
   const crate = { id: 'd1', x: 10, y: 20, c: 'xp' };
 
-  it('adopts FrameMsg.drops into the renderer, and an OMITTED key is no crates', () => {
+  it('adopts FrameMsg.drops into the renderer; an OMITTED key is "unchanged" (PV 113 — the crates stay), and `[]` is no crates', () => {
     const { sink, deps } = setupWater();
     sink.handler(victimFrame([], {}, { drops: [crate] }));
     expect(deps.drops.sync).toHaveBeenLastCalledWith([crate]);
     sink.handler(victimFrame([], {}));
+    expect(deps.drops.sync).toHaveBeenLastCalledWith([crate]);
+    sink.handler(victimFrame([], {}, { drops: [] }));
     expect(deps.drops.sync).toHaveBeenLastCalledWith([]);
   });
 

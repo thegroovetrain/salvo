@@ -15,8 +15,11 @@
 //   - EVERY POINT HAS ITS OWN NAMED EYE REACH (`eyeSeen` at a CONFIG.vision
 //     fact, whiteout-scaled, fog-tolled, island LOS): booms and bursts at
 //     `splashSight`, shells at `shellSight`, torpedoes and their updates at
-//     `torpedoSight`, mines at `mineSight`, a crate's kind at
-//     `crateKindSight`; mz / sm at `muzzleFlash` (never whiteout-scaled).
+//     `torpedoSight`, mines at `mineSight`; mz / sm at `muzzleFlash` (never
+//     whiteout-scaled). A CRATE IS SEEN BY THE HULL RULE (Eric 2026-11-20,
+//     epic-12 amendment 10 — "Exactly like a hull"; `crateSeen`): the hull
+//     reach and island LOS on its centre, rain + held smoke + distance haze
+//     on its centre line (a crate is one mark, not a grid of parts).
 //   - IDENTITY STAYS ON THE CLASS REACH: a boom's `hit`, the sunk row's
 //     `seen` and the whole spawn row.
 //   - THE RADAR DROPOUT IS GONE: every in-range, swept, unshadowed subject
@@ -215,6 +218,7 @@ import {
   type DropPickupEvent,
   type GameEvent,
   type DropKind,
+  type DropView,
   type IndexId,
   type FrameMsg,
   type GhostPaint,
@@ -235,7 +239,7 @@ import {
   dispersionAxes,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
-import { buildFrame as buildFrameRaw } from '../game/frames.js';
+import { buildFrame as buildFrameRaw, DropSendLedger } from '../game/frames.js';
 // Registry symbols are imported ONLY to ENUMERATE keys/rows for the completeness
 // block below — never as a behavior oracle. Every visibility predicate in this
 // file stays independently reimplemented (see the header), so a perception
@@ -415,10 +419,70 @@ function deliveredTo(w: World, viewer: string): Set<string> {
   return got;
 }
 
-/** `frames.buildFrame`, with the fogged frame's clouds ledgered as delivered
+// THE CRATE CHANNEL IS SENT ON CHANGE (Eric 2026-11-20; frames.ts
+// `dropsToSend`): absent = unchanged, present = the full list. EVERY frame
+// this suite builds goes over that wire — the `buildFrame` wrapper below hands
+// production one send memo per (world, viewer) (its own `DropSendLedger`, the
+// room's) and plays the CLIENT: it keeps the last list it was sent and
+// replaces it wholesale when the key is present. The frame it returns carries
+// that HELD list in the full form (omitted when empty), so `verifyDrops` —
+// both directions, against the independent gate oracle — judges what the
+// client HOLDS at every tick of every sweep: nothing outside this tick's gate
+// is ever held, and nothing the gate admits is missing.
+const DROP_SENDS = new WeakMap<World, DropSendLedger>();
+const DROPS_HELD = new WeakMap<World, Map<string, DropView[]>>();
+/** Non-vacuity: frames whose `drops` key was OMITTED while the client held
+ *  crates, lists sent EMPTY (the last crate left), and keyframes that
+ *  replaced a stale held list after a reconnect. */
+const DROPS_OMITTED_HELD = { n: 0 };
+const DROPS_SENT_EMPTY = { n: 0 };
+const DROPS_KEYFRAME_REPLACED = { n: 0 };
+
+function dropSendsOf(w: World): DropSendLedger {
+  let l = DROP_SENDS.get(w);
+  if (l === undefined) DROP_SENDS.set(w, (l = new DropSendLedger()));
+  return l;
+}
+
+function dropsHeldBy(w: World): Map<string, DropView[]> {
+  let m = DROPS_HELD.get(w);
+  if (m === undefined) DROPS_HELD.set(w, (m = new Map()));
+  return m;
+}
+
+/** A crate no world ever holds — what a client's memory is poisoned with at a reconnect. */
+const STALE_CRATE: DropView = { id: 'stale-crate-from-before-the-reconnect', x: 1.5, y: -2.5, c: 'xp' };
+
+/** `viewer` RECONNECTS (a fresh page): the room resets its send memo, and the
+ *  client's held list is whatever it is — here a stale crate, so only a
+ *  keyframe on the very next frame keeps `verifyDrops` green. */
+function reconnectViewer(w: World, viewer: string): void {
+  dropSendsOf(w).reset(viewer);
+  dropsHeldBy(w).set(viewer, [STALE_CRATE]);
+}
+
+/** The client's replace-on-present, then the frame in the full form (the held list, omitted when empty). */
+function withHeldDrops(w: World, viewer: string, f: FrameMsg): FrameMsg {
+  const held = dropsHeldBy(w);
+  const before = held.get(viewer) ?? [];
+  if (f.drops !== undefined) {
+    if (f.drops.length === 0) DROPS_SENT_EMPTY.n += 1;
+    if (before[0] === STALE_CRATE) DROPS_KEYFRAME_REPLACED.n += 1;
+    held.set(viewer, f.drops);
+  } else if (before.length > 0) {
+    DROPS_OMITTED_HELD.n += 1;
+  }
+  const now = held.get(viewer) ?? [];
+  const { drops: _sent, ...rest } = f;
+  return now.length > 0 ? { ...rest, drops: now } : rest;
+}
+
+/** `frames.buildFrame` OVER THE WIRE: built with the viewer's crate send memo
+ *  and returned with the client's HELD crate list (see above), and with the
+ *  fogged frame's clouds ledgered as delivered
  *  to `viewer` (a spectator frame carries every cloud and holds none). */
 function buildFrame(w: World, viewer: string, phase?: MatchPhase): FrameMsg {
-  const f = buildFrameRaw(w, viewer, phase);
+  const f = withHeldDrops(w, viewer, buildFrameRaw(w, viewer, phase, dropSendsOf(w).memoFor(viewer)));
   if (f.spec !== true) for (const c of f.clouds ?? []) deliveredTo(w, viewer).add(c.id);
   return f;
 }
@@ -722,9 +786,17 @@ function mineSeen(w: World, me: ShipRecord, p: { x: number; y: number }, bound: 
   return eyeSeen(w, me, p, CONFIG.vision.mineSight, bound);
 }
 
-/** A crate's KIND: the crate-kind reach. */
+/** A CRATE, BY THE HULL RULE (Eric 2026-11-20, epic-12 amendment 10):
+ *  `hullHeldWithin` with the crate in the hull's place — its centre inside the
+ *  observer's HULL-sight cap on an island-clear ray, and its centre line
+ *  through the rain, the held smoke and the distance haze (`hullLineAdmits`,
+ *  the hull grid's own per-line comparison; a crate is one point). */
 function crateSeen(w: World, me: ShipRecord, p: { x: number; y: number }, bound: Bound = 'loose'): boolean {
-  return eyeSeen(w, me, p, CONFIG.vision.crateKindSight, bound);
+  const reaches = hullReaches(w, me);
+  if (!(reaches.hullSightU > 0)) return false;
+  if (!(dist(me.state, p) <= reaches.hullSightU) || !sightClearOracle(w, me, p)) return false;
+  if (!w.fogFrameForTest().on && w.clouds.size === 0) return true;
+  return hullLineAdmits(w, me, p, reaches, bound);
 }
 
 // The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
@@ -3536,9 +3608,11 @@ const DROP_WITHHELD = { n: 0 };
 const DROP_PAINTED = { n: 0 };
 const DROP_BY_ZONE = { n: 0 };
 
-/** The drop SIGHT gate, independently re-derived — the mine oracle MINUS the
- *  owner clause (a crate has no owner): spectator always; else the centre
- *  within the CRATE-KIND eye reach (Story 11.2 — island LOS, fog-tolled) OR inside a lit zone
+/** The drop SIGHT gate, independently re-derived — THE CONTACT ORACLE with the
+ *  crate in the hull's place (Eric 2026-11-20, epic-12 amendment 10: a crate
+ *  is seen "exactly like a hull"; a crate has no owner): spectator always;
+ *  else the centre held by the hull rule (`crateSeen` — hull reach, island
+ *  LOS, rain + smoke + haze) OR inside a lit zone
  *  the observer OWNS. Never radar: a crate's radar presence is an anonymous
  *  blip, never a `drops[]` row. `bound` grants the tolled oracle's dead band
  *  (delivered → loose passes; withheld → strict fails). */
@@ -5043,6 +5117,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     DROP_WITHHELD.n = 0;
     DROP_PAINTED.n = 0;
     DROP_BY_ZONE.n = 0;
+    DROPS_OMITTED_HELD.n = 0;
+    DROPS_SENT_EMPTY.n = 0;
+    DROPS_KEYFRAME_REPLACED.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let fSeen = 0; // epic-10 amendment 5: proves a FLASH-tagged burst reached the oracle
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
@@ -5553,6 +5630,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           const d = CONFIG.vision.muzzleFlash * 0.85;
           emitWorldEvent(w, { k: 'sm', x: o.x + Math.cos(brg) * d, y: o.y + Math.sin(brg) * d, tier: 1 });
         }
+        // A RECONNECT (the crate channel's keyframe, no rng draw): every fifth
+        // tick one observer's send memo is reset and its client's held crate
+        // list poisoned — the frame built just below must carry the list.
+        if (tick % 5 === 4) reconnectViewer(w, observers[(tick + world) % observers.length]);
         // Build each observer's frame exactly once per tick (wire semantics).
         for (const id of observers) {
           const f = buildFrame(w, id);
@@ -5641,6 +5722,12 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(DROP_WITHHELD.n).toBeGreaterThan(0);
     expect(DROP_PAINTED.n).toBeGreaterThan(0);
     expect(DROP_BY_ZONE.n).toBeGreaterThan(0);
+    // THE SEND-ON-CHANGE CHANNEL ran every arm: an unchanged list was omitted
+    // while the client held crates, a list went out EMPTY when the last crate
+    // left an eye, and a reconnect's keyframe replaced a stale held list.
+    expect(DROPS_OMITTED_HELD.n).toBeGreaterThan(0);
+    expect(DROPS_SENT_EMPTY.n).toBeGreaterThan(0);
+    expect(DROPS_KEYFRAME_REPLACED.n).toBeGreaterThan(0);
     // THE RAIN ARMS (Story 11.6) must each have been EXERCISED: a hull
     // inside the class reach hidden by rain (verified absent), a hull seen
     // through thin rain, a hull delivered by a non-center grid point while

@@ -26,3 +26,14 @@ export function sanitizeDrops(views: unknown): DropView[] {
   if (!Array.isArray(views)) return [];
   return views.filter(isDropView);
 }
+
+/**
+ * THE SEND-ON-CHANGE READ (PV 113, 2026-11-20; server frames.ts
+ * `dropsToSend`): what a frame's `drops` key says about the HELD crate list.
+ * Absent (undefined) → null: unchanged, keep what is held. Present → the
+ * drawable crates of the full new list, which REPLACES the held one (`[]`
+ * clears it; a present value that is not an array is no crates — fail-closed).
+ */
+export function dropsUpdate(views: unknown): DropView[] | null {
+  return views === undefined ? null : sanitizeDrops(views);
+}

@@ -3,7 +3,17 @@
 // FrameMsg.drops (contact-like, sight-gated per observer, sanitized
 // fail-closed by sim/dropView.ts before it lands here).
 //
-// WHAT IS DRAWN: inside sight, a crate shows its KIND and nothing else — NO
+// SEEN LIKE A HULL (Eric 2026-11-20, epic-12 amendment 10 — "the xp crates and
+// wrecks are not mines and they should be able to be visually seen by the same
+// rules other ships are"; "Exactly like a hull"): the server sends a crate
+// wherever a hull at its spot would be sent, so it is drawn ABOVE the fog (the
+// `dropChart` layer, directly under the contact hulls) and wears the hull's
+// fade — V of its centre through this frame's rain, held smoke and distance
+// haze (rainSight.ts `PointRainVis`), turned into alpha by the hull shader's
+// own plain-fade law (`crateFadeAlpha` = hullDissolve.ts `dissolveAlpha`).
+// One alpha per crate: it is one small mark, not a hull drawn part by part.
+//
+// WHAT IS DRAWN: a crate shows its KIND and nothing else — NO
 // numerals. ONE body — the 15 u pickup disc's inscribed square
 // (`CONFIG.drops.radiusU`, R4, so what you see is the water you must touch) —
 // with the kind's glyph inside (`drawEquipmentIcon`): since Story 12.4
@@ -37,6 +47,15 @@ import { CLIENT_CONFIG } from '../config.js';
 import { reconcileLitZones } from './litZones.js';
 import { drawEquipmentIcon } from './equipmentIcons.js';
 import { chartIconAlpha, screenScale } from './chartMarks.js';
+import { dissolveAlpha } from './hullDissolve.js';
+import { PointRainVis, type RainEye } from './rainSight.js';
+
+/** Pure: the alpha a crate at visibility `V` is drawn with — the HULL's own
+ *  alpha at that V on the shader's plain-fade branch (no dissolve grain: a
+ *  crate is one mark). 1 in clear water inside the class-and-name sight. */
+export function crateFadeAlpha(V: number): number {
+  return dissolveAlpha(V, 0, 0);
+}
 
 /** What a kind of crate is drawn with: its color and the glyph id
  *  `drawEquipmentIcon` answers (`'xp'` or `'wreck'`). */
@@ -99,9 +118,13 @@ interface CrateSprite {
   g: Graphics;
   kind: DropKind;
   icon: Graphics | null;
+  /** The crate's drawn visibility through the weather and the haze. */
+  vis: PointRainVis;
+  /** This frame's fade alpha (`crateFadeAlpha` of `vis`). */
+  fade: number;
 }
 
-/** The thin adapter: one crate per drop id on the fogged `dropWorld` layer. */
+/** The thin adapter: one crate per drop id on the above-fog `dropChart` layer. */
 export class Drops {
   private readonly sprites = new Map<string, CrateSprite>();
 
@@ -115,23 +138,35 @@ export class Drops {
     for (const v of add) this.spawn(v);
   }
 
-  /** Per render frame. A crate has no motion and no tint; kept for the
-   *  renderer contract. */
-  render(_nowSec: number): void {}
+  /**
+   * Per render frame, BEFORE `renderIcons`: each crate's fade through `eye`
+   * (the own hull's `RainEye` — the one the contact hulls are drawn through;
+   * null = a spectator, everything clear), advanced by `dtMs`. A crate has no
+   * motion and no tint.
+   */
+  render(eye: RainEye | null, dtMs: number): void {
+    for (const s of this.sprites.values()) s.fade = crateFadeAlpha(s.vis.step(eye, s.g.position.x, s.g.position.y, dtMs));
+  }
 
   /**
    * Per render frame (Story 11.8): the chart-icon handover at `zoom` px per
-   * u — the true crate wears `1 − a`, the 10 px icon `a`.
+   * u — the true crate wears `1 − a`, the 10 px icon `a`, both times the
+   * crate's fade (the handover never brightens a hazed crate).
    */
   renderIcons(zoom: number): void {
     const a = chartIconAlpha(CRATE_SIDE_U * zoom);
     const scale = screenScale(zoom);
     for (const s of this.sprites.values()) {
-      s.g.alpha = 1 - a;
+      s.g.alpha = (1 - a) * s.fade;
       s.g.visible = a < 1;
-      if (a > 0) this.showIcon(s, a, scale);
+      if (a > 0) this.showIcon(s, a * s.fade, scale);
       else if (s.icon !== null) s.icon.visible = false;
     }
+  }
+
+  /** The fade alpha an id is drawn with this frame (test seam), or null. */
+  fadeOf(id: string): number | null {
+    return this.sprites.get(id)?.fade ?? null;
   }
 
   /** The sprite held for an id (test seam), or null. */
@@ -169,7 +204,7 @@ export class Drops {
     drawCrate(g, v.c);
     g.position.set(v.x, v.y);
     this.layer.addChild(g);
-    this.sprites.set(v.id, { g, kind: v.c, icon: null });
+    this.sprites.set(v.id, { g, kind: v.c, icon: null, vis: new PointRainVis(), fade: 1 });
   }
 
   private despawn(id: string): void {

@@ -217,6 +217,14 @@ interface SignalContextBase {
    */
   readonly fogHullAdmits: (q: FogHullQuestion) => boolean;
   /**
+   * THE WEATHER GATE on a HAZED POINT (2026-11-20, epic-12 amendment 10 —
+   * `World.fogHazedAdmits`): the hull gate's one-point form — τ = rain + this
+   * observer's held smoke + the DISTANCE HAZE of A → B between `sightU` and
+   * `hullSightU`, at most T. ONE caller: the `drop` row (`crateHeld`) — a
+   * crate is seen by the hull rule, asked of its centre.
+   */
+  readonly fogHazedAdmits: (ax: number, ay: number, bx: number, by: number, sightU: number, hullSightU: number) => boolean;
+  /**
    * THE ISLAND BROADPHASE INDEX of `islands` (Story 11.2 follow-up — shared
    * sim/islandIndex.ts, `World.islandIndex` taken once per pass by
    * perception.ts): the sight gates ask it instead of scanning every island.
@@ -351,6 +359,8 @@ export interface SightField {
   readonly fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => boolean;
   /** The weather gate on a hull's sight grid (see `SignalContextBase.fogHullAdmits`). */
   readonly fogHullAdmits: (q: FogHullQuestion) => boolean;
+  /** The weather gate on a hazed point (see `SignalContextBase.fogHazedAdmits`). */
+  readonly fogHazedAdmits: (ax: number, ay: number, bx: number, by: number, sightU: number, hullSightU: number) => boolean;
   /** OPTIONAL: the broadphase index of `islands` (see `SignalContextBase.los`). */
   readonly los?: IslandIndex;
 }
@@ -446,6 +456,26 @@ function hullHeld(field: SightField, me: ShipRecord, ship: ShipRecord, sightU: n
 }
 
 /**
+ * THE HULL RULE ON A CRATE (Eric 2026-11-20, epic-12 amendment 10 — "the xp
+ * crates and wrecks are not mines and they should be able to be visually seen
+ * by the same rules other ships are"; asked which ship rule: "Exactly like a
+ * hull"): `hullHeld` with the crate in the hull's place — the SAME range cap
+ * (the observer's HULL sight, inclusive) and island line of sight on the
+ * centre, the SAME optical depth τ = rain + held smoke + DISTANCE HAZE
+ * (`fogHazeDepth` between `sightU` and `hullSightU`) against the same T.
+ * THE ONE DIFFERENCE IS THE SHAPE: a hull asks the weather of its true-size
+ * sight GRID because it is drawn part by part (the A+D dissolve); a crate is
+ * one small mark (a 15 u disc — under one rain march step) drawn with ONE
+ * alpha, so the weather is asked of its CENTRE alone (`field.fogHazedAdmits`,
+ * one walk, the hull gate's own machinery) — the point the client fades it
+ * by. So a crate is held exactly where a hull's grid point at that spot is.
+ */
+function crateHeld(field: SightField, me: ShipRecord, p: Vec2, sightU: number, hullSightU: number): boolean {
+  if (!inReachAndClear(field, me, p, hullSightU)) return false;
+  return field.fogHazedAdmits(me.state.x, me.state.y, p.x, p.y, sightU, hullSightU);
+}
+
+/**
  * The observer's EFFECTIVE sight radius this tick: the SHARED `effectiveSight`
  * (sim/sight.ts) over its stats and its dazzle mark. A FLASH SHELLS burst
  * (Story 8.17, amendment 132; RESTORED by Story 10.9 beside the FOULING
@@ -484,7 +514,7 @@ export function hullSightOf(me: ShipRecord, now: number): number {
 /**
  * A NAMED EYE REACH for this observer this tick (Story 11.2, R4 / R18): one
  * of the `CONFIG.vision` eye facts (`splashSight`, `shellSight`,
- * `torpedoSight`, `mineSight`, `crateKindSight`) under THE whiteout law — the
+ * `torpedoSight`, `mineSight`) under THE whiteout law — the
  * shared `whiteoutReach`, the one curve `sightOf` and `hullSightOf` run, so a
  * flashed hull is blinded at every eye reach together. The facts are the same
  * for every observer (no stat writes them), so nothing about a build rides a
@@ -897,29 +927,38 @@ const mineSignal: SignalSpec<MineState, MineView> = {
 };
 
 /**
- * `drop` — THE AIRDROP's sight channel (Story 10.9, epic-10 amendment 18,
- * Eric's R3: "stat glyph at SIGHT ONLY"). Contact-like state (NOT events),
- * recomputed every tick like mines: a fogged observer sees a crate — its
- * position AND its kind `c` — iff the crate's centre is within the CRATE-KIND
- * eye reach (`CONFIG.vision.crateKindSight`, Story 11.2 R4 / R18 — the kind
- * is read only close; whiteout-scaled, island LOS, rain-gated) OR sits
- * inside a lit zone the observer OWNS (`ownZoneCovers`, lit from above).
- * That is the mine gate MINUS the owner clause: a drop has no owner, so
- * nobody is "always" told. Spectators see every crate. The crate's radar
- * paint is NOT here — it rides the `blip` row's own gate as an anonymous
- * disc rect (`dropPaint`, below), so radar never learns what a return IS.
- * Materialized `{id,x,y,c}`: `c` is the crate's KIND (an IndexId or
- * `'wreck'`) the glyph draws — no amount exists until pickup (Eric
- * 2026-11-08) — a field on a row sight already admitted, never a delivery
- * of its own, so the perception exception count stays SIX.
+ * `drop` — THE CRATE's sight channel (Story 10.9, epic-10 amendment 18;
+ * RE-GATED 2026-11-20, epic-12 amendment 10 — Eric: "the xp crates and wrecks
+ * are not mines and they should be able to be visually seen by the same rules
+ * other ships are", and of the ship rules, "Exactly like a hull").
+ * Contact-like state (NOT events), recomputed every tick: a fogged observer
+ * sees a crate — its position AND its kind `c` (`'xp'` or `'wreck'`) — iff
+ * THE CONTACT PREDICATE holds with the crate in the hull's place
+ * (`crateHeld`, the twin of `fullContactSeen`): the crate's centre within the
+ * observer's effective HULL sight (`hullSightOf`, whiteout-scaled) on an
+ * island-clear ray, through τ = rain + held smoke + the distance haze between
+ * its class-and-name sight (`sightOf`) and that reach — OR the centre inside
+ * a lit zone the observer OWNS (`ownZoneCovers`, lit from above — the hull
+ * row's own OR). A drop has no owner, so nobody is "always" told. Spectators
+ * see every crate. The client draws it above the fog with the hull's fade
+ * (client render/drops.ts). HISTORY: until 2026-11-20 the gate was the mine's
+ * shape at its own 15 hm point reach (`vision.crateKindSight`, Story 11.2 —
+ * RETIRED). The crate's radar paint is NOT here — it rides the `blip` row's
+ * own gate as an anonymous disc rect (`dropPaint`, below), unchanged, so
+ * radar never learns what a return IS.
+ * Materialized `{id,x,y,c}`: `c` is the crate's KIND the glyph draws — no
+ * amount exists until pickup (Eric 2026-11-08) — a field on a row sight
+ * already admitted, never a delivery of its own, so the perception exception
+ * count stays SIX. Nothing on the row says HOW it was held or how faded it
+ * is: the client re-derives the fade from public weather, its own held
+ * clouds and its own reaches, exactly as for a hull.
  */
 const dropSignal: SignalSpec<DropState, DropView> = {
   eventType: 'drop',
   visible(ctx, drop) {
     if (ctx.mode === 'spectator') return true;
-    return (
-      pointSeenWithin(ctx.me, drop, ctx, eyeReach(ctx.me, CONFIG.vision.crateKindSight, ctx.now)) || ownZoneCovers(ctx, drop)
-    );
+    const me = ctx.me;
+    return crateHeld(ctx, me, drop, sightOf(me, ctx.now), hullSightOf(me, ctx.now)) || ownZoneCovers(ctx, drop);
   },
   materialize(_ctx, drop) {
     // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,c (the mine row's `c`).

@@ -900,14 +900,14 @@ export const CONFIG = {
    *                               the listener's own radar, today's rule)
    *   hullSight            350    where the distance haze has taken a hull by
    *                               eye (Story 11.6: crisp to `sight`, fading to
-   *                               gone here)
+   *                               gone here) — and a CRATE, seen by the same
+   *                               rule (2026-11-20, epic-12 amendment 10)
    *   muzzleFlash          350    muzzle flash + wounded smoke + the
    *                               countermeasure haze halo
    *   splashSight          350    splashes, bursts and sinkings seen by eye
    *   sight                200    CLASS AND NAME by eye (the full contact)
    *   shellSight           200    shells in flight seen by eye
    *   torpedoSight          15    a running torpedo seen by eye
-   *   crateKindSight        15    an airdrop crate's KIND seen by eye
    *   mineSight             10    a laid mine seen by eye
    *
    * The weapon reaches are their own facts on their own blocks (main battery
@@ -975,10 +975,14 @@ export const CONFIG = {
     // u — A LAID MINE SEEN BY EYE (Story 11.2, R4 / R18: 3 hm) — it sits in
     // the water.
     mineSight: hmToU(10),
-    // u — AN AIRDROP CRATE'S KIND SEEN BY EYE (Story 11.2, R4 / R18: 15 hm):
-    // the crate is visible far (on radar an anonymous blip), its kind only
-    // close. The amount is still rolled at pickup and never shown.
-    crateKindSight: hmToU(15),
+    // `crateKindSight` (15 hm — an airdrop crate's kind seen by eye, Story
+    // 11.2) — RETIRED 2026-11-20, epic-12 amendment 10 (Eric: "the xp crates
+    // and wrecks are not mines and they should be able to be visually seen by
+    // the same rules other ships are" — "Exactly like a hull"): a crate is
+    // held by the hull rule, crisp to `sight` and fading to gone at
+    // `hullSight` above, through the same rain, smoke and islands. A mine
+    // keeps its own reach (`mineSight`, above).
+    //
     // u — "far radar", the red→blue FIT ANCHOR (epic-9 amendment 103, ruling
     // 121): where a mid-size hull's return reads BLUE rather than RED. A
     // CLIENT-ONLY fit anchor, not a reach: Story 11.2 (2026-11-12) keeps it at
@@ -3073,9 +3077,12 @@ export const CONFIG = {
    * target or a body. An AFLOAT hull whose silhouette comes within `radiusU`
    * of the centre collects it.
    *
-   * SEEN (R3): the crate shows ONLY its kind (xp or wreck), within
-   * `vision.crateKindSight` only (Story 11.2, R4 / R18); on radar an anonymous blip (the crate's disc imprint,
-   * `paintDiscCoverage`).
+   * SEEN (R3; RE-CUT 2026-11-20, epic-12 amendment 10 — "Exactly like a
+   * hull"): the crate shows ONLY its kind (xp or wreck), wherever a hull at
+   * its spot would show — crisp to `vision.sight`, fading to gone at
+   * `vision.hullSight`, behind the same rain, held smoke and islands — drawn
+   * above the fog like a hull; on radar an anonymous blip (the crate's disc
+   * imprint, `paintDiscCoverage`), unchanged.
    */
   drops: {
     perMinuteRemaining: 2, // drops per minute remaining to `untilMinute`, at each match minute (Eric 2026-11-03, #13)

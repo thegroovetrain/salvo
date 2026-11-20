@@ -59,7 +59,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (q) => w.fogHullAdmits(q), me, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (q) => w.fogHullAdmits(q), fogHazedAdmits: (ax, ay, bx, by, s, h) => w.fogHazedAdmits(ax, ay, bx, by, s, h), me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     paintSaltOf: w.paintSaltFor, // Story 11.2 review gate (F1): the room-private paint salt
   };
@@ -69,7 +69,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (q) => w.fogHullAdmits(q), me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, clouds: w.cloudRecords, fogAdmits: (ax, ay, bx, by) => w.fogSightAdmits(ax, ay, bx, by), fogRainAdmits: (ax, ay, bx, by) => w.fogRainAdmits(ax, ay, bx, by), fogHullAdmits: (q) => w.fogHullAdmits(q), fogHazedAdmits: (ax, ay, bx, by, s, h) => w.fogHazedAdmits(ax, ay, bx, by, s, h), me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     paintSaltOf: w.paintSaltFor,
   };
@@ -438,7 +438,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   it('drop row: [id,x,y,c] — the crate\'s position and its kind, in that order, `c` the world\'s own kind; for a spectator too', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const drop = makeDrop({ kind: 'wreck' }); // a wreck crate, 50 u off — inside detect
+    const drop = makeDrop({ kind: 'wreck' }); // a wreck crate, 50 u off — inside sight
     const row = SIGNAL_REGISTRY.drop; // pseudo-row: direct access (not signalFor)
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, drop)).toBe(true);
@@ -451,25 +451,68 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(row.materialize(spec, drop) as object)).toEqual(['id', 'x', 'y', 'c']);
   });
 
-  it('drop row gate: the MINE gate minus the owner clause — detected (detect rung + island LOS) OR inside an OWNED lit zone; never radar, nobody is "always" told', () => {
+  it('drop row gate (Eric 2026-11-20, "Exactly like a hull"): held out to the observer\'s HULL sight on an island-clear ray, OR inside an OWNED lit zone; nobody is "always" told', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 3100, 0);
+    const b = place(w, 'b', 0, 50);
     const row = SIGNAL_REGISTRY.drop;
-    const detectU = CONFIG.vision.crateKindSight; // Story 11.2: the crate-kind eye reach
-    expect(row.visible(foggedCtx(w, a), makeDrop({ x: detectU - 1 }))).toBe(true); // inside the detect rung
-    expect(row.visible(foggedCtx(w, a), makeDrop({ x: detectU + 1 }))).toBe(false); // just outside it
-    expect(row.visible(foggedCtx(w, a), makeDrop({ x: RADAR - 10 }))).toBe(false); // radar range is NOT sight — the glyph stays dark (R3)
+    const hullU = a.stats.hullSightRange; // the contact row's cap — the crate's too
+    expect(hullU).toBeGreaterThan(a.stats.sightRange); // premise: there is a hazed band
+    expect(row.visible(foggedCtx(w, a), makeDrop({ x: a.stats.sightRange + 1 }))).toBe(true); // in the hazed band: still held (it fades on the client)
+    expect(row.visible(foggedCtx(w, a), makeDrop({ x: hullU - 1 }))).toBe(true); // just inside the hull sight
+    expect(row.visible(foggedCtx(w, a), makeDrop({ x: hullU + 1 }))).toBe(false); // just outside it
     // An island between the observer and the crate blinds the eye.
     w.map.islands.push(circleIsland(100, 0, 30));
     expect(row.visible(foggedCtx(w, a), makeDrop({ x: 200 }))).toBe(false);
     w.map.islands.length = 0;
-    // An OWNED lit zone over a far crate reveals it ("lit from above"); somebody else's never does.
-    const far = makeDrop({ x: 2500, y: 0 });
+    // An OWNED lit zone over a crate beyond the hull sight reveals it ("lit from above"); somebody else's never does.
+    const far = makeDrop({ x: hullU + 500, y: 0 });
     expect(row.visible(foggedCtx(w, a), far)).toBe(false);
-    injectZone(w, 'z1', 'a', 2500, 0, 110);
+    injectZone(w, 'z1', 'a', far.x, 0, 110);
     expect(row.visible(foggedCtx(w, a), far)).toBe(true);
-    expect(row.visible(foggedCtx(w, b), far)).toBe(false); // b is 600 u off (outside detect) and does not own the zone
+    expect(row.visible(foggedCtx(w, b), far)).toBe(false); // b is beyond its hull sight too and does not own the zone
+  });
+
+  it('a crate is held EXACTLY where a hull at its spot is (clear water): the drop row and the contact row agree over distance, an island, an owned zone and a whiteout', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const h = place(w, 'h', 0, 0);
+    const hullU = a.stats.hullSightRange;
+    const sightU = a.stats.sightRange;
+    const agree = { held: 0, hidden: 0 };
+    const check = (tag: string): void => {
+      for (const d of [40, sightU / 2, sightU - 1, sightU + 1, (sightU + hullU) / 2, hullU - 1, hullU + 1, hullU * 1.2]) {
+        for (const brg of [0, 1.1, 2.9, 4.4]) {
+          const x = Math.cos(brg) * d;
+          const y = Math.sin(brg) * d;
+          h.state.x = x;
+          h.state.y = y;
+          const ctx = foggedCtx(w, a);
+          const hull = SIGNAL_REGISTRY.contact.visible(ctx, h);
+          expect(SIGNAL_REGISTRY.drop.visible(ctx, makeDrop({ x, y })), `${tag}: crate vs hull at ${d.toFixed(0)} u, bearing ${brg}`).toBe(hull);
+          agree[hull ? 'held' : 'hidden'] += 1;
+        }
+      }
+    };
+    check('open water');
+    expect(agree.held).toBeGreaterThan(0);
+    expect(agree.hidden).toBeGreaterThan(0);
+    w.map.islands.push(circleIsland(20, 0, 12)); // hides the bearing-0 spots
+    const hiddenBefore = agree.hidden;
+    check('an island on one bearing');
+    expect(agree.hidden - hiddenBefore).toBeGreaterThan(hiddenBefore); // ...so more spots are hidden than by distance alone
+    injectZone(w, 'z1', 'a', sightU / 2, 0, 110); // an owned flare behind the island: lit from above, hull and crate alike
+    const heldBeforeZone = agree.held;
+    const hiddenBeforeZone = agree.hidden;
+    check('an owned zone behind the island');
+    expect(agree.hidden - hiddenBeforeZone).toBeLessThan(hiddenBeforeZone - hiddenBefore); // the zone gave one spot back
+    expect(agree.held - heldBeforeZone).toBeGreaterThan(0);
+    w.litZones.clear();
+    w.map.islands.length = 0;
+    a.dazzledUntil = w.now + FLASH_WINDOW_MS; // the whiteout: both reaches are 0
+    const heldBefore = agree.held;
+    check('whited out');
+    expect(agree.held).toBe(heldBefore); // nothing held by a blinded eye
   });
 
   it('dropPaint (the blip row\'s second subject type): the four blip terms on the crate\'s centre, materialized as the fuzzed DISC rect and NOTHING else; null when the gate fails; a spectator never paints', () => {

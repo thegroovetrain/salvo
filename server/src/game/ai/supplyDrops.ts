@@ -26,8 +26,14 @@
 //      holds a goal, the crates it has SEEN in the circle (id + position,
 //      from its own `PerceptionView.drops` only) stay on its mind — a small
 //      bounded array reused in place (noteSupplyCrates). One is forgotten
-//      when the bot's eye (`CONFIG.vision.crateKindSight`) covers its spot
-//      and it is not sighted (taken — by this bot or another — or eaten), and
+//      when the bot COULD see its spot — within its nominal eye
+//      (`CONFIG.vision.hullSight`, the reach the `drop` row holds a crate to
+//      since epic-12 amendment 10: a crate is seen by the hull rule) on a
+//      line clear of islands (the public map, `lineBlocked` — Eric
+//      2026-11-20) — and it is not sighted (taken — by this bot or another —
+//      or eaten). A crate merely hidden behind an island stays remembered.
+//      Rain and smoke are not asked: a crate they hide is forgotten and seen
+//      again when they clear. And
 //      all are forgotten when the goal changes or is released.
 //   5. UNREACHABLE (Story 12.4 review fix): a spot on a non-navigable nav
 //      cell counts as reached at its snapped anchor (navigate.ts
@@ -39,7 +45,8 @@
 //
 // Pure functions over plain data: no world import, no rng, no clock read.
 
-import { CONFIG, type Vec2, type ZoneRing } from '@salvo/shared';
+import { CONFIG, type Island, type Vec2, type ZoneRing } from '@salvo/shared';
+import { lineBlocked } from './plot.js';
 import type { BotRememberedCrate, BotRoute, BotSupplyBar, BotSupplyDrop } from './types.js';
 
 /** Is `p` within `r` of `c` (rim inclusive)? */
@@ -132,12 +139,13 @@ function sightedId(sighted: readonly BotRememberedCrate[], id: string): boolean 
   return false;
 }
 
-/** Drop from `memory` (in place) every crate whose spot the eye at `eye`
- *  covers (within `eyeU`) and that is not sighted: it is gone. */
-function forgetGone(memory: BotRememberedCrate[], sighted: readonly BotRememberedCrate[], eye: Vec2, eyeU: number): void {
+/** Drop from `memory` (in place) every crate the eye at `eye` COULD see —
+ *  its spot within `eyeU` on a line clear of `islands` — and that is not
+ *  sighted: it is gone. */
+function forgetGone(memory: BotRememberedCrate[], sighted: readonly BotRememberedCrate[], eye: Vec2, eyeU: number, islands: readonly Island[]): void {
   let keep = 0;
   for (const c of memory) {
-    if (within(c, eye, eyeU) && !sightedId(sighted, c.id)) continue;
+    if (!sightedId(sighted, c.id) && within(c, eye, eyeU) && !lineBlocked(eye, c, islands)) continue;
     memory[keep] = c;
     keep += 1;
   }
@@ -146,8 +154,9 @@ function forgetGone(memory: BotRememberedCrate[], sighted: readonly BotRemembere
 
 /**
  * THE MEMORY (Eric 2026-11-19, "Remember if it's not expensive"), updated in
- * place from one view: forget each remembered crate the eye at `eye` covers
- * (within `eyeU`) that is not in `sighted`, then remember each sighted crate
+ * place from one view: forget each remembered crate the eye at `eye` could
+ * see (within `eyeU`, the line to it clear of `islands` — the public map)
+ * that is not in `sighted`, then remember each sighted crate
  * within `scatterU` of `goal`'s spot not yet remembered — at most `cap`
  * entries. `sighted` is the bot's own `PerceptionView.drops`, nothing else.
  */
@@ -156,11 +165,12 @@ export function noteSupplyCrates(
   memory: BotRememberedCrate[],
   sighted: readonly BotRememberedCrate[],
   eye: Vec2,
-  eyeU: number = CONFIG.vision.crateKindSight,
+  islands: readonly Island[] = [],
+  eyeU: number = CONFIG.vision.hullSight,
   scatterU: number = CONFIG.supplyDrops.scatterU,
   cap: number = CONFIG.supplyDrops.crates,
 ): void {
-  forgetGone(memory, sighted, eye, eyeU);
+  forgetGone(memory, sighted, eye, eyeU, islands);
   for (const c of sighted) {
     if (memory.length >= cap) return;
     if (!within(c, goal, scatterU) || sightedId(memory, c.id)) continue;

@@ -278,7 +278,7 @@ describe('ai/supplyDrops — pick, keep, release', () => {
 // --- the memory ------------------------------------------------------------------
 
 describe('ai/supplyDrops — the remembered crates (Eric 2026-11-19, remember if not expensive)', () => {
-  const EYE = CONFIG.vision.crateKindSight;
+  const EYE = CONFIG.vision.hullSight; // the nominal reach the `drop` row holds a crate to (epic-12 amendment 10)
   const CAP = CONFIG.supplyDrops.crates;
   const goal = pending(0, 0);
   const after = goal.landT + 1;
@@ -316,6 +316,17 @@ describe('ai/supplyDrops — the remembered crates (Eric 2026-11-19, remember if
     noteSupplyCrates(goal, memory, [b], { x: farX, y: 0 }); // on a's spot, a absent; b still sighted
     expect(memory).toEqual([b]);
     noteSupplyCrates(goal, memory, [], { x: -farX + EYE, y: 0 }); // b's spot on the eye's rim, b absent
+    expect(memory).toEqual([]);
+  });
+
+  it('an ISLAND on the line keeps a remembered crate the eye would otherwise cover (Eric 2026-11-20): hidden is not gone; once the line clears and it is still unsighted, it is forgotten', () => {
+    const memory: BotRememberedCrate[] = [];
+    const a = crate('a', farX, 0);
+    const islands = [circleIsland(farX / 2, 0, farX / 10)]; // between the spot and the crate
+    noteSupplyCrates(goal, memory, [a], { x: farX, y: 0 }, islands); // seen from beside it
+    noteSupplyCrates(goal, memory, [], { x: 0, y: 0 }, islands); // from the spot: inside the eye, behind the island
+    expect(memory).toEqual([a]);
+    noteSupplyCrates(goal, memory, [], { x: farX / 2, y: farX / 2 }, islands); // sailed round: the line is clear, the crate is not there
     expect(memory).toEqual([]);
   });
 
@@ -420,21 +431,30 @@ describe('COMBAT_BRAIN — the supply run', () => {
     expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the crate
   });
 
-  it('steers for a REMEMBERED crate it no longer sees, and forgets it when the goal is released', () => {
+  // 2026-11-20 (epic-12 amendment 10 + Eric's follow-up): the bot's nominal
+  // eye is the hull sight, which covers the whole scatter circle — so "no
+  // longer sees" is an ISLAND on the line (the forget rule asks the public
+  // map), never distance.
+  it('steers for a REMEMBERED crate it no longer sees (an island hides it), and forgets it when the goal is released', () => {
     const w = openWorld(1318);
+    const crate = { id: 'c1', x: 0, y: -SCATTER_U }; // due south, on the circle's rim
+    w.map.islands.push(circleIsland(0, crate.y / 2, 40)); // on the eye line to the crate
     const rec = mkBot(w, 0, 0, 0); // bow due east
     const drop = pending(0, 0);
     const mind = mkMind('bulwark');
-    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop]));
-    const farY = -Math.min(SCATTER_U, 1.5 * CONFIG.vision.crateKindSight); // due south, past the eye
-    mind.supplyCrates = [{ id: 'c1', x: 0, y: farY }];
+    const port = (drops: BotSupplyDrop[], now = NOW): BotWorldPort => fakePort(w, drops, now);
+    COMBAT_BRAIN.decide(rec, mind, port([drop]));
+    mind.supplyCrates = [crate];
     mind.view = { drops: [], mines: [] } as unknown as PerceptionView;
-    const d = COMBAT_BRAIN.decide(rec, mind, fakePort(w, [drop], drop.landT));
+    // The memory rule itself, on this very scene: hidden by the island → kept.
+    noteSupplyCrates(drop, mind.supplyCrates, [], rec.state, w.map.islands);
+    expect(mind.supplyCrates).toEqual([crate]);
+    const d = COMBAT_BRAIN.decide(rec, mind, port([drop], drop.landT));
     expect(mind.supplyGoal).toEqual(drop);
     expect(mind.supplyCrates).toHaveLength(1);
     expect(d.throttle).toBe(1);
     expect(d.rudder).toBeLessThan(0); // starboard: an east bow turns south toward the remembered crate
-    COMBAT_BRAIN.decide(rec, mind, fakePort(w, [], drop.landT)); // the drop leaves the chart
+    COMBAT_BRAIN.decide(rec, mind, port([], drop.landT)); // the drop leaves the chart
     expect(mind.supplyGoal ?? null).toBeNull();
     expect(mind.supplyCrates).toEqual([]);
   });

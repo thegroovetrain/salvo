@@ -72,6 +72,7 @@ const radarCtx = (w: World) => ({
   fogAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogSightAdmits(ax, ay, bx, by), // the weather gate thunks (the fh row never calls them — the horn is weather-blind)
   fogRainAdmits: (ax: number, ay: number, bx: number, by: number) => w.fogRainAdmits(ax, ay, bx, by),
   fogHullAdmits: (q: FogHullQuestion) => w.fogHullAdmits(q),
+  fogHazedAdmits: (ax: number, ay: number, bx: number, by: number, s: number, h: number) => w.fogHazedAdmits(ax, ay, bx, by, s, h),
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,

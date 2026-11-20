@@ -949,7 +949,7 @@ function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   noteTorpedoes(mind, self, port.now);
   // Story 12.4: the crates seen in the supply goal's circle (Eric
   // 2026-11-19, "Remember if it's not expensive").
-  if (mind.supplyGoal) noteSupplyCrates(mind.supplyGoal, (mind.supplyCrates ??= []), mind.view.drops, self.state);
+  if (mind.supplyGoal) noteSupplyCrates(mind.supplyGoal, (mind.supplyCrates ??= []), mind.view.drops, self.state, port.map.islands);
 }
 
 /** The trigger half of a decision. A LEVEL shot (the machine gun, Story 8.15)

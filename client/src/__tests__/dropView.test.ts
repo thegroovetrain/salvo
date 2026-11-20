@@ -3,7 +3,7 @@
 // 12.4: the kinds are the XP crate and the wreck (the shared `isDropKind`).
 import { describe, expect, it } from 'vitest';
 import { INDEX_IDS } from '@salvo/shared';
-import { sanitizeDrops } from '../sim/dropView.js';
+import { dropsUpdate, sanitizeDrops } from '../sim/dropView.js';
 
 const ok = { id: 'd1', x: 10, y: -20, c: 'xp' };
 
@@ -34,5 +34,20 @@ describe('sanitizeDrops', () => {
     ['null', null],
   ])('drops a view with %s', (_label, bad) => {
     expect(sanitizeDrops([bad, ok])).toEqual([ok]);
+  });
+});
+
+describe('dropsUpdate — the send-on-change read (PV 113)', () => {
+  const a = { id: 'd1', x: 1, y: 2, c: 'xp' };
+  it('an absent key keeps the held list (null); a present list replaces it; [] clears it', () => {
+    expect(dropsUpdate(undefined)).toBeNull();
+    expect(dropsUpdate([a])).toEqual([a]);
+    expect(dropsUpdate([])).toEqual([]);
+  });
+
+  it('a present list still goes through the fail-closed gate; a present non-array is no crates', () => {
+    expect(dropsUpdate([{ ...a, x: Number.NaN }, a])).toEqual([a]);
+    expect(dropsUpdate(null)).toEqual([]);
+    expect(dropsUpdate('d1')).toEqual([]);
   });
 });

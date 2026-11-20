@@ -12,6 +12,7 @@ import {
   INDEX_IDS,
   isAfloat,
   isSunk,
+  type DropView,
   type FrameMsg,
   type IndexBonus,
   type IndexId,
@@ -285,26 +286,124 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the burn
  * zone's gate, `{id,x,y,r,until,by}` each), then `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
  * `{id,x,y,t0}` each; 8.18's `smoke` seat), then `drops` (Story 10.9 — the
- * SIGHTED airdrops, `{id,x,y,c}` each, through the `drop` row: spectator
- * always, else detected or inside an owned lit zone; a crate's radar paint
- * is an anonymous blip in `events`, never a key here). Story 11.2's `pc`
+ * SIGHTED crates, `{id,x,y,c}` each, through the `drop` row: spectator
+ * always, else held by the hull rule or inside an owned lit zone; a crate's
+ * radar paint is an anonymous blip in `events`, never a key here — and since
+ * 2026-11-20 SENT ON CHANGE to a client with a send memo, see
+ * `dropsToSend`). Story 11.2's `pc`
  * channel (the anonymous plain hulls) was REMOVED with its tier (Eric
  * 2026-11-15); the DECOY BUOYS' `decoys` channel left with Story 10.5. THE RAIN HAS NO CHANNEL (Story 9.10; the
  * storm eye since Story 11.6): the field is public weather off the welcome
  * seed and the zone clock; its hiding is the optical-depth gate inside every
  * sight site, never a frame key.
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'clouds' | 'drops'> {
+function optionalChannels(view: PerceptionView, dropMemo?: DropSendMemo): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'clouds' | 'drops'> {
+  const drops = dropsToSend(view.drops, dropMemo);
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
     ...(view.foulZones.length > 0 ? { foulZones: view.foulZones } : {}),
     ...(view.clouds.length > 0 ? { clouds: view.clouds } : {}),
-    ...(view.drops.length > 0 ? { drops: view.drops } : {}),
+    ...(drops !== undefined ? { drops } : {}),
   };
 }
 
-export function buildFrame(world: World, playerId: string, phase: MatchPhase = 'waiting'): FrameMsg {
+// ---------------------------------------------------------------------------
+// THE CRATE CHANNEL IS SENT ON CHANGE (Eric 2026-11-20: "Fix that the list is
+// sent only when something changes, if that would work from an anti-cheat
+// perspective"; epic-12 amendment 10). Since crates are seen by the hull rule
+// a client holds nearly every crate on the board, and they never move — the
+// same rows were re-sent 20 times a second.
+//
+// THE WIRE RULE, per client: `FrameMsg.drops` ABSENT = "unchanged since the
+// last list you were sent"; PRESENT = the FULL current visible list — the
+// same rows, through the same `drop` row gate, in the same order as a full
+// send. The key is omitted ONLY when this tick's visible list is identical
+// (length, order, and every row's id / x / y / c) to the last list actually
+// sent to that client. A list that became EMPTY is a change and goes out as
+// `drops: []`. The first frame after a memo is made or reset (join,
+// reconnect, a tick the client was not sent a frame, a new room after a
+// redeploy) ALWAYS carries the list — the keyframe — even when it is empty.
+// A switch to or from the spectator view changes the list, so it sends
+// itself. The client replaces its held list wholesale when the key is
+// present, so at every tick it holds exactly what a full send would have
+// delivered: nothing outside this tick's gate is ever held, and nothing is
+// learned from an omission that the full list would not have said (the
+// anti-cheat equivalence; the perception suite replays it).
+//
+// PERCEPTION IS UNTOUCHED: the visible list still comes from
+// `perception.observe()` every tick (bots read it there); this is only which
+// ticks the same list rides the wire.
+// ---------------------------------------------------------------------------
+
+/** One client's crate-channel send memo: the list last SENT to it (the
+ *  view's own array — a fresh one per tick, never mutated after), or null
+ *  when the next frame must carry the list (the keyframe). */
+export interface DropSendMemo {
+  sent: readonly DropView[] | null;
+}
+
+/** Same crate rows, in the same order? */
+function sameDropRows(a: readonly DropView[], b: readonly DropView[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const p = a[i];
+    const q = b[i];
+    if (p.id !== q.id || p.x !== q.x || p.y !== q.y || p.c !== q.c) return false;
+  }
+  return true;
+}
+
+/**
+ * What rides `FrameMsg.drops` this tick for a client whose send memo is
+ * `memo`: undefined = the key is omitted. WITHOUT a memo (a standalone
+ * world: unit tests, probes — "what this observer sees this tick") the
+ * pre-2026-11-20 rule: the full list, omitted when empty. WITH one: the full
+ * list when it differs from the last one sent or none was sent yet (an empty
+ * list included), and the memo takes it; else omitted.
+ */
+export function dropsToSend(visible: DropView[], memo?: DropSendMemo): DropView[] | undefined {
+  if (memo === undefined) return visible.length > 0 ? visible : undefined;
+  if (memo.sent !== null && sameDropRows(visible, memo.sent)) return undefined;
+  memo.sent = visible;
+  return visible;
+}
+
+/**
+ * A room's crate-channel send memos, one per client id (the room is a thin
+ * adapter: it only says who is being sent a frame and whose sequence broke).
+ */
+export class DropSendLedger {
+  private readonly memos = new Map<string, DropSendMemo>();
+
+  /** The client's memo (made on first ask — its first frame is a keyframe). */
+  memoFor(clientId: string): DropSendMemo {
+    let m = this.memos.get(clientId);
+    if (m === undefined) {
+      m = { sent: null };
+      this.memos.set(clientId, m);
+    }
+    return m;
+  }
+
+  /** The client's frame sequence broke (reconnect, a skipped tick): its next frame carries the list. */
+  reset(clientId: string): void {
+    const m = this.memos.get(clientId);
+    if (m !== undefined) m.sent = null;
+  }
+
+  /** The seat is gone. */
+  forget(clientId: string): void {
+    this.memos.delete(clientId);
+  }
+}
+
+/**
+ * `dropMemo` — this client's crate-channel send memo (`DropSendLedger`): with
+ * it `drops` is sent on change (`dropsToSend`); without it the frame carries
+ * the full visible list (omitted when empty).
+ */
+export function buildFrame(world: World, playerId: string, phase: MatchPhase = 'waiting', dropMemo?: DropSendMemo): FrameMsg {
   const ship = world.ships.get(playerId);
   const base = {
     t: world.now,
@@ -321,7 +420,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       mines: view.mines,
       // litZones / burnZones / foulZones / clouds / drops: OPTIONAL on the
       // wire (see optionalChannels — the same rule on both paths).
-      ...optionalChannels(view),
+      ...optionalChannels(view, dropMemo),
       spec: true,
     };
   }
@@ -338,7 +437,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
-    ...optionalChannels(view), // litZones / burnZones / foulZones / clouds / drops, omitted when none
+    ...optionalChannels(view, dropMemo), // litZones / burnZones / foulZones / clouds / drops, omitted when none
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }
