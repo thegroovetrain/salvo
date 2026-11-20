@@ -661,7 +661,8 @@ Eric's playtest-feedback epic, built in the order he listed his thoughts: four c
 **FRs covered:** none new — re-cuts FR24–FR28 and the Weapon Systems reach sentences in place; RANGE leaves FR41–FR61's pool · **Also:** NFR1–NFR2 (paint budget measured on staging), NFR20–NFR23 (six exceptions EXTENDED for the arc / ghosts / splash), UX-DR9
 **Standing constraints:** every number is Eric's (every forge figure a `[dial]` for the bench page); the client draws nothing it wasn't sent; nothing below the observer's gain leaves the server; a performance verdict comes from staging, never a dev build; visual candidates shown to Eric before commit; no in-game copy unasked; a design gap at review is an AskUserQuestion before the PR.
 
-### Epic 12: The Ledger *(was Epic 11 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E12)*
+### Epic 12: The Supply Run *(renamed 2026-11-20 from The Ledger — `sprint-change-proposal-2026-11-20.md`; was Epic 11 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E12)*
+**2026-11-20 — CLOSED; 12.1 / 12.2 FOLDED INTO EPIC 14** (`sprint-change-proposal-2026-11-20.md`; Eric: *"no point building a system that will be replaced as soon as I need actual match history"*): the epic shipped 12.3 The In-Game UI Pass and 12.4 Airdrops and Radio Beacons; the match store is built whole by 14.1 / 14.6 / 14.7 and the readout is Story 14.12. The text below is history.
 The match-data store, now, strictly for Eric's trends, balance and bot tuning from real matches: Render managed Postgres per environment behind `@colyseus/database`, absence-gated on `DATABASE_URL`, mounted behind the `AccountWriter` port that already receives a complete `MatchRecord` at every match end; every row anonymous (no callsign, no account column yet); a readout script rendering the harness's report shapes over live matches. *(2026-11-18 — `sprint-change-proposal-2026-11-18.md`: two stories added — Story 12.3 The In-Game UI Pass, a side story (minor tweaks to the radar, ship visuals and zoom / panning; the in-game HUD redesigned), and Story 12.4 Airdrops and Radio Beacons (a change to both, more than visual); build order 12.3 → 12.4 → 12.1 → 12.2.)*
 **FRs covered:** none new — the server-side match record half of the GDD's Account progression section, anonymously · **Also:** AR22–AR25 (store half), NFR25–NFR27
 **Standing constraints:** the ledger never takes the game down; nothing in a tick awaits it; `world.ts` / `match.ts` keep zero persistence imports; `databases:` lands with the code that reads it, never ahead; PII rule on every log line.
@@ -674,7 +675,7 @@ H5 Games Ads is approved; the AdSense site review says Google cannot crawl the s
 ### Epic 14: The Account *(was Epic 13 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; GDD E14; was Epic 10 from 2026-10-06 to 2026-10-25 — `sprint-change-proposal-2026-10-25.md`, text kept whole; was Epic 9 until 2026-10-06; re-cut 2026-09-21 — no decks)*
 Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Under it: the first persistent store (Render Postgres behind an absence-gated in-process module), OAuth-only auth verified at both doors, the server-only unlock check at the door and the match-record writer, two-state settings, self-serve deletion, Eric's admin console, the privacy paragraph, and key rebinding. **Closes with a design & doc reconciliation story** (the Story 7.6 pattern, Eric 2026-09-11) that writes the v3 corrections back into `gdd.md`, `game-architecture.md`, the deferred-work ledger and both tracker files, so no implementing agent ever again reads a sentence the rulings retired.
 **FRs covered:** FR62–FR70, FR72 · **Also:** NFR24–NFR28, NFR30, AR22–AR34, AR51, AR61, AR63, UX-DR60–UX-DR78 (UX-DR72's privacy half)
-**Standing constraints:** store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; the account layer never takes the game down; Story 7-7 stays deferred and this adds no deployable; anonymous play on production is Eric's open question and is not pre-empted by any story.
+**Standing constraints:** store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; the account layer never takes the game down; Story 7-7 stays deferred and this adds no deployable; anonymous play on production is Eric's open question and is not pre-empted by any story. *(2026-11-20 — `sprint-change-proposal-2026-11-20.md`: Epic 12's Ledger folds in — 14.1 builds the whole store again, and Story 14.12 Reading the Match Data (was 12.2) gives Eric the harness's balance readouts over every live match, built after 14.7.)*
 
 ## Epic 0: Stable Ground (Colyseus 0.17 Foundation)
 
@@ -3043,12 +3044,16 @@ So that nothing I can tune, read or shoot at is a mystery.
 **And** the GDD's Development Epics table and every mechanics sentence Epic 11 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern: Weapon Systems reach / decay sentences, Arena and Level Design radar / sight / fog sentences, the twelfths ladder stamps of Epic 9, the Economy's beacon placement, Enemy Design, the Fog of War pillar); `game-architecture.md` gains dated notices (the five knob inputs, the strength model and ghosts as a signal source, the splash event, the weather seat on the welcome, the camera as the range scale); DESIGN.md / EXPERIENCE.md rows the camera and knob candidates changed are stamped
 **And** `epic-11-context-amendments.md` holds every ruling incl. the bench page's numbers and the retired-tests ruling; the epic-11 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
 
-## Epic 12: The Ledger *(was Epic 11 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E12)*
+## Epic 12: The Supply Run *(renamed 2026-11-20 from The Ledger — `sprint-change-proposal-2026-11-20.md`; was Epic 11 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E12)*
+
+**2026-11-20 — CLOSED; 12.1 / 12.2 FOLDED INTO EPIC 14** (`sprint-change-proposal-2026-11-20.md`; Eric: *"no point building a system that will be replaced as soon as I need actual match history"*): the epic shipped 12.3 The In-Game UI Pass and 12.4 Airdrops and Radio Beacons; the match store is built whole by 14.1 / 14.6 / 14.7 and the readout is Story 14.12. The text below is history.
 
 The match-data store Eric asked for *"strictly for collecting match data right now so I can see trends, balance, and tune bots from games that include human players."* The server already builds a complete server-only `MatchRecord` at every finished match and hands it to a `NullWriter`; this epic mounts the first persistent store behind it and a script that reads it back in the harness's report shapes. Every row is anonymous — no account column exists yet (Epic 14 adds it), and the callsign is dropped at the writer (Eric 2026-10-25). Standing constraints: **the ledger never takes the game down** (absence-gated on `DATABASE_URL`; nothing in a tick ever awaits it; a failed write is a log line and a metric); `game/world.ts` and `game/match.ts` keep zero persistence imports; `render.yaml` `databases:` entries land in the same PR as the code that reads them, never ahead (AR24); every log line obeys the PII rule (NFR24); a dependency lands in the story that mounts it (project-context, 2026-10-24).
 **FRs covered:** none new — delivers the "every deck in every match server-side for Eric's own metrics" half of the GDD's Account progression section (now "every loadout"), anonymously · **Also:** AR22–AR25 (store half only), NFR25–NFR27
 
-### Story 12.1: The Match Ledger (floor story)
+### Story 12.1: ~~The Match Ledger (floor story)~~ — FOLDED INTO EPIC 14 2026-11-20
+
+*(Store, writer and tables are built by 14.1 / 14.6 / 14.7; clause map in `sprint-change-proposal-2026-11-20.md` §2. Original text kept below for history.)*
 
 As the operator (Eric),
 I want every finished match written to a database the game never depends on,
@@ -3067,7 +3072,9 @@ So that I can see trends, balance and bot behaviour from real matches with peopl
 **And** local dev and the server test suite run the REAL schema on PGlite (`HC_DEV_DB=pglite`) so `npm run check` exercises the real SQL with no Postgres installed; plain `npm run dev` is ledger-OFF (AR55, NFR26)
 **And** `/metrics` gains `ledger.writeOk / writeFailed / queueDepth`; the log gains `ledger.write.ok { matchId, rows }` / `ledger.write.failed` under the PII rule; the privacy policy (`policyCopy.ts`) gains ONE sentence that match results (hull, gun, placement, cards) are stored server-side with no name attached; the staging host gets its own database so the writer is QA'd there; `PROTOCOL_VERSION` does NOT bump.
 
-### Story 12.2: Reading the Ledger
+### Story 12.2: ~~Reading the Ledger~~ — MOVED TO STORY 14.12 2026-11-20
+
+*(Text carried whole to Story 14.12 Reading the Match Data. Original kept below for history.)*
 
 As the operator (Eric),
 I want the balance readouts I already know from the batch-sim harness, over the real matches in the ledger,
@@ -3174,9 +3181,9 @@ So that the H5 approval turns into revenue.
 
 ## Epic 14: The Account *(was Epic 13 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; GDD E14 — was Epic 10 from the 2026-10-06 Sprint Change Proposal until 2026-10-25, when `sprint-change-proposal-2026-10-25.md` inserted Epics 10–12 (The Playtest Pass, The Ledger, The Front Door) and shifted this epic right with its text kept whole — stories 10.N → 13.N, text unchanged (→ 14.N on 2026-11-08); was Epic 9 / E9 until 2026-10-06; re-cut 2026-09-21 — no decks)*
 
-Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Ten stories in build order (Eric-approved 2026-09-11; Story 14.5 deleted and 14.4 / 14.6 / 14.7 / 14.11 re-scoped by the 2026-09-21 Sprint Change Proposal). Standing constraints on every story: store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; **the account layer never takes the game down** (nothing in a tick ever awaits the database); Story 7-7 stays deferred and nothing here adds a deployable, CORS or a cross-origin cookie; the account HTTP API is NOT part of `PROTOCOL_VERSION` (its contract is the endpoint path set, pinned by test); every log line obeys the PII rule (NFR24); **anonymous play on production is Eric's open question and no story pre-empts it**; the dev/staging host is account-only (FIRM — built in 14.2). File homes, naming and placement rules per AR56–AR58.
+Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Eleven stories in build order (14.12 added 2026-11-20, built after 14.7; Eric-approved 2026-09-11; Story 14.5 deleted and 14.4 / 14.6 / 14.7 / 14.11 re-scoped by the 2026-09-21 Sprint Change Proposal). Standing constraints on every story: store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; **the account layer never takes the game down** (nothing in a tick ever awaits the database); Story 7-7 stays deferred and nothing here adds a deployable, CORS or a cross-origin cookie; the account HTTP API is NOT part of `PROTOCOL_VERSION` (its contract is the endpoint path set, pinned by test); every log line obeys the PII rule (NFR24); **anonymous play on production is Eric's open question and no story pre-empts it**; the dev/staging host is account-only (FIRM — built in 14.2). File homes, naming and placement rules per AR56–AR58.
 
-### Story 14.1: The Account Store Foundation (floor story) *(2026-10-25 note — `sprint-change-proposal-2026-10-25.md`: Epic 12 The Ledger builds the STORE half of this story first (Render Postgres + `@colyseus/database`, absence-gated, migrations, PGlite, `/metrics`) for anonymous match data; when this story is created it inherits that store and shrinks to the auth-side env table and the account tables — decided at its create-story, text below left as written)*
+### Story 14.1: The Account Store Foundation (floor story) *(~~2026-10-25 note — `sprint-change-proposal-2026-10-25.md`: Epic 12 The Ledger builds the STORE half of this story first (Render Postgres + `@colyseus/database`, absence-gated, migrations, PGlite, `/metrics`) for anonymous match data; when this story is created it inherits that store and shrinks to the auth-side env table and the account tables — decided at its create-story, text below left as written~~)* *(2026-11-20 — `sprint-change-proposal-2026-11-20.md`: REVERSED — Epic 12 no longer builds the store (Eric); this story builds it WHOLE as written. Also at create-story: confirm `@colyseus/database` is the current module before mounting it (epic-11 retro action, re-homed from 12.1).)*
 
 As the operator (Eric),
 I want a database the game can write to, that is completely inert when it isn't configured,
@@ -3275,6 +3282,8 @@ So that my collection grows by variety, never by power — and a new player's De
 
 ### Story 14.7: Match History and the Admin Console
 
+*(2026-11-20 note — `sprint-change-proposal-2026-11-20.md`: carries Epic 12.1's intent. Every finished match is written, bots and anonymous captains included (`user_id NULL`), so Eric's readout (14.12) covers all of them; no callsign is stored for an anonymous captain or a bot (Eric 2026-10-25); the table columns are reconciled at create-story against `MatchRecord` as built (hull, Shift, index bonus, drops, hands), because the list below predates Epics 10–12.)*
+
 As a signed-in captain,
 I want to read back my own draws — hull, gun, cards taken — from every match I've played, and as the operator, I want to read everyone's,
 So that I learn from what I brought, drew and took, and Eric can see how the catalog performs in live play.
@@ -3289,6 +3298,20 @@ So that I learn from what I brought, drew and took, and Eric can see how the cat
 **And** `@colyseus/admin` is mounted at `/admin` + `/admin-api` in BOTH environments for Eric only (*"I DO want @colyseus/admin for ME"*): its own login, the bootstrap admin created once out of band and never by a route, behind the staging gate on dev, the account tables exposed as `tables`; player accounts never hold an admin role; the ONE stored password hash is the knowing exception, ledgered (FR69, AR30)
 **And** the reconnect `sunk` catch-up note (`deferred-work.md:544`) and the quitter-wins question (`:1212`) are checked against what history now persists and either carried or raised; the `endedBy` enum persists only after `:921` is resolved (8.21)
 **And** the log's one-line-per-match rule holds; no PV change.
+
+### Story 14.12: Reading the Match Data *(was Story 12.2 Reading the Ledger until 2026-11-20 — `sprint-change-proposal-2026-11-20.md`; built after 14.7, before 14.8)*
+
+As the operator (Eric),
+I want the balance readouts I already know from the batch-sim harness, over the real matches in the store,
+So that I tune from what people actually did.
+
+**Acceptance Criteria:**
+
+**Given** the match tables (14.1 / 14.7) and the harness's report modules (`server/scripts/harness/` — class share, gun × tier, placement, pool readouts, bot readouts)
+**When** the readout lands
+**Then** `server/scripts/ledgerReport.mjs` reads the store (`DATABASE_URL` or `HC_DEV_DB=pglite`) and renders the harness's existing shapes over live matches — win and placement share by hull and by gun, hands offered vs taken by line, consumable use, humans vs bots, match duration and end cause — filterable by game version, date range and mode; text output in the harness's register, no web UI, no admin console (that is 14.7)
+**And** the report functions are pure over plain rows (unit-tested on fixtures); the script is documented beside the balance-sim how-to; nothing runs unprompted
+**And** no code under `game/` changes; no PV change.
 
 ### Story 14.8: Delete My Account
 
@@ -3322,6 +3345,8 @@ So that the scheme fits my hands — saved in my browser if I'm anonymous, and w
 **And** AR17's and UX-DR31's "key remapping deferred post-beta" are recorded as REVERSED in Story 14.11's list; client-only plus the account settings field; no PV change.
 
 ### Story 14.10: The Privacy Paragraph
+
+*(2026-11-20 note — `sprint-change-proposal-2026-11-20.md`: the paragraph also states that match results (hull, placement, cards) are stored server-side, with no name attached for an anonymous captain — carried from 12.1.)*
 
 As a signed-in captain,
 I want the privacy policy to say plainly what the account holds and how to delete it,

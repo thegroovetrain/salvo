@@ -44,3 +44,7 @@ The story file (`12-3-the-in-game-ui-pass.md`) holds the ACs and Eric's verbatim
 ## Deferred
 
 See `deferred-work.md` (2026-11-19, Story 12.3): the stale privacy line for `hullcracker.helm`; the bar's per-frame tile redraw (measure on staging); the zoom-limit re-clamp on first bar offset.
+
+## Fix 2026-11-20 (cycle 246, 0.20.4, PV 113 unchanged, epic-12 amendment 13)
+
+MAIN BATTERY no longer shows a tier numeral or dots (HUD bar + results loadout; `hasTierLadder` in `render/equipmentInfo.ts`). Hovering a ship-stat card now opens the stat box of every weapon / ability whose shown stats it changes (`shipCardFlyouts` / `stackTops` in `render/console/flyout.ts`; `ui/hudFlyout.ts` holds a pool of boxes; `shipFold` in `readouts.ts`). Today POWER opens a DAMAGE box per damage-dealing row, RELOAD a RELOAD box per reloading row. Client-only.

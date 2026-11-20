@@ -39,7 +39,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { SLOT_KEY_GLYPHS, slotTier } from '../render/equipmentInfo.js';
+import { SLOT_KEY_GLYPHS, hasTierLadder, slotTier } from '../render/equipmentInfo.js';
 import { HOTBAR_SQUARE_COUNT, abilityAtSquare } from '../render/hotbarSquares.js';
 import { boonName, cardTierSteps } from './boonCopy.js';
 import { romanTier, tierTint } from './tierRamp.js';
@@ -181,7 +181,7 @@ export function loadoutRowSquares(): readonly (LoadoutSquare & { square: number 
  *  empty slot. */
 export function loadoutSlotTier(own: ResultsOwn, slot: number): number {
   const id = own.slots[slot] ?? null;
-  if (slot === SLOT_BOOST || id === null) return 0;
+  if (slot === SLOT_BOOST || id === null || !hasTierLadder(id)) return 0; // no ladder (the main gun) = no tier (Eric 2026-11-20)
   return slotTier(own.stats, own.cards, id);
 }
 
