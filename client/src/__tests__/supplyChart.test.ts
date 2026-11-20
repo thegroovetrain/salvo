@@ -133,18 +133,15 @@ describe('SupplyDrops — the pooled adapter', () => {
   const LAND = 500_000;
   const row = (slot: number): SupplyChartRow => ({ slot, x: 5 * slot, y: 7, landT: LAND });
 
-  it('shows ring + icon at the spot at full strength before the landing, together fading after', () => {
+  it('shows the ring (no icon) at the spot at full strength before the landing, fading after', () => {
     const layer = new Container();
     const m = new SupplyDrops(layer);
     m.render([row(0), row(1)], LAND - 1, 0.5);
-    expect(layer.children).toHaveLength(4); // a ring and an icon per slot
+    expect(layer.children).toHaveLength(2); // one ring per slot, no icon (epic-12 amendment 9)
     expect(m.alphaAt(0)).toBe(1);
     expect(layer.children[0].position).toMatchObject({ x: 0, y: 7 });
     m.render([row(0), row(1)], LAND + S.fadeMs / 2, 0.5);
     expect(m.alphaAt(1)).toBeCloseTo(0.5, 9);
-    const [ring, icon] = layer.children;
-    expect(icon.alpha).toBe(ring.alpha);
-    expect(icon.scale.x).toBeCloseTo(1 / 0.5, 9);
   });
 
   it('survives a hole in the slot pool (only slot 1 charted), render after render', () => {
@@ -170,6 +167,6 @@ describe('SupplyDrops — the pooled adapter', () => {
     expect(m.alphaAt(0)).toBe(1);
     m.render([], LAND - 1, 1);
     expect(m.alphaAt(0)).toBe(0);
-    expect(layer.children).toHaveLength(2);
+    expect(layer.children).toHaveLength(1); // the one slot's ring, reused
   });
 });

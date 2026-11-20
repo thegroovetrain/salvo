@@ -1039,12 +1039,13 @@ export const CLIENT_CONFIG = {
    * the scatter radius the ring draws are shared `CONFIG.supplyDrops`.
    *
    * THE LOOK — APPROVED on the bench, style B (Eric 2026-11-19): a dashed
-   * ring at the scatter radius, a translucent fill of the circle and the
-   * +XP icon at its centre, all in the XP gauge's color
-   * (`drops.kindColors.xp`). Full strength from charting until the crates
-   * land; from the landing, ring + fill + icon fade together LINEARLY to
-   * nothing over `fadeMs`, then the mark is gone. The ring and icon widths
-   * are SCREEN px at every zoom (`strokeWorldWidth`).
+   * ring at the scatter radius and a translucent fill of the circle, both in
+   * the XP gauge's color (`drops.kindColors.xp`); the centre +XP icon was
+   * REMOVED 2026-11-20 (epic-12 amendment 9: players must not read it as a
+   * pickup). Full strength from charting until the crates land; from the
+   * landing, ring + fill fade together LINEARLY to nothing over `fadeMs`,
+   * then the mark is gone. The ring width is SCREEN px at every zoom
+   * (`strokeWorldWidth`).
    */
   supplyDrops: {
     /** Dash count of the scatter ring (half lit, half gap). */
@@ -1053,8 +1054,6 @@ export const CLIENT_CONFIG = {
     ringAlpha: 0.5,
     /** The circle's fill alpha. */
     fillAlpha: 0.08,
-    /** The centre icon's side (screen px). */
-    iconPx: 10,
     /** ms — the mark's linear fade-out from the landing moment (Eric: "it
      *  should fade out over 10 sec or something"). */
     fadeMs: 10_000,

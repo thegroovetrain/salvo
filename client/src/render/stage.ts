@@ -206,8 +206,8 @@ export interface StageLayers {
    *  drew here until 2026-10-12; they have their own `cloud` layer now.) */
   smoke: Container;
   /** SUPPLY-DROP chart marks (render/supplyDrops.ts, Story 12.4; the radio
-   *  beacons' seat until then) — the dashed scatter ring, its fill and the
-   *  +XP icon, fog-immune: public on every chart at every zoom. Above `smoke`
+   *  beacons' seat until then) — the dashed scatter ring and its fill (no
+   *  icon since 2026-11-20), fog-immune: public on every chart at every zoom. Above `smoke`
    *  (a tactical mark outranks soft plume texture), below the mines and every
    *  hull. */
   supplyChart: Container;

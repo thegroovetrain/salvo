@@ -66,3 +66,7 @@ About 127 files (+4.4k / -6.3k). Deleted: `shared/src/sim/beacons.ts`, `server/s
 ## Deferred
 
 See `deferred-work.md` (2026-11-19, Story 12.4): the 10 px +XP chart icon smudge; the remaining room streams still derived from `priv`; minute-crate / wreck placement ignoring supply crates; a reconnect flashing stats that rose while disconnected.
+
+## Follow-up 2026-11-20 (cycle 245, 0.20.3, PV 112 unchanged, epic-12 amendment 9)
+
+The supply-drop map mark loses its centre +XP icon (Eric: players must not read it as a collectible; "The circle itself is enough."). `client/src/render/supplyDrops.ts` pools one ring per slot; `CLIENT_CONFIG.supplyDrops.iconPx` removed; `supplyChart.test.ts` updated; DESIGN.md row amended. Client-only.
