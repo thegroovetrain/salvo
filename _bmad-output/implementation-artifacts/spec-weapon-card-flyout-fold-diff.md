@@ -3,7 +3,7 @@ title: 'Weapon upgrade card hover box shows every stat the fold actually moves (
 type: 'bugfix'
 created: '2026-11-22'
 baseline_revision: 'b6508f39'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-12-context-amendments.md'
@@ -62,9 +62,27 @@ warnings: []
 
 ## Review Triage Log
 
+### 2026-11-22 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2 (high 0, medium 1, low 1)
+- defer: 0
+- reject: 9 (low 9)
+- addressed_findings:
+  - `[medium]` `[patch]` swap branch (unreachable in-game; pickRefusal) printed unchanged lines as rises (`x → x ▲`) — branch removed; a fit already prints its whole table (every old null). Blind + Edge hunters; Codex clean.
+  - `[low]` `[patch]` weak tests — every-tier sweep no longer guards a missing box; old-code and swap tests removed; added a no-`x → x`-line test.
+
 ## Verification
 
 **Commands:**
 - `npm test -w client` -- expected: all pass
 - `npm run lint` -- expected: no errors (complexity ≤ 10)
 - `npm run check` -- expected: passes once at the end (gate)
+
+## Auto Run Result
+
+- **Change:** a hovered weapon card's HUD box is now a fold diff of its row's whole printed stat table (power-aware DAMAGE), plus face rows the table lacks (add-on mount counts). Supercav I → II now shows RELOAD, DAMAGE and RUN; before, only RELOAD and RUN.
+- **Files:** `client/src/render/console/readouts.ts` (`rowTableReadouts`, `shipSource`); `client/src/render/console/flyout.ts` (`rowCardFlyout`); `client/src/main.ts` (wire + memo for `row` targets); `client/src/__tests__/weaponCardFlyout.test.ts` (new).
+- **Review:** 2 patches applied, 0 deferred, 9 rejected (face-vs-box contradictions moot: the card face prints no stat rows since 12.3; one-frame staleness unreproduced; latent label-cache; untestable main.ts wiring). Codex: no bugs.
+- **Verification:** `npm test -w client` 4474 passed pre-patch; full `npm run check` at the end (see commit message).
+- **Residual risk:** add-on boxes print ROUNDS beside TUBES/RACKS (both really move) — Eric's veto (amendment 14).

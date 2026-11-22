@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CATALOG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, boonStackCount, type LineId } from '@salvo/shared';
-import { cardFlyout, previewTarget, rowCardFlyout, type FlyoutModel } from '../render/console/flyout.js';
+import { previewTarget, rowCardFlyout, type FlyoutModel } from '../render/console/flyout.js';
 import {
   READOUT_KEY,
   hoverPreview,
@@ -73,12 +73,6 @@ describe('a weapon TIER card`s box — the fold diff of its row`s table', () => 
     expectOnlyMovedLines(h);
   });
 
-  it('the OLD box (the face rows alone) missed that damage line — the bug', () => {
-    const h = hover(['supercavTorpedo'], 'supercavTorpedo');
-    const dmg = h.after.readouts.find((r) => r.key === READOUT_KEY.stat(h.kind, 'damage'))!;
-    expect(labels(cardFlyout(boonName('supercavTorpedo'), h.face)!)).not.toContain(dmg.label);
-  });
-
   it('every tier card, at every tier it climbs: its damage line whenever damage moves, only moved lines, no label twice', () => {
     expect(TIER_LINES).toContain('supercavTorpedo');
     for (const line of TIER_LINES) {
@@ -87,34 +81,41 @@ describe('a weapon TIER card`s box — the fold diff of its row`s table', () => 
         const key = READOUT_KEY.stat(h.kind, 'damage');
         const dmg = h.after.readouts.find((r) => r.key === key);
         const was = h.before.readouts.find((r) => r.key === key);
+        const moved = h.after.readouts.some((r) => h.before.readouts.find((b) => b.key === r.key)?.value !== r.value);
+        if (moved) expect(h.box, `${line} ×${held}`).not.toBeNull();
+        if (h.box === null) continue;
         if (dmg !== undefined && dmg.value !== was?.value) {
-          expect(h.box!.lines.find((l) => l.label === dmg.label)?.value, `${line} ×${held}`).toContain(dmg.value);
+          expect(h.box.lines.find((l) => l.label === dmg.label)?.value, `${line} ×${held}`).toContain(dmg.value);
         }
-        if (h.box !== null) expectOnlyMovedLines(h);
+        expectOnlyMovedLines(h);
+      }
+    }
+  });
+
+  it('no tier card prints an `x → x` line: every printed table line has a differing old and new', () => {
+    for (const line of TIER_LINES) {
+      for (let held = 1; held < CATALOG[line].cap; held++) {
+        const h = hover(Array.from({ length: held }, () => line), line);
+        if (h.box === null) continue;
+        const faceLabels = new Set(h.face.map((r) => r.label));
+        const was = new Map(h.before.readouts.map((r) => [r.key, r.value]));
+        for (const r of h.after.readouts) {
+          if (faceLabels.has(r.label)) continue;
+          const printed = h.box.lines.find((l) => l.label === r.label);
+          if (printed !== undefined) expect(was.get(r.key), `${line} ×${held} ${r.label}`).not.toBe(r.value);
+        }
       }
     }
   });
 });
 
-describe('fit, swap, add-on, nothing moves', () => {
+describe('fit, add-on, nothing moves', () => {
   it('a FIT card prints the new weapon`s whole table, each `new ▲` (no old)', () => {
     const h = hover([], 'heavyTorpedo');
     expect(h.before.id).toBeNull();
     expect(h.box!.lines.map((l) => l.label).slice(0, h.after.readouts.length)).toEqual(h.after.readouts.map((r) => r.label));
     h.after.readouts.forEach((r, i) => expect(h.box!.lines[i].value).toBe(`${r.value} ${PREVIEW_ARROW.up}`));
     expect(new Set(labels(h.box!)).size).toBe(h.box!.lines.length);
-  });
-
-  it('a SWAP (the row`s equipment changes) prints the whole new table, `old → new` where the old table had the field', () => {
-    const before = rowTableReadouts(ship(['heavyTorpedo']), 'torpedo')!;
-    const after = rowTableReadouts(ship([]), 'torpedo', 'supercavTorpedo')!;
-    expect(before.id).not.toBe(after.id);
-    const box = rowCardFlyout('X', before, after, [])!;
-    expect(labels(box)).toEqual(after.readouts.map((r) => r.label));
-    after.readouts.forEach((r, i) => {
-      const old = before.readouts.find((b) => b.key === r.key);
-      expect(box.lines[i].value.startsWith(old === undefined ? r.value : `${old.value} `)).toBe(true);
-    });
   });
 
   it('an ADD-ON keeps its face`s mount row beside whatever table lines it moves', () => {

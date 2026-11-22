@@ -124,17 +124,16 @@ export function rowChangeFlyout(row: WeaponRowModel, marks: PreviewMarks): Flyou
 
 /** Pure: a hovered WEAPON card's box — a real fold diff of the row's whole
  *  stat table (`rowTableReadouts` without / with the card): every line whose
- *  value moves (every line when the row's equipment changes — a fit or a
- *  swap), amber `old → new ▲` (`new ▲` where the before table had no such
- *  line); then each card-face row the table did not print (an add-on's mount
+ *  value moves, amber `old → new ▲` (`new ▲` where the before table had no
+ *  such line — a first fit prints the whole table because no line existed
+ *  before); then each card-face row the table did not print (an add-on's mount
  *  count). Null when nothing moves. */
 export function rowCardFlyout(name: string, before: RowTable, after: RowTable, faceRows: readonly CardStatRow[]): FlyoutModel | null {
   const was = new Map(before.readouts.map((r) => [r.key, r.value]));
-  const swapped = before.id !== after.id;
   const lines: FlyoutLine[] = [];
   for (const r of after.readouts) {
     const old = was.get(r.key) ?? null;
-    if (swapped || old !== r.value) lines.push({ label: r.label, value: changeText({ label: r.label, cur: old, next: r.value }), amber: true });
+    if (old !== r.value) lines.push({ label: r.label, value: changeText({ label: r.label, cur: old, next: r.value }), amber: true });
   }
   const printed = new Set(lines.map((l) => l.label));
   for (const r of faceRows) {
