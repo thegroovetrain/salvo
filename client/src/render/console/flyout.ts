@@ -8,9 +8,11 @@
 //   • An ABILITY tile: its tooltip table — HULL REPAIR / SMOKE their
 //     `abilityStatRows`, the fitted Shift its `equipmentStatRows` — the game's
 //     own words (ui/boonCopy.ts).
-//   • A hovered UPGRADE CARD that changes a weapon or an ability: the card's
-//     own `cur → next` rows (the face's diff, `OfferCard.rows`), amber, with
-//     the arrow of the move.
+//   • A hovered UPGRADE CARD that changes an ability: the card's own
+//     `cur → next` rows (the face's diff, `OfferCard.rows`), amber, with the
+//     arrow of the move. One that changes a WEAPON: the fold diff of the
+//     row's whole stat table (`rowCardFlyout`) — DAMAGE climbs by tier POWER,
+//     which no card face authors — plus the face rows the table lacks.
 //   • A hovered SHIP-stat card (ARMOR / POWER / ENGINES / RELOAD / INTEL):
 //     its ship row changes in place AND every fitted weapon / ability whose
 //     SHOWN stats it moves opens its own box beside its own row, with the
@@ -23,7 +25,7 @@ import type { EffectiveStats, EquipmentId, ShiftId } from '@salvo/shared';
 import { abilityStatRows, equipmentStatRows, statValueText, TIER_ARROW, type CardStatRow } from '../../ui/boonCopy.js';
 import { ABILITY_KINDS, WEAPON_ROW_KINDS, type AbilityKind, type WeaponRowKind } from './layout.js';
 import { PREVIEW_ARROW } from './skins.js';
-import type { AbilityModel, PreviewMarks, WeaponRowModel } from './readouts.js';
+import type { AbilityModel, PreviewMarks, RowTable, WeaponRowModel } from './readouts.js';
 
 /** One open box: its model and the tile it sits beside (an index into the
  *  weapon tiles, or into the ability tiles when `ability`). */
@@ -118,6 +120,26 @@ export function rowChangeFlyout(row: WeaponRowModel, marks: PreviewMarks): Flyou
     if (m !== undefined) lines.push({ label: r.label, value: changeText({ label: r.label, cur: r.value, next: m.value }), amber: true });
   }
   return lines.length === 0 ? null : { title: row.name, lines };
+}
+
+/** Pure: a hovered WEAPON card's box — a real fold diff of the row's whole
+ *  stat table (`rowTableReadouts` without / with the card): every line whose
+ *  value moves, amber `old → new ▲` (`new ▲` where the before table had no
+ *  such line — a first fit prints the whole table because no line existed
+ *  before); then each card-face row the table did not print (an add-on's mount
+ *  count). Null when nothing moves. */
+export function rowCardFlyout(name: string, before: RowTable, after: RowTable, faceRows: readonly CardStatRow[]): FlyoutModel | null {
+  const was = new Map(before.readouts.map((r) => [r.key, r.value]));
+  const lines: FlyoutLine[] = [];
+  for (const r of after.readouts) {
+    const old = was.get(r.key) ?? null;
+    if (old !== r.value) lines.push({ label: r.label, value: changeText({ label: r.label, cur: old, next: r.value }), amber: true });
+  }
+  const printed = new Set(lines.map((l) => l.label));
+  for (const r of faceRows) {
+    if (!printed.has(r.label)) lines.push({ label: r.label, value: changeText(r), amber: true });
+  }
+  return lines.length === 0 ? null : { title: name, lines };
 }
 
 /** Pure: an ability tile's box under a ship-stat card — the lines of its
