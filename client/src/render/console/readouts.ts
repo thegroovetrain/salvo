@@ -429,11 +429,41 @@ export function shipFold(you: ReadoutShip, extraLine?: string): EffectiveStats |
  *  every console number — the ONE path both the live consoles and the hover
  *  preview take. Null on an unknown class (fail-open, like the card rows). */
 export function shipReadouts(you: ReadoutShip, extraLine?: string): Readout[] | null {
+  const src = shipSource(you, extraLine);
+  return src === null ? null : consoleReadouts(src);
+}
+
+/** Pure: the readout source of the own fold (plus an optional hovered card
+ *  line) — its stats, its replayed slot ids and cards. Null on an unknown class. */
+function shipSource(you: ReadoutShip, extraLine?: string): ReadoutSource | null {
   const stats = shipFold(you, extraLine);
   if (stats === null) return null;
   const cards = extraLine === undefined ? you.cards : [...you.cards, extraLine];
   const loadout = slotsWithCards(stats, cards, CATALOG, you.shift).map((s) => s.equipmentId);
-  return consoleReadouts({ stats, loadout, cards, cls: you.cls, window: you.window });
+  return { stats, loadout, cards, cls: you.cls, window: you.window };
+}
+
+/** One weapon row's WHOLE printed stat table on one fold: the equipment the
+ *  row shows (null: the secondaries, or an empty slot) and one readout per
+ *  table field, in the console register (power-aware DAMAGE). */
+export interface RowTable {
+  id: EquipmentId | null;
+  readouts: Readout[];
+}
+
+/** Pure: a row's whole stat table (`statRowFields` — every field the tooltip
+ *  table prints, not just the box's head lines) folded without / with a
+ *  hovered card line; a weapon card's box diffs the pair. Null on an unknown
+ *  class. */
+export function rowTableReadouts(you: ReadoutShip, kind: WeaponRowKind, extraLine?: string): RowTable | null {
+  const src = shipSource(you, extraLine);
+  if (src === null) return null;
+  if (kind === 'secondaries') return { id: null, readouts: secondariesReadouts(src) };
+  const id = rowEquipment(kind, src.loadout);
+  if (id === null) return { id: null, readouts: [] };
+  const labels = fieldLabels(id, src.stats);
+  const fields = statRowFields(id, src.stats).filter((f) => carries(src.stats, id, f) && labels.has(f));
+  return { id, readouts: fields.map((f) => statReadout(kind, id, f, src)) };
 }
 
 // --- the preview (R18) ----------------------------------------------------------

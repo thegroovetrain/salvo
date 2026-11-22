@@ -102,7 +102,9 @@ import {
   type BarHover,
   type ConsoleHit,
   type ConsoleLayout,
+  type WeaponRowKind,
 } from './render/console/layout.js';
+import type { CardStatRow } from './ui/boonCopy.js';
 import {
   abilityModels,
   consoleReadouts,
@@ -113,6 +115,7 @@ import {
   hullFraction,
   hullHoldsLit,
   NO_SHIFT_WINDOW,
+  rowTableReadouts,
   shipFold,
   shiftWindowFor,
   weaponRowModels,
@@ -120,6 +123,7 @@ import {
   type PreviewMarks,
   type Readout,
   type ReadoutShip,
+  type RowTable,
   type ShiftWindow,
   type WeaponRowModel,
 } from './render/console/readouts.js';
@@ -128,6 +132,7 @@ import {
   abilityFlyout,
   cardFlyout,
   previewTarget,
+  rowCardFlyout,
   shipCardFlyouts,
   weaponFlyout,
   type FlyoutModel,
@@ -788,6 +793,11 @@ interface ConsoleCache {
   /** A hovered SHIP-stat card's before / after folds (its ability boxes
    *  compare them); null for any other card. */
   folds: FoldPair | null;
+  /** A hovered WEAPON card's row table without / with it (`rowTableReadouts`),
+   *  re-read with the marks; null for any other card. */
+  rowTables: { before: RowTable; after: RowTable } | null;
+  /** That card's box, memoised on (tables, face rows). */
+  rowCard: { tables: ConsoleCache['rowTables']; name: string; rows: readonly CardStatRow[] | null; model: FlyoutModel | null };
   /** A hovered ship-stat card's boxes, placed — memoised on (marks,
    *  readouts, layout) so a held hover allocates nothing per frame. */
   shipItems: readonly FlyoutItem[];
@@ -810,6 +820,8 @@ function freshConsoleCache(): ConsoleCache {
     preview: null,
     target: null,
     folds: null,
+    rowTables: null,
+    rowCard: { tables: null, name: '', rows: null, model: null },
     shipItems: [],
     shipItemsKey: { preview: null, readouts: null, layout: null },
     denied: { rows: WEAPON_ROW_KINDS.map(() => false), abilities: ABILITY_KINDS.map(() => false) },
@@ -3542,8 +3554,24 @@ function hoverMarksNow(g: Game, shiftWin: ShiftWindow): PreviewMarks | null {
   const ship = ownReadoutShip(g, shiftWin);
   c.preview = ship ? hoverPreview(ship, g.hoverLine, g.ownSlots) : null;
   c.target = previewTarget(c.preview);
-  c.folds = ship !== null && c.target?.kind === 'ship' ? foldPair(ship, g.hoverLine) : null;
+  targetFolds(c, ship, g.hoverLine);
   return c.preview;
+}
+
+/** The before / after reads the target's boxes diff: a ship-stat card's two
+ *  folds, a weapon card's two row tables. */
+function targetFolds(c: ConsoleCache, ship: ReadoutShip | null, line: string | null): void {
+  const t = c.target;
+  c.folds = ship !== null && t?.kind === 'ship' ? foldPair(ship, line) : null;
+  c.rowTables = ship !== null && t?.kind === 'row' ? rowTablePair(ship, t.row, line) : null;
+}
+
+/** A weapon row's whole stat table without and with a hovered card line, or null. */
+function rowTablePair(ship: ReadoutShip, kind: WeaponRowKind, line: string | null): ConsoleCache['rowTables'] {
+  if (line === null) return null;
+  const before = rowTableReadouts(ship, kind);
+  const after = rowTableReadouts(ship, kind, line);
+  return before === null || after === null ? null : { before, after };
 }
 
 /** The own ship's fold inputs under the running Shift window, or null. */
@@ -3621,7 +3649,7 @@ function flyoutNow(
   hover: BarHover | null,
   card: { name: string; rows: Parameters<typeof cardFlyout>[1] } | null,
 ): FlyoutAt | null {
-  if (card !== null) return cardFlyoutAt(g.consoleCache.target, card.name, card.rows);
+  if (card !== null) return cardFlyoutAt(g.consoleCache, card.name, card.rows);
   if (hover === null) return null;
   if (hover.kind === 'ability') {
     const i = ABILITY_KINDS.indexOf(hover.ability);
@@ -3632,14 +3660,29 @@ function flyoutNow(
   return model === null ? null : { model, row: i, ability: false };
 }
 
-/** A hovered card's flyout at the tile it changes (none for a ship card). */
-function cardFlyoutAt(t: PreviewTarget | null, name: string, rows: Parameters<typeof cardFlyout>[1]): FlyoutAt | null {
+/** A hovered card's flyout at the tile it changes (none for a ship card): a
+ *  weapon card's is its row table's fold diff (`rowCardFlyout`), an ability
+ *  card's its face rows. */
+function cardFlyoutAt(c: ConsoleCache, name: string, rows: readonly CardStatRow[]): FlyoutAt | null {
+  const t = c.target;
   if (t === null || t.kind === 'ship') return null;
-  const model = cardFlyout(name, rows);
+  const model = t.kind === 'row' ? rowCardModel(c, name, rows) : cardFlyout(name, rows);
   if (model === null) return null;
   return t.kind === 'row'
     ? { model, row: WEAPON_ROW_KINDS.indexOf(t.row), ability: false }
     : { model, row: ABILITY_KINDS.indexOf(t.ability), ability: true };
+}
+
+/** A hovered weapon card's box, memoised on its tables and face rows (the
+ *  offer's card objects are stable while it is shown). */
+function rowCardModel(c: ConsoleCache, name: string, rows: readonly CardStatRow[]): FlyoutModel | null {
+  const m = c.rowCard;
+  if (m.tables === c.rowTables && m.rows === rows && m.name === name) return m.model;
+  m.tables = c.rowTables;
+  m.name = name;
+  m.rows = rows;
+  m.model = c.rowTables === null ? null : rowCardFlyout(name, c.rowTables.before, c.rowTables.after, rows);
+  return m.model;
 }
 
 /** Open the flyout(s) beside the bar, level with their rows — or close them.
