@@ -3,6 +3,7 @@ title: 'Weapon upgrade card hover box shows every stat the fold actually moves (
 type: 'bugfix'
 created: '2026-11-22'
 baseline_revision: 'b6508f39'
+final_revision: '53a473c5'
 status: 'done'
 review_loop_iteration: 0
 context:
