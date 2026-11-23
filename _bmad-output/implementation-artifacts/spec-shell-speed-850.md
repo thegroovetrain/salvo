@@ -2,7 +2,7 @@
 title: 'Gun-family shell speed 500 → 850 u/s'
 type: 'chore'
 created: '2026-11-22'
-status: 'in-review'
+status: 'done'
 baseline_revision: '4039fd54ff7c7f4a02496f7f5399a78c333deba0'
 review_loop_iteration: 0
 context: []
@@ -42,11 +42,11 @@ warnings: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- set every gun-family `shellSpeed` to 850; update each trailing comment to cite Eric 2026-11-22 (500 → 850) -- the ruling.
-- [ ] `server/src/game/lead.ts`, `server/src/game/equipment/phosphorShells.ts`, `server/src/__tests__/combat.test.ts`, `server/src/__tests__/intentQueue.test.ts` -- refresh comments that quote 500 u/s / 25 u per tick so they are not stale (wording only, or CONFIG-relative) -- no stale numbers.
-- [ ] `_bmad-output/implementation-artifacts/epic-12-context-amendments.md` -- append amendment (number taken at PR time) recording the ruling verbatim, the flight-time table, and "what will bite": shellSpeed is one family speed, never pinned in a test -- durable home.
-- [ ] `VERSION`, root `package.json`, `package-lock.json` root entries -- next 0.20.X (taken at PR time after fetch) -- versioning rule.
-- [ ] both trackers -- one-line stamp each -- tracker rule.
+- [x] `shared/src/constants.ts` -- set every gun-family `shellSpeed` to 850; update each trailing comment to cite Eric 2026-11-22 (500 → 850) -- the ruling.
+- [x] `server/src/game/lead.ts`, `server/src/game/equipment/phosphorShells.ts`, `server/src/__tests__/combat.test.ts`, `server/src/__tests__/intentQueue.test.ts` -- refresh comments that quote 500 u/s / 25 u per tick so they are not stale (wording only, or CONFIG-relative) -- no stale numbers.
+- [x] `_bmad-output/implementation-artifacts/epic-12-context-amendments.md` -- append amendment (number taken at PR time) recording the ruling verbatim, the flight-time table, and "what will bite": shellSpeed is one family speed, never pinned in a test -- durable home.
+- [x] `VERSION`, root `package.json`, `package-lock.json` root entries -- next 0.20.X (taken at PR time after fetch) -- versioning rule.
+- [x] both trackers -- one-line stamp each -- tracker rule.
 
 **Acceptance Criteria:**
 - Given the built shared package, when any gun-family block's `shellSpeed` is read, then it is 850 and all 10 are equal.
@@ -59,6 +59,18 @@ warnings: []
 
 ## Review Triage Log
 
+### 2026-11-22 — Review pass
+Reviewers: Blind Hunter (Fable), Edge Case Hunter (Fable), Codex (gpt-5.6-sol) cross-check. All three: no tunneling (swept segments), no client `shellSpeed` reader, bots read CONFIG.
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3 (high 1, low 2)
+- defer: 2 (low 2)
+- reject: 6 (low 6) — PR-time records not yet written (done at PR), GDD catalog-v3 still says 500 (a historical catalog of superseded numbers), point-sampled reveal gate (42.5 u chord, theoretical), client overshoot / tracer strobe / bots aim better (feel consequences, surfaced to Eric, no change)
+- addressed_findings:
+  - `[high]` `[patch]` own-shell claim gate: a back-dated shot first reveals up to 150 ms x speed downrange (127.5 u at 850), past the one-hull-length gate in `client/src/net/roomBindings.ts`, so bow shots at ~45 ms+ ping lost the own-fire cue / own styling / own cull and the special-shell burst radius. Gate now adds the event's wire speed x `fireBackdateCeilingMs`; regression test in `client/src/__tests__/roomBindings.test.ts` proven to fail without the fix. (Edge Case Hunter, confirmed by reading.)
+  - `[low]` `[patch]` `gunnery-hitcall-beyond-sight` golden proof now checks every `hc` on the tick (Codex + both Fable reviewers flagged the first-only narrowing).
+  - `[low]` `[patch]` stale 25 u/tick comments in `goldenFrames.test.ts` `scnTorpReReveal` made CONFIG-relative; `combat.test.ts` ruling date fixed.
+
 ## Verification
 
 **Commands:**
@@ -67,3 +79,22 @@ warnings: []
 - `npm run check` -- expected: green (once, at the end).
 - `node server/scripts/tickCost.mjs` (old worktree vs new) -- expected: no regression.
 - `HC_DEV_OPTIONS=1 node server/scripts/weaponsSmoke.mjs` / `matchSmoke.mjs` against a booted worktree server -- expected: pass.
+
+## Auto Run Result
+
+**Summary:** every gun-family shell (10 CONFIG blocks) flies at 850 u/s instead of 500 — full 380 hm reach in 10.2 s instead of 17.3 s. Review found one real knock-on bug (own shots unclaimed at ordinary ping because of the lag-compensation pre-step) and it is fixed.
+
+**Files:**
+- `shared/src/constants.ts` — 10 x `shellSpeed: 850`, comments.
+- `client/src/net/roomBindings.ts` — own-shell claim gate widened by the back-date pre-step (wire speed).
+- `client/src/__tests__/roomBindings.test.ts` — positive + negative regression tests.
+- `server/src/__tests__/goldenFrames.test.ts` + `.snap` — hit-call proof per shell; snapshot re-recorded for new flight timing.
+- `server/src/game/lead.ts`, `server/src/game/equipment/phosphorShells.ts`, `server/src/__tests__/combat.test.ts`, `server/src/__tests__/intentQueue.test.ts` — comments.
+- `VERSION`, `package.json`, `package-lock.json` — 0.20.7; both trackers stamped; epic-12 amendment 16; 2 deferred-work entries.
+
+**Verification:**
+- `npm run check` — exit 0: lint 0 errors (3 pre-existing warnings), tsc clean, shared 1459 / server 2994 / client 4475 tests, hook test 266/266.
+- `tickCost.mjs --seed 7 --hulls 16 --seconds 90` — 500: mean 8.66 / p99 25.39 ms, shells aloft 55.4; 850: mean 8.16 / p99 24.30 ms, shells aloft 32.7.
+- `matchSmoke.mjs` — pass first try. `weaponsSmoke.mjs` (scratch server :2621) — pass first try.
+
+**Residual risks (for Eric's playtest):** bots hit moving targets more often at the same dials (lead uses the exact speed; hit chance has no flight-time term); machine-gun tracers may read as dashes (`tracerLenU` 8 vs ~14 u per 60 Hz frame); a shell can draw up to one tick (42.5 u) past its landing before the boom.
