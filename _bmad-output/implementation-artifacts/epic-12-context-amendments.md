@@ -137,3 +137,9 @@ Format: numbered, dated, source-attributed. "Supersedes" names the exact plannin
    - **Now:** `rowCardFlyout(rowTableReadouts(before), rowTableReadouts(after), faceRows)` — the row's WHOLE printed table (`statRowFields` via `statReadout`, the HUD tile's register, power-aware DAMAGE) diffed across the two folds; every moved line `old → new ▲/▼`, a first fit's whole table `new ▲`; then any face row whose label the table did not print (an add-on's mount count).
    - **Readings of record, for Eric's veto:** an add-on box prints the pool it grows too (`ROUNDS 1 → 2` beside `TUBES 1 → 2`) — both numbers really move; the box prints in the HUD tile's register (`42.8S`, power-aware damage), not the retired face's.
    - **What will bite the next agent:** never build a hover box from the catalog's authored steps — a number derived in the fold (POWER, tier reload, a derived radius) is invisible there. Diff the fold.
+
+## Fix 2026-11-22 — add-on cards open no hover box (build cycle 248, 0.20.6, PV 113 unchanged)
+
+15. **HOVERING AN ADD-ON CARD OPENS NO BOX.** Eric 2026-11-22 (AskUserQuestion: "No box at all"): *"When I mouseover the second tube or the aft launcher, it highlights the change on the cooldown indicators. I do not need a box. Same with mines. This is reflected elsewhere. No need for box and stat numbers."* Supersedes amendment 14's add-on reading (ROUNDS beside TUBES) and the face-row mount box before it. Never re-ask.
+   - `cardOpensBox(lineId)` (render/console/flyout.ts) is false for every `kind: 'addon'` line; the bar's amber marks on the reload indicators are unchanged.
+   - **What will bite the next agent:** *"Do not make assumptions again."* A visible UI addition is never shipped as a "reading of record for Eric's veto" — ask before the PR.

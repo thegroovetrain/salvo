@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CATALOG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, boonStackCount, type LineId } from '@salvo/shared';
-import { previewTarget, rowCardFlyout, type FlyoutModel } from '../render/console/flyout.js';
+import { cardOpensBox, previewTarget, rowCardFlyout, type FlyoutModel } from '../render/console/flyout.js';
 import {
   READOUT_KEY,
   hoverPreview,
@@ -118,13 +118,12 @@ describe('fit, add-on, nothing moves', () => {
     expect(new Set(labels(h.box!)).size).toBe(h.box!.lines.length);
   });
 
-  it('an ADD-ON keeps its face`s mount row beside whatever table lines it moves', () => {
-    for (const line of ['secondLauncherTube', 'aftTorpedoLauncher'] as const) {
-      const h = hover(['heavyTorpedo'], line);
-      expect(h.face.length).toBeGreaterThan(0);
-      for (const r of h.face) expect(labels(h.box!)).toContain(r.label);
-      expectOnlyMovedLines(h);
-    }
+  it('an ADD-ON opens no box (its change shows on the bar`s reload marks); every weapon line does', () => {
+    const lines = Object.keys(CATALOG) as LineId[];
+    const addons = lines.filter((l) => CATALOG[l].kind === 'addon');
+    expect(addons.length).toBeGreaterThan(0);
+    for (const l of addons) expect(cardOpensBox(l), l).toBe(false);
+    for (const l of lines.filter((x) => CATALOG[x].kind === 'equipment')) expect(cardOpensBox(l), l).toBe(true);
   });
 
   it('nothing moves and no face rows → no box', () => {
