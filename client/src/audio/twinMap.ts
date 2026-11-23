@@ -119,11 +119,14 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   torpedoLaunch: 'the torpedo itself + its wake trail on the water (render/projectiles, effects)',
   torpedoRun: 'the torpedo running close by + its wake ribbon on the water (render/projectiles, wake)',
   mineDrop: 'the armed mine marker appearing on the chart (render/mines)',
-  starShell: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',
+  starShell: 'the star shell leaving and in flight (render/projectiles)',
+  starShellBurst: 'the lit zone opening where the star shell burst (render/litZones)',
   phosphorShell: 'the phosphor shell leaving and in flight (render/projectiles)',
-  phosphorBurst: 'the burning zone appearing where the phosphor shell burst (render/burnZones)',
-  foulingShell: 'the fouling shell in flight + the foul zone it lays (render/projectiles, foulZones)',
-  flashShell: 'the flash shell in flight + the white flash disc where it bursts (render/projectiles, flashBurst)',
+  phosphorShellBurst: 'the burning zone appearing where the phosphor shell burst (render/burnZones)',
+  foulingShell: 'the fouling shell leaving and in flight (render/projectiles)',
+  foulingShellBurst: 'the foul zone appearing where the fouling shell burst (render/foulZones)',
+  flashShell: 'the flash shell leaving and in flight (render/projectiles)',
+  flashShellBurst: 'the white flash disc where the flash shell bursts (render/flashBurst)',
   steelHit:
     'the spark hit bloom at the connection, the contracting pierce ring on a punch-through, and the amber burst ring at a gun shell\'s blast point (render/effects)',
   ownHit:

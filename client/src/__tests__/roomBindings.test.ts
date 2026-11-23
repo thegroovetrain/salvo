@@ -476,37 +476,47 @@ function setupEvents(over: Record<string, unknown> = {}) {
   return { sink, onBurst, onBoom, spawnEffect, onBallisticUpdate, play };
 }
 
-// The PHOSPHOR SHELLS flame plays when OUR shell bursts, not at a fixed offset
-// after the launch. A phosphor shell arcs over ships and land (shared/src/sim/
-// shell.ts `overShips`/`overLand`), so it lights its zone only at its burst; a
-// boom for one is a miss that lights nothing, and gets no flame.
-describe('own phosphor shell flame at its burst', () => {
-  const phosphorClaim = (calls: string[]) => (id: string) => {
-    calls.push(`read:${id}`);
-    return id === 'ph-1' ? 'phosphorShells' : null;
-  };
+// Each special shell's burst sound plays when OUR shell bursts, not at a fixed
+// offset after the launch (epic-12 amendment 16). The four shells arc over ships
+// and land (shared/src/sim/shell.ts `overShips`/`overLand`), so each one acts
+// only at its burst; a boom for one is a miss, and gets no burst sound.
+describe('own special shell burst sound at its burst', () => {
+  const BURSTS = [
+    ['starShells', 'starShellBurst'],
+    ['phosphorShells', 'phosphorShellBurst'],
+    ['foulingShell', 'foulingShellBurst'],
+    ['dazzleShells', 'flashShellBurst'],
+  ] as const;
+  const burstCues: readonly string[] = BURSTS.map(([, cue]) => cue);
+  const burstCalls = (play: ReturnType<typeof vi.fn>) => play.mock.calls.filter(([id]) => burstCues.includes(id));
 
-  it('an OWN phosphor shell burst plays the flame once, reading the claim BEFORE the track is retired', () => {
-    const calls: string[] = [];
-    const { sink, play } = setupEvents({ ownFireOf: phosphorClaim(calls), onBurst: () => calls.push('retire') });
-    sink.handler(eventFrame({ k: 'burst', id: 'ph-1', x: 300, y: -120 }));
-    expect(play.mock.calls.filter(([id]) => id === 'phosphorBurst')).toHaveLength(1);
-    expect(calls).toEqual(['read:ph-1', 'retire']);
-  });
+  for (const [weapon, cue] of BURSTS) {
+    it(`an OWN ${weapon} burst plays ${cue} once, reading the claim BEFORE the track is retired`, () => {
+      const calls: string[] = [];
+      const ownFireOf = (id: string) => {
+        calls.push(`read:${id}`);
+        return id === 's-1' ? weapon : null;
+      };
+      const { sink, play } = setupEvents({ ownFireOf, onBurst: () => calls.push('retire') });
+      sink.handler(eventFrame({ k: 'burst', id: 's-1', x: 300, y: -120 }));
+      expect(burstCalls(play)).toEqual([[cue]]);
+      expect(calls).toEqual(['read:s-1', 'retire']);
+    });
 
-  it('an own phosphor BOOM (a miss that lights no zone) plays no flame', () => {
-    const { sink, play } = setupEvents({ ownFireOf: () => 'phosphorShells' });
-    sink.handler(eventFrame({ k: 'boom', id: 'ph-1', x: 300, y: -120 }));
-    expect(play).not.toHaveBeenCalledWith('phosphorBurst');
-  });
+    it(`an own ${weapon} BOOM (a miss) plays no burst sound`, () => {
+      const { sink, play } = setupEvents({ ownFireOf: () => weapon });
+      sink.handler(eventFrame({ k: 'boom', id: 's-1', x: 300, y: -120 }));
+      expect(burstCalls(play)).toEqual([]);
+    });
+  }
 
-  it('an own STAR SHELL burst, or an unclaimed (enemy) burst, plays no flame', () => {
-    const star = setupEvents({ ownFireOf: () => 'starShells' });
-    star.sink.handler(eventFrame({ k: 'burst', id: 'st-1', x: 0, y: 0 }));
-    expect(star.play).not.toHaveBeenCalledWith('phosphorBurst');
+  it('an own gun burst, or an unclaimed (enemy) burst, plays no burst sound', () => {
+    const gun = setupEvents({ ownFireOf: () => 'gun' });
+    gun.sink.handler(eventFrame({ k: 'burst', id: 'g-1', x: 0, y: 0 }));
+    expect(burstCalls(gun.play)).toEqual([]);
     const enemy = setupEvents({ ownFireOf: () => null });
     enemy.sink.handler(eventFrame({ k: 'burst', id: 'e-1', x: 10, y: 10 }));
-    expect(enemy.play).not.toHaveBeenCalledWith('phosphorBurst');
+    expect(burstCalls(enemy.play)).toEqual([]);
   });
 });
 

@@ -3911,7 +3911,3 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low - 2026-11-19
   summary: A RECONNECT WHILE THE HUD BAR STAYS UP MAY FLASH STATS THAT ROSE WHILE DISCONNECTED - AC 12 names only join / redeploy as seed points.
   evidence: review gate; `client/src/render/console/statFlash.ts` first-observation seeding.
-- source_spec: `_bmad-output/implementation-artifacts/spec-phosphor-burst-sound-timing.md`
-  status: open - low - 2026-11-22
-  summary: STAR, FOULING AND FLASH SHELL SOUNDS STILL PLAY THEIR BURST AT A FIXED 0.8 S AFTER LAUNCH, not when the shell bursts - the bug fixed for phosphor (epic-12 amendment 16); Eric asked only about phosphor.
-  evidence: `client/src/audio/synth/candidates/shells.ts` `BURST_MS`.

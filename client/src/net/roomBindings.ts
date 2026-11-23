@@ -1913,16 +1913,25 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
 }
 
 /**
- * The sound of OUR special shell bursting. Only PHOSPHOR SHELLS has one: its
- * flame used to ride the launch at a fixed offset and so went off long before a
- * far shell arrived (epic-12 amendment 16). Burst only, never a boom: the shell
- * arcs over ships and land, so a boom for it is a miss that lights no zone.
+ * The sound of OUR special shell bursting. Each special shell's burst used to
+ * ride its launch at a fixed offset and so went off long before a far shell
+ * arrived (epic-12 amendment 16). Burst only, never a boom: the four shells arc
+ * over ships and land, so a boom for one is a miss that lights no zone.
  * Attribution is the track claim alone (read before onBurst retires it), so an
  * enemy's shell is silent.
  */
 function ownShellBurstCue(own: OwnFire, deps: RoomBindingDeps): void {
-  if (own === 'phosphorShells') deps.audio.playCue('phosphorBurst');
+  const cue = own ? SPECIAL_SHELL_BURST_CUE[own] : undefined;
+  if (cue) deps.audio.playCue(cue);
 }
+
+/** Each special-shell line's burst, by the equipment that fired it. */
+const SPECIAL_SHELL_BURST_CUE: Partial<Record<NonNullable<OwnFire>, CueId>> = {
+  starShells: 'starShellBurst',
+  phosphorShells: 'phosphorShellBurst',
+  foulingShell: 'foulingShellBurst',
+  dazzleShells: 'flashShellBurst',
+};
 
 /**
  * A gun shell burst at its target point: spawn the burst ring and terminate the

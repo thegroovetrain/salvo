@@ -97,3 +97,7 @@ Status: done. Cycle 249, 0.20.7, PV 113 unchanged (client-only audio), epic-12 a
 - **Review:** 4 patches (boom branch removed, label, comment, inline comment), 1 deferred (star / fouling / flash shells share the fixed-offset bug), 9 rejected.
 - **Verification:** `npm run check` pieces all green — lint 0 errors, tsc shared/server/client, shared 1459, server 2994, client 4479, hooks 266.
 - **Residual risk:** not heard in a browser; the flame plays on the burst frame, the burning zone draws from the same or next frame.
+
+## Follow-up 2026-11-23 — all four special shells
+
+Eric: *"yes, fix all the special shells."* The same split applied to STAR, FOULING and FLASH shells, and the phosphor burst cue renamed `phosphorBurst` → `phosphorShellBurst` for one naming scheme. All four bursts share own family `ownShellBurst` (cap 2, so the 77 → 79 voice cap still covers it). `roomBindings.ownShellBurstCue` maps the claim through `SPECIAL_SHELL_BURST_CUE`. Tests: each own shell's burst plays its burst cue once (claim read before retire), its boom plays none, gun and enemy bursts play none. The deferred-work entry for the three shells is removed (fixed here, never merged). Amendment 16 rewritten to cover all four.
