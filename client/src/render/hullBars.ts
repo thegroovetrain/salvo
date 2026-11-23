@@ -15,12 +15,27 @@
 // position and alpha move (render/nameplates.ts owns the Graphics).
 
 import type { Graphics } from 'pixi.js';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, hullBlocks } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { glowPasses } from './brackets.js';
 
 const B = CLIENT_CONFIG.hullBar;
 const C = CLIENT_CONFIG.colors;
+
+/**
+ * Pure: the OWN plate's hull-bar blocks — `hullBlocks(hp, maxHp)` while the
+ * own hull is afloat, null (name kept, no bar) once it is down: no `you` yet,
+ * `alive` false (sink-entry flips it, so the sinking window is covered too, and
+ * the spectated wreck after it) or `hp <= 0` (Eric 2026-11-23: a sunk ship has
+ * no more HP bars under its name).
+ */
+export function ownPlateBlocks(
+  you: { alive: boolean; hp: number } | null | undefined,
+  maxHp: number,
+): number | null {
+  if (!you || !you.alive || you.hp <= 0) return null;
+  return hullBlocks(you.hp, maxHp);
+}
 
 /** Pure: the bar's width (screen px) above a `half` px bracket. */
 export function hullBarWidthPx(half: number): number {

@@ -113,6 +113,12 @@ const NO_ANGLES: readonly number[] = [];
 
 export class ContactViews {
   private views = new Map<string, FadingView>();
+  /** Ids the client knows are sinking or sunk (the seen `sunk` event —
+   *  `sinkFlash`/`setSink`/`markSunk`), cleared by `markSpawn`. Held HERE, not
+   *  on the view, so a view created mid-window or rebuilt after founder starts
+   *  with it. Their plates keep the name but draw no hull bar (Eric 2026-11-23);
+   *  the wire still carries `hb: 1` for a sinking hull. */
+  private readonly down = new Set<string>();
   /** This frame's rain eye (`render`'s argument), read by `updateView`. */
   private rain: RainEye | null = null;
   /** The plate look scratch, rewritten per plate (no per-frame allocation). */
@@ -151,7 +157,10 @@ export class ContactViews {
    * hold draws nothing rather than inventing a view at an invented position.
    */
   sinkFlash(id: string): void {
-    this.views.get(id)?.view.sinkFlash();
+    this.down.add(id);
+    const fv = this.views.get(id);
+    if (!fv) return;
+    fv.view.sinkFlash();
   }
 
   /**
@@ -161,19 +170,28 @@ export class ContactViews {
    * reading of the server clock. Silently no-ops for an unviewed hull.
    */
   setSink(id: string, progress: number): void {
-    this.views.get(id)?.view.setSink(progress);
+    this.down.add(id);
+    const fv = this.views.get(id);
+    if (!fv) return;
+    fv.view.setSink(progress);
   }
 
   /** Tint a contact as sunk; it fades until the store prunes it. The terminal
    *  value of the settle above (`setSink(1)`), so the founder handover is a
    *  continuation rather than a step — see render/ships.ts `hullLook`. */
   markSunk(id: string): void {
-    this.views.get(id)?.view.setDowned(true);
+    this.down.add(id);
+    const fv = this.views.get(id);
+    if (!fv) return;
+    fv.view.setDowned(true);
   }
 
-  /** Restore a contact on (re)spawn. */
+  /** Restore a contact on (re)spawn — its hull bar shows again. */
   markSpawn(id: string): void {
-    this.views.get(id)?.view.setDowned(false);
+    this.down.delete(id);
+    const fv = this.views.get(id);
+    if (!fv) return;
+    fv.view.setDowned(false);
   }
 
   /**
@@ -301,7 +319,9 @@ export class ContactViews {
     const look = this.look;
     look.zoom = plates.camera.zoom;
     look.halfPx = bracketHalfPx(fv.view.drawnLengthU() * look.zoom);
-    look.blocks = fv.blocks;
+    // A hull known to be sinking keeps its name but loses its bar (Eric
+    // 2026-11-23) — null is the plate's "no bar" (render/nameplates.ts).
+    look.blocks = this.down.has(id) ? null : fv.blocks;
     // UNDER THICK COUNTERMEASURE PAINT THE NAME GOES (Eric 2026-10-12: "I don't
     // want someone's nameplate sticking out from behind the smoke, that gives it
     // away"). Sampled at the hull pose like the feather; the hull itself is
