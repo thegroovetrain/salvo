@@ -6,9 +6,11 @@
 // that is render/rainSight.ts and the server's eye gate, not this file.)
 //
 // THE LAYER: chartRoot's `cloud` layer, above enemy hulls and nameplates and
-// below radar paints and the own hull (Eric: "If I'm the user, I should be on
+// below the own hull (Eric: "If I'm the user, I should be on
 // top so I can see where I am. If I am not the user then it should render
-// above everything except radar paints." — render/stage.ts).
+// above everything except radar paints." — render/stage.ts). The cloud's seat
+// did not move on 2026-11-23; the radar paints moved down under the contact
+// hulls (Eric: seen hulls over radar), so they are now under the cloud too.
 //
 // THE LOOK: one smoke-brush bitmap per cloud (render/cloudPaint.ts holds the
 // pure field — soft overlapping puffs of many sizes and greys, Eric
