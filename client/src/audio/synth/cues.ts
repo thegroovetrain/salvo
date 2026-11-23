@@ -127,7 +127,7 @@ const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
   foulingShell: row(take(FOULING_SHELL, 'A'), OWN_SHELL),
   flashShell: row(take(FLASH_SHELL, 'B'), OWN_SHELL),
   // Each special shell's burst, played when OUR shell bursts (epic-12
-  // amendment 16), on one family of their own so a burst never steals a
+  // amendment 17), on one family of their own so a burst never steals a
   // launch's voice.
   starShellBurst: row(take(STAR_BURST, 'A'), OWN_SHELL_BURST),
   phosphorShellBurst: row(take(PHOSPHOR_BURST, 'A'), OWN_SHELL_BURST),

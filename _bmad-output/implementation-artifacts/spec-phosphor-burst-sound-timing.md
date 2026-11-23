@@ -56,7 +56,7 @@ warnings: []
 - [x] `client/src/net/roomBindings.ts` -- before the track is retired in `handleBurst` and `handleBoom`, play `phosphorBurst` when `ownFireOf(id) === 'phosphorShells'` (one small helper, complexity ≤ 10).
 - [x] `client/src/config.ts` -- `audio.cueVoiceCap` 77 → 79 so the own-cue promise (global cap ≥ world cap + every own family cap) holds with the new family.
 - [x] `client/src/__tests__/roomBindings.test.ts` -- cover the matrix rows.
-- [x] `VERSION`, root `package.json`, `package-lock.json` root entries -- 0.20.7 (cycle 249); both trackers one-line stamps; epic-12 amendment 16; deferred-work entry for the star/fouling/flash shells (CHANGELOG has not been kept since 0.19.20).
+- [x] `VERSION`, root `package.json`, `package-lock.json` root entries -- 0.20.8 (cycle 250); both trackers one-line stamps; epic-12 amendment 17; deferred-work entry for the star/fouling/flash shells (CHANGELOG has not been kept since 0.19.20).
 
 **Acceptance Criteria:**
 - Given an own phosphor shell fired at long range, when it leaves, then only the launch bark sounds; when it bursts seconds later, then the flame whoomp sounds at that moment.
@@ -90,7 +90,7 @@ The audition page plays slots through the real renderer, so the flame becomes it
 
 ## Auto Run Result
 
-Status: done. Cycle 249, 0.20.7, PV 113 unchanged (client-only audio), epic-12 amendment 16 (renumbered from 248 / 0.20.6 / 15 after PR #379 landed mid-run).
+Status: done. Cycle 250, 0.20.8, PV 113 unchanged (client-only audio), epic-12 amendment 17 (renumbered twice: PR #379 took 248 / 0.20.6 / 15, PR #381 took 249 / 0.20.7 / 16).
 
 - **Change:** the phosphor "Whoomp of flame" take is split into `phosphorShell` (launch pop, on firing) and `phosphorBurst` (the same flame layers from t = 0, played by `handleBurst` when our phosphor shell bursts). A boom for a phosphor shell (an island/edge miss, no zone) plays no flame.
 - **Files:** `client/src/audio/synth/candidates/shells.ts` (split slot), `candidates/index.ts` (audition order), `synth/cues.ts` (new cue, family `ownShellBurst`), `audio/twinMap.ts` (visual twin), `config.ts` (`cueVoiceCap` 77 → 79 for the new own family), `net/roomBindings.ts` (`ownShellBurstCue`), `__tests__/roomBindings.test.ts` (burst plays once / boom silent / star + enemy silent); VERSION + package files; both trackers; amendment 16; one deferred-work entry.
@@ -100,4 +100,4 @@ Status: done. Cycle 249, 0.20.7, PV 113 unchanged (client-only audio), epic-12 a
 
 ## Follow-up 2026-11-23 — all four special shells
 
-Eric: *"yes, fix all the special shells."* The same split applied to STAR, FOULING and FLASH shells, and the phosphor burst cue renamed `phosphorBurst` → `phosphorShellBurst` for one naming scheme. All four bursts share own family `ownShellBurst` (cap 2, so the 77 → 79 voice cap still covers it). `roomBindings.ownShellBurstCue` maps the claim through `SPECIAL_SHELL_BURST_CUE`. Tests: each own shell's burst plays its burst cue once (claim read before retire), its boom plays none, gun and enemy bursts play none. The deferred-work entry for the three shells is removed (fixed here, never merged). Amendment 16 rewritten to cover all four.
+Eric: *"yes, fix all the special shells."* The same split applied to STAR, FOULING and FLASH shells, and the phosphor burst cue renamed `phosphorBurst` → `phosphorShellBurst` for one naming scheme. All four bursts share own family `ownShellBurst` (cap 2, so the 77 → 79 voice cap still covers it). `roomBindings.ownShellBurstCue` maps the claim through `SPECIAL_SHELL_BURST_CUE`. Tests: each own shell's burst plays its burst cue once (claim read before retire), its boom plays none, gun and enemy bursts play none. The deferred-work entry for the three shells is removed (fixed here, never merged). Amendment 17 (renumbered from 16 after PR #381 landed) rewritten to cover all four.

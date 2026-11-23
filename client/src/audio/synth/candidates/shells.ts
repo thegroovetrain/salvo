@@ -1,7 +1,7 @@
 // The shipped special-shell takes Eric picked (Story 10.13, epic-10 amendment 22; research §6), one pair of
 // slots per live special-shell line in the catalog (Stories 10.5 / 10.6): STAR SHELLS, PHOSPHOR SHELLS,
 // FOULING SHELL, FLASH SHELLS. Each picked take was one recipe — a muffled launch, then the shell's own burst
-// at a fixed 800 ms — but a real shell's flight time depends on range. Since epic-12 amendment 16 each take is
+// at a fixed 800 ms — but a real shell's flight time depends on range. Since epic-12 amendment 17 each take is
 // SPLIT, its layers unchanged: the `…_SHELL` slot is the launch alone (played on firing), the `…_BURST` slot is
 // the burst alone with its layers moved to start at 0 (played by net/roomBindings.ts when our shell bursts).
 
