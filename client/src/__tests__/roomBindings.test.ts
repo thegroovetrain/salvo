@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, MSG, SHIFT_IDS, baseSmokeStats, type OwnShip } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, HULL_IDS, MSG, SHIFT_IDS, baseSmokeStats, hullEnvelope, type OwnShip } from '@salvo/shared';
 import {
   BURN_AMOUNT_CAP,
   BURN_MAX_MULTIPLIER,
@@ -1885,6 +1885,32 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(ownFireWeapon).not.toHaveBeenCalled();
     expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'e1' }), null, null);
     expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'e2' }), null, null);
+  });
+
+  // The server back-dates a fired shell by up to `fireBackdateCeilingMs` and
+  // pre-steps it, so a bow shot's FIRST reveal sits downrange of the muzzle by
+  // that long at the shell's own speed — past one bare hull length at gun speed.
+  describe('a back-dated own shell is still claimed', () => {
+    const speed = CONFIG.gun.shellSpeed;
+    const reach = (speed * CONFIG.net.fireBackdateCeilingMs) / 1000;
+    const hullLen = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
+    const reveal = (dist: number) => ({ k: 'shell' as const, id: 'b1', x: dist, y: 0, vx: speed, vy: 0, t: 900 });
+
+    it('claims a reveal one half-hull of muzzle plus the back-date pre-step out', () => {
+      const dist = hullLen / 2 + reach;
+      expect(dist).toBeGreaterThan(hullLen); // the bare gate would have rejected it
+      const { sink, play, onShell } = setupWater('broadside');
+      sink.handler(victimFrame([reveal(dist)], {}));
+      expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' }), 'broadside', 'broadside');
+      expect(play).toHaveBeenCalledWith('mainBattery');
+    });
+
+    it('does not claim a reveal beyond a hull length plus the back-date pre-step', () => {
+      const { sink, onShell, ownFireWeapon } = setupWater('broadside');
+      sink.handler(victimFrame([reveal(hullLen + reach + 1)], {}));
+      expect(ownFireWeapon).not.toHaveBeenCalled();
+      expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' }), null, null);
+    });
   });
 
   // --- CYCLE-148 REVIEW GATE, P2: a RE-REVEAL is not a click ----------------

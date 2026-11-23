@@ -3911,3 +3911,11 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low - 2026-11-19
   summary: A RECONNECT WHILE THE HUD BAR STAYS UP MAY FLASH STATS THAT ROSE WHILE DISCONNECTED - AC 12 names only join / redeploy as seed points.
   evidence: review gate; `client/src/render/console/statFlash.ts` first-observation seeding.
+- source_spec: `_bmad-output/implementation-artifacts/spec-shell-speed-850.md`
+  status: open - low (test fixture) - 2026-11-22
+  summary: GOLDEN TORPEDO FIXTURES FLY AT GUN SPEED - `injectShell` in `server/src/__tests__/goldenFrames.test.ts` (~689) sets vx/vy from `CONFIG.gun.shellSpeed` for `kind: 'torp'` too, so the reveal / re-reveal goldens exercise a torpedo at 850 u/s (no real torpedo exceeds 195) and get re-recorded on every gun-speed retune.
+  evidence: review gate (Fable Blind Hunter); the re-recorded `.snap` carries `"k":"torp" ... "vy":850`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-shell-speed-850.md`
+  status: open - low (pre-existing, reach grew with speed) - 2026-11-22
+  summary: A BACK-DATED SHELL'S SPAWN-TICK HULL CONTACT IS RE-TESTED NEXT TICK - `preStepShell` (server/src/game/world.ts ~7747-7770) stops on a terminal outcome but keeps only the position; ships move before `stepShells` re-tests, so a graze found during the latency pre-step can escape if the hull slides clear. The 150 ms pre-step now covers 127.5 u (was 75 u). Wants a focused regression test before any fix.
+  evidence: review gate (Codex, PLAUSIBLE, not reproduced).

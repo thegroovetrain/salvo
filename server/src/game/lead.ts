@@ -8,7 +8,7 @@
 // divergence this codebase spends its structure avoiding.
 //
 // Fixed point rather than the closed-form quadratic on purpose: three passes is
-// far past convergence at these speeds (ordnance 60-500 u/s against hulls
+// far past convergence at these speeds (ordnance 60-850 u/s against hulls
 // capped near 45 u/s), it degrades gracefully when no intercept exists rather
 // than returning a negative root, and it is the behaviour already shipped and
 // tuned. Pure over plain numbers — no ShipRecord, no World, no I/O — so the
