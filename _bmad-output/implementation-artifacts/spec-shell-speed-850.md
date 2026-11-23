@@ -3,6 +3,7 @@ title: 'Gun-family shell speed 500 → 850 u/s'
 type: 'chore'
 created: '2026-11-22'
 status: 'done'
+final_revision: '39b42ed78200e300abd611e74608b789d8ed7cf0'
 baseline_revision: '4039fd54ff7c7f4a02496f7f5399a78c333deba0'
 review_loop_iteration: 0
 context: []
