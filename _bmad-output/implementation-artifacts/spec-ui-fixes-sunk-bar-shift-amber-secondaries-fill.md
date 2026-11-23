@@ -2,7 +2,7 @@
 title: 'UI fixes: no hull bar on a sunk ship, the running Shift in amber, the secondaries bar full when fastest'
 type: 'bugfix'
 created: '2026-11-23'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'a737237880bd75ecfcc6d30967cfd1f63c86f64a'
 review_loop_iteration: 0
 context: []
@@ -53,12 +53,12 @@ warnings: ['multiple-goals', 'oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/src/render/contacts.ts` -- add a `sinking` flag on the fading view, set by `sinkFlash`/`setSink`/`markSunk`, cleared by `markSpawn` (and on a fresh view); when set, `look.blocks = null` -- enemy bar gone once sunk
-- [ ] `client/src/main.ts` -- `updateOwnPlate`: `blocks = null` when no `you`, `!you.alive`, `you.hp <= 0`, or the own hull is sinking (existing `isSinkingNow`/`ownSinking01` helpers); keep complexity ≤ 10 (extract a pure helper if needed) -- own bar gone once sunk, incl. spectate
-- [ ] `client/src/render/console/skins.ts` -- `ABILITY_SKINS.active` border colour `C.amber` (width/glow/alpha unchanged) -- running Shift highlighted amber, breath kept
-- [ ] `client/src/render/console/barWeapons.ts` -- export `secondariesFill(heat)` = `clamp(1 − heat, 0, 1)` and draw the track with it -- reversed bar
-- [ ] tests -- `client/src/__tests__/`: (a) a contact view after `sinkFlash` places its plate with `blocks === null`, and after `markSpawn` with its blocks again; (b) the own-plate helper returns `null` for a down hull and `hullBlocks(...)` otherwise; (c) `abilitySkin('active', …).border === C.amber` and its border alpha follows the breath (lower at breath < 1); (d) `secondariesFill` equals `(rate(h) − hot)/(cold − hot)` with `rate(h) = 1000 / secondariesIntervalMs(h)` over a sweep of h, so full at cold and empty at hot -- contracts, not literals
-- [ ] `DESIGN.md` (ux path above) -- append a dated 2026-11-23 note to the Hull Health Bar row (no bar once the hull is known sunk; wire unchanged) and the HUD Bar (12.3) row (running Shift breathes in amber; SECONDARIES bar full at the fastest rate, empty at the slowest) -- design source stays true; minimal edit
+- [x] `client/src/render/contacts.ts` -- add a `sinking` flag on the fading view, set by `sinkFlash`/`setSink`/`markSunk`, cleared by `markSpawn` (and on a fresh view); when set, `look.blocks = null` -- enemy bar gone once sunk
+- [x] `client/src/main.ts` -- `updateOwnPlate`: `blocks = null` when no `you`, `!you.alive`, `you.hp <= 0`, or the own hull is sinking (existing `isSinkingNow`/`ownSinking01` helpers); keep complexity ≤ 10 (extract a pure helper if needed) -- own bar gone once sunk, incl. spectate
+- [x] `client/src/render/console/skins.ts` -- `ABILITY_SKINS.active` border colour `C.amber` (width/glow/alpha unchanged) -- running Shift highlighted amber, breath kept
+- [x] `client/src/render/console/barWeapons.ts` -- export `secondariesFill(heat)` = `clamp(1 − heat, 0, 1)` and draw the track with it -- reversed bar
+- [x] tests -- `client/src/__tests__/`: (a) a contact view after `sinkFlash` places its plate with `blocks === null`, and after `markSpawn` with its blocks again; (b) the own-plate helper returns `null` for a down hull and `hullBlocks(...)` otherwise; (c) `abilitySkin('active', …).border === C.amber` and its border alpha follows the breath (lower at breath < 1); (d) `secondariesFill` equals `(rate(h) − hot)/(cold − hot)` with `rate(h) = 1000 / secondariesIntervalMs(h)` over a sweep of h, so full at cold and empty at hot -- contracts, not literals
+- [x] `DESIGN.md` (ux path above) -- append a dated 2026-11-23 note to the Hull Health Bar row (no bar once the hull is known sunk; wire unchanged) and the HUD Bar (12.3) row (running Shift breathes in amber; SECONDARIES bar full at the fastest rate, empty at the slowest) -- design source stays true; minimal edit
 
 **Acceptance Criteria:**
 - Given an enemy in name reach that sinks in sight, when its plate renders during the sinking window, then the name shows and no hull bar is drawn.

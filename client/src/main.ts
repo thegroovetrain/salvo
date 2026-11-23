@@ -27,7 +27,6 @@ import {
   effectiveSight,
   effectiveStats,
   equipmentReloadMs,
-  hullBlocks,
   hullEnvelope,
   hullSilhouette,
   abilityFromCode,
@@ -60,6 +59,7 @@ import { relationOf, relationStroke, relationStyle, type Relation } from './rend
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
 import { NameplateLayer, latchPlate, type PlateLook } from './render/nameplates.js';
+import { ownPlateBlocks } from './render/hullBars.js';
 import { Projectiles, ownReachFromStats, type OwnFire } from './render/projectiles.js';
 import { FiringUX, type BroadsideArcs, type MainBatteryView } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint, type PreviewShip } from './render/aimPreview.js';
@@ -1441,11 +1441,12 @@ function updateOwnPlate(g: Game, pose: RenderPose): void {
   }
   const sc = g.camera.worldToScreen(pose);
   // Story 12.3: name + hull bar stack on the own bracket's top edge; the own
-  // bar's blocks come from `OwnShip.hp` through the shared `hullBlocks`.
+  // bar's blocks come from `OwnShip.hp` through the shared `hullBlocks` — no
+  // bar once the own hull is down (sinking, sunk, spectating its wreck).
   const you = g.state.net.you;
   OWN_PLATE_LOOK.zoom = g.camera.zoom;
   OWN_PLATE_LOOK.halfPx = bracketHalfPx(g.ownView.drawnLengthU() * g.camera.zoom);
-  OWN_PLATE_LOOK.blocks = you ? hullBlocks(you.hp, g.ownStats.maxHp) : null;
+  OWN_PLATE_LOOK.blocks = ownPlateBlocks(you, g.ownStats.maxHp);
   g.nameplates.place(id, sc.x, sc.y - OWN_PLATE_LOOK.halfPx, 1, OWN_PLATE_LOOK);
 }
 

@@ -7,7 +7,7 @@
 //                                      fixed slot; one shell per turret,
 //                                      filling from the bottom, seconds inside
 //                                      (no ladder climbs it: no mark)
-//   SECONDARIES                [RMB]   the heat bar (untiered: no mark)
+//   SECONDARIES                [RMB]   the rate bar, full when fastest (untiered: no mark)
 //   HEAVY TORPEDO     II ●●○○○ [ Q ]   four tubes in two pairs (fore, aft);
 //   ▯▯  ▯▯                             locked tubes dashed gray, in place
 //   NAVAL MINES        I ●○○○○ [ E ]   two racks: a wedge ring + fixed slots
@@ -170,7 +170,7 @@ export class WeaponTiles {
   }
 
   private drawBody(row: WeaponRowModel, body: Rect, tt: TileTexts, f: Frame): void {
-    if (row.kind === 'secondaries') this.drawTrack(body, row.heat?.heat ?? 0, 1, HEAT_ALPHA);
+    if (row.kind === 'secondaries') this.drawTrack(body, secondariesFill(row.heat?.heat ?? 0), 1, HEAT_ALPHA);
     else if (row.kind === 'mainBattery') this.drawIcons(shellSlots(body, f.view.turrets), shellStates(row.clocks, f.view.turrets), tt);
     else if (row.kind === 'torpedo') this.drawIcons(tubeSlots(body), tubeStates(row.clocks, f.now, f.next), tt);
     else this.drawRacks(row, body, tt, f);
@@ -290,6 +290,13 @@ export class WeaponTiles {
     g.stroke({ width: K.lineW, color, alpha });
     if (s.held) g.circle(m.cx, m.cy, m.radius).fill({ color: C.phosphor, alpha: FULL_ALPHA });
   }
+}
+
+/** Pure: the SECONDARIES bar's fill for `heat` (0 cold … 1 hot) — full at the
+ *  fastest rate (cold), empty at the slowest (hot), Eric 2026-11-23. The rate
+ *  is linear in heat, so `1 − heat` is the rate's place between hot and cold. */
+export function secondariesFill(heat: number): number {
+  return Math.min(1, Math.max(0, 1 - heat));
 }
 
 /** Pure: how full an icon draws — empty with no clock, full when ready, else

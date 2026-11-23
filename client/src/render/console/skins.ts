@@ -57,7 +57,9 @@ const ROW_SKINS: Readonly<Record<RowState, ConsoleSkin>> = {
 const ABILITY_SKINS: Readonly<Record<AbilityState, ConsoleSkin>> = {
   ready: SKIN(C.phosphor, 0.65, 1, 10, 0.25),
   cooling: SKIN(C.silver, 0.45),
-  active: SKIN(C.phosphorBright, 1, 2, 14, 0.24),
+  // The running Shift breathes in amber (Eric 2026-11-23); the breath is
+  // `abilitySkin`'s, unchanged.
+  active: SKIN(C.amber, 1, 2, 14, 0.24),
 };
 
 /** The 80 ms denied edge. */
