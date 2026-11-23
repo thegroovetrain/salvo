@@ -21,7 +21,7 @@
 //     is read off the data — the same stat lines the box prints, under the
 //     current fold vs the card's re-fold — never a per-stat table.
 
-import type { EffectiveStats, EquipmentId, ShiftId } from '@salvo/shared';
+import { CATALOG, type EffectiveStats, type EquipmentId, type LineId, type ShiftId } from '@salvo/shared';
 import { abilityStatRows, equipmentStatRows, statValueText, TIER_ARROW, type CardStatRow } from '../../ui/boonCopy.js';
 import { ABILITY_KINDS, WEAPON_ROW_KINDS, type AbilityKind, type WeaponRowKind } from './layout.js';
 import { PREVIEW_ARROW } from './skins.js';
@@ -120,6 +120,13 @@ export function rowChangeFlyout(row: WeaponRowModel, marks: PreviewMarks): Flyou
     if (m !== undefined) lines.push({ label: r.label, value: changeText({ label: r.label, cur: r.value, next: m.value }), amber: true });
   }
   return lines.length === 0 ? null : { title: row.name, lines };
+}
+
+/** Pure: does hovering this card open a stat box? An ADD-ON never does (Eric
+ *  2026-11-22): its extra tube / launcher / rack already shows on the bar's
+ *  own reload marks — "No need for box and stat numbers." */
+export function cardOpensBox(lineId: string): boolean {
+  return !(Object.hasOwn(CATALOG, lineId) && CATALOG[lineId as LineId].kind === 'addon');
 }
 
 /** Pure: a hovered WEAPON card's box — a real fold diff of the row's whole

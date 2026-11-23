@@ -131,6 +131,7 @@ import { HudBar, type HudBarView } from './render/console/hudBar.js';
 import {
   abilityFlyout,
   cardFlyout,
+  cardOpensBox,
   previewTarget,
   rowCardFlyout,
   shipCardFlyouts,
@@ -3647,9 +3648,9 @@ function flyoutNow(
   rows: readonly WeaponRowModel[],
   abilities: readonly AbilityModel[],
   hover: BarHover | null,
-  card: { name: string; rows: Parameters<typeof cardFlyout>[1] } | null,
+  card: { id: string; name: string; rows: Parameters<typeof cardFlyout>[1] } | null,
 ): FlyoutAt | null {
-  if (card !== null) return cardFlyoutAt(g.consoleCache, card.name, card.rows);
+  if (card !== null) return cardOpensBox(card.id) ? cardFlyoutAt(g.consoleCache, card.name, card.rows) : null;
   if (hover === null) return null;
   if (hover.kind === 'ability') {
     const i = ABILITY_KINDS.indexOf(hover.ability);
