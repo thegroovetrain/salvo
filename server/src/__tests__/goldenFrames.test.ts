@@ -1441,7 +1441,7 @@ function scnGunnery(g: Golden): void {
       Object.keys(hc).join(',') === 'k,id,x,y' && // NO victim id / severity field anywhere in it
       hc.id === 'a' && // the SHOOTER's id — never the victim's
       !faHit.contacts.some((c) => c.id === 'b') && // b really is fogged (beyond the hull sight)
-      !faHit.events.some((e) => e.k === 'sp'), // exactly one of hc/sp per shell
+      !faHit.events.some((e) => e.k === 'sp' && e.x === hc.x && e.y === hc.y), // exactly one of hc/sp per shell (a volley-mate may splash on the same tick elsewhere)
   );
 }
 
