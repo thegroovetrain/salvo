@@ -16,7 +16,16 @@ import type { ToneId } from '../tones.js';
 import type { CueRecipe } from './recipe.js';
 import { MAIN_BATTERY, SECONDARIES } from './candidates/guns.js';
 import { MINE_DROP, TORPEDO_LAUNCH, TORPEDO_RUN } from './candidates/ordnance.js';
-import { FLASH_SHELL, FOULING_SHELL, PHOSPHOR_SHELL, STAR_SHELL } from './candidates/shells.js';
+import {
+  FLASH_BURST,
+  FLASH_SHELL,
+  FOULING_BURST,
+  FOULING_SHELL,
+  PHOSPHOR_BURST,
+  PHOSPHOR_SHELL,
+  STAR_BURST,
+  STAR_SHELL,
+} from './candidates/shells.js';
 import { OWN_HIT, SINK_WITNESS, SPLASH, STEEL_HIT } from './candidates/impacts.js';
 import { BEACON, BOOST, REPAIR, SMOKE } from './candidates/ship.js';
 import { COUNTDOWN_TICK, DENIED, LEVEL_UP, MATCH_START, TELEGRAPH } from './candidates/signals.js';
@@ -40,6 +49,10 @@ export type CueId =
   | 'mineDrop'
   | 'starShell'
   | 'phosphorShell'
+  | 'starShellBurst'
+  | 'phosphorShellBurst'
+  | 'foulingShellBurst'
+  | 'flashShellBurst'
   | 'foulingShell'
   | 'flashShell'
   | 'steelHit'
@@ -97,6 +110,9 @@ const world = (family: string, maxVoices: number): Budget => ({ family, maxVoice
 /** The four special-shell launches share one own family (one launch at a time per click). */
 const OWN_SHELL = own('ownShell', 2);
 
+/** The four special-shell bursts share one own family too. */
+const OWN_SHELL_BURST = own('ownShellBurst', 2);
+
 /** Eric's picks (2026-11-11, the takes shipped in candidates/) under their game budgets. */
 const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
   // Own fire. A secondary round leaves at up to `CONFIG.secondaries.coldRatePerS`
@@ -110,6 +126,13 @@ const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
   phosphorShell: row(take(PHOSPHOR_SHELL, 'B'), OWN_SHELL),
   foulingShell: row(take(FOULING_SHELL, 'A'), OWN_SHELL),
   flashShell: row(take(FLASH_SHELL, 'B'), OWN_SHELL),
+  // Each special shell's burst, played when OUR shell bursts (epic-12
+  // amendment 17), on one family of their own so a burst never steals a
+  // launch's voice.
+  starShellBurst: row(take(STAR_BURST, 'A'), OWN_SHELL_BURST),
+  phosphorShellBurst: row(take(PHOSPHOR_BURST, 'A'), OWN_SHELL_BURST),
+  foulingShellBurst: row(take(FOULING_BURST, 'A'), OWN_SHELL_BURST),
+  flashShellBurst: row(take(FLASH_BURST, 'A'), OWN_SHELL_BURST),
   // Own hull and console.
   ownHit: row(take(OWN_HIT, 'A'), own('ownHit', 3)),
   burning: row(take(BURNING, 'A'), own('burn', 2)),

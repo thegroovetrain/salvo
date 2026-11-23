@@ -455,7 +455,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     countermeasure: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
-      onBoom,
+      onBoom: over.onBoom ?? onBoom,
       onBallisticUpdate,
       ownFireOf: over.ownFireOf ?? (() => null),
     },
@@ -475,6 +475,50 @@ function setupEvents(over: Record<string, unknown> = {}) {
   bindRoom(conn, deps);
   return { sink, onBurst, onBoom, spawnEffect, onBallisticUpdate, play };
 }
+
+// Each special shell's burst sound plays when OUR shell bursts, not at a fixed
+// offset after the launch (epic-12 amendment 17). The four shells arc over ships
+// and land (shared/src/sim/shell.ts `overShips`/`overLand`), so each one acts
+// only at its burst; a boom for one is a miss, and gets no burst sound.
+describe('own special shell burst sound at its burst', () => {
+  const BURSTS = [
+    ['starShells', 'starShellBurst'],
+    ['phosphorShells', 'phosphorShellBurst'],
+    ['foulingShell', 'foulingShellBurst'],
+    ['dazzleShells', 'flashShellBurst'],
+  ] as const;
+  const burstCues: readonly string[] = BURSTS.map(([, cue]) => cue);
+  const burstCalls = (play: ReturnType<typeof vi.fn>) => play.mock.calls.filter(([id]) => burstCues.includes(id));
+
+  for (const [weapon, cue] of BURSTS) {
+    it(`an OWN ${weapon} burst plays ${cue} once, reading the claim BEFORE the track is retired`, () => {
+      const calls: string[] = [];
+      const ownFireOf = (id: string) => {
+        calls.push(`read:${id}`);
+        return id === 's-1' ? weapon : null;
+      };
+      const { sink, play } = setupEvents({ ownFireOf, onBurst: () => calls.push('retire') });
+      sink.handler(eventFrame({ k: 'burst', id: 's-1', x: 300, y: -120 }));
+      expect(burstCalls(play)).toEqual([[cue]]);
+      expect(calls).toEqual(['read:s-1', 'retire']);
+    });
+
+    it(`an own ${weapon} BOOM (a miss) plays no burst sound`, () => {
+      const { sink, play } = setupEvents({ ownFireOf: () => weapon });
+      sink.handler(eventFrame({ k: 'boom', id: 's-1', x: 300, y: -120 }));
+      expect(burstCalls(play)).toEqual([]);
+    });
+  }
+
+  it('an own gun burst, or an unclaimed (enemy) burst, plays no burst sound', () => {
+    const gun = setupEvents({ ownFireOf: () => 'gun' });
+    gun.sink.handler(eventFrame({ k: 'burst', id: 'g-1', x: 0, y: 0 }));
+    expect(burstCalls(gun.play)).toEqual([]);
+    const enemy = setupEvents({ ownFireOf: () => null });
+    enemy.sink.handler(eventFrame({ k: 'burst', id: 'e-1', x: 10, y: 10 }));
+    expect(burstCalls(enemy.play)).toEqual([]);
+  });
+});
 
 describe('bindRoom burst events', () => {
   it('spawns the burst effect and terminates the shell render on a burst event', () => {

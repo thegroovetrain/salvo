@@ -1930,6 +1930,27 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
 }
 
 /**
+ * The sound of OUR special shell bursting. Each special shell's burst used to
+ * ride its launch at a fixed offset and so went off long before a far shell
+ * arrived (epic-12 amendment 17). Burst only, never a boom: the four shells arc
+ * over ships and land, so a boom for one is a miss that lights no zone.
+ * Attribution is the track claim alone (read before onBurst retires it), so an
+ * enemy's shell is silent.
+ */
+function ownShellBurstCue(own: OwnFire, deps: RoomBindingDeps): void {
+  const cue = own ? SPECIAL_SHELL_BURST_CUE[own] : undefined;
+  if (cue) deps.audio.playCue(cue);
+}
+
+/** Each special-shell line's burst, by the equipment that fired it. */
+const SPECIAL_SHELL_BURST_CUE: Partial<Record<NonNullable<OwnFire>, CueId>> = {
+  starShells: 'starShellBurst',
+  phosphorShells: 'phosphorShellBurst',
+  foulingShell: 'foulingShellBurst',
+  dazzleShells: 'flashShellBurst',
+};
+
+/**
  * A gun shell burst at its target point: spawn the burst ring and terminate the
  * dead-reckoned shell render (same removal semantics as a boom). Damage arrives
  * separately as victim-private `dmg` events; an early-intercept detonation
@@ -1947,6 +1968,7 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
   // latch is long expired by burst time; the track carries the answer).
   const own = deps.projectiles.ownFireOf(e.id);
   const radius = deps.ownBurstRadius(own);
+  ownShellBurstCue(own, deps);
   deps.projectiles.onBurst(e);
   spawnBurstMark(e, own, radius, deps);
   // STORY 4.7 — the second half of report-then-boom: the `mz` crack goes off at
