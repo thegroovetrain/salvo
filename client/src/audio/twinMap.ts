@@ -120,7 +120,8 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   torpedoRun: 'the torpedo running close by + its wake ribbon on the water (render/projectiles, wake)',
   mineDrop: 'the armed mine marker appearing on the chart (render/mines)',
   starShell: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',
-  phosphorShell: 'the phosphor shell in flight + the burning zone it lights (render/projectiles, burnZones)',
+  phosphorShell: 'the phosphor shell leaving and in flight (render/projectiles)',
+  phosphorBurst: 'the burning zone appearing where the phosphor shell burst (render/burnZones)',
   foulingShell: 'the fouling shell in flight + the foul zone it lays (render/projectiles, foulZones)',
   flashShell: 'the flash shell in flight + the white flash disc where it bursts (render/projectiles, flashBurst)',
   steelHit:

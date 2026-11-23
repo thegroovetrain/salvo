@@ -1,7 +1,9 @@
 // The shipped special-shell takes Eric picked (Story 10.13, epic-10 amendment 22; research §6): one slot per live
 // special-shell line in the catalog (Stories 10.5 / 10.6): STAR SHELLS,
 // PHOSPHOR SHELLS, FOULING SHELL, FLASH SHELLS. Each candidate is the whole
-// event as the firer hears it: a muffled launch, then the shell's own burst.
+// event as the firer hears it: a muffled launch, then the shell's own burst at a
+// fixed offset — except PHOSPHOR, which has a second slot (PHOSPHOR_BURST): its
+// flame plays when the shell actually bursts, at any range (epic-12 amendment 16).
 
 import type { Layer } from '../recipe.js';
 import type { CueSlot } from './types.js';
@@ -42,21 +44,38 @@ export const STAR_SHELL: CueSlot = {
 
 export const PHOSPHOR_SHELL: CueSlot = {
   id: 'phosphorShell',
-  title: 'Phosphor shell (launch and burst)',
-  note: 'You fire PHOSPHOR SHELLS: a launch, then the shell bursting into a burning patch on the water.',
+  title: 'Phosphor shell (launch)',
+  note: 'You fire PHOSPHOR SHELLS: the launch only. The flame is its own sound, played when the shell bursts.',
   today: 'fireStarShells',
   candidates: [
     {
       id: 'B',
+      label: 'Launch pop',
+      blurb: 'The muffled launch pop. The whoomp of flame plays separately, when the shell bursts.',
+      recipe: { gain: 0.15,
+        ...SHELL,
+        reverb: 0.35,
+        layers: [...launch()],
+      },
+    },
+  ],
+};
+
+export const PHOSPHOR_BURST: CueSlot = {
+  id: 'phosphorBurst',
+  title: 'Phosphor shell (burst)',
+  note: 'Your PHOSPHOR SHELL bursts into a burning patch on the water, whenever it reaches the end of its path.',
+  candidates: [
+    {
+      id: 'A',
       label: 'Whoomp of flame',
-      blurb: 'A pop, then a deep whoomp like gas catching fire, and a low roar that dies away.',
+      blurb: 'A deep whoomp like gas catching fire, and a low roar that dies away.',
       recipe: { gain: 0.15,
         ...SHELL,
         reverb: 0.35,
         layers: [
-          ...launch(),
-          noiseLayer('pink', [lp({ from: 200, to: 1400, ms: 250 }, 1.2)], { peak: 2.2, attackMs: 60, tauMs: 260 }, { startMs: BURST_MS }),
-          noiseLayer('brown', [lp(350)], { peak: 0.9, attackMs: 120, holdMs: 600, tauMs: 500 }, { startMs: BURST_MS + 80, am: { rateHz: 3, depth: 0.4, jitter: 0.3 } }),
+          noiseLayer('pink', [lp({ from: 200, to: 1400, ms: 250 }, 1.2)], { peak: 2.2, attackMs: 60, tauMs: 260 }, { startMs: 0 }),
+          noiseLayer('brown', [lp(350)], { peak: 0.9, attackMs: 120, holdMs: 600, tauMs: 500 }, { startMs: 80, am: { rateHz: 3, depth: 0.4, jitter: 0.3 } }),
         ],
       },
     },

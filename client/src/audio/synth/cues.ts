@@ -16,7 +16,7 @@ import type { ToneId } from '../tones.js';
 import type { CueRecipe } from './recipe.js';
 import { MAIN_BATTERY, SECONDARIES } from './candidates/guns.js';
 import { MINE_DROP, TORPEDO_LAUNCH, TORPEDO_RUN } from './candidates/ordnance.js';
-import { FLASH_SHELL, FOULING_SHELL, PHOSPHOR_SHELL, STAR_SHELL } from './candidates/shells.js';
+import { FLASH_SHELL, FOULING_SHELL, PHOSPHOR_BURST, PHOSPHOR_SHELL, STAR_SHELL } from './candidates/shells.js';
 import { OWN_HIT, SINK_WITNESS, SPLASH, STEEL_HIT } from './candidates/impacts.js';
 import { BEACON, BOOST, REPAIR, SMOKE } from './candidates/ship.js';
 import { COUNTDOWN_TICK, DENIED, LEVEL_UP, MATCH_START, TELEGRAPH } from './candidates/signals.js';
@@ -40,6 +40,7 @@ export type CueId =
   | 'mineDrop'
   | 'starShell'
   | 'phosphorShell'
+  | 'phosphorBurst'
   | 'foulingShell'
   | 'flashShell'
   | 'steelHit'
@@ -108,6 +109,9 @@ const TABLE: Record<CueId, { recipe: CueRecipe; tier: CueTier }> = {
   mineDrop: row(take(MINE_DROP, 'C'), own('ownMine', 2)),
   starShell: row(take(STAR_SHELL, 'A'), OWN_SHELL),
   phosphorShell: row(take(PHOSPHOR_SHELL, 'B'), OWN_SHELL),
+  // The flame lands when OUR phosphor shell's track ends (burst or boom), on its
+  // own family so it never steals the launch's voice.
+  phosphorBurst: row(take(PHOSPHOR_BURST, 'A'), own('ownShellBurst', 2)),
   foulingShell: row(take(FOULING_SHELL, 'A'), OWN_SHELL),
   flashShell: row(take(FLASH_SHELL, 'B'), OWN_SHELL),
   // Own hull and console.

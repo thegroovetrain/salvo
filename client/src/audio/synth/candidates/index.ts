@@ -6,7 +6,7 @@
 
 import { MAIN_BATTERY, SECONDARIES } from './guns.js';
 import { MINE_DROP, TORPEDO_LAUNCH, TORPEDO_RUN } from './ordnance.js';
-import { FLASH_SHELL, FOULING_SHELL, PHOSPHOR_SHELL, STAR_SHELL } from './shells.js';
+import { FLASH_SHELL, FOULING_SHELL, PHOSPHOR_BURST, PHOSPHOR_SHELL, STAR_SHELL } from './shells.js';
 import { OWN_HIT, SINK_WITNESS, SPLASH, STEEL_HIT } from './impacts.js';
 import { BEACON, BOOST, REPAIR, SMOKE } from './ship.js';
 import { COUNTDOWN_TICK, DENIED, LEVEL_UP, MATCH_START, TELEGRAPH } from './signals.js';
@@ -34,6 +34,7 @@ export const CUE_GROUPS: readonly CueGroup[] = [
       MINE_DROP,
       STAR_SHELL,
       PHOSPHOR_SHELL,
+      PHOSPHOR_BURST,
       FOULING_SHELL,
       FLASH_SHELL,
       STEEL_HIT,

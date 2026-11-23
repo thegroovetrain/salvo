@@ -772,7 +772,7 @@ export const CLIENT_CONFIG = {
      * the player's own cues never: `cueVoiceCap − worldCueVoiceCap` is at
      * least the sum of every own family's cap (pinned by a test).
      */
-    cueVoiceCap: 77,
+    cueVoiceCap: 79,
     worldCueVoiceCap: 16,
     farWorldCueVoiceCap: 8,
     farWorldFrom: 0.5,

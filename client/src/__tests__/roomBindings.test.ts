@@ -455,7 +455,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     countermeasure: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
-      onBoom,
+      onBoom: over.onBoom ?? onBoom,
       onBallisticUpdate,
       ownFireOf: over.ownFireOf ?? (() => null),
     },
@@ -475,6 +475,40 @@ function setupEvents(over: Record<string, unknown> = {}) {
   bindRoom(conn, deps);
   return { sink, onBurst, onBoom, spawnEffect, onBallisticUpdate, play };
 }
+
+// The PHOSPHOR SHELLS flame plays when OUR shell bursts, not at a fixed offset
+// after the launch. A phosphor shell arcs over ships and land (shared/src/sim/
+// shell.ts `overShips`/`overLand`), so it lights its zone only at its burst; a
+// boom for one is a miss that lights nothing, and gets no flame.
+describe('own phosphor shell flame at its burst', () => {
+  const phosphorClaim = (calls: string[]) => (id: string) => {
+    calls.push(`read:${id}`);
+    return id === 'ph-1' ? 'phosphorShells' : null;
+  };
+
+  it('an OWN phosphor shell burst plays the flame once, reading the claim BEFORE the track is retired', () => {
+    const calls: string[] = [];
+    const { sink, play } = setupEvents({ ownFireOf: phosphorClaim(calls), onBurst: () => calls.push('retire') });
+    sink.handler(eventFrame({ k: 'burst', id: 'ph-1', x: 300, y: -120 }));
+    expect(play.mock.calls.filter(([id]) => id === 'phosphorBurst')).toHaveLength(1);
+    expect(calls).toEqual(['read:ph-1', 'retire']);
+  });
+
+  it('an own phosphor BOOM (a miss that lights no zone) plays no flame', () => {
+    const { sink, play } = setupEvents({ ownFireOf: () => 'phosphorShells' });
+    sink.handler(eventFrame({ k: 'boom', id: 'ph-1', x: 300, y: -120 }));
+    expect(play).not.toHaveBeenCalledWith('phosphorBurst');
+  });
+
+  it('an own STAR SHELL burst, or an unclaimed (enemy) burst, plays no flame', () => {
+    const star = setupEvents({ ownFireOf: () => 'starShells' });
+    star.sink.handler(eventFrame({ k: 'burst', id: 'st-1', x: 0, y: 0 }));
+    expect(star.play).not.toHaveBeenCalledWith('phosphorBurst');
+    const enemy = setupEvents({ ownFireOf: () => null });
+    enemy.sink.handler(eventFrame({ k: 'burst', id: 'e-1', x: 10, y: 10 }));
+    expect(enemy.play).not.toHaveBeenCalledWith('phosphorBurst');
+  });
+});
 
 describe('bindRoom burst events', () => {
   it('spawns the burst effect and terminates the shell render on a burst event', () => {
