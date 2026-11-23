@@ -87,6 +87,13 @@ describe('a contact known to be sinking: name kept, no hull bar', () => {
       expect(placedBlocks(views, store, place, 50)).toBeNull();
     }
   });
+  it('a hull marked sinking before it has a view (mid-window sighting, rebuilt wreck) gets no bar on its first plate', () => {
+    for (const sink of [(v: ContactViews) => v.sinkFlash('e1'), (v: ContactViews) => v.setSink('e1', 0.5), (v: ContactViews) => v.markSunk('e1')]) {
+      const { views, store, place } = rig();
+      sink(views);
+      expect(placedBlocks(views, store, place, 0)).toBeNull();
+    }
+  });
 });
 
 describe('ownPlateBlocks — the own plate bar', () => {
@@ -131,5 +138,9 @@ describe('secondariesFill — full at the fastest rate, empty at the slowest', (
     expect(secondariesFill(1)).toBe(0);
     expect(secondariesFill(-1)).toBe(1);
     expect(secondariesFill(2)).toBe(0);
+  });
+
+  it('reads a NaN heat as cold (full), as the shared heat clamp does', () => {
+    expect(secondariesFill(Number.NaN)).toBe(1);
   });
 });

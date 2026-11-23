@@ -296,7 +296,8 @@ export class WeaponTiles {
  *  fastest rate (cold), empty at the slowest (hot), Eric 2026-11-23. The rate
  *  is linear in heat, so `1 − heat` is the rate's place between hot and cold. */
 export function secondariesFill(heat: number): number {
-  return Math.min(1, Math.max(0, 1 - heat));
+  if (!(heat > 0)) return 1; // cold, or a NaN heat (the shared clamp reads NaN as cold)
+  return Math.max(0, 1 - Math.min(1, heat));
 }
 
 /** Pure: how full an icon draws — empty with no clock, full when ready, else

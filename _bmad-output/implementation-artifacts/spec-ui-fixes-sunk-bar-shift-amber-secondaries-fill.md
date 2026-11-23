@@ -71,6 +71,17 @@ warnings: ['multiple-goals', 'oversized']
 
 ## Review Triage Log
 
+### 2026-11-23 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3 (high 0, medium 1, low 2)
+- defer: 0
+- reject: 11 (high 0, medium 0, low 11)
+- addressed_findings:
+  - `[medium]` `[patch]` The no-bar flag lived on the view: a view created mid-window drew the bar until the next settle push, and a view rebuilt after founder drew it again. Moved to a `down` id set on `ContactViews` (set by `sinkFlash`/`setSink`/`markSunk` even with no view, cleared by `markSpawn`); test added.
+  - `[low]` `[patch]` `secondariesFill(NaN)` returned NaN; now reads NaN as cold (full), as the shared heat clamp does; test added.
+  - `[low]` `[patch]` DESIGN.md notes cited no ruling and "spectate included" was ambiguous; they now cite epic-12 amendment 18 and say "the own hull from its sinking through spectating its own wreck".
+
 ## Design Notes
 
 The server keeps sending `hb: 1` for a sinking hull (`sinkingWindow.test.ts` pins it); the client only hides what it already knows from the declared `sunk` exception, so no new information reaches anyone. Readings of record for Eric's veto: the Shift's refill bar and seconds stay phosphor (only the tile highlight turns amber); the Shift's amber breath is not ranked by `amberPulseWinner` (DESIGN L369) because Eric asked to keep the pulse.
