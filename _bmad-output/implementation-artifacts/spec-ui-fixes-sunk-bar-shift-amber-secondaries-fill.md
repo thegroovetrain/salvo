@@ -2,7 +2,7 @@
 title: 'UI fixes: no hull bar on a sunk ship, the running Shift in amber, the secondaries bar full when fastest'
 type: 'bugfix'
 created: '2026-11-23'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'a737237880bd75ecfcc6d30967cfd1f63c86f64a'
 review_loop_iteration: 0
 context: []
@@ -92,3 +92,11 @@ The server keeps sending `hb: 1` for a sinking hull (`sinkingWindow.test.ts` pin
 - `npm test -w client` -- expected: all pass
 - `npm run lint` -- expected: 0 errors (complexity ≤ 10)
 - `npm run check` -- expected: green (run once at the end)
+
+## Auto Run Result
+
+- **Summary:** (1) a contact's plate drops its hull bar from the seen `sunk` event (the down ids live on `ContactViews`, so rebuilt or mid-window views start barless; `markSpawn` clears), the own plate drops it once the own hull is down; wire unchanged (`hb: 1` still sent). (2) The running Shift tile's outline + glow are amber, breath unchanged. (3) The SECONDARIES bar fills `1 − heat` (full at 3 rounds/s, empty at 1).
+- **Files:** `client/src/render/contacts.ts` (down-id set, plate blocks null); `client/src/render/hullBars.ts` (`ownPlateBlocks`); `client/src/main.ts` (own plate uses it); `client/src/render/console/skins.ts` (active = amber); `client/src/render/console/barWeapons.ts` (`secondariesFill`, NaN-safe); `client/src/__tests__/uiFixesSunkShiftSecondaries.test.ts` (10 contract tests); DESIGN.md (two dated notes, amendment 18); epic-12 amendment 18; trackers; VERSION / package.json / lockfile 0.20.9.
+- **Review:** 3 patches applied (1 medium, 2 low), 0 deferred, 11 rejected (unseen sinkings by design; respawn-in-window pre-existing; naming / wording / derivation cosmetic).
+- **Verification:** `npm run check` exit 0 (shared 1459, server 2994, client 4506 tests; lint 0 errors, 3 pre-existing max-lines warnings; hook suite 266/266); matchSmoke exit 0 and weaponsSmoke exit 0, first try.
+- **Residual risk:** a sinking the client never saw (`seen` false) still shows its 1 block — no signal exists for it without disclosing the sinking window.
