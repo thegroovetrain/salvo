@@ -94,9 +94,12 @@ import { ImpactDedup, ToneFloor, hitCallToneFloor, impactKey } from '../render/g
  * and neutrally, where and when a gun-family weapon fired, at the TRUE muzzle
  * rather than at a reveal point (which is the leak the Story 1.5 review closed).
  * The heuristic answers only the own-side question it can actually answer.
+ *
+ * A fired shell's first reveal is back-dated and pre-stepped by up to
+ * `fireBackdateCeilingMs`, so `handleShell` widens this radius by that time at
+ * the event's own wire speed (`backdateReach`).
  */
 const MAX_HULL_LEN = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
-const OWN_NEAR2 = MAX_HULL_LEN * MAX_HULL_LEN;
 
 export interface RoomBindingDeps {
   state: GameState;
@@ -1682,7 +1685,7 @@ function handleShell(e: BallisticEvent, t: number, deps: RoomBindingDeps, s: Bin
   // The latch is claimed ONCE, and only for a reveal already sitting on our own
   // hull — see the ownFireWeapon dep note (a claim consumes) — and only for a
   // reveal the store has never seen (`firstReveal`).
-  const near = firstReveal(e, deps) && nearOwnShip(e.x, e.y, deps);
+  const near = firstReveal(e, deps) && nearOwnShip(e.x, e.y, deps, backdateReach(e));
   const claim = near ? shellClaim(e, deps) : null;
   const own = near ? ownShellWeapon(e, claim) : null;
   deps.projectiles.onShell(e, own, claim);
@@ -1843,16 +1846,30 @@ function firstReveal(e: BallisticEvent, deps: RoomBindingDeps): boolean {
   return !deps.projectiles.isKnown(e.id);
 }
 
-/** True iff (x,y) is within one hull length of the own ship specifically. */
-function nearOwnShip(x: number, y: number, deps: RoomBindingDeps): boolean {
-  const you = deps.state.net.you;
-  return !!you && near2(x, y, you.x, you.y);
+/**
+ * How far downrange a shell's FIRST reveal may sit past the muzzle: the server
+ * back-dates a fired shell by up to `fireBackdateCeilingMs` and pre-steps it, so
+ * the reveal lands that long at the shell's own speed beyond the muzzle. The
+ * speed is read off the event's wire velocity (the authority), never CONFIG.
+ */
+function backdateReach(e: BallisticEvent): number {
+  return Math.hypot(e.vx, e.vy) * CONFIG.net.fireBackdateCeilingMs / 1000;
 }
 
-function near2(x: number, y: number, cx: number, cy: number): boolean {
+/**
+ * True iff (x,y) is within one hull length of the own ship specifically,
+ * widened by `reach` (a back-dated shell's pre-step distance; 0 by default).
+ */
+function nearOwnShip(x: number, y: number, deps: RoomBindingDeps, reach = 0): boolean {
+  const you = deps.state.net.you;
+  return !!you && near2(x, y, you.x, you.y, reach);
+}
+
+function near2(x: number, y: number, cx: number, cy: number, reach = 0): boolean {
   const dx = x - cx;
   const dy = y - cy;
-  return dx * dx + dy * dy <= OWN_NEAR2;
+  const r = MAX_HULL_LEN + reach;
+  return dx * dx + dy * dy <= r * r;
 }
 
 /**
@@ -1913,6 +1930,27 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
 }
 
 /**
+ * The sound of OUR special shell bursting. Each special shell's burst used to
+ * ride its launch at a fixed offset and so went off long before a far shell
+ * arrived (epic-12 amendment 17). Burst only, never a boom: the four shells arc
+ * over ships and land, so a boom for one is a miss that lights no zone.
+ * Attribution is the track claim alone (read before onBurst retires it), so an
+ * enemy's shell is silent.
+ */
+function ownShellBurstCue(own: OwnFire, deps: RoomBindingDeps): void {
+  const cue = own ? SPECIAL_SHELL_BURST_CUE[own] : undefined;
+  if (cue) deps.audio.playCue(cue);
+}
+
+/** Each special-shell line's burst, by the equipment that fired it. */
+const SPECIAL_SHELL_BURST_CUE: Partial<Record<NonNullable<OwnFire>, CueId>> = {
+  starShells: 'starShellBurst',
+  phosphorShells: 'phosphorShellBurst',
+  foulingShell: 'foulingShellBurst',
+  dazzleShells: 'flashShellBurst',
+};
+
+/**
  * A gun shell burst at its target point: spawn the burst ring and terminate the
  * dead-reckoned shell render (same removal semantics as a boom). Damage arrives
  * separately as victim-private `dmg` events; an early-intercept detonation
@@ -1930,6 +1968,7 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
   // latch is long expired by burst time; the track carries the answer).
   const own = deps.projectiles.ownFireOf(e.id);
   const radius = deps.ownBurstRadius(own);
+  ownShellBurstCue(own, deps);
   deps.projectiles.onBurst(e);
   spawnBurstMark(e, own, radius, deps);
   // STORY 4.7 — the second half of report-then-boom: the `mz` crack goes off at

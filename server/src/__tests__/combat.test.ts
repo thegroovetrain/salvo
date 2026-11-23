@@ -339,7 +339,7 @@ describe('World combat — burst at the clicked point', () => {
     // spawn the shell PAST the target flying outward → splash, never bursting —
     // a ~64u inner dead zone. The shell now spawns AT the click, so the next
     // tick bursts there (independent of muzzle velocity, standardized at
-    // 500 u/s for the whole gun family — Eric ruling 2026-07-25).
+    // 850 u/s for the whole gun family — Eric 2026-11-22; the 500 was 2026-07-25).
     const { w, a } = armedOne(1, 'yamato');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Hulls are SOLID since Story 9.5: the enemy cannot sit inside the

@@ -1307,7 +1307,7 @@ export const CONFIG = {
     // 200's "a burst that merely covers a mine does nothing" are RETIRED). A
     // shell in flight never touches a mine.
     hits: HITS_HULL_MINE,
-    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
     // CANNON ladder's tier-III rung (catalog `deckGun`, Eric 2026-09-30) raises
     // the pool to 2 via the whitelisted gun.maxAmmo stat path. The base fit is
@@ -1412,7 +1412,7 @@ export const CONFIG = {
     hits: HITS_HULL_MINE, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
     rangeU: hmToU(285), // u — Tier I reach (Story 11.2, R20 reading: the same 380 hm / 1,000 u scale; was 750 u, the 6/12 rung)
     rangeUAtV: hmToU(333), // u — Tier V reach (Story 11.2, R20 reading; was 875 u, the 7/12 rung)
-    shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     maxAmmo: 12, // shells — the MAGAZINE at tier I (Eric 2026-10-02, amendment 232; was 16)
     rateMs: 300, // ms — one shell per 0.30 s while held at tier I (Eric 2026-10-02, amendment 232; was 350, earlier 500)
     reloadMs: 12500, // ms — the full-magazine reload, always the whole 12.5 s at tier I → 10.0 s at V (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 12 s, 2026-10-02, amendment 232; earlier 10 s, 15 s)
@@ -1423,7 +1423,7 @@ export const CONFIG = {
   /**
    * THE FLAK GUN (Story 8.15, Eric rulings 2026-09-28, epic-8 amendments 96(f),
    * 105 and 106) — a pickable deck gun mounted in slot 0 from the seat's `gun`.
-   * One shell per click to the clicked point at 500 u/s, AIR-BURSTING there in
+   * One shell per click to the clicked point at 850 u/s, AIR-BURSTING there in
    * a `burstRadius` blast for `damage` to every hull inside it — the cannon's
    * burst rule with Eric's numbers ("12 dmg / 50u blast / 660 u range / 6s").
    * A hull crossing the shell's path takes `contactDamage` and stops it (the
@@ -1453,7 +1453,7 @@ export const CONFIG = {
     hits: HITS_HULL_MINE_ORDNANCE, // AR44 / amendment 96(f)
     rangeU: hmToU(238), // u — Tier I reach (Story 11.2, R20 reading: the same 380 hm / 1,000 u scale; was 625 u, the 5/12 rung)
     rangeUAtV: hmToU(285), // u — Tier V reach (Story 11.2, R20 reading; was 750 u, the 6/12 rung)
-    shellSpeed: 500, // u/s (amendment 105)
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     maxAmmo: 1, // one shell (amendment 105)
     reloadMs: 3500, // ms (4 s → 3.5 s, Eric 2026-10-02, epic-8 amendment 232; was 6 s → 4 s, amendment 210; amendment 105's 6 s before) — the −5 %/tier step runs it to 2.8 s at V
     damage: 48, // hp per burst victim at the centre (amendment 105; 12 → 20 Eric 2026-10-13, experiment; 20 → 16 Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); ×3 PLACEHOLDER 16 → 48, Story 10.3, Eric 2026-11-04, ruling 10 — the ladder steps +6 → 48/54/60/66/72)
@@ -1565,7 +1565,7 @@ export const CONFIG = {
     // `traverseDegPerS` (90 °/s, turrets AND torpedo launchers) and
     // `onTargetDeg` (0.5°) — RETIRED 2026-11-12, Story 11.1 (Eric R11 / R16:
     // no traverse, point and shoot inside the arc).
-    shellSpeed: 500, // u/s — today's cannon shell, reading of record
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     // `contactDamage` (18 hp to an early interceptor) and `burstRadius` (15 u
     // blast around the landing) — RETIRED 2026-11-13, Eric; epic-11
     // amendment 8: direct hits only, at the landing point.
@@ -1606,7 +1606,7 @@ export const CONFIG = {
     overheatMs: 10000, // ms of continuous fire from cold to full heat (Eric 2026-11-13; was 4000)
     coolMs: 10000, // ms of not firing from full heat to zero (Eric 2026-11-13; was 6000)
     rangeFrac: 0.5, // of the hull's folded main-battery reach (R3)
-    shellSpeed: 500, // u/s — today's machine-gun round, reading of record
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     shellRadius: 2, // u — today's machine-gun round, reading of record
   },
 
@@ -2128,7 +2128,7 @@ export const CONFIG = {
     hits: HITS_HULL,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
-    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     maxAmmo: 1, // one barrage in the pool — presented as a pure cooldown
     // ms — cooldown between barrages. BALANCE CYCLE 1 (Eric ruling 2026-08-21):
     // 30000 → 18000, superseding *"lets set the cooldown to 30 seconds"*. This is
@@ -2272,7 +2272,7 @@ export const CONFIG = {
     hits: HITS_HULL,
     rangeU: hmToU(523), // u — Tier I reach (Story 11.2, R18; was 1,375 u, the 11/12 rung)
     rangeUAtV: hmToU(570), // u — Tier V reach (Story 11.2, R18; was 1,500 u, the 12/12 rung)
-    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
     // hp — TIER-I burst damage to every non-owner hull inside the whole lit
@@ -2324,7 +2324,7 @@ export const CONFIG = {
     hits: HITS_HULL,
     rangeU: hmToU(380), // u — Tier I reach (Story 11.2, R18; was 1,000 u, the 8/12 rung)
     rangeUAtV: hmToU(475), // u — Tier V reach (Story 11.2, R18; was 1,250 u, the 10/12 rung)
-    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     maxAmmo: 1, // one shell in the pool — presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between shells (−5 %/tier derived)
     // hp — tier-I burst damage to every non-owner hull inside the zone; tiers
@@ -2375,7 +2375,7 @@ export const CONFIG = {
     // rung). FIXED at every tier: R7 steps the radius, never the reach. FLASH
     // SHELLS read this same reach (epic-10 amendment 4, ruling 2).
     rangeU: hmToU(380),
-    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     shellRadius: 2, // u — shell collision radius (star-shell parity)
     maxAmmo: 1, // one round in the pool (2026-11-05, Story 10.5)
     reloadMs: 30000, // ms — Eric 2026-11-05, Story 10.5, R4 ("FOULING SHELL 30")
@@ -2486,7 +2486,7 @@ export const CONFIG = {
     // The star shell's mask: interception by a hull flashes at the stop
     // point; a flash never detonates a mine (amendment 135(d)).
     hits: HITS_HULL,
-    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    shellSpeed: 850, // u/s — standardized gun-family muzzle velocity (Eric 2026-11-22: 500 → 850; was 300→500 2026-07-25)
     shellRadius: 2, // u — shell collision radius (star-shell parity)
     maxAmmo: 1, // one round in the pool (2026-11-05, Story 10.5)
     reloadMs: 30000, // ms — Eric 2026-11-05, Story 10.5, R4 ("FLASH SHELL 30")

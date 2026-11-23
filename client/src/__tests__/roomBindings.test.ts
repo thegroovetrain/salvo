@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, MSG, SHIFT_IDS, baseSmokeStats, type OwnShip } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, HULL_IDS, MSG, SHIFT_IDS, baseSmokeStats, hullEnvelope, type OwnShip } from '@salvo/shared';
 import {
   BURN_AMOUNT_CAP,
   BURN_MAX_MULTIPLIER,
@@ -455,7 +455,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     countermeasure: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
-      onBoom,
+      onBoom: over.onBoom ?? onBoom,
       onBallisticUpdate,
       ownFireOf: over.ownFireOf ?? (() => null),
     },
@@ -475,6 +475,50 @@ function setupEvents(over: Record<string, unknown> = {}) {
   bindRoom(conn, deps);
   return { sink, onBurst, onBoom, spawnEffect, onBallisticUpdate, play };
 }
+
+// Each special shell's burst sound plays when OUR shell bursts, not at a fixed
+// offset after the launch (epic-12 amendment 17). The four shells arc over ships
+// and land (shared/src/sim/shell.ts `overShips`/`overLand`), so each one acts
+// only at its burst; a boom for one is a miss, and gets no burst sound.
+describe('own special shell burst sound at its burst', () => {
+  const BURSTS = [
+    ['starShells', 'starShellBurst'],
+    ['phosphorShells', 'phosphorShellBurst'],
+    ['foulingShell', 'foulingShellBurst'],
+    ['dazzleShells', 'flashShellBurst'],
+  ] as const;
+  const burstCues: readonly string[] = BURSTS.map(([, cue]) => cue);
+  const burstCalls = (play: ReturnType<typeof vi.fn>) => play.mock.calls.filter(([id]) => burstCues.includes(id));
+
+  for (const [weapon, cue] of BURSTS) {
+    it(`an OWN ${weapon} burst plays ${cue} once, reading the claim BEFORE the track is retired`, () => {
+      const calls: string[] = [];
+      const ownFireOf = (id: string) => {
+        calls.push(`read:${id}`);
+        return id === 's-1' ? weapon : null;
+      };
+      const { sink, play } = setupEvents({ ownFireOf, onBurst: () => calls.push('retire') });
+      sink.handler(eventFrame({ k: 'burst', id: 's-1', x: 300, y: -120 }));
+      expect(burstCalls(play)).toEqual([[cue]]);
+      expect(calls).toEqual(['read:s-1', 'retire']);
+    });
+
+    it(`an own ${weapon} BOOM (a miss) plays no burst sound`, () => {
+      const { sink, play } = setupEvents({ ownFireOf: () => weapon });
+      sink.handler(eventFrame({ k: 'boom', id: 's-1', x: 300, y: -120 }));
+      expect(burstCalls(play)).toEqual([]);
+    });
+  }
+
+  it('an own gun burst, or an unclaimed (enemy) burst, plays no burst sound', () => {
+    const gun = setupEvents({ ownFireOf: () => 'gun' });
+    gun.sink.handler(eventFrame({ k: 'burst', id: 'g-1', x: 0, y: 0 }));
+    expect(burstCalls(gun.play)).toEqual([]);
+    const enemy = setupEvents({ ownFireOf: () => null });
+    enemy.sink.handler(eventFrame({ k: 'burst', id: 'e-1', x: 10, y: 10 }));
+    expect(burstCalls(enemy.play)).toEqual([]);
+  });
+});
 
 describe('bindRoom burst events', () => {
   it('spawns the burst effect and terminates the shell render on a burst event', () => {
@@ -1885,6 +1929,32 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(ownFireWeapon).not.toHaveBeenCalled();
     expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'e1' }), null, null);
     expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'e2' }), null, null);
+  });
+
+  // The server back-dates a fired shell by up to `fireBackdateCeilingMs` and
+  // pre-steps it, so a bow shot's FIRST reveal sits downrange of the muzzle by
+  // that long at the shell's own speed — past one bare hull length at gun speed.
+  describe('a back-dated own shell is still claimed', () => {
+    const speed = CONFIG.gun.shellSpeed;
+    const reach = (speed * CONFIG.net.fireBackdateCeilingMs) / 1000;
+    const hullLen = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
+    const reveal = (dist: number) => ({ k: 'shell' as const, id: 'b1', x: dist, y: 0, vx: speed, vy: 0, t: 900 });
+
+    it('claims a reveal one half-hull of muzzle plus the back-date pre-step out', () => {
+      const dist = hullLen / 2 + reach;
+      expect(dist).toBeGreaterThan(hullLen); // the bare gate would have rejected it
+      const { sink, play, onShell } = setupWater('broadside');
+      sink.handler(victimFrame([reveal(dist)], {}));
+      expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' }), 'broadside', 'broadside');
+      expect(play).toHaveBeenCalledWith('mainBattery');
+    });
+
+    it('does not claim a reveal beyond a hull length plus the back-date pre-step', () => {
+      const { sink, onShell, ownFireWeapon } = setupWater('broadside');
+      sink.handler(victimFrame([reveal(hullLen + reach + 1)], {}));
+      expect(ownFireWeapon).not.toHaveBeenCalled();
+      expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'b1' }), null, null);
+    });
   });
 
   // --- CYCLE-148 REVIEW GATE, P2: a RE-REVEAL is not a click ----------------
