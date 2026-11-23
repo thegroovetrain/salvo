@@ -1433,7 +1433,8 @@ function scnGunnery(g: Golden): void {
   }
   expect(hit).toBe(true);
   const faHit = cap(g, w, 'a');
-  const hc = faHit.events.find((e): e is HitCallEvent => e.k === 'hc');
+  const hcs = faHit.events.filter((e): e is HitCallEvent => e.k === 'hc');
+  const hc = hcs[0];
   prove(
     g,
     'gunnery-hitcall-beyond-sight',
@@ -1441,7 +1442,8 @@ function scnGunnery(g: Golden): void {
       Object.keys(hc).join(',') === 'k,id,x,y' && // NO victim id / severity field anywhere in it
       hc.id === 'a' && // the SHOOTER's id — never the victim's
       !faHit.contacts.some((c) => c.id === 'b') && // b really is fogged (beyond the hull sight)
-      !faHit.events.some((e) => e.k === 'sp' && e.x === hc.x && e.y === hc.y), // exactly one of hc/sp per shell (a volley-mate may splash on the same tick elsewhere)
+      // exactly one of hc/sp per shell: no `sp` at ANY hc's coordinates (a volley-mate may splash elsewhere on the same tick)
+      !hcs.some((h) => faHit.events.some((e) => e.k === 'sp' && e.x === h.x && e.y === h.y)),
   );
 }
 
@@ -1601,18 +1603,18 @@ function scnWake(g: Golden): void {
 function scnTorpReReveal(g: Golden): void {
   const w = bareWorld(1021);
   const b = place(w, 'b', 0, 0); // the lone observer; `a` is a phantom owner
-  injectShell(w, 'tp', 'a', TORP_SIGHT + 6, 0, Math.PI, 5_000, 'torp'); // just outside TORP_SIGHT, closing -x at 25u/tick
+  injectShell(w, 'tp', 'a', TORP_SIGHT + 6, 0, Math.PI, 5_000, 'torp'); // just outside TORP_SIGHT, closing -x at one tick's travel (shellSpeed × dt) per step
   cap(g, w, 'b'); // launch tick: hidden
   w.step();
-  const first = cap(g, w, 'b'); // crosses the ring: revealed (TORP_SIGHT − 19u out)
+  const first = cap(g, w, 'b'); // crosses the ring: revealed (one tick inside TORP_SIGHT)
   const one = first.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
   b.dazzledUntil = w.now + FLASH_WINDOW_MS; // flashed for exactly the next frame: every eye reach is 0 in the ramp
   w.step();
-  const shrunk = cap(g, w, 'b'); // TORP_SIGHT − 44u out: OUTSIDE the whited-out reach — silent, mark cleared
+  const shrunk = cap(g, w, 'b'); // two ticks inside TORP_SIGHT: OUTSIDE the whited-out reach — silent, mark cleared
   prove(g, 'torp-re-reveal-silent-outside', !!one && !shrunk.events.some(isBallistic) && !b.seenBallistics.has('tp'));
   b.dazzledUntil = 0; // sight back
   w.step();
-  const again = cap(g, w, 'b'); // TORP_SIGHT − 69u out: INSIDE again — revealed again
+  const again = cap(g, w, 'b'); // three ticks inside TORP_SIGHT: INSIDE again — revealed again
   const two = again.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
   const live = w.shells.get('tp')!;
   prove(
