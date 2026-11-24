@@ -35,7 +35,9 @@ Phosphor led on every hull in the 2026-11-23 baseline. **Accepted:** Eric ruled 
 | Iowa ARMOR 95 → 105 | 99 | 27.3 (19–37) | 23.2 (16–32) | 27.3 (19–37) | 22.2 (15–31) | 653 |
 | Yamato POWER 140 → 130 | 99 | 31.6 (23–41) | 23.5 (16–33) | 24.5 (17–34) | 20.4 (14–29) | 664 |
 | Iowa INTEL 125 confirm (seed 1000) | 198 | 29.3 (23–36) | 32.3 (26–39) | 24.2 (19–31) | **14.1 (10–20)** | 675 |
-| Iowa ARMOR 105 confirm (seed 1000) | 198 | _running_ | | | | |
+| Iowa ARMOR 105 confirm (seed 1000) | 198 | 29.4 (24–36) | 28.4 (23–35) | 23.9 (18–30) | **18.3 (14–24)** | 678 |
+
+ARMOR 105 pooled over both seeds (n = 297): Iowa ≈ 19.6 % — a real but small lift (~+4 pp), not enough alone.
 
 **The INTEL 125 arm did not replicate:** 26.3 % on seed 7 (n = 99), 14.1 % on fresh seeds (n = 198) — the first reading was noise. Lesson for the next agent: a 99-match arm (±9 pp per hull) cannot judge a single-stat hull change of this size; screen with 198+ on fresh seeds before believing one.
 
@@ -45,4 +47,11 @@ Stat candidates follow Eric's 2026-11-24 grid rule (steps of 10, 5 at finest).
 
 ## 4. Proposals (not ruled)
 
-_See the PR / morning report; filled in when the confirm arm lands._
+Ranked by measured effect. None ruled yet.
+
+1. **Iowa ARMOR 95 → 105** — measured +4 pp (n = 297 pooled). Off-theme but the direct fix for its measured deficit (dies first). Not enough alone.
+2. **Iowa ARMOR 105 + ENGINES 130 together** — UNMEASURED as a pair; each alone read about +3–4 pp (engines only n = 99). The on-theme half is ENGINES (fastest hull).
+3. **Yamato / Bismarck at ~29–31 %** — POWER 130 did not move Yamato. Untested levers: Yamato RELOAD 70 → 60 or ENGINES 85 → 75 (its ARMOR must stay the highest, and POWER the biggest, by theme). UNMEASURED.
+4. **Phosphor still top at 10.7 %** — untested candidates: burn 12 → 10 hp/s, or reload 20 → 25 s. Star shells are now the weakest special shell (3.4 %). UNMEASURED.
+
+Rejected / not to re-propose without new evidence: Iowa INTEL 125 (did not replicate, n = 198: 14.1 %); Yamato POWER 130 (no effect, n = 99).
