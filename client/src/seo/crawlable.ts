@@ -8,7 +8,8 @@
 // origin but `SITE_ORIGIN`.
 
 import { injectHead } from './head.js';
-import { prerenderHome, prerenderHowToPlay, prerenderPrivacy, type HomePrerenderOptions } from './prerender.js';
+import { prerenderHowToPlay, prerenderPrivacy } from './prerender.js';
+import { prerenderHome, type HomePrerenderOptions } from './homeMarkup.js';
 import { prerenderStyle } from './prerenderStyle.js';
 import { pageForHtmlPath, type SitePageKey } from './site.js';
 
