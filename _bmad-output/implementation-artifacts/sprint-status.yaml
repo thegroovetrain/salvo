@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-11-23 (2026-11-23 MERGED PR #385 mines roll off the stern (no aim, wedge or leash); Settings WEAPON SELECT PRIME | TOGGLE (cycle 253, 0.20.11, PV 114, epic-12 amendment 20; spec-mine-stern-drop-weapon-toggle.md))
+# last_updated: 2026-11-24 (2026-11-24 every torpedo −100 (heavy 200, light 150, supercav 200); phosphor burst 20 + burn 10/s (cycle 254, 0.20.12, PV 115, epic-12 amendment 21; spec-torpedo-phosphor-damage-cut.md))
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
