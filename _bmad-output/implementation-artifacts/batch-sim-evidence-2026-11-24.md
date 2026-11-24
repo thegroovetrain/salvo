@@ -54,4 +54,6 @@ Ranked by measured effect. None ruled yet.
 3. **Yamato / Bismarck at ~29–31 %** — POWER 130 did not move Yamato. Untested levers: Yamato RELOAD 70 → 60 or ENGINES 85 → 75 (its ARMOR must stay the highest, and POWER the biggest, by theme). UNMEASURED.
 4. **Phosphor still top at 10.7 %** — untested candidates: burn 12 → 10 hp/s, or reload 20 → 25 s. Star shells are now the weakest special shell (3.4 %). UNMEASURED.
 
+**Ruled after this ledger (Eric 2026-11-24):** phosphor burst 20 + burn 10/s (Tier I ceiling about 100), superseding 30 / 12 before landing. Not yet measured by its own campaign.
+
 Rejected / not to re-propose without new evidence: Iowa INTEL 125 (did not replicate, n = 198: 14.1 %); Yamato POWER 130 (no effect, n = 99).

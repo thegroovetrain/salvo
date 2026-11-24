@@ -1,5 +1,5 @@
 ---
-title: 'Torpedo damage −100; phosphor burst 30 + burn 12/s'
+title: 'Torpedo damage −100; phosphor burst 20 + burn 10/s'
 type: 'chore'
 created: '2026-11-24'
 status: 'in-review'
@@ -15,11 +15,11 @@ warnings: []
 
 **Problem:** Batch sims (99 matches × 16 bots, even hull roster, 2026-11-23) show torpedoes taking 26 % of all kills and PHOSPHOR SHELLS winning 12–15 % of the time against a fair 6.3 % (2–4× the other special shells), dealing 35–60 % more damage. Eric: phosphor is *"the 'I want more damage' option out of the special shells, but it shouldn't be objectively the best one."*
 
-**Approach:** Eric 2026-11-24: *"Lets go with the -100 to light/heavy/supercav torpedo base tier 1 damage."* and *"Lets drop the burst to 30 and burn to 12 per second."*
+**Approach:** Eric 2026-11-24: *"Lets go with the -100 to light/heavy/supercav torpedo base tier 1 damage."* and *"Lets drop the burst to 30 and burn to 12 per second."*, then (after the post-change sims) *"phosphor shells 20 damage burst, 10 damage/s."*
 
 ## Boundaries & Constraints
 
-**Always:** `CONFIG.torpedo.damage` 200, `CONFIG.lightTorpedo.damage` 150, `CONFIG.supercavTorpedo.damage` 200, `CONFIG.phosphorShells.damage` 30, `CONFIG.phosphorShells.dps` 12 — whole numbers, Tier I base, tiers keep adding weapon POWER only. `PROTOCOL_VERSION` 114 → 115 (the client's card / weapon-box readouts read these values).
+**Always:** `CONFIG.torpedo.damage` 200, `CONFIG.lightTorpedo.damage` 150, `CONFIG.supercavTorpedo.damage` 200, `CONFIG.phosphorShells.damage` 20, `CONFIG.phosphorShells.dps` 10 — whole numbers, Tier I base, tiers keep adding weapon POWER only. `PROTOCOL_VERSION` 114 → 115 (the client's card / weapon-box readouts read these values).
 
 **Never:** touch the captive mine's torpedo (100), reloads, speeds, radii, durations, star shells (also 50 burst — not in Eric's ruling), or any other dial; pin the new numbers in a test; add UI or copy.
 
@@ -28,7 +28,7 @@ warnings: []
 ## Acceptance Criteria
 
 - Given the shipped `CONFIG`, when a heavy / light / supercav torpedo hits a hull at Tier I with no armor difference, then it deals 200 / 150 / 200 hp.
-- Given a Tier I phosphor shell bursting on a hull, when the hull stays in the burning zone for its full 8 s, then it takes 30 burst + 12 hp/s (about 126 hp).
+- Given a Tier I phosphor shell bursting on a hull, when the hull stays in the burning zone for its full 8 s, then it takes 20 burst + 10 hp/s (about 100 hp).
 - Given a client at PV 114, when it joins a PV 115 server, then it is refused with the version error.
 
 ## Tasks

@@ -2326,10 +2326,10 @@ export const CONFIG = {
     // "PHOSPHOR 50 burst + 20/s burn → 100 + 40/s", the +12/+13/+12/+13 split
     // the implementer's; was 10 / 12 / 15 / 17 / 20 — swapped 2026-10-01,
     // Eric, epic-8 amendment 208).
-    damage: 30, // 50 → 30, Eric 2026-11-24 (phosphor read as the strongest special shell in batch sims)
+    damage: 20, // 50 → 20, Eric 2026-11-24 (30 first, then 20 after the 198-match sims still read it the strongest special shell)
     zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
     zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
-    dps: 12, // 20 → 12, Eric 2026-11-24. hp/s — tier-I burn on every non-owner afloat hull inside; +5 a rung → 40 at V (Story 10.3, ruling 9; was 5 → 10)
+    dps: 10, // 20 → 10, Eric 2026-11-24 (12 first, then 10). hp/s — tier-I burn on every non-owner afloat hull inside; +5 a rung → 40 at V (Story 10.3, ruling 9; was 5 → 10)
     shellRadius: 2, // u — shell collision radius (star-shell parity)
   },
 
