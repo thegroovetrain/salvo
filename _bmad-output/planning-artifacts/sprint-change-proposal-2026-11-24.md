@@ -1,6 +1,6 @@
 # Sprint Change Proposal — 2026-11-24: Epic 13 The Front Door re-cut — no landing redesign; crawlable pages, ship select, settings, publisher approval
 
-**Status:** APPROVED by Eric 2026-11-24 ("Yes, apply it"; gds-correct-course, batch mode) (gds-correct-course, batch mode; four rulings by AskUserQuestion this session)
+**Status:** APPROVED by Eric 2026-11-24 ("Yes, apply it"; gds-correct-course, batch mode; four rulings by AskUserQuestion this session)
 **Trigger:** Eric, 2026-11-24: `/gds-correct-course I think epic 13 isn't quite right. Here is what *actually* needs to happen: 1. The home page looks great, it just isn't crawlable because it doesn't have a crawlable semantic structure. So we need to make *some* changes. 2. Redesign of ship select. 3. Redesign of settings page so its not a garbled mess. 4. Anything else that needs to happen for adsense publisher approval. That's it.`
 **Author:** Developer agent with Eric
 **Predecessors:** `sprint-change-proposal-2026-10-25.md` (The Front Door inserted), `sprint-change-proposal-2026-11-08.md` (→ Epic 13, text whole), `sprint-change-proposal-2026-11-20.md` (Epic 13 is next)
