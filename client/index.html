@@ -41,6 +41,9 @@
     html, body { margin: 0; height: 100%; width: 100%; }
     body, #app { background: #050807; }
     body { overflow: hidden; }
+    /* UI is not highlightable (Eric 2026-11-24); typing fields stay selectable. */
+    body { -webkit-user-select: none; user-select: none; }
+    input, textarea { -webkit-user-select: text; user-select: text; }
     #app { position: fixed; inset: 0; width: 100vw; height: 100vh; }
     #app canvas { display: block; }
   </style>
