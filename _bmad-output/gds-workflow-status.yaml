@@ -16,7 +16,7 @@
 # ledgers and the keys themselves remain in git history.)
 
 generated: '2026-07-15'
-last_updated: '2026-11-23'  # 2026-11-23 MERGED PR #385 mines roll off the stern (no aim, wedge or leash); Settings WEAPON SELECT PRIME | TOGGLE (cycle 253, 0.20.11, PV 114, epic-12 amendment 20; spec-mine-stern-drop-weapon-toggle.md)
+last_updated: '2026-11-24'  # 2026-11-24 every torpedo −100 (heavy 200, light 150, supercav 200); phosphor burst 30 + burn 12/s (cycle 254, 0.20.12, PV 115, epic-12 amendment 21; spec-torpedo-phosphor-damage-cut.md)
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -67,4 +67,4 @@ retrospective-epic-10: _bmad-output/implementation-artifacts/epic-10-retro-2026-
 retrospective-epic-11: _bmad-output/implementation-artifacts/epic-11-retro-2026-11-16.md # complete 2026-11-16 (with Eric; 7 built / 2 shelved / 2 deferred, accepted at 0.19.36 on staging; cycles 226-242, PV 102->110; amendments 1-21; no significant discovery)
 retrospective-epic-12: _bmad-output/implementation-artifacts/epic-12-retro-2026-11-20.md # complete 2026-11-20 (with Eric; 2 built / 2 folded into Epic 14, accepted at 0.20.3 in production; cycles 243-245, PV 110->113; amendments 1-12; no significant-discovery alert)
 
-next_expected: '2026-11-23 MERGED PR #385 mines roll off the stern (no aim, wedge or leash); Settings WEAPON SELECT PRIME | TOGGLE (cycle 253, 0.20.11, PV 114, epic-12 amendment 20; spec-mine-stern-drop-weapon-toggle.md); next: Epic 13 The Front Door (13-1)'
+next_expected: '2026-11-24 every torpedo −100 (heavy 200, light 150, supercav 200); phosphor burst 30 + burn 12/s (cycle 254, 0.20.12, PV 115, epic-12 amendment 21; spec-torpedo-phosphor-damage-cut.md); next: Epic 13 The Front Door (13-1)'

@@ -3,7 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  114 — 2026-11-23 MINES ROLL OFF THE STERN (Eric: "they'd just roll off
+ *  115 — 2026-11-24 TORPEDO AND PHOSPHOR DAMAGE CUT (Eric; epic-12
+ *  amendment 21): no wire shape changes. CONFIG the client reads (the card
+ *  and weapon-box damage readouts): `torpedo.damage` 300 → 200,
+ *  `lightTorpedo.damage` 250 → 150, `supercavTorpedo.damage` 300 → 200,
+ *  `phosphorShells.damage` 50 → 30 and `phosphorShells.dps` 20 → 12.
+ *  Perception exception count stays SIX.
+ *  114 —2026-11-23 MINES ROLL OFF THE STERN (Eric: "they'd just roll off
  *  the rack into the water"). No wire shape changes; a mine click's aim is
  *  ignored and every mine line drops at the new shared `mineDropPoint`
  *  (sim/aim.ts — dead astern, just clear of the transom), never denied
@@ -1166,7 +1172,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 114;
+export const PROTOCOL_VERSION = 115;
 
 // Tunables
 export * from './constants.js';
