@@ -28,7 +28,7 @@
 //
 // EVERY DOCTRINE VERB HAS EXACTLY ONE BEHAVIOURAL CONSUMER, inside its
 // equipment's tactic:
-//   captiveMines (kind) — full-placeRange proactive lays, hostile-only victims
+//   captiveMines (kind) — proactive lays, hostile-only victims
 //   foulingMines (kind) — the trap goes down EARLIER against a closing pursuer
 //   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
@@ -44,7 +44,6 @@ import {
   bearing,
   hullEnvelope,
   inArc,
-  sectorArcFor,
   twinSectorArcFor,
   wrapAngle,
   type EffectiveStats,
@@ -77,7 +76,7 @@ import {
   burstOnLiveContact,
   deepFreezeRows,
   distTo,
-  sectorPlacement,
+  sternDrop,
   shotReaches,
   solveTorpedoShot,
   stamped,
@@ -99,21 +98,18 @@ type MineLineId = Extract<EquipmentId, 'navalMines' | 'captiveMines' | 'foulingM
 /** Every equipment id a WEAPON row covers: all of them but the class Shifts. */
 type WeaponLineId = Exclude<EquipmentId, ShiftId>;
 
-/** The mine's ratified astern sector and the broadside's two beam sectors —
- *  resolved ONCE at module load from the single shared arc source the
- *  equipment rows enforce with. */
-const REAR_SECTOR = sectorArcFor('navalMines');
+/** The broadside's two beam sectors — resolved ONCE at module load from the
+ *  single shared arc source the equipment rows enforce with. */
 const BEAM_SECTORS = twinSectorArcFor('broadside');
 
-/** Fraction of CONFIG.mine.placeRange a STANDARD mine is dropped at — astern
- *  of the hull but well inside the rack's reach, so arc and range pass by
- *  construction and only the water can refuse. A CAPTIVE mine drops at the
- *  FULL placeRange instead (see mineSolve). */
-const MINE_DROP_FRAC = 0.5;
-/** × placeRange — how close a track must be before a mine is worth laying
+/** rad — the astern cone a track must sit in for a REACTIVE mine
+ *  (CONFIG.bots.mineAsternHalfArcDeg, the old rear sector's half-arc). */
+const ASTERN_HALF_ARC = (CONFIG.bots.mineAsternHalfArcDeg * Math.PI) / 180;
+
+/** × CONFIG.bots.mineReachU — how close a track must be before a mine is worth laying
  *  (proactive/eager and reactive/closing branches alike at base). */
 const MINE_NEAR_MULT = 2;
-/** × placeRange — the WIDENED laying range against a CLOSING pursuer for the
+/** × CONFIG.bots.mineReachU — the WIDENED laying range against a CLOSING pursuer for the
  *  FOULING rack (epic-8 amendment 81, where it was the PROP FOULING verb on
  *  the naval rack): a slow only pays if the victim runs THROUGH the field, so
  *  a fouling trapper seeds the water earlier along the chase. */
@@ -146,11 +142,11 @@ function isClosing(sit: BotSituation, t: BotTrack): boolean {
   return v.vx * (sit.x - p.x) + v.vy * (sit.y - p.y) > 0;
 }
 
-/** Is this track inside the hull's astern sector? */
+/** Is this track inside the hull's astern cone? */
 function behindUs(self: BotSelf, sit: BotSituation, t: BotTrack): boolean {
-  const center = wrapAngle(self.state.heading + REAR_SECTOR.offset);
+  const center = wrapAngle(self.state.heading + Math.PI);
   const p = plotAt(sit, t);
-  return inArc(Math.atan2(p.y - sit.y, p.x - sit.x), center, REAR_SECTOR.halfArc);
+  return inArc(Math.atan2(p.y - sit.y, p.x - sit.x), center, ASTERN_HALF_ARC);
 }
 
 // ---------------------------------------------------------------------------
@@ -446,7 +442,7 @@ function captiveMineWant(ctx: TacticContext): boolean {
   // SEPARATE LINES in two separate slots with two separate racks — a fouling
   // layer's own tactic does its own widening, and a captive mine fouls
   // nothing — so a cross-line term here would be the flat model returning.
-  return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
+  return distTo(ctx.sit, t) <= CONFIG.bots.mineReachU * MINE_NEAR_MULT;
 }
 
 // THE FIELD-CHURN BOUND IS RETIRED (Story 8.4, FR57/AR48). It existed for one
@@ -522,9 +518,9 @@ function reactiveMineWant(ctx: TacticContext, id: MineLineId): boolean {
     // FOULING is the widening kind now (amendment 81), not a verb on the naval
     // rack: a slow only pays if the pursuer runs THROUGH the field.
     const mult = id === 'foulingMines' ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
-    if (d <= CONFIG.mine.placeRange * mult) return true;
+    if (d <= CONFIG.bots.mineReachU * mult) return true;
   }
-  return appetite >= APPETITE_EAGER && d <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
+  return appetite >= APPETITE_EAGER && d <= CONFIG.bots.mineReachU * MINE_NEAR_MULT;
 }
 
 /**
@@ -541,19 +537,15 @@ function mineWant(ctx: TacticContext, id: MineLineId): boolean {
 
 /** ONE MINE TACTIC, built per line (epic-8 amendment 79 — captive and fouling
  *  reuse the mine tactic keyed by their own ids). The three racks share every
- *  chassis number, so only the want branches and the drop distance differ.
- *  The drop is dead astern, at the centre of the rear sector. */
+ *  chassis number, so only the want branches differ. The mine rolls off the
+ *  stern (`mineDropPoint`, 2026-11-23): there is no placement to choose. */
 function mineTacticFor(id: MineLineId): EquipmentTactic {
   return {
     id,
     kind: 'placement',
-    reachU: () => CONFIG.mine.placeRange,
+    reachU: () => CONFIG.bots.mineReachU,
     want: (ctx) => mineWant(ctx, id),
-    // CAPTIVE lays at the FULL placeRange: a 144u trip ring is area denial, so
-    // the round goes as far out as the rack reaches; a contact or fouling mine
-    // stays at half reach, seeding the water the hull just left.
-    solve: (ctx) =>
-      stamped(ctx, id, sectorPlacement(ctx, REAR_SECTOR, CONFIG.mine.placeRange * (id === 'captiveMines' ? 1 : MINE_DROP_FRAC))),
+    solve: (ctx) => stamped(ctx, id, sternDrop(ctx)),
   };
 }
 

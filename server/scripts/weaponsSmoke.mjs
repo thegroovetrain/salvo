@@ -26,18 +26,21 @@
 //      death + kill. The radar half of the torpedo contract (a torpedo's WATER
 //      paints while the torpedo itself stays silent beyond detect, amendment 196)
 //      lives in server/src/__tests__/perception.test.ts, not here.
-//   2. MINE VISIBILITY + NO EVICTION — a stationary layer (Warspite) clicks naval
-//      mines astern (inside `placeRange`, spread over the rear sector) while a
-//      stationary observer sits at a FIXED point abeam of one drop point, just
-//      inside the mine eye reach of it (3 hm — Story 11.2). Fit: naval
+//   2. MINE VISIBILITY + NO EVICTION — a layer (Warspite) lays a field of naval
+//      mines by SAILING: a mine rolls off the stern at the shared
+//      `mineDropPoint` whatever the aim (2026-11-23), so it drops from rest,
+//      then sails ahead and drops again every blast radius, while a
+//      stationary observer sits at a FIXED point abeam of the first drop point, just
+//      inside the mine eye reach of it (Story 11.2). Fit: naval
 //      mines + SECOND MINE RACK (Story 10.6, R7) — the own block's two racks
 //      are checked full at spawn and one-short-each after two drops (R17
 //      alternation). Asserts SIX own
 //      mines live at once (Story 8.4 deleted every mine cap) and that the
 //      observer DOES see an enemy mine inside the mine eye reach and lists
-//      none from beyond it (the other drops of the fan lie outside its reach,
+//      none from beyond it (the later drops of the field lie outside its reach,
 //      so the "never beyond" claim can fail).
-//   3. MINE AMBUSH — the layer lays ONE mine; after it arms, the victim joins
+//   3. MINE AMBUSH — the layer lays ONE mine off its stern and sails ahead off
+//      it; after it arms, the victim joins
 //      posed beyond the trip ring on a straight line THROUGH the mine and sails it at
 //      `throttle 1, rudder 0`. Asserts the mine's gated damage and a boom. (Story
 //      11.2: a mine is seen at 3 hm, less than a trip ring plus half a hull, so a
@@ -139,6 +142,7 @@ import {
   launcherAimPoint,
   launcherArcHolds,
   launcherStationWorld,
+  mineDropPoint,
   pointPolygonDistance,
   polygonMaxRadius,
   transformPolygon,
@@ -441,6 +445,10 @@ async function awaitPosed(clients, label) {
   // a socket allowance, not a sim cadence.
   await pilotUntil(clients, () => clients.every((c) => c.welcome && c.you), 5000, `${label}: first frames`);
   for (const c of clients) {
+    // A client checked on an earlier call has since been scripted (a layer
+    // sails off its mine — `layOne`): its spawn pose was already proven.
+    if (c.posed) continue;
+    c.posed = true;
     // Everything below is OBSERVED FROM THE SERVER: a mismatch is a smoke failure.
     assert(c.welcome.mapSeed === MAP_SEED, `${label}: ${c.name} got mapSeed ${c.welcome.mapSeed}, expected ${MAP_SEED} (is HC_DEV_OPTIONS=1 set on the server?)`);
     const off = dist(c.you, c.pose);
@@ -578,21 +586,28 @@ async function torpedoPhase(log) {
   await leaveAll([a, b]);
 }
 
-/** The naval rack's placement aim for the k-th drop: dead astern, fanned
- *  across the rear sector so the drops do not stack on one point. */
-function astern(heading, k) {
-  return heading + Math.PI + ((k % 5) - 2) * 0.2;
-}
-const DROP_U = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
+/** A mine CLICK: since 2026-11-23 a mine ROLLS OFF THE STERN at the shared
+ *  `mineDropPoint` whatever the aim, so the aim sent is just dead astern. */
+const dropMine = (ctx, inp) => clickAt(ctx.you.heading + Math.PI)(ctx, inp);
+
+/** The stern drop point of a `cls` hull at `pose` — the shared function the
+ *  server's mine row drops at. */
+const sternDrop = (cls, pose) => mineDropPoint(pose, CONFIG.shipClasses[cls].hull.length);
+
+/** u — how far the layer sails between two drops of a field (phase 2): one
+ *  BLAST radius, so every drop lands on its own water. The rack drops at one
+ *  stern point, so a field is laid by sailing. */
+const DROP_SPACING_U = CONFIG.mine.blastRadius;
 
 /** u — how far inside the mine eye reach a watcher is posed from the mine it
  *  must see (a margin against the drop landing a unit off its aim). */
 const WATCH_INSIDE_U = 8;
 
-/** The k-th drop's point for a layer at `pose` (see `astern`). */
+/** The k-th drop's point for a layer posed at `pose` that sails straight
+ *  ahead DROP_SPACING_U between drops. */
 function dropPoint(pose, k) {
-  const brg = astern(pose.heading, k);
-  return { x: pose.x + Math.cos(brg) * DROP_U, y: pose.y + Math.sin(brg) * DROP_U };
+  const p0 = sternDrop(LAYER, pose);
+  return { x: p0.x + Math.cos(pose.heading) * k * DROP_SPACING_U, y: p0.y + Math.sin(pose.heading) * k * DROP_SPACING_U };
 }
 
 /** u — the gap between the point `p` and the hull of `cls` at `pose`: the
@@ -609,25 +624,28 @@ function hullGap(cls, pose, p) {
 /** PHASE 2 — mine visibility + no eviction. */
 async function minePhase(log) {
   const layerPose = { x: 0, y: 0, heading: 0 };
-  // FIXED observer, ABEAM of the fan's FIRST drop (k = 0 — the one click the
-  // script always makes with no mine of its own yet, so that point is mined
-  // on every run; later clicks read a mine count that lags the frames) and
-  // just inside the mine eye reach of it, on the fan's outer side (Story
-  // 11.2: a mine is seen at 3 hm, far less than the drop fan is wide, so the
-  // observer watches ONE drop point, side on, with its outline clear of every
-  // trip ring of the fan).
+  // FIXED observer, ABEAM of the FIRST drop (k = 0 — the one click the
+  // script makes from rest, so that point is mined on every run) and just
+  // inside the mine eye reach of it (Story 11.2: a mine is seen at 10 hm,
+  // less than the field is long, so the observer watches ONE drop point,
+  // side on, with its outline clear of every trip ring of the field, and the
+  // later drops lie beyond its reach — the fog pin below can fail).
   const watched = dropPoint(layerPose, 0);
-  const outward = watched.y >= layerPose.y ? 1 : -1;
-  const obsPose = { x: watched.x, y: watched.y + outward * (DETECT - WATCH_INSIDE_U), heading: 0 };
+  const obsPose = { x: watched.x, y: watched.y + (DETECT - WATCH_INSIDE_U), heading: 0 };
+  // The layer sails the field's length (and coasts a little past it).
+  const sailEnd = { x: layerPose.x + (NO_EVICTION_MINES + 1) * DROP_SPACING_U, y: layerPose.y };
   checkPoseWater('mine layer', layerPose);
+  checkPoseWater('mine layer, field laid', sailEnd);
+  checkLane('mine layer', layerPose, sailEnd);
   checkPoseWater('mine observer', obsPose);
+  precondition(dist(obsPose, dropPoint(layerPose, NO_EVICTION_MINES - 1)) > DETECT, 'mine: every drop of the field is inside the observer\'s reach (the fog pin would be vacuous)');
   precondition(dist(obsPose, watched) < DETECT, 'mine: the observer cannot see the drop point it watches');
   // TWO RACKS (Story 10.6, R7): the naval line plus SECOND MINE RACK — each
   // rack holds the row's per-rack base and has its own clock.
   const MINE_FIT = ['navalMines', 'secondMineRack'];
   const layerStats = statsOf(LAYER, MINE_FIT);
   const rack = layerStats.equipment.navalMines;
-  for (let k = 0; k < 5; k += 1) {
+  for (let k = 0; k < NO_EVICTION_MINES; k += 1) {
     precondition(hullGap(VICTIM, obsPose, dropPoint(layerPose, k)) > rack.triggerRadius + WATCH_INSIDE_U, `mine: the observer's hull is inside drop ${k}'s trip ring`);
   }
   const a = await joinClient('MINE-A', LAYER, { fit: MINE_FIT, pose: layerPose });
@@ -637,11 +655,20 @@ async function minePhase(log) {
   const racks0 = JSON.stringify(a.you.racks);
   assert(racks0 === JSON.stringify(Array(layerStats.mineRacks).fill({ n: perRack, reloadMsLeft: 0 })), `mine: own racks ${racks0}, expected ${layerStats.mineRacks} full racks of ${perRack}`);
   let racksSeen = '';
-  a.script = (ctx, inp) => clickAt(astern(ctx.pose.heading, ctx.distinctOwn.size), DROP_U)(ctx, inp);
+  // LAY THE FIELD BY SAILING: drop from rest, then full ahead, and drop again
+  // each time the stern has sailed DROP_SPACING_U past the latest drop.
+  let lastDrop = null;
+  a.script = (ctx, inp) => {
+    if (lastDrop !== null) inp.throttle = 1;
+    const here = sternDrop(LAYER, ctx.you);
+    if (lastDrop !== null && dist(here, lastDrop) < DROP_SPACING_U) return;
+    dropMine(ctx, inp);
+    lastDrop = here;
+  };
   // Budget: NO_EVICTION_MINES drops at one per CONFIG.mine.reloadMs is an upper
-  // bound on the rack's cadence (it starts full, so it is faster), + armDelay,
-  // + ONE reload of slack.
-  const budget = NO_EVICTION_MINES * rack.reloadMs + CONFIG.mine.armDelay + rack.reloadMs;
+  // bound on the rack's cadence (it starts full, so it is faster), + the sail
+  // along the field, + armDelay, + ONE reload of slack.
+  const budget = NO_EVICTION_MINES * rack.reloadMs + sailMs(LAYER, NO_EVICTION_MINES * DROP_SPACING_U) + CONFIG.mine.armDelay + rack.reloadMs;
   const took = await pilotUntil([a, b], () => {
     // THE ALTERNATION (R17): after the first two drops each rack is one short.
     if (racksSeen === '' && a.distinctOwn.size === 2) racksSeen = JSON.stringify((a.you.racks ?? []).map((r) => r.n));
@@ -664,19 +691,30 @@ async function minePhase(log) {
   await leaveAll([a, b]);
 }
 
-/** Lay exactly ONE mine of the fitted kind astern; return it once armed. */
+/** u — how far the layer's centre sails from its mine after laying it: its
+ *  own reach plus a victim's, so a victim's lane THROUGH the mine (across the
+ *  layer's track) passes the layer wide. The mine rolls off the stern, right
+ *  under the transom (2026-11-23). */
+const LANE_CLEAR_U = polygonMaxRadius(hullSilhouette(LAYER)) + polygonMaxRadius(hullSilhouette(VICTIM));
+
+/** Lay exactly ONE mine of the fitted kind off the stern, sail ahead off it,
+ *  and return it once armed. */
 async function layOne(a, label) {
   a.script = (ctx, inp) => {
-    if (!ctx.mines.some((m) => m.own)) clickAt(astern(ctx.pose.heading, 2), DROP_U)(ctx, inp);
+    if (!ctx.mines.some((m) => m.own)) dropMine(ctx, inp);
   };
   // Budget: the rack starts loaded — a few ticks; one reload of slack.
   const rowId = a.fit[0];
   const reloadMs = effectiveStats(CONFIG.shipClasses[a.cls], a.fit).equipment[rowId].reloadMs;
   await pilotUntil([a], () => a.mines.some((m) => m.own), reloadMs, `${label}: one mine laid`);
   const laid = a.mines.find((m) => m.own);
+  const laidAt = Date.now();
+  a.script = sailAhead;
+  // Budget: the sail from rest over the clearance, twice.
+  await pilotUntil([a], () => dist(a.you, laid) >= LANE_CLEAR_U, 2 * sailMs(a.cls, LANE_CLEAR_U), `${label}: the layer sails off its mine`);
   a.script = idle;
   // Let it arm (CONFIG.mine.armDelay — the shared chassis) + two ticks.
-  await holdFor([a], CONFIG.mine.armDelay + 2 * DT);
+  await holdFor([a], Math.max(0, CONFIG.mine.armDelay + 2 * DT - (Date.now() - laidAt)));
   return laid;
 }
 
@@ -685,7 +723,7 @@ async function layOne(a, label) {
  *  (`triggerRadius`), or its centre on the mine eye reach — so it starts
  *  outside the ring AND beyond the mine eye reach whatever that reach is
  *  (3 hm when this phase was written, 10 hm since 2026-11-12); the line runs
- *  along −y so it passes the layer (at the origin) wide. */
+ *  along −y, across the layer's track, which `layOne` sailed clear of it. */
 function victimPoseThrough(mine, triggerRadius) {
   const approach = Math.round(Math.max(triggerRadius + polygonMaxRadius(hullSilhouette(VICTIM)), DETECT) + 100);
   precondition(approach > DETECT, 'victim posed inside the mine eye reach');

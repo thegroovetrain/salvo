@@ -29,13 +29,11 @@ import {
   angleDiff,
   bearing,
   hullSilhouette,
-  inArc,
   isAfloat,
   islandDistance,
   mulberry32,
   nearestCoastPoint,
   polygonMaxRadius,
-  sectorArcFor,
   launcherArcHolds,
   EQUIPMENT_IDS,
   SHIFT_IDS,
@@ -75,7 +73,6 @@ import type {
   RememberedContact,
 } from '../game/ai/types.js';
 
-const REAR_SECTOR = sectorArcFor('navalMines');
 
 /** A mutable stand-in for the narrow world port: the clock and the live ring
  *  are what a steering test needs to control, and neither is settable on a
@@ -1074,7 +1071,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'mainBattery'));
   });
 
-  it('MINE LEGALITY: dropped inside the astern sector, inside placeRange, and never on blocked water', () => {
+  it('MINE LEGALITY: the rack fires on open water and never when the stern drop point is blocked', () => {
     const w = openWorld(203);
     const port = fakePort(w);
     const rec = mkBot(w, 'warspite', 0, 0, 1.1); // an off-axis heading on purpose
@@ -1083,12 +1080,8 @@ describe('weapons — every shot is a LEGAL shot', () => {
     rec.hp = rec.stats.maxHp * 0.1; // hurt -> disengaging -> laying its field
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(rack);
-    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
-    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
-    expect(d.aimDist).toBeLessThanOrEqual(CONFIG.mine.placeRange);
-    expect(d.aimDist).toBeGreaterThan(0);
-    // BLOCKED WATER: pushed against the rim with the rack pointed off the map,
-    // the drop is refused outright — no click is spent placing a mine in air.
+    // BLOCKED WATER: pushed against the rim with the stern over the edge, the
+    // drop is refused outright — no click is spent placing a mine in air.
     const rim = mkBot(w, 'warspite', -(w.map.radius - 20), 0, Math.PI); // bow west, rack east
     rim.hp = rim.stats.maxHp * 0.1;
     rim.state.x = w.map.radius - 20;
@@ -1533,9 +1526,6 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     plot(mind, track(port.now, { x: -200, y: 0 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(rack);
-    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
-    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
-    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange * 0.5, 6);
   });
 
   it('NON-NATIVE PAIRING: a Torpedo Boat that acquired star shells fires the sensor flare', () => {
@@ -1551,9 +1541,9 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('TWO PROFILES, ONE MINE: identical placement, different eagerness only', () => {
     const w = openWorld(403);
     const port = fakePort(w);
-    // Disengaging, both lay — and the geometry is byte-identical relative to
-    // the hull: dead astern at half placeRange. A profile cannot override an
-    // equipment tactic's geometry.
+    // Disengaging, both lay — and the command is byte-identical relative to
+    // the hull (the stern drop). A profile cannot override an equipment
+    // tactic's geometry.
     const siegeBs = mkBot(w, 'yamato', 0, 0, 0);
     fitExtra(siegeBs, 'navalMines');
     siegeBs.hp = siegeBs.stats.maxHp * 0.1;
@@ -1593,18 +1583,17 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(siege3, siegeClosing, port).fireSlot).toBe(slotOf(siege3, 'navalMines'));
   });
 
-  it('CAPTIVE MINES: full placeRange, proactive and arcless', () => {
+  it('CAPTIVE MINES: proactive and arcless', () => {
     const w = openWorld(404);
     const port = fakePort(w);
-    // A hostile AHEAD (outside the rear arc): a contact mine has no play, a
-    // captive mine lays anyway (its torpedo does the chasing) at FULL reach.
+    // A hostile AHEAD (outside the astern cone): a contact mine has no play, a
+    // captive mine lays anyway (its torpedo does the chasing).
     const cap = mkBot(w, 'warspite', 0, 0, 0);
     const capRack = swapRack(cap, 'captiveMines');
     const capMind = mkMind('trapper');
     plot(capMind, track(port.now, { x: 250, y: 0, speed: 0 }));
     const d = COMBAT_BRAIN.decide(cap, capMind, port);
     expect(d.fireSlot).toBe(capRack);
-    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6); // FULL reach — 144u trip ring
     const base = mkBot(w, 'warspite', 0, 0, 0);
     const baseMind = mkMind('trapper');
     plot(baseMind, track(port.now, { x: 250, y: 0, speed: 0 }));
@@ -1614,7 +1603,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('FOULING MINES: the trap goes down EARLIER against a closing pursuer', () => {
     const w = openWorld(405);
     const port = fakePort(w);
-    // A pursuer astern at 450u, closing: outside the base 2x placeRange
+    // A pursuer astern at 450u, closing: outside the base 2x mineReachU
     // window, inside the fouling 4x one — the slow only pays if the victim
     // runs THROUGH the field, so the fouling layer seeds the chase earlier.
     // THE WIDENING IS THE LINE'S OWN now (epic-8 amendment 81), not a verb the
@@ -1908,11 +1897,6 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     viewWithOwnMines(mind, 1); // one trap down, reserve (3) not reached
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(slotOf(rec, 'navalMines'));
-    // The drop is the ordinary astern placement — geometry is the tactic's,
-    // never the occasion's.
-    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
-    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
-    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange * 0.5, 6);
   });
 
   it('PREPARED LAY: CAPTIVE opens the occasion at NEUTRAL appetite — a plain rack stays reactive', () => {
@@ -1927,7 +1911,6 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     viewWithOwnMines(capMind, 0);
     const d = COMBAT_BRAIN.decide(cap, capMind, port);
     expect(d.fireSlot).toBe(capRack);
-    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6); // captive: FULL reach
     // The same bulwark WITHOUT the doctrine does not lay into empty water —
     // a contact mine needs something following you — so it requests nothing
     // (the recon buoy it used to site instead went with the buoy, Story 8.16).

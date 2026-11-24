@@ -3,6 +3,14 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  114 — 2026-11-23 MINES ROLL OFF THE STERN (Eric: "they'd just roll off
+ *  the rack into the water"). No wire shape changes; a mine click's aim is
+ *  ignored and every mine line drops at the new shared `mineDropPoint`
+ *  (sim/aim.ts — dead astern, just clear of the transom), never denied
+ *  out-of-arc. CONFIG the client reads: `mine.offset`, `mine.placeHalfArcDeg`
+ *  and `mine.placeRange` are DELETED (the rear sector and the leash are
+ *  gone); `bots` gains `mineReachU` / `mineAsternHalfArcDeg` (the bot mine
+ *  tactics' old values, kept). Perception exception count stays SIX.
  *  113 — 2026-11-20 crates seen by the hull rule (epic-12 amendment 10,
  *  numbers re-checked at PR): Eric — "the xp crates and wrecks are not mines
  *  and they should be able to be visually seen by the same rules other ships
@@ -1158,7 +1166,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 113;
+export const PROTOCOL_VERSION = 114;
 
 // Tunables
 export * from './constants.js';

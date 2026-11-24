@@ -201,8 +201,26 @@ describe('main.ts wires the revert to the RELEASE, not the press', () => {
     // — the fire input and the D1 fire-time stamp are built around it.
     const fire = bodyOf('consumePrimeOnFire');
     expect(fire).toContain('shouldConsumePrime(');
-    expect(fire).toContain('armPrimeRevert(g, clickSeq)');
+    expect(fire).toContain('armFireRevert(g, primedSlot, clickSeq)');
     expect(fire).not.toContain('revertToGun()');
+    // WEAPON SELECT (2026-11-23): the arm is gated by the PRIME | TOGGLE rule,
+    // and still only ARMS — never reverts on the press.
+    const gate = bodyOf('armFireRevert');
+    expect(gate).toContain('revertsAfterShot(');
+    expect(gate).toContain('armPrimeRevert(g, clickSeq)');
+    expect(gate).not.toContain('revertToGun()');
+  });
+
+  it('TOGGLE\'s out-of-stock backstop runs on the release edge, before the wire slot is read, and only arms', () => {
+    const backstop = bodyOf('toggleOutOfStock');
+    expect(backstop).toContain('armPrimeRevert(');
+    expect(backstop).not.toContain('revertToGun()');
+    const release = MAIN_TS.indexOf('consumePrimeOnRelease(g);');
+    const stock = MAIN_TS.indexOf('toggleOutOfStock(g);');
+    const wire = MAIN_TS.indexOf('const primedSlot = g.keyboard.primedSlot', release);
+    expect(release).toBeGreaterThan(-1);
+    expect(stock).toBeGreaterThan(release);
+    expect(wire).toBeGreaterThan(stock);
   });
 
   it('the arm NAMES ITS CLICK, and settles a tap released inside the same tick', () => {

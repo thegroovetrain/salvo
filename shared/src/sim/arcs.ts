@@ -2,9 +2,9 @@
 // class-era geometry is RATIFIED as-is (Eric ruling 2026-07-23): the gun
 // family (gun / starShells) is 360° with no mounts and no arc; the HEAVY
 // torpedo launches in a bow sector (heading + CONFIG.torpedo.offset ±
-// halfArc); the mine — a click-aimed weapon as of Story 2.8 (amendment 45) —
-// places within a REAR sector (heading + CONFIG.mine.offset ±
-// placeHalfArcDeg); the BROADSIDE BARRAGE fires into one of two
+// halfArc); the mine — a click-fired weapon since Story 2.8 — ROLLS OFF THE
+// STERN since Eric 2026-11-23 (`mineDropPoint`, sim/aim.ts): the aim is
+// ignored, so it declares `full` (never out of arc); the BROADSIDE BARRAGE fires into one of two
 // mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
 // restored verbatim); the class Shifts (boost, instant reload, hunker) aim
 // nothing.
@@ -15,7 +15,12 @@
 // so no gun click or stream can ever be denied out-of-arc.
 //
 // STORY 8.13: the LIGHT TORPEDO declares a TWIN SECTOR (both beams, ±45°,
-// catalog-v3 R18) and FOULING MINES joins the rear placement sector.
+// catalog-v3 R18) and FOULING MINES joins the mine family.
+//
+// 2026-11-23 (Eric: "they'd just roll off the rack into the water"): THE
+// MINES' REAR PLACEMENT SECTOR IS DELETED with `CONFIG.mine.offset` /
+// `placeHalfArcDeg` / `placeRange`. Every mine line drops at the one shared
+// stern point whatever the click's aim, so its arc is `full`.
 //
 // STORY 10.5 (2026-11-05, epic-10 amendment 11): the consumable arcs are gone
 // with the kit. The three moved weapons keep the arcs they had as consumables,
@@ -29,8 +34,9 @@
 // A torpedo leaves a deck LAUNCHER that trains like a turret, so all three
 // ids declare the new `launcher` shape and the geometry is sim/launchers.ts's:
 // `launcherSectors(launchers)` (the union to draw / plan by) and
-// `pickTube` (the enforced verdict). `sectorArcFor` / `twinSectorArcFor` now
-// THROW on a torpedo id.
+// `pickTube` (the enforced verdict). `twinSectorArcFor` THROWS on a torpedo
+// id (`sectorArcFor` went with the mines' rear sector, 2026-11-23 — no id
+// declares a `sector` any more).
 //
 // Both sides consume THIS function — the server's launch checks and the
 // client's arc classification (render/weaponArc.ts) — so the enforced arc and
@@ -44,12 +50,13 @@ import type { MineKind } from '../types.js';
 
 /**
  * One equipment id's firing-arc shape:
- * - `full`        — 360°, aimed to the clicked point, never out of arc
- *                   (every gun — cannon, machine gun, flak — star shells,
- *                   phosphor shells, the FOULING SHELL and FLASH SHELLS).
+ * - `full`        — 360°, never out of arc (every gun — cannon, machine
+ *                   gun, flak — star shells, phosphor shells, the FOULING
+ *                   SHELL and FLASH SHELLS, aimed to the clicked point; the
+ *                   three MINE lines, which ignore the aim and drop astern).
  * - `sector`      — an aimed launch sector `heading + offset ± halfArc`
- *                   (the torpedo's bow arc; the mines' rear placement arc —
- *                   aim outside it is DENIED).
+ *                   (aim outside it is DENIED; the torpedo launchers'
+ *                   bands, `launcherSectors`, are built in this shape).
  * - `twin-sector` — TWO MIRRORED aimed sectors at `heading ± offset`, each
  *                   `halfArc` wide (the BROADSIDE BARRAGE's beams; the LIGHT
  *                   TORPEDO's two beam tubes since 8.13). The side
@@ -76,8 +83,7 @@ export type ArcShape =
   | { kind: 'launcher' }
   | { kind: 'none' };
 
-/** deg -> rad (CONFIG.mine.placeHalfArcDeg and CONFIG.broadside's two arc
- *  fields are authored in degrees). */
+/** deg -> rad (CONFIG.broadside's two arc fields are authored in degrees). */
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
@@ -89,25 +95,21 @@ export function arcFor(id: EquipmentId): ArcShape {
   return equipmentArc(id);
 }
 
-/** The MINE's rear placement sector — shared by the three mine lines. */
-function mineSector(): ArcShape {
-  return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
-}
-
 /**
  * THE THREE MINE LINES — the ONE home for the list (Story 8.13). One hull may
  * fit naval, captive and fouling racks at once, so "is this a mine?" and "which
  * kind does this line lay?" are asked on BOTH sides: the server keys every
- * runtime number off the mine's kind, and the client keys the placement leash,
- * the rear wedge, the drop preview and the own rings off the same facts. They
+ * runtime number off the mine's kind, and the client keys the drop preview and
+ * the own rings off the same facts. They
  * lived in three places (this file's private chassis guard, the server's
  * `MINE_ROW_ID`, the client's `render/weaponArc.ts` list) with a cross-check
  * test holding them together; they live HERE now, and the cross-check survives
  * as the guard against a fourth kind.
  *
- * It sits in `arcs.ts` because the rear placement sector is what makes these
- * ids one family in the first place — the same three ids `EQUIPMENT_FAMILY`
- * (sim/loadout.ts) files under the `mine` slot family.
+ * It sits in `arcs.ts` because the rear placement sector once made these ids
+ * one family (the sector is gone since 2026-11-23; the stern drop point is
+ * what they share now) — the same three ids `EQUIPMENT_FAMILY` (sim/loadout.ts)
+ * files under the `mine` slot family.
  */
 export const MINE_EQUIPMENT_IDS = ['navalMines', 'captiveMines', 'foulingMines'] as const satisfies
   readonly EquipmentId[];
@@ -155,10 +157,10 @@ export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
  * starShells and phosphorShells (Story 8.17, amendment 131) declare
  * `arc: 'full'` in CONFIG (amendment 106 for the guns);
  * the three TORPEDOES declare `launcher` (Story 10.6, R6 — their fixed
- * sectors are retired); the three MINE kinds share the rear
- * placement sector (CONFIG.mine.offset/placeHalfArcDeg — `isMineEquipment` is
- * a type guard, so the switch still narrows its `default` down to the ids that
- * genuinely declare no arc); the
+ * sectors are retired); the three MINE kinds are `full` — they drop astern
+ * whatever the aim (2026-11-23; `isMineEquipment` is a type guard, so the
+ * switch still narrows its `default` down to the ids that genuinely declare
+ * no arc); the
  * broadside's twin beams read CONFIG.broadside.arcOffsetDeg/arcHalfArcDeg.
  */
 /**
@@ -183,7 +185,7 @@ function isConfigArcRow(id: EquipmentId): id is (typeof CONFIG_ARC_ROWS)[number]
 }
 
 function equipmentArc(id: EquipmentId): ArcShape {
-  if (isMineEquipment(id)) return mineSector();
+  if (isMineEquipment(id)) return { kind: 'full' }; // the stern drop ignores the aim (2026-11-23)
   if (isConfigArcRow(id)) return { kind: CONFIG[id].arc };
   switch (id) {
     case 'lightTorpedo':
@@ -223,21 +225,10 @@ function unbuiltArc(_id: 'boost' | 'instantReload' | 'hunker'): ArcShape {
 }
 
 /**
- * The narrowed `sector` descriptor for an id DECLARED a sector (the three
- * mines' rear placement arc — no torpedo since Story 10.6). Throws on any other shape — a CONFIG/arcs authoring
- * error, failed loudly at module load rather than mid-tick. Pure (a throw,
- * never I/O).
- */
-export function sectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'sector' }> {
-  const arc = arcFor(id);
-  if (arc.kind !== 'sector') throw new Error(`'${id}' arc must be a sector (sim/arcs.ts)`);
-  return arc;
-}
-
-/**
  * The narrowed `twin-sector` descriptor for an id DECLARED twin sectors (the
  * BROADSIDE BARRAGE's two beams — no torpedo since Story 10.6). Throws
- * on any other shape — same authoring-error law as sectorArcFor.
+ * on any other shape — a CONFIG/arcs authoring error, failed loudly at module
+ * load rather than mid-tick.
  */
 export function twinSectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'twin-sector' }> {
   const arc = arcFor(id);

@@ -505,7 +505,7 @@ const deg = (d: number): number => (d * Math.PI) / 180;
  * (barrel.test.ts, aim.test.ts), but a CONFIG edit that desynced them would let
  * a valid rung index one ladder into `undefined` and `deg()` it into NaN — a
  * silent NaN arc rather than a failure. Same fail-at-load law as sim/arcs.ts's
- * `sectorArcFor`: an authoring error throws where it is authored.
+ * `twinSectorArcFor`: an authoring error throws where it is authored.
  */
 if (CONFIG.broadside.turretMountSpreadDeg.length !== CONFIG.broadside.traverseDeg.length) {
   throw new Error(

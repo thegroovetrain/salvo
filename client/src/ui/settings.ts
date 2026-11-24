@@ -21,6 +21,7 @@ import {
   scaleTierNote,
   type MotionLevel,
   type HudSide,
+  type WeaponSelectMode,
   type Settings,
   type SettingsStore,
   type UiScale,
@@ -66,6 +67,13 @@ export const AIM_SIZE_LABEL = 'AIM SIZE';
 export function aimSizeReadout(v: number): string {
   return `${v}×`;
 }
+
+/** The WEAPON SELECT row (Eric 2026-11-23). */
+export const WEAPON_SELECT_LABEL = 'WEAPON SELECT';
+export const WEAPON_SELECT_OPTIONS: readonly OptionModel<WeaponSelectMode>[] = [
+  { value: 'PRIME', label: 'PRIME', enabled: true, note: '' },
+  { value: 'TOGGLE', label: 'TOGGLE', enabled: true, note: '' },
+];
 
 export const HUD_SIDE_OPTIONS: readonly OptionModel<HudSide>[] = [
   { value: 'left', label: 'LEFT', enabled: true, note: '' },
@@ -692,6 +700,10 @@ export class SettingsOverlay {
         makeToggleRow('MUTE (M)', s.muted, (v) => this.set({ muted: v })),
       ),
       ...this.makePrivacySection(),
+      makeSection(
+        'WEAPONS',
+        makeChoiceRow(WEAPON_SELECT_LABEL, WEAPON_SELECT_OPTIONS, s.weaponSelect, (v) => this.set({ weaponSelect: v })),
+      ),
       makeSection('CONTROLS — REFERENCE ONLY', makeBindings()),
       this.makeDangerRow(),
     );

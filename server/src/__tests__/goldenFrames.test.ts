@@ -416,6 +416,7 @@ import {
   coverageHas,
   wrapPositive,
   aimPointOf,
+  mineDropPoint,
   turretBears,
   type BallisticEvent,
   type BlipEvent,
@@ -1109,8 +1110,9 @@ function scnZoneKill(g: Golden): void {
 }
 
 /**
- * Mine Layer trip blast — a REAL aimed placement through the fire channel
- * (Story 2.8, amendment 45): ML `a` clicks a mine 76u astern; enemies `b` (the
+ * Mine Layer trip blast — a REAL drop through the fire channel (Story 2.8;
+ * since 2026-11-23 the mine rolls off the stern at `mineDropPoint` whatever
+ * the aim): ML `a` clicks a mine astern; enemies `b` (the
  * tripper) and `c` sit so the armed mine's 48u BLAST covers both hulls while
  * `a`'s own hull is inside the radius too (owner-excluded by rule). At the
  * trip: ONE boom at the mine with `hit` = the tripper, full damage to b AND c
@@ -1120,10 +1122,10 @@ function scnZoneKill(g: Golden): void {
 function scnMineBlast(g: Golden): void {
   const w = bareWorld(1013);
   const a = place(w, 'a', 0, 0, 0, 'warspite');
-  const b = place(w, 'b', -76, 20); // hull beside the future clicked point (clear of a's hull — Story 10.4 beams) — trips it
+  const b = place(w, 'b', -76, 20); // hull beside the future drop point (clear of a's hull — Story 10.4 beams) — trips it
   const c = place(w, 'c', -76, -40); // second victim: hull within the 48u blast
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: FAMILY_SLOT.mine, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
-  w.step(); // the click places the mine at the clicked point (weapon channel)
+  w.step(); // the click drops the mine at the stern (weapon channel)
   expect(w.mines.size).toBe(1);
   cap(g, w, 'a'); // own mine view + spawns/contacts
   let boom = false;
@@ -1185,8 +1187,8 @@ function scnMineBurstDetonation(g: Golden): void {
  * ('out-of-arc'), a gun click mid-cooldown ('cooling'), an ability double
  * press ('no-ammo'), and an island-backed ML MINE CLICK ('blocked'). That
  * last one was the DECOY's un-aimed stern drop until Story 7-5 wave 2 deleted
- * the decoy; the mine's click is the surviving 'blocked' producer and lands
- * at the same rock, so the scenario's fog geometry is unchanged.
+ * the decoy; the mine's click is the surviving 'blocked' producer. Since
+ * 2026-11-23 the mine drops at `mineDropPoint`, so the rock sits there.
  * Denials are SELF-PRIVATE:
  * sighted observer `b` captures the same tick byte-free of the channel. When
  * a weapon click AND an ability press deny on the same tick, the weapon
@@ -1197,12 +1199,17 @@ function scnDenied(g: Golden): void {
   const w = bareWorld(1016);
   place(w, 'a', 0, 0, 0); // TB: gun / boost / heavyTorpedo (Story 8.5)
   place(w, 'b', 120, 0); // sighted second captain — proves owner-only
-  const m = place(w, 'm', 400, 0, 0, 'warspite'); // stern rack drops at (324, 0)
-  w.map.islands.push(circleIsland(324, 0, 20)); // the rock behind m's stern
+  // The rock behind m's stern stays where it was; m is posed so its stern drop
+  // point (`mineDropPoint`, just clear of the transom since 2026-11-23) lands
+  // 4 u inside the rock's far edge — the transom itself clear of the rock.
+  const rock = { x: 324, y: 0, r: 20 };
+  const m = place(w, 'm', 400, 0, 0, 'warspite');
+  m.state.x = rock.x + rock.r - 4 + (m.state.x - mineDropPoint(m.state, m.cls.hull.length).x);
+  w.map.islands.push(circleIsland(rock.x, rock.y, rock.r));
   // Story 4.11: give the rock its raster presence (hard cover), so the
   // scenario's fog geometry is unchanged — without it the polygon would still
   // block the drop but m would now PAINT on a's radar through it.
-  w.map.heightRaster = rasterFrom(700, ridgeField(324, 0, 20, 20, 255));
+  w.map.heightRaster = rasterFrom(700, ridgeField(rock.x, rock.y, 20, 20, 255));
   // Tick 1: a clicks the torpedo dead astern; m clicks a MINE into the rock.
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
   w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: FAMILY_SLOT.mine, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
@@ -1826,6 +1833,12 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // 13160); the Speed Boost values stay unscaled (R10). Against
     // development, the only other moves are the story's own (five-entry
     // `ammo`, no `kit`, the cards / offer / denial / HULL REPAIR rows above).
+    // RE-RECORDED 2026-11-23 (mines roll off the stern — the aim is ignored,
+    // the mine drops at `mineDropPoint`): diffed token by token, exactly two
+    // things moved — scnMineBlast's mine (and its boom / `hc`) sit at the
+    // stern drop point (−76 → −54.98), and scnDenied's layer `m` is posed
+    // 400 → 394.98 so its drop point lands in the unchanged rock. No damage,
+    // contact, event or denial changed.
     expect(runBattery()).toMatchSnapshot();
   });
 });

@@ -4,12 +4,11 @@
 //     (2026-10-12; the `ship` layer before) — chartRoot, above the fog, the
 //     countermeasure cloud and the radar paint (render/stage.ts). Nothing about the arcs
 //     changes with the lift: they rotate with the own ship and sit inside the
-//     sight bubble, where the fog was already clear. Three families draw one:
+//     sight bubble, where the fog was already clear. Two families draw one:
 //     the torpedo's LAUNCHER arcs (Story 10.6, R6 / R28 — the union of the
 //     held launchers' side-firing bands, deadDeg–trainDeg off each end; the retired fixed bow
-//     and twin-beam sectors are gone); (Story 2.8, amendment 45) the mine's REAR PLACEMENT
-//     arc, drawn at its true CONFIG.mine.placeRange radius so the wedge IS the
-//     reachable water; and (Story 7-5 wave 2, R2.1) the BROADSIDE BARRAGE, whose
+//     and twin-beam sectors are gone); and (Story 7-5 wave 2, R2.1) the
+//     BROADSIDE BARRAGE, whose
 //     two mirrored BEAM sectors are now thin OUTLINES marking the deny boundary
 //     while ONE SMALL WEDGE PER TURRET carries the aiming information (Eric
 //     ruling 2026-08-27) — exactly the side containing the aim lights.
@@ -17,7 +16,9 @@
 //     draws NO arc sector: it is 360° and fires to the clicked point (Eric
 //     ruling 2026-07-21, reaffirmed 2026-11-12), so a wedge would lie. Every
 //     arc, wedge, reticle and preview takes the player's AIM COLOR (Story 11.1
-//     R21 — the torpedo green retired).
+//     R21 — the torpedo green retired). A MINE draws no arc either: it rolls
+//     off the stern whatever the aim (2026-11-23; its drop preview is
+//     render/aimPreview.ts's rings at `mineDropPoint`).
 //     The remaining instant ability (the boost) never primes and draws no
 //     marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
@@ -37,10 +38,8 @@ import {
   CONFIG,
   MAX_LAUNCHERS,
   arcFor,
-  inArc,
   turretMountBearings,
   turretMuzzles,
-  wrapAngle,
   type HullId,
   type EquipmentId,
 } from '@salvo/shared';
@@ -62,7 +61,6 @@ import {
 const AMBER = CLIENT_CONFIG.colors.amber;
 const DIM = CLIENT_CONFIG.colors.textMuted;
 const DENIED_RED = CLIENT_CONFIG.colors.denied; // the single denied red
-const EDGE = CLIENT_CONFIG.aimPreview.placementEdge;
 const BW = CLIENT_CONFIG.broadsideArcs;
 /** The ONE lit/dim fill weight every aim-gated arc draws at — the sector fill
  *  and the per-turret wedges are the same grammar and cannot drift apart. */
@@ -206,7 +204,7 @@ export interface TurretWedge {
 
 /**
  * PURE: the fill an aim-gated arc is drawn with — the ONE decision behind both
- * the torpedo/mine sector fill and the broadside's per-turret wedges.
+ * the torpedo wedges and the broadside's per-turret wedges.
  *
  * `lit` means "this surface would fire on a click right now" and is ALSO how a
  * denial reads: the caller passes DENIED_RED with `lit` true, so a denied arc
@@ -282,8 +280,8 @@ export interface PaintedWedges {
  * long, WHENEVER it is primed, whatever the aim (only the fill changes —
  * `wedgeStyle`). Everything else — the whole gun family (main battery, cannon,
  * secondaries, special shells: 360°, Eric 2026-11-12 "don't need displayed
- * arcs") — returns null. Mines and the broadside keep their own sector /
- * twin-beam displays (drawSectorArc / drawTwinArcs).
+ * arcs") — returns null, and so does a mine (it drops astern, no arc). The
+ * broadside keeps its own twin-beam display (drawTwinArcs).
  */
 export function paintedWedges(id: EquipmentId | null, ctx: WedgeContext): PaintedWedges | null {
   if (id === null || fireArcKind(id) !== 'launcher') return null;
@@ -309,7 +307,7 @@ export class FiringUX {
   /** Effective max range (u) of the primed weapon FOR THIS AIM, fed each frame
    *  by update(); base = the cannon's Tier I reach (CONFIG.gun.rangeU — every
    *  weapon range is its own dial since Story 9.8, ruling 125). Drives the gun-family range-clamp burst
-   *  marker AND the mine's placement-arc radius. weaponArc.weaponReachU is the
+   *  marker. weaponArc.weaponReachU is the
    *  one source, and it is the SAME number the aim preview bursts at — including
    *  the star-shell lift (R2.15, amendment 114), where a deck-gun click inside one of our own live
    *  lit zones raises the reach to the click and the clamp marker correctly
@@ -334,7 +332,7 @@ export class FiringUX {
 
   /**
    * `shipLayer` (chartRoot's `ownShip` — the own-hull layer since 2026-10-12)
-   * hosts the torpedo/mine markers; `aimLayer` (chartRoot's `aim`, one layer
+   * hosts the torpedo / broadside markers; `aimLayer` (chartRoot's `aim`, one layer
    * up) hosts the crosshair + bearing line. Both are fog-immune; `aim` stays
    * above the hulls so the reticle is never occluded by one.
    */
@@ -395,10 +393,10 @@ export class FiringUX {
     this.wedgeLayer.visible = false;
     this.wedgeLayer.position.set(pose.x, pose.y);
     this.wedgeLayer.rotation = pose.heading;
-    // Only an AIM-GATED weapon draws a wedge — the torpedo's bow arc and the
-    // mine's rear placement arc (Story 2.8), or the broadside's twin beams
-    // (Story 7-5 wave 2). The gun family is 360° (no wedge) and the remaining
-    // ability (the boost) draws no marker.
+    // Only an AIM-GATED weapon draws a wedge — the torpedo launchers' bands or
+    // the broadside's twin beams (Story 7-5 wave 2). The gun family is 360°
+    // (no wedge), a mine rolls off the stern whatever the aim (no wedge since
+    // 2026-11-23) and the remaining ability (the boost) draws no marker.
     if (id !== null) this.drawArcShape(kind, id, aim, pose.heading, ammo, denied, broadside);
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);
   }
@@ -413,57 +411,13 @@ export class FiringUX {
     denied: boolean,
     broadside: BroadsideArcs | null,
   ): void {
-    if (kind === 'sector') this.drawSectorArc(id, aim, heading, ammo, denied);
     if (kind === 'twin') this.drawTwinArcs(id, aim, heading, ammo, denied, broadside);
     const painted = paintedWedges(id, { launcherHull: this.launcherHull, launchers: this.launchers });
     if (painted !== null) this.paintWedges(painted, ammo, denied);
     // (The four buoys' 360° placement DISC left with the buoys — 2026-11-05,
-    // Story 10.5, epic-10 amendment 11: the mines' wedge is the only
-    // placement shape.)
-  }
-
-  /**
-   * The aim-gated wedge for a SECTOR weapon. Geometry comes from the shared
-   * arcFor descriptor (Story 1.10 — the single arc-shape source), so the drawn
-   * sector IS the enforced one. The MINE draws at its true placement reach
-   * (this.rangeU = CONFIG.mine.placeRange) because for it the wedge is the
-   * reachable water, not an indicator. (Since Story 10.6 no torpedo declares
-   * a sector — its wedge is `paintedWedges`.)
-   */
-  private drawSectorArc(
-    id: EquipmentId,
-    aim: number,
-    heading: number,
-    ammo: FiringAmmo,
-    denied: boolean,
-  ): void {
-    const t = arcFor(id);
-    if (t.kind !== 'sector') return; // descriptor law: only a sector draws a wedge
-    const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ammo.hasAmmo;
-    // A PLACEMENT weapon's wedge IS the reachable water (Eric 2026-08-20:
-    // *"with this rear facing, place-in-short-range arc style weapon, its
-    // important that I as a captain can clearly see where I can place my
-    // stuff"*). Both click-placed ids share the ONE leash (CONFIG.mine.placeRange
-    // — see weaponRangeU) so they must share the whole grammar: true radius,
-    // armed amber, and a stroked boundary that is a real line on the chart.
-    //
-    // THE (since-deleted) RADAR BUOY USED TO FALL TO THE ELSE and was drawn as
-    // a TORPEDO — indicative ARC_R (72u, less than half its real 150u reach),
-    // torpedo green, no boundary. That was Eric's "the buoy's targeting range
-    // indicator isn't correct". The 8.16 DECOY BUOY takes the placement grammar
-    // through `isPlacedItem`, exactly as the mines do.
-    // ALL THREE MINE LINES place (Story 8.13), not just the naval one, and the
-    // belt's SUPERCAV TORPEDO is a LAUNCH, so the two halves are asked
-    // separately: `isPlacedItem` decides the placement grammar; the colour is
-    // the AIM COLOR for every weapon (Story 11.1 R21).
-    const placement = isPlacedItem(id);
-    const tint = this.aimTint; // R21: every aim surface takes AIM COLOR
-    const radius = placement ? this.rangeU : ARC_R;
-    const color = denied ? DENIED_RED : tint;
-    this.sector(t.offset, t.halfArc, color, denied || lit, ammo.reloadFrac, radius, placement);
-    // The torpedo's ARC_R is indicative — outlining it would draw a hard border
-    // around a distance that means nothing.
-    if (placement) this.sectorEdge(t.offset, t.halfArc, radius, color, denied || lit);
+    // Story 10.5, epic-10 amendment 11 — and the mines' rear placement WEDGE
+    // with the stern drop, 2026-11-23. No id declares a plain `sector` arc
+    // any more, so nothing draws one.)
   }
 
   /** Paint the torpedo wedges: place the set, give every sprite the shared
@@ -574,7 +528,7 @@ export class FiringUX {
   /**
    * The ±60° legal sector as a hairline boundary (no fill), plus the reload
    * sweep-back it now hosts. The outline geometry is weaponArc.sectorOutline —
-   * the same pure helper the mine's placement edge uses — and the sweep-back is
+   * the pure, unit-tested outline helper — and the sweep-back is
    * the shipped `sector()` tail, moved here byte-for-byte when the fill it used
    * to ride was deleted.
    */
@@ -600,8 +554,8 @@ export class FiringUX {
 
   /** The two side rays plus the closing range arc of a sector, stroked at the
    *  caller's edge style. ONE body for both outlines the firing UX draws — the
-   *  broadside's hairline deny boundary and the mine placement wedge's crisp
-   *  edge — which differed only in radius and in which style block they read. */
+   *  broadside's hairline deny boundary (and, until 2026-11-23, the mine placement wedge's crisp
+   *  edge) — which differed only in radius and in which style block they read. */
   private strokeSectorOutline(
     offset: number,
     halfArc: number,
@@ -616,62 +570,6 @@ export class FiringUX {
     g.arc(0, 0, arc.r, arc.from, arc.to);
     g.lineTo(0, 0);
     g.stroke({ width: style.width, color, alpha: lit ? style.alpha : style.dimAlpha });
-  }
-
-  /**
-   * The mine placement wedge's crisp BOUNDARY, stroked over the fill: the two
-   * side rays plus the closing range arc (geometry from weaponArc.sectorOutline
-   * — pure, unit-tested, the same descriptor the fill uses). Where the fill is a
-   * soft wash that fades into the water, this says "the rack reaches EXACTLY
-   * here, in EXACTLY this sector", which is what a captain seeding a field
-   * actually needs to see.
-   *
-   * STATIC — no pulse, so it reads identically at motion=off — and it carries
-   * NO new state: it takes the wedge's own color and its lit/dim/denied verdict
-   * and only chooses an alpha from them, so the dim wedge stays as quiet as it
-   * is today and the denied red stays the denial register's alone.
-   */
-  private sectorEdge(
-    offset: number,
-    halfArc: number,
-    radius: number,
-    color: number,
-    lit: boolean,
-  ): void {
-    this.strokeSectorOutline(offset, halfArc, radius, color, lit, EDGE);
-  }
-
-  /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */
-  private sector(
-    offset: number,
-    halfArc: number,
-    color: number,
-    lit: boolean,
-    reloadFrac: number,
-    radius: number = ARC_R,
-    placement = false,
-  ): void {
-    const g = this.arcs;
-    const reloading = reloadFrac > 0 && reloadFrac < 1;
-    g.moveTo(0, 0);
-    g.arc(0, 0, radius, offset - halfArc, offset + halfArc);
-    g.lineTo(0, 0);
-    // A PLACEMENT wedge carries its reload in the ONE wedge's own fill, never as
-    // a second shape (Eric 2026-08-20: *"the mine's targeting indicator seems to
-    // show two stacked indicators?"*). It did: the sweep-back below drew a
-    // SECOND wedge at HALF the radius, which on the torpedo's indicative 72u arc
-    // reads as a reload hint but on a TRUE-RADIUS placement wedge reads as a
-    // second placement boundary — 75u of "you can place here" inside 150u of the
-    // same thing, while reloading only, which is why it looked intermittent.
-    // Exactly one boundary may ever be on screen for a placement weapon.
-    const style = arcFillStyle(color, lit);
-    g.fill({ ...style, alpha: placement && reloading ? style.alpha * 0.45 : style.alpha });
-    if (reloading && !placement) {
-      g.moveTo(0, 0);
-      g.arc(0, 0, radius * 0.5, offset - halfArc, offset + halfArc);
-      g.lineTo(0, 0);
-      g.fill({ color: DIM, alpha: 0.1 + 0.2 * reloadFrac });
-    }
   }
 
   private drawReticle(
@@ -700,8 +598,8 @@ export class FiringUX {
     // (epic-8 amendment 84f): `weaponRangeU` hands it the cannon's range as a
     // fallback purely so nothing crashes, and drawing a clamp ring at it would
     // promise the torpedo stops there.
-    // NOR FOR A PLACED id (a mine): a placement past the leash is DENIED,
-    // never clamped, so no clamp marker.
+    // NOR FOR A MINE: it drops astern whatever the aim — there is no range to
+    // clamp to, so no clamp marker.
     if (id === 'mainBattery') {
       // R19 "ring follows the turret": the marker sits on the salvo center —
       // the oval's own point, the firing turret's reach — never on a reach

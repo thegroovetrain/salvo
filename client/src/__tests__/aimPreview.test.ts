@@ -24,6 +24,7 @@ import {
   effectiveStats,
   broadsideMountSpread,
   broadsideTraverse,
+  mineDropPoint,
   mineTriggerRadius,
   turretAimPoints,
   turretMuzzles,
@@ -729,25 +730,32 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   });
 });
 
-describe('mine placement — both rings at the drop point', () => {
-  it('previews blast + trigger at the clicked point, off EFFECTIVE stats', () => {
+describe('mine placement — both rings at the stern drop point', () => {
+  it('previews blast + trigger centered at mineDropPoint whatever the aim, off EFFECTIVE stats', () => {
     const s = minesAt([], 1.1 ** 2);
-    const m = computeAimPreview(input({ id: 'navalMines', stats: s, aim: Math.PI, aimDist: 60 }));
-    expect(m.place).not.toBeNull();
-    expect(m.place!.x).toBeCloseTo(-60, 6);
-    expect(m.place!.blast).toBe(s.equipment.navalMines.blastRadius);
-    expect(m.place!.trigger).toBe(s.equipment.navalMines.triggerRadius);
-    expect(m.place!.blocked).toBe(false);
-    expect(m.lines).toEqual([]); // a mine is placed, not launched
+    const ship = { ...SHIP, x: 40, y: -25, heading: 0.9 };
+    const drop = mineDropPoint(ship, hullEnvelope(ship.cls).hull.length);
+    for (const aim of [{ aim: 0.9, aimDist: 400 }, { aim: -2, aimDist: 60 }]) {
+      const m = computeAimPreview(input({ id: 'navalMines', stats: s, ship, ...aim }));
+      expect(m.place).not.toBeNull();
+      expect(m.place!.x).toBeCloseTo(drop.x, 9);
+      expect(m.place!.y).toBeCloseTo(drop.y, 9);
+      expect(m.place!.blast).toBe(s.equipment.navalMines.blastRadius);
+      expect(m.place!.trigger).toBe(s.equipment.navalMines.triggerRadius);
+      expect(m.place!.blocked).toBe(false);
+      expect(m.lines).toEqual([]); // a mine is dropped, not launched
+    }
   });
 
   it('flags a drop point the server would REFUSE (a rock, or off the water)', () => {
+    const drop = mineDropPoint(SHIP, hullEnvelope(SHIP.cls).hull.length);
     const onRock = computeAimPreview(
-      input({ id: 'navalMines', aimDist: 60, islands: [squareIsland(60, 0, 20)] }),
+      input({ id: 'navalMines', aimDist: 60, islands: [squareIsland(drop.x, drop.y, 20)] }),
     );
     expect(onRock.place!.blocked).toBe(true);
+    // Bow inward at the rim: the stern hangs over the edge.
     const offMap = computeAimPreview(
-      input({ id: 'navalMines', ship: { ...SHIP, x: MAP_R - 10 }, aimDist: 60 }),
+      input({ id: 'navalMines', ship: { ...SHIP, x: MAP_R - 10, heading: Math.PI }, aimDist: 60 }),
     );
     expect(offMap.place!.blocked).toBe(true);
   });

@@ -2,13 +2,9 @@
 // One `CONFIG` object, nested by system. Units are noted per field:
 //   u = world units, u/s = units/second, u/s^2 = accel, rad = radians,
 //   rad/s = angular rate, ms = milliseconds.
-//
-// Angle helpers below keep mount/arc definitions readable in degrees.
 
 import type { TargetKind } from './sim/shell.js';
 import { hmToU } from './sim/hm.js';
-
-const deg = (d: number): number => (d * Math.PI) / 180;
 
 // THE TWELFTHS LADDER IS RETIRED (Story 11.2, 2026-11-12, epic-11 amendment
 // 4; rulings R1 / R18). The module constants
@@ -861,6 +857,21 @@ export const CONFIG = {
      * tunes. A harness dial.
      */
     dropLaneU: 100,
+    /**
+     * THE BOT MINE RULER (2026-11-23, mines roll off the stern): u — the unit
+     * every bot mine-laying range is a multiple of (`ai/equipment.ts`: the
+     * near / closing want ranges). It is the old 150 u placement leash's
+     * value, kept here when the leash was deleted so bot mine tactics stay
+     * unchanged. A harness dial.
+     */
+    mineReachU: 150,
+    /**
+     * deg — half-width of the cone dead astern a track must sit in before a
+     * bot lays a REACTIVE mine on it (`ai/equipment.ts` `behindUs`). The old
+     * rear placement sector's half-arc, kept when the sector was deleted. A
+     * harness dial.
+     */
+    mineAsternHalfArcDeg: 60,
   },
 
   /** True ship globals shared by every class (no per-class variation). */
@@ -1774,11 +1785,11 @@ export const CONFIG = {
   },
 
   /**
-   * Mines (Mine Layer slot 1): a click-aimed WEAPON as of Story 2.8 (amendment
-   * 45 — supersedes the 1.8 instant-activate stern drop): prime the slot, aim
-   * within the REAR arc (heading + `offset` ± `placeHalfArcDeg`), and a click
-   * places the mine AT the clicked point up to `placeRange` (out-of-arc/range →
-   * the denial register). Arms after `armDelay`; an enemy silhouette within
+   * Mines (Mine Layer slot 1): a click-fired WEAPON (Story 2.8 put it on the
+   * click channel). Since Eric 2026-11-23 a mine ROLLS OFF THE STERN: prime
+   * the slot and a click anywhere drops the mine at `mineDropPoint`
+   * (sim/aim.ts — dead astern, just clear of the transom); the aim is ignored,
+   * there is no placement arc and no leash. Arms after `armDelay`; an enemy silhouette within
    * `triggerRadius` trips it, BLASTING every non-owner hull within the larger
    * `blastRadius` for full `damage` (owner excluded — the gun/starShells
    * owner-excluded AoE precedent). Chain reactions are NAVAL-ONLY, BOTH WAYS
@@ -1789,22 +1800,6 @@ export const CONFIG = {
    * (amendment 200; by blast reach since Story 9.12; flat with range since Story 11.1). Every number is a DESIGN TARGET, tunable.
    */
   mine: {
-    // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
-    // Story 2.8: now the CENTER of the mine's aimed rear placement arc.
-    offset: deg(180),
-    // deg — half-arc of the aimed rear placement sector about `offset`
-    // (Story 2.8, amendment 45 — DRAFT value, 2.10 tunes).
-    placeHalfArcDeg: 60,
-    // u — max distance of the clicked placement point. Eric ruling 2026-08-02:
-    // 90u was barely a hull and a half astern of a battleship (124u long), so
-    // "laying a field" meant dropping mines on your own transom and sailing off
-    // it; 150u is a real leash — you can seed the water you just left, or the
-    // gap you are backing away from, without the rack becoming a ranged weapon
-    // (it stays a fraction of gun/radar reach). Every consumer derives from
-    // this: the rear placement wedge IS drawn at placeRange (render/firing.ts
-    // via weaponArc.weaponRangeU), the client's range-denial gate and the
-    // server's activation check both read it, so the leash moves in one place.
-    placeRange: 150,
     armDelay: 3000, // ms — before it can trigger
     // u — detonation proximity (enemy pass-over trips it). THE BASE-STATS RUNG:
     // at runtime this is DERIVED from the effective blast radius via
@@ -1947,9 +1942,8 @@ export const CONFIG = {
     homingTurnRate: 0.3, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
     damage: 100, // hp — the fish's warhead at tier I; +25 a rung → 200 at V (Story 10.3, Eric 2026-11-04, ruling 6: "CAPTIVE 100 → 200"; was 90 +11/+11/+11/+12 → 135, Eric 2026-10-16, Story 9.12; 55 +5 before, R25)
-    // The naval chassis is SHARED, not duplicated: the rear placement sector
-    // (`CONFIG.mine.offset` / `placeHalfArcDeg`), the 150 u leash
-    // (`placeRange`) and the 3 s `armDelay` are read from `CONFIG.mine`.
+    // The naval chassis is SHARED, not duplicated: the stern drop point
+    // (`mineDropPoint`) and the 3 s `armDelay` are read from `CONFIG.mine`.
   },
 
   /**

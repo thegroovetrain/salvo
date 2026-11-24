@@ -139,7 +139,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       { name: 'LIGHT TORPEDO', lineId: 'lightTorpedo', table: 'tier', description: 'Fires from a launcher that can face the cursor. Homes in on the loudest ship nearby.' },
       { name: 'HEAVY TORPEDO', lineId: 'heavyTorpedo', table: 'tier', description: 'Slower to reload and harder hitting than the light. Homes in on the loudest ship nearby.' },
       { name: 'SUPERCAV TORPEDO', lineId: 'supercavTorpedo', table: 'tier', description: 'Very fast, no homing.' },
-      { name: 'NAVAL MINES', lineId: 'navalMines', table: 'tier', description: 'Click behind your ship to drop a mine. Explodes when an enemy sails over it, and sets off every other Naval Mine in its blast.' },
+      { name: 'NAVAL MINES', lineId: 'navalMines', table: 'tier', description: 'Click to drop a mine off your stern. Explodes when an enemy sails over it, and sets off every other Naval Mine in its blast.' },
       { name: 'CAPTIVE MINES', lineId: 'captiveMines', table: 'tier', description: 'Drops like a Naval Mine. Instead of exploding, it fires a torpedo at the first enemy to come in range.' },
       { name: 'FOULING MINES', lineId: 'foulingMines', table: 'tier', description: 'Drops like a Naval Mine. Hurts less, but slows any enemy caught in the blast.' },
       { name: 'STAR SHELLS', lineId: 'starShells', table: 'tier', description: 'Fires a flare to where you click. Grants you vision on anything in the circle, and damages every ship under it when it bursts. You can always fire your Main Battery anywhere into the region lit up by your Star Shells no matter where it is on the map.' },

@@ -31,11 +31,13 @@ import {
   dispersionAxes,
   burstPointAlong,
   clampInsideMap,
+  hullEnvelope,
   islandSegHit,
   muzzleOrTarget,
   parallelOffsets,
   initialLaunchers,
   launcherAimPoint,
+  mineDropPoint,
   pickTube,
   torpedoLaunchPoint,
   turretAimPoints,
@@ -66,8 +68,8 @@ export interface PreviewShip {
   cls: HullId;
 }
 
-/** Everything the preview needs. `legal` is the caller's aim gate (bearing arc
- *  AND, for the mine, placement reach) — an illegal aim previews NOTHING and
+/** Everything the preview needs. `legal` is the caller's aim gate (the bearing
+ *  arc; a mine is always legal — it drops astern) — an illegal aim previews NOTHING and
  *  keeps the existing denied treatment, because drawing a shot the server would
  *  refuse is worse than drawing none. */
 export interface AimPreviewInput {
@@ -156,7 +158,7 @@ export interface PreviewBurst {
 }
 
 /**
- * A mine's placement preview at the clicked drop point.
+ * A mine's drop preview at the stern drop point (`mineDropPoint`).
  *
  * `kind` IS THE ROW IDENTITY (Story 8.13, epic-8 amendments 76/81): three mine
  * LINES may be fitted at once, and the preview reads the radii off THAT line's
@@ -648,16 +650,17 @@ function torpedoLaunch(inp: AimPreviewInput): { origin: Vec2; dir: number } | nu
   return { origin: torpedoLaunchPoint(pick.station, inp.ship, cls, pick.bearing), dir: pick.bearing };
 }
 
-/** Mine placement: the rings at the clicked drop point (the server places the
- *  mine AT the click). Radii are the OWNER's effective ones FOR THE LINE BEING
- *  PLACED (Story 8.13 — `stats.equipment[id]`, never `navalMines` standing in
- *  for a captive or a fouling drop): the same numbers the server reads off
- *  owner stats when that mine trips. READ, never re-derived — `effectiveStats`
- *  (`deriveMineRings`) already produced the captive's tier-derived 144 u trip
- *  ring and the contact kinds' 2/3-of-blast ones. */
+/** Mine drop: the rings at the stern drop point — the shared `mineDropPoint`
+ *  the server drops at (2026-11-23: the mine rolls off the stern, the aim is
+ *  ignored), so the rings follow the ship. Radii are the OWNER's effective ones
+ *  FOR THE LINE BEING DROPPED (Story 8.13 — `stats.equipment[id]`, never
+ *  `navalMines` standing in for a captive or a fouling drop): the same numbers
+ *  the server reads off owner stats when that mine trips. READ, never
+ *  re-derived — `effectiveStats` (`deriveMineRings`) already produced the
+ *  captive's tier-derived trip ring and the contact kinds' fraction-of-blast
+ *  ones. */
 function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel {
-  const dist = Math.max(0, inp.aimDist);
-  const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
+  const p = mineDropPoint(inp.ship, hullEnvelope(inp.ship.cls).hull.length);
   const row = inp.stats.equipment[id];
   return {
     lines: [],

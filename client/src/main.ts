@@ -174,7 +174,7 @@ import {
 } from './ui/offerCore.js';
 import { OfferGroup } from './ui/offerGroup.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
-import { abilityPressDenied, hornPressVerdict, shouldConsumePrime } from './sim/inputSampler.js';
+import { abilityPressDenied, hornPressVerdict, revertsAfterShot, shouldConsumePrime } from './sim/inputSampler.js';
 import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
@@ -743,6 +743,11 @@ interface Game {
    *  independent; it carries the released CLICK'S seq rather than a count, so a
    *  release can only pay for the click it actually closed. */
   lastTickRelease: number;
+  /** WEAPON SELECT = TOGGLE (2026-11-23): the slot a toggled shot left selected
+   *  with stock still predicted, or null. The tick backstop (toggleOutOfStock)
+   *  returns it to the gun once the server's stock for it reads 0 — the click's
+   *  own count can be a frame stale on a fast double-click. */
+  toggleFiredSlot: number | null;
   /** Own ship class — the localStorage guess, corrected by the first server frame. */
   ownClass: ShipClassId;
   /** Story 1.13: true once the OWN nameplate's text/color have resolved + been
@@ -2936,7 +2941,7 @@ function buildGame(
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     hullSoftness: NO_SOFTENING, rainEye: null, smokeDiscs: [], smokeDiscPool: [],
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
-    prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
+    prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, toggleFiredSlot: null, ownFire: new OwnFireLatch(),
     ownClass: cls, ownPlated: false, // unresolved until the roster syncs the own name (1.13)
     ownBattery: new OwnBattery(cls),
     ownLaunchers: new OwnLaunchers(cls),
@@ -3935,16 +3940,14 @@ function renderFiring(
   // (epic-8 amendment 74) — so the arc, the reticle and the aim preview are
   // driven from the slot item, while the ROW-keyed reads above (the reload
   // numeral) stay on `ownWeaponAt`, because a stack has no row and never
-  // reloads. Story 8.16 gave the DECOY BUOY the mine's rear sector the same
-  // way; every other consumable declares `none` and draws nothing.
+  // reloads.
   const primedItem = g.ownSlots[slot] ?? null;
   // Gate on the PREDICTED heading, the same source clickPrediction/consumePrimeOnFire
   // read — NOT the alpha-interpolated pose.heading. At a sector boundary while
   // turning the two disagree, so a render pulse could fire without the sim-tick
   // dedup marking (→ later server denial double-pulses), or vice versa.
-  // Both halves of the aim gate: the bearing arc AND (for the mine alone) the
-  // placement reach — the server denies either the same way, so the predicted
-  // denial must too or an out-of-range mine click flashes nothing. THE SAME
+  // The bearing arc gate (a mine is never out of arc — it rolls off the stern
+  // whatever the aim, 2026-11-23). THE SAME
   // PREDICATE the sim-tick prediction uses (review patch P8), over the slot's
   // RAW content: these two must agree exactly, or the red pulse and the
   // denial-dedup marking come apart — and for a click-placed consumable they
@@ -3984,7 +3987,7 @@ function renderFiring(
     { hasAmmo, reloadFrac },
     cursor,
     g.deniedFlash,
-    reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
+    reachU, // gun: radar-derived clamp ring, lifted inside our own flare
     broadsideArcs(g, status), // the per-turret wedge display (Eric ruling 2026-08-27)
     status.stats.torpedoLaunchers, // Story 10.6: the torpedo wedge is the held launchers' arcs
     g.ownLaunchers.hullId, // R28: each wedge springs from its launcher's station on this hull
@@ -4023,14 +4026,14 @@ function mainBatteryView(
   return { clamp: batteryClampMark(b) };
 }
 
-/** The bearing (and placement-reach) half of the click gate for the primed
- *  slot: a TORPEDO asks the shared tube pick (Story 10.6, R16 — some held
- *  launcher's arc holds the aim, measured from its own station); every other
- *  weapon its `arcFor` descriptor (`clickInArc`). */
+/** The bearing half of the click gate for the primed slot: a TORPEDO asks the
+ *  shared tube pick (Story 10.6, R16 — some held launcher's arc holds the aim,
+ *  measured from its own station); every other weapon its `arcFor` descriptor
+ *  (`clickInArc` — always true for a mine, which drops astern). */
 function slotAimInArc(g: Game, slot: number, aim: number, aimDist: number): boolean {
   const id = g.ownSlots[slot] ?? null;
   if (isTorpedoItem(id)) return torpedoClickPrediction(g.ownLaunchers, true, ownBatteryPose(g), aim, aimDist).inArc;
-  return clickInArc(predictedHeading(g), aim, aimDist, id);
+  return clickInArc(predictedHeading(g), aim, id);
 }
 
 /** Does the primed slot have a round? The pool count off the server's ammo —
@@ -4150,14 +4153,9 @@ function clickPrediction(
     // the client kept the prime armed and mis-attributed the reveal.
     alive: conningNow(g) ?? false,
     loaded: !!a && a.n > 0,
-    // The mine's placement reach is part of its aim gate (Story 2.8): an
-    // out-of-range click is refused server-side with nothing consumed, so it
-    // must KEEP the prime here rather than revert to the gun. The click-aimed
-    // CONSUMABLES (the supercav's bow sector, the DECOY BUOY's rear sector and
-    // leash, Story 8.16) are gated the same way — both readings live in
-    // `clickInArc`, over the slot's raw content rather than the equipment-only
-    // narrowing.
-    inArc: clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[primedSlot] ?? null),
+    // The bearing gate, over the slot's raw content (`clickInArc`). A mine is
+    // always in arc: it rolls off the stern whatever the aim (2026-11-23).
+    inArc: clickInArc(predictedHeading(g), aim, g.ownSlots[primedSlot] ?? null),
   };
 }
 
@@ -4278,6 +4276,34 @@ function armPrimeRevert(g: Game, clickSeq: number): void {
   if (g.mouse.releasedClickSeq === clickSeq) g.keyboard.consumeReleaseRevert(clickSeq);
 }
 
+function armFireRevert(g: Game, primedSlot: number, clickSeq: number): void {
+  const loadedBefore = g.state.net.you?.ammo[primedSlot]?.n ?? 0;
+  if (revertsAfterShot(settings.current.weaponSelect, loadedBefore)) {
+    g.toggleFiredSlot = null;
+    armPrimeRevert(g, clickSeq);
+    return;
+  }
+  g.toggleFiredSlot = primedSlot;
+}
+
+/**
+ * TOGGLE's out-of-stock backstop, run every sim tick on the release edge: a
+ * slot a toggled shot left selected returns to the gun (on the current click's
+ * release, never its press) once the server's loaded stock for it reads 0.
+ * Selecting another slot or the gun, or switching to PRIME, drops the watch.
+ */
+function toggleOutOfStock(g: Game): void {
+  const slot = g.toggleFiredSlot;
+  if (slot === null) return;
+  if (g.keyboard.primedSlot !== slot || settings.current.weaponSelect !== 'TOGGLE') {
+    g.toggleFiredSlot = null;
+    return;
+  }
+  if ((g.state.net.you?.ammo[slot]?.n ?? 0) > 0) return;
+  g.toggleFiredSlot = null;
+  armPrimeRevert(g, g.mouse.clickCount);
+}
+
 function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, wire: Pick<InputMsg, 'fireSeq' | 'seq'>): void {
   const fireSeq = wire.fireSeq;
   const clickSeq = g.mouse.clickCount;
@@ -4302,7 +4328,9 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
   // (consumePrimeOnRelease below): a held trigger must keep its prime for the
   // whole hold, which is what Story 8.14's machine gun is built on. A
   // predicted-DENIED click arms nothing and keeps its prime, exactly as before.
-  if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) armPrimeRevert(g, clickSeq);
+  // WEAPON SELECT (2026-11-23): PRIME arms the revert on every fireable click;
+  // TOGGLE only on the shot that empties the slot's loaded stock.
+  if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) armFireRevert(g, primedSlot, clickSeq);
   // Story 1.10 exactly-one-feedback (weapon clicks): a click predicted DENIED
   // (reloading / out of the bow arc) fires its feedback NOW — the denial tone
   // here plus renderFiring's existing red pulse — and marks its
@@ -5221,6 +5249,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // built against the weapon the player actually has primed (a fast
       // double-click after a torpedo shot fires the GUN, not a second torpedo).
       consumePrimeOnRelease(g);
+      toggleOutOfStock(g);
       // The wire slot is the primed slot AT click time — sampled before the
       // PRESS edge below, so a fireable skillshot click still sends its slot
       // even when its own release reverts the prime later in this same tick.

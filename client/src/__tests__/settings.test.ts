@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
   HUD_SIDES,
+  WEAPON_SELECT_MODES,
   SettingsStore,
   coerceVolume,
   effectiveScale,
@@ -32,6 +33,8 @@ import {
   AIM_COLOR_LABEL,
   AIM_SIZE_LABEL,
   HUD_SIDE_LABEL,
+  WEAPON_SELECT_LABEL,
+  WEAPON_SELECT_OPTIONS,
   HUD_SIDE_OPTIONS,
   RESET_BUTTON_ID,
   SettingsOverlay,
@@ -88,6 +91,15 @@ describe('sanitizeSettings — every field falls back independently', () => {
     for (const bad of ['top', 'bottom', '', 3, null, undefined, { side: 'left' }]) {
       expect(sanitizeSettings({ hudSide: bad }).hudSide).toBe(DEFAULT_SETTINGS.hudSide);
     }
+  });
+
+  it('WEAPON SELECT keeps PRIME / TOGGLE, defaults to PRIME, and sanitizes anything else', () => {
+    expect(DEFAULT_SETTINGS.weaponSelect).toBe('PRIME');
+    for (const m of WEAPON_SELECT_MODES) expect(sanitizeSettings({ weaponSelect: m }).weaponSelect).toBe(m);
+    for (const bad of ['toggle', '', 3, null, undefined]) {
+      expect(sanitizeSettings({ weaponSelect: bad }).weaponSelect).toBe(DEFAULT_SETTINGS.weaponSelect);
+    }
+    expect(sameSettings(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, weaponSelect: 'TOGGLE' })).toBe(false);
   });
 
   it('MIGRATES the retired OFFER POSITION: a stored offerPos never breaks a load, keeps the rest, and is dropped', () => {
@@ -514,6 +526,17 @@ describe('SettingsOverlay — DOM shell', () => {
     buttons.find((b) => b.dataset.value === other)!.click();
     expect(store.current.hudSide).toBe(other);
     expect(loadSettings().hudSide).toBe(other);
+  });
+
+  it('carries the WEAPON SELECT choice row and committing TOGGLE persists', () => {
+    overlay.open();
+    const row = [...document.querySelectorAll<HTMLElement>('#hc-settings div')].find((d) => d.firstElementChild?.textContent === WEAPON_SELECT_LABEL);
+    expect(row).toBeDefined();
+    const buttons = [...row!.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((b) => b.dataset.value)).toEqual(WEAPON_SELECT_OPTIONS.map((o) => o.value));
+    buttons.find((b) => b.dataset.value === 'TOGGLE')!.click();
+    expect(store.current.weaponSelect).toBe('TOGGLE');
+    expect(loadSettings().weaponSelect).toBe('TOGGLE');
   });
 
   it('toggle() closes an open overlay (the ESC toggle path)', () => {

@@ -442,8 +442,8 @@ describe('shared barrel', () => {
     // rather than restating 2/3, so the naval and fouling rings cannot drift.
     expect('triggerFactor' in CONFIG.foulingMines).toBe(false);
     expect(CONFIG.foulingMines.blastRadius).toBeGreaterThan(CONFIG.mine.blastRadius);
-    // ...and the naval chassis (rear sector, leash, arm delay) is NOT copied.
-    for (const k of ['offset', 'placeHalfArcDeg', 'placeRange', 'armDelay']) {
+    // ...and the naval chassis (the arm delay) is NOT copied.
+    for (const k of ['armDelay']) {
       expect(k in CONFIG.foulingMines, k).toBe(false);
     }
   });
