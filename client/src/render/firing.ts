@@ -583,6 +583,11 @@ export class FiringUX {
     g.clear();
     const kind = fireArcKind(id);
     if (kind === 'none') return; // abilities don't aim — no reticle
+    // NOR A MINE (2026-11-23): it rolls off the stern whatever the aim, so no
+    // bearing line, no ring, no crosshair — nothing implies an aim. The OS
+    // cursor is not hidden over the canvas, so the pointer stays visible on its
+    // own; the drop's only mark is the preview's rings at the stern.
+    if (isPlacedItem(id)) return;
     const color = reticleTint(id, this.armed(pose.heading, aim, id, hasAmmo), this.aimTint);
     const r = reticleGeometry(this.aimSize);
     g.moveTo(pose.x, pose.y).lineTo(cursor.x, cursor.y).stroke({ width: 1, color, alpha: 0.25 });
@@ -597,16 +602,14 @@ export class FiringUX {
     // NEVER FOR A TORPEDO (Story 8.13): no torpedo line has a max range
     // (epic-8 amendment 84f): `weaponRangeU` hands it the cannon's range as a
     // fallback purely so nothing crashes, and drawing a clamp ring at it would
-    // promise the torpedo stops there.
-    // NOR FOR A MINE: it drops astern whatever the aim — there is no range to
-    // clamp to, so no clamp marker.
+    // promise the torpedo stops there. (A mine returned above.)
     if (id === 'mainBattery') {
       // R19 "ring follows the turret": the marker sits on the salvo center —
       // the oval's own point, the firing turret's reach — never on a reach
       // measured from the ship center.
       const c = this.battery?.clamp ?? null;
       if (c !== null) this.drawClampMark(c.x, c.y, c.bearing, color);
-    } else if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id) && !isPlacedItem(id)) {
+    } else if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id)) {
       this.drawRangeClampMarker(pose, aim, cursor, color);
     }
   }

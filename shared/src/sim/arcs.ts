@@ -54,9 +54,11 @@ import type { MineKind } from '../types.js';
  *                   gun, flak — star shells, phosphor shells, the FOULING
  *                   SHELL and FLASH SHELLS, aimed to the clicked point; the
  *                   three MINE lines, which ignore the aim and drop astern).
- * - `sector`      — an aimed launch sector `heading + offset ± halfArc`
- *                   (aim outside it is DENIED; the torpedo launchers'
- *                   bands, `launcherSectors`, are built in this shape).
+ * - `sector`      — one sector `heading + offset ± halfArc`: the BAND shape
+ *                   the torpedo launchers' firing bands are built in
+ *                   (`launcherSectors`). NO equipment id declares it since
+ *                   the mines' rear sector went (2026-11-23), so `arcFor`
+ *                   returns `EquipmentArc`, which excludes it.
  * - `twin-sector` — TWO MIRRORED aimed sectors at `heading ± offset`, each
  *                   `halfArc` wide (the BROADSIDE BARRAGE's beams; the LIGHT
  *                   TORPEDO's two beam tubes since 8.13). The side
@@ -83,6 +85,10 @@ export type ArcShape =
   | { kind: 'launcher' }
   | { kind: 'none' };
 
+/** The arc an equipment id can declare: every `ArcShape` but the plain
+ *  `sector` (a launcher band, never a weapon's own arc). */
+export type EquipmentArc = Exclude<ArcShape, { kind: 'sector' }>;
+
 /** deg -> rad (CONFIG.broadside's two arc fields are authored in degrees). */
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -91,7 +97,7 @@ const deg = (d: number): number => (d * Math.PI) / 180;
  * and compile-forced to cover every id: a new one cannot ship without
  * declaring its arc here.
  */
-export function arcFor(id: EquipmentId): ArcShape {
+export function arcFor(id: EquipmentId): EquipmentArc {
   return equipmentArc(id);
 }
 
@@ -184,7 +190,7 @@ function isConfigArcRow(id: EquipmentId): id is (typeof CONFIG_ARC_ROWS)[number]
   return (CONFIG_ARC_ROWS as readonly EquipmentId[]).includes(id);
 }
 
-function equipmentArc(id: EquipmentId): ArcShape {
+function equipmentArc(id: EquipmentId): EquipmentArc {
   if (isMineEquipment(id)) return { kind: 'full' }; // the stern drop ignores the aim (2026-11-23)
   if (isConfigArcRow(id)) return { kind: CONFIG[id].arc };
   switch (id) {
@@ -220,7 +226,7 @@ function equipmentArc(id: EquipmentId): ArcShape {
  * The narrow parameter type is the COMPILE FORCE: a new EquipmentId is not
  * assignable to it, so it cannot reach this default without declaring an arc.
  */
-function unbuiltArc(_id: 'boost' | 'instantReload' | 'hunker'): ArcShape {
+function unbuiltArc(_id: 'boost' | 'instantReload' | 'hunker'): EquipmentArc {
   return { kind: 'none' };
 }
 

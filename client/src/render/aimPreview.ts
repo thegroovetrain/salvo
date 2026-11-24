@@ -27,17 +27,14 @@ import {
   type LitCircle,
   type TurretState,
   CONFIG,
-  blockedWater,
   dispersionAxes,
   burstPointAlong,
   clampInsideMap,
-  hullEnvelope,
   islandSegHit,
   muzzleOrTarget,
   parallelOffsets,
   initialLaunchers,
   launcherAimPoint,
-  mineDropPoint,
   pickTube,
   torpedoLaunchPoint,
   turretAimPoints,
@@ -54,6 +51,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
+import { mineDropSpot } from '../sim/mineDrop.js';
 import { screenScale } from './chartMarks.js';
 import type { OwnFire } from './projectiles.js';
 import { isMineEquipment, isTorpedoItem, mainBatteryAim, mineKindOf, type MineEquipmentId } from './weaponArc.js';
@@ -651,7 +649,8 @@ function torpedoLaunch(inp: AimPreviewInput): { origin: Vec2; dir: number } | nu
 }
 
 /** Mine drop: the rings at the stern drop point — the shared `mineDropPoint`
- *  the server drops at (2026-11-23: the mine rolls off the stern, the aim is
+ *  the server drops at, read through `mineDropSpot` (sim/mineDrop.ts — the same
+ *  verdict the click prediction denies a blocked drop on) (2026-11-23: the mine rolls off the stern, the aim is
  *  ignored), so the rings follow the ship. Radii are the OWNER's effective ones
  *  FOR THE LINE BEING DROPPED (Story 8.13 — `stats.equipment[id]`, never
  *  `navalMines` standing in for a captive or a fouling drop): the same numbers
@@ -660,7 +659,7 @@ function torpedoLaunch(inp: AimPreviewInput): { origin: Vec2; dir: number } | nu
  *  captive's tier-derived trip ring and the contact kinds' fraction-of-blast
  *  ones. */
 function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel {
-  const p = mineDropPoint(inp.ship, hullEnvelope(inp.ship.cls).hull.length);
+  const p = mineDropSpot(inp.ship, inp.islands, inp.mapRadius);
   const row = inp.stats.equipment[id];
   return {
     lines: [],
@@ -672,7 +671,7 @@ function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel
       blast: row.blastRadius,
       trigger: row.triggerRadius,
       kind: mineKindOf(id),
-      blocked: blockedWater(p, inp.islands, inp.mapRadius),
+      blocked: p.blocked,
     },
   };
 }

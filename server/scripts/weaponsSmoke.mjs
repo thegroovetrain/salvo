@@ -656,14 +656,23 @@ async function minePhase(log) {
   assert(racks0 === JSON.stringify(Array(layerStats.mineRacks).fill({ n: perRack, reloadMsLeft: 0 })), `mine: own racks ${racks0}, expected ${layerStats.mineRacks} full racks of ${perRack}`);
   let racksSeen = '';
   // LAY THE FIELD BY SAILING: drop from rest, then full ahead, and drop again
-  // each time the stern has sailed DROP_SPACING_U past the latest drop.
-  let lastDrop = null;
+  // each time the stern has sailed DROP_SPACING_U past the latest ACCEPTED
+  // drop. A click is only a request: `lastDrop` advances once the server has
+  // laid it (A's own distinct mines grew); a refused click (an empty rack
+  // between reloads) is retried at the next spacing point inside the lane.
+  let lastDrop = null; // the stern point of the latest drop the server laid
+  let pending = null; // { at, laid }: the latest click's stern point and A's mine count then
   a.script = (ctx, inp) => {
-    if (lastDrop !== null) inp.throttle = 1;
+    if (pending !== null && a.distinctOwn.size > pending.laid) {
+      lastDrop = pending.at;
+      pending = null;
+    }
+    if (lastDrop !== null || pending !== null) inp.throttle = 1;
     const here = sternDrop(LAYER, ctx.you);
-    if (lastDrop !== null && dist(here, lastDrop) < DROP_SPACING_U) return;
+    const since = pending?.at ?? lastDrop;
+    if (since !== null && dist(here, since) < DROP_SPACING_U) return;
     dropMine(ctx, inp);
-    lastDrop = here;
+    pending = { at: here, laid: a.distinctOwn.size };
   };
   // Budget: NO_EVICTION_MINES drops at one per CONFIG.mine.reloadMs is an upper
   // bound on the rack's cadence (it starts full, so it is faster), + the sail

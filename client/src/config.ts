@@ -866,8 +866,6 @@ export const CLIENT_CONFIG = {
     dashDuty: 0.55,
     dotSegments: 40,
     dotDuty: 0.22,
-    // `placementEdge` (the mine placement wedge's stroked boundary) is DELETED
-    // with the wedge (2026-11-23: mines roll off the stern).
     /**
      * THE CLAMPED-SHELL SCALE (Eric ruling 2026-08-27, ruling 4): a broadside
      * shell whose turret could NOT bear on the click still bursts somewhere

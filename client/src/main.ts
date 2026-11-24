@@ -29,6 +29,7 @@ import {
   equipmentReloadMs,
   hullEnvelope,
   hullSilhouette,
+  isMineEquipment,
   abilityFromCode,
   equipmentMaxAmmo,
   isOutside,
@@ -174,9 +175,11 @@ import {
 } from './ui/offerCore.js';
 import { OfferGroup } from './ui/offerGroup.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
-import { abilityPressDenied, hornPressVerdict, revertsAfterShot, shouldConsumePrime } from './sim/inputSampler.js';
+import { abilityPressDenied, hornPressVerdict, shouldConsumePrime } from './sim/inputSampler.js';
+import { recordShot, toggleBackstop, TOGGLE_IDLE, type ToggleState } from './sim/toggleSelect.js';
 import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
+import { mineDropSpot } from './sim/mineDrop.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { OwnBattery } from './sim/ownBattery.js';
 import { OwnLaunchers } from './sim/ownLaunchers.js';
@@ -743,11 +746,10 @@ interface Game {
    *  independent; it carries the released CLICK'S seq rather than a count, so a
    *  release can only pay for the click it actually closed. */
   lastTickRelease: number;
-  /** WEAPON SELECT = TOGGLE (2026-11-23): the slot a toggled shot left selected
-   *  with stock still predicted, or null. The tick backstop (toggleOutOfStock)
-   *  returns it to the gun once the server's stock for it reads 0 — the click's
-   *  own count can be a frame stale on a fast double-click. */
-  toggleFiredSlot: number | null;
+  /** WEAPON SELECT (2026-11-23): the predicted-stock record behind the PRIME |
+   *  TOGGLE revert rule — every fireable shot not yet acked, and the slot a
+   *  toggled shot left selected (sim/toggleSelect.ts owns all of it). */
+  toggle: ToggleState;
   /** Own ship class — the localStorage guess, corrected by the first server frame. */
   ownClass: ShipClassId;
   /** Story 1.13: true once the OWN nameplate's text/color have resolved + been
@@ -2941,7 +2943,7 @@ function buildGame(
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     hullSoftness: NO_SOFTENING, rainEye: null, smokeDiscs: [], smokeDiscPool: [],
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
-    prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, toggleFiredSlot: null, ownFire: new OwnFireLatch(),
+    prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, toggle: TOGGLE_IDLE, ownFire: new OwnFireLatch(),
     ownClass: cls, ownPlated: false, // unresolved until the roster syncs the own name (1.13)
     ownBattery: new OwnBattery(cls),
     ownLaunchers: new OwnLaunchers(cls),
@@ -4040,12 +4042,26 @@ function slotAimInArc(g: Game, slot: number, aim: number, aimDist: number): bool
  *  except the MAIN BATTERY (Story 10.4), which is "loaded" when the shared pick
  *  would fire a PREDICTED turret for this aim (a ready turret whose arc holds
  *  it — arc-only fire, epic-10 amendment 10): the same read the sim-tick click
- *  prediction makes. */
+ *  prediction makes. A MINE (2026-11-23) has no round to drop while its stern
+ *  drop point is blocked — the server refuses it `'blocked'`, so the click
+ *  predicts DENIED, the reticle verdict goes dim and the selection is kept,
+ *  agreeing with the preview's blocked tell (`mineDropSpot`, one read). */
 function slotHasRound(g: Game, slot: number, a: WeaponAmmo | null, aim: number, aimDist: number): boolean {
-  if (g.ownSlots[slot] === 'mainBattery') return batteryWouldFire(g.ownBattery, ownBatteryPose(g), aim, aimDist);
+  const id = g.ownSlots[slot] ?? null;
+  if (id === 'mainBattery') return batteryWouldFire(g.ownBattery, ownBatteryPose(g), aim, aimDist);
   // Story 10.6 (R16): a torpedo is "loaded" exactly when the shared tube pick fires.
-  if (isTorpedoItem(g.ownSlots[slot] ?? null)) return torpedoClickPrediction(g.ownLaunchers, true, ownBatteryPose(g), aim, aimDist).loaded;
+  if (isTorpedoItem(id)) return torpedoClickPrediction(g.ownLaunchers, true, ownBatteryPose(g), aim, aimDist).loaded;
+  if (isMineEquipment(id) && ownMineDropBlocked(g)) return false;
   return !!a && a.n > 0;
+}
+
+/** Is the own stern drop point blocked right now — read off the PREDICTED pose
+ *  (the one the click is applied to) through the same `mineDropSpot` the aim
+ *  preview draws its blocked tell from. */
+function ownMineDropBlocked(g: Game): boolean {
+  const pose = ownBatteryPose(g);
+  if (pose === null) return false;
+  return mineDropSpot({ x: pose.x, y: pose.y, heading: pose.heading, cls: g.ownClass }, g.islands, g.mapRadius).blocked;
 }
 
 /**
@@ -4152,7 +4168,9 @@ function clickPrediction(
     // click does. Left un-widened, a sinking captain's torpedo would fire while
     // the client kept the prime armed and mis-attributed the reveal.
     alive: conningNow(g) ?? false,
-    loaded: !!a && a.n > 0,
+    // The same round read the denied pulse makes (`slotHasRound`): the pool
+    // count, and for a MINE an open stern drop point (2026-11-23).
+    loaded: slotHasRound(g, primedSlot, a, aim, aimDist),
     // The bearing gate, over the slot's raw content (`clickInArc`). A mine is
     // always in arc: it rolls off the stern whatever the aim (2026-11-23).
     inArc: clickInArc(predictedHeading(g), aim, g.ownSlots[primedSlot] ?? null),
@@ -4276,32 +4294,48 @@ function armPrimeRevert(g: Game, clickSeq: number): void {
   if (g.mouse.releasedClickSeq === clickSeq) g.keyboard.consumeReleaseRevert(clickSeq);
 }
 
-function armFireRevert(g: Game, primedSlot: number, clickSeq: number): void {
-  const loadedBefore = g.state.net.you?.ammo[primedSlot]?.n ?? 0;
-  if (revertsAfterShot(settings.current.weaponSelect, loadedBefore)) {
-    g.toggleFiredSlot = null;
-    armPrimeRevert(g, clickSeq);
-    return;
-  }
-  g.toggleFiredSlot = primedSlot;
+/** The server's loaded stock for a slot (0 before the first frame). */
+function serverStockOf(g: Game, slot: number): number {
+  return g.state.net.you?.ammo[slot]?.n ?? 0;
 }
 
 /**
- * TOGGLE's out-of-stock backstop, run every sim tick on the release edge: a
- * slot a toggled shot left selected returns to the gun (on the current click's
- * release, never its press) once the server's loaded stock for it reads 0.
- * Selecting another slot or the gun, or switching to PRIME, drops the watch.
+ * A new click: a predicted-FIREABLE one records its shot against the predicted
+ * stock and ARMS the release revert when the PRIME | TOGGLE rule says so
+ * (sim/toggleSelect.ts `recordShot` — `revertsAfterShot` over the stock before
+ * this shot); a predicted-DENIED one records and arms nothing. Only ever arms;
+ * the release pays.
+ */
+function armFireRevert(g: Game, primedSlot: number, clickSeq: number, seq: number, fireable: boolean): void {
+  const r = recordShot(g.toggle, {
+    fireable,
+    mode: settings.current.weaponSelect,
+    slot: primedSlot,
+    seq,
+    clickSeq,
+    serverN: serverStockOf(g, primedSlot),
+    ackSeq: g.state.net.ackSeq,
+  });
+  g.toggle = r.state;
+  if (r.arm) armPrimeRevert(g, clickSeq);
+}
+
+/**
+ * TOGGLE's out-of-stock backstop, run every sim tick on the release edge
+ * (sim/toggleSelect.ts `toggleBackstop`): a watched slot whose PREDICTED stock
+ * reads 0 arms the revert for the click that emptied it. Only ever arms.
  */
 function toggleOutOfStock(g: Game): void {
-  const slot = g.toggleFiredSlot;
-  if (slot === null) return;
-  if (g.keyboard.primedSlot !== slot || settings.current.weaponSelect !== 'TOGGLE') {
-    g.toggleFiredSlot = null;
-    return;
-  }
-  if ((g.state.net.you?.ammo[slot]?.n ?? 0) > 0) return;
-  g.toggleFiredSlot = null;
-  armPrimeRevert(g, g.mouse.clickCount);
+  const r = toggleBackstop(g.toggle, {
+    mode: settings.current.weaponSelect,
+    primedSlot: g.keyboard.primedSlot,
+    serverStock: (slot) => serverStockOf(g, slot),
+    ackSeq: g.state.net.ackSeq,
+    clickCount: g.mouse.clickCount,
+    releasedClickSeq: g.mouse.releasedClickSeq,
+  });
+  g.toggle = r.state;
+  if (r.armSeq !== null) armPrimeRevert(g, r.armSeq);
 }
 
 function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, wire: Pick<InputMsg, 'fireSeq' | 'seq'>): void {
@@ -4330,7 +4364,7 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
   // predicted-DENIED click arms nothing and keeps its prime, exactly as before.
   // WEAPON SELECT (2026-11-23): PRIME arms the revert on every fireable click;
   // TOGGLE only on the shot that empties the slot's loaded stock.
-  if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) armFireRevert(g, primedSlot, clickSeq);
+  armFireRevert(g, primedSlot, clickSeq, wire.seq, shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc));
   // Story 1.10 exactly-one-feedback (weapon clicks): a click predicted DENIED
   // (reloading / out of the bow arc) fires its feedback NOW — the denial tone
   // here plus renderFiring's existing red pulse — and marks its

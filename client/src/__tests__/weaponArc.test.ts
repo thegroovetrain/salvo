@@ -578,7 +578,6 @@ describe('weaponArc — arcFor single-source (Story 1.10)', () => {
   it('fireArcKind is a straight projection of the shared descriptor for every id', () => {
     const PROJECTION: Record<string, string> = {
       full: 'gunLike',
-      sector: 'sector',
       'twin-sector': 'twin',
       launcher: 'launcher',
       none: 'none',

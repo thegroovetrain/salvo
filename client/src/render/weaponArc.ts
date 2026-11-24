@@ -1,7 +1,7 @@
 // Pure firing-arc + range math (no Pixi import — unit tested), shared by
 // render/firing.ts (arc sector rendering + reticle tint) and
 // render/deniedFire.ts's predicate (via main.ts), so both read the exact same
-// gate off shared `inArc`.
+// gate off the shared arc descriptors.
 //
 // Keyed by the fitted EQUIPMENT ID (Story 1.7), NOT the loadout slot index: the
 // slot-index == equipment coupling died when the fit went per-hull, and Story
@@ -39,7 +39,6 @@ import {
   gunReachU,
   pickTurret,
   turretSalvo,
-  inArc,
   isMineEquipment,
   launcherArcHolds,
   launcherSectors,
@@ -80,8 +79,8 @@ export {
 
 /** Pure: is this id DROPPED rather than aimed — the three mine lines (the buoys
  *  left with Story 10.5)? A mine rolls off the stern whatever the aim
- *  (2026-11-23), so it has no reach to clamp to: render/firing.ts skips the
- *  range-clamp marker for it. */
+ *  (2026-11-23), so nothing implies an aim: render/firing.ts draws no reticle
+ *  (no bearing line, no ring, no clamp marker) for it. */
 export function isPlacedItem(id: EquipmentId | null): boolean {
   return isMineEquipment(id);
 }
@@ -110,12 +109,10 @@ export function isTorpedoItem(id: EquipmentId | null): id is TorpedoItemId {
  * - `gunLike` — a `full` (360°) descriptor: never out of arc, no arc sector
  *   drawn (the guns, aimed to the clicked point and range-clamped; the mines,
  *   which drop astern whatever the aim — `isPlacedItem`).
- * - `sector`  — a `sector` descriptor: an AIM-GATED weapon (no id declares
- *   one since the mines' rear placement arc was deleted, 2026-11-23).
  * - `twin`    — a `twin-sector` descriptor (the BROADSIDE BARRAGE, R2.1): TWO
  *   mirrored aim-gated wedges at `heading ± offset`. A click inside EITHER is
  *   legal and fires THAT side (R2.2); a click in neither — the bow and stern
- *   dead zones — is denied exactly like a `sector` miss.
+ *   dead zones — is denied out of arc.
  * - `launcher` — a TORPEDO (Story 10.6, R6 / R28): the union of the firing
  *   bands of the deck launchers the ship holds
  *   (`launcherSectors(stats.torpedoLaunchers)`) — each launcher fires on both
@@ -123,16 +120,15 @@ export function isTorpedoItem(id: EquipmentId | null): id is TorpedoItemId {
  * - `none`    — the `none` descriptor (the speed boost) or an empty slot: not
  *   an aimed weapon, no marker, no reticle.
  */
-export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'launcher' | 'none';
+export type FireArcKind = 'gunLike' | 'twin' | 'launcher' | 'none';
 
 /** Pure: classify a fitted slot's content (or null empty slot) by firing-arc
- *  kind — a straight projection of the shared arcFor descriptor (the SUPERCAV
- *  TORPEDO's bow ±15° `sector`, FLASH SHELLS' and the FOULING SHELL's `full`). */
+ *  kind — a straight projection of the shared arcFor descriptor (the torpedoes'
+ *  `launcher`, FLASH SHELLS' and the FOULING SHELL's `full`). */
 export function fireArcKind(id: EquipmentId | null): FireArcKind {
   if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
   if (arc.kind === 'full') return 'gunLike'; // the guns / star, phosphor, fouling, flash shells
-  if (arc.kind === 'sector') return 'sector'; // no id today (the mines' rear arc is gone)
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
   if (arc.kind === 'launcher') return 'launcher'; // the torpedoes' deck launchers (Story 10.6)
   return 'none'; // none (boost)
@@ -142,8 +138,7 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
  * Does `aim` (world bearing) fall within the fitted weapon `id`'s firing arc,
  * given the hull's `heading`? Driven by the shared arcFor descriptor: a `full`
  * arc is always true (the guns, and the mines — they drop astern whatever the
- * aim); a `sector` checks heading + offset ± halfArc via shared `inArc`; a
- * `twin-sector` is in arc when EITHER
+ * aim); a `twin-sector` is in arc when EITHER
  * mirrored beam contains the aim (the broadside, R2.1/R2.2); a `launcher` (a
  * torpedo, Story 10.6) when ANY of the ship's `launchers` held launchers bears
  * (`launcherArcHolds` — parallax-free, from the hull centre; the ENFORCED
@@ -155,9 +150,6 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
   if (id === null) return false;
   const arc = arcFor(id);
   if (arc.kind === 'full') return true; // 360° — never out of arc
-  if (arc.kind === 'sector') {
-    return inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc);
-  }
   if (arc.kind === 'twin-sector') return twinSectorSide(heading, aim, arc) !== null;
   // R30: the bands are per hull — no hull named, no band to hold the aim.
   if (arc.kind === 'launcher') return hullId !== null && launcherArcHolds(hullId, launchers, heading, aim);
@@ -358,12 +350,6 @@ export function batteryClampMark(b: MainBatteryAim | null): { x: number; y: numb
   if (b === null || !b.clamped) return null;
   return { x: b.salvo.center.x, y: b.salvo.center.y, bearing: b.salvo.bearing };
 }
-
-// `weaponRangeHit` (the mines' placement-leash DENIAL gate) is DELETED with
-// the leash (2026-11-23: a mine rolls off the stern whatever the aim). No id
-// denies on distance any more: the gun family CLAMPS the aim point to rangeU
-// and fires anyway, and a torpedo runs until it hits something or leaves the
-// map.
 
 /**
  * THE CLICK GATE over a slot's CONTENT — the one predicate main.ts's click

@@ -120,7 +120,7 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   it('covers every EquipmentId (a new id cannot ship without an arc shape)', () => {
     const ids: EquipmentId[] = [...EQUIPMENT_IDS];
     for (const id of ids) {
-      expect(['full', 'sector', 'twin-sector', 'launcher', 'none'], id).toContain(arcFor(id).kind);
+      expect(['full', 'twin-sector', 'launcher', 'none'], id).toContain(arcFor(id).kind);
     }
   });
 
