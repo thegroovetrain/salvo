@@ -34,6 +34,7 @@
 
 import { CLIENT_CONFIG } from '../config.js';
 import { registerCss } from './theme.js';
+import { BACK_TO_PORT_LABEL } from './siteCopy.js';
 
 const P = CLIENT_CONFIG.page;
 
@@ -426,7 +427,7 @@ function makeHeader(opts: PageOptions): HTMLElement {
     sub.style.cssText = `${registerCss('hudMicro')};color:var(--hc-text-secondary)`;
     titles.appendChild(sub);
   }
-  row.append(titles, makeBackButton(opts.backLabel ?? 'BACK TO PORT', opts.onBack));
+  row.append(titles, makeBackButton(opts.backLabel ?? BACK_TO_PORT_LABEL, opts.onBack));
   return row;
 }
 

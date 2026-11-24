@@ -13,12 +13,13 @@
     "bench": "vitest bench --run"
   },
   "dependencies": {
-    "@salvo/shared": "*",
     "@colyseus/sdk": "^0.18.2",
+    "@salvo/shared": "*",
     "pixi.js": "^8.19.0"
   },
   "devDependencies": {
     "jsdom": "^29.0.1",
+    "playwright-core": "^1.65.1",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
     "vitest": "^4.1.1"

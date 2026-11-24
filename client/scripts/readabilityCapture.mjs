@@ -12,11 +12,8 @@
 // IT NEVER STARTS THE DEV SERVER. Eric manages `npm run dev` by hand (CLAUDE.md);
 // this script probes :5173 and exits with instructions if nothing answers.
 //
-// IT ADDS NO DEPENDENCY TO THE REPO. `playwright-core` is not, and is not made,
-// a workspace dependency: the script resolves an EXISTING install (the gstack
-// skill suite ships one, with its browsers already in the Playwright cache) and
-// tells you exactly what to do if it cannot find one. Same posture as
-// server/scripts/*.mjs — plain node, no build step, no install.
+// `playwright-core` is a client devDependency (Eric 2026-11-24); its browsers
+// come from `npx playwright-core install chromium`. Plain node, no build step.
 //
 //   node client/scripts/readabilityCapture.mjs
 //   node client/scripts/readabilityCapture.mjs --verify-bundle   (no browser needed)
@@ -27,7 +24,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { homedir } from 'node:os';
 import { launchMuted } from './perfLib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -91,12 +87,11 @@ const FRAME_TIMING = {
   ratifiedBudgetNotMeasuredHere: { frameMs: 16.6, simMs: 3, renderMs: 10, headroomMs: 3.6 },
 };
 
-/** Where an existing playwright-core might live, in priority order. */
+/** Where playwright-core lives, in priority order (an override, then the repo's own install). */
 function playwrightCandidates() {
   const list = [];
   if (process.env.HC_PLAYWRIGHT) list.push(process.env.HC_PLAYWRIGHT);
   list.push(join(REPO, 'node_modules', 'playwright-core', 'index.mjs'));
-  list.push(join(homedir(), '.claude', 'skills', 'gstack', 'node_modules', 'playwright-core', 'index.mjs'));
   return list;
 }
 
@@ -263,14 +258,13 @@ async function run() {
   if (pw === null) {
     console.error(
       [
-        'No usable playwright-core install was found, and this script deliberately',
-        'does not add one to the repo.',
+        'No usable playwright-core install was found. Run `npm install` (it is a',
+        'client devDependency), then `npx playwright-core install chromium`.',
         '',
         'Looked in:',
         ...playwrightCandidates().map((p) => `    ${p}`),
         '',
-        'Point HC_PLAYWRIGHT at an existing playwright-core index.mjs, or install',
-        'browsers for one you already have. Nothing else about the staged scene',
+        'Or point HC_PLAYWRIGHT at a playwright-core index.mjs. Nothing else about the staged scene',
         'depends on this — it is reachable by hand at:',
         '',
         `    ${SCENE_URL}`,

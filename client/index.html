@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>HULLCRACKER.IO</title>
+  <meta name="description" content="Naval battle royale in your browser. Last hull floating wins.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!--
@@ -28,12 +29,24 @@
   <noscript>
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   </noscript>
+  <!--
+    THE PRERENDERED HOME NEVER FLASHES (Story 13.1, AC 7). The build writes the
+    home's words into the body (`src/seo/`), in flow. `#app` is fixed and now
+    opaque in the same void as the body (one literal, two selectors), so on a
+    scripted load it covers the block from the first frame until the live home
+    removes it. A reader with scripting off gets the <noscript> rule instead:
+    no `#app`, and the body may scroll.
+  -->
   <style>
     html, body { margin: 0; height: 100%; width: 100%; }
-    body { background: #050807; overflow: hidden; }
+    body, #app { background: #050807; }
+    body { overflow: hidden; }
     #app { position: fixed; inset: 0; width: 100vw; height: 100vh; }
     #app canvas { display: block; }
   </style>
+  <noscript>
+    <style>#app { display: none; } body { overflow: auto; }</style>
+  </noscript>
 </head>
 <body>
   <div id="app"></div>

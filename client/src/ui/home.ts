@@ -99,6 +99,14 @@ import { registerCss } from './theme.js';
 import { makePrivateRow, type PrivateRow } from './privateRow.js';
 import { hullArtSvg, sharedFitPxPerU } from '../render/hullArt/svgArt.js';
 import { pickTagline } from './taglines.js';
+import {
+  HOWTO_HREF,
+  HOWTO_LINK_LABEL,
+  PRIVACY_LINK_LABEL,
+  WORDMARK_NAME,
+  WORDMARK_TLD,
+  versionLine,
+} from './siteCopy.js';
 import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import {
   openClassSelect,
@@ -465,16 +473,16 @@ function makeWordmark(version: string): HTMLElement {
   mark.style.cssText =
     'font:700 clamp(48px, 9vw, 104px) var(--hc-font-display);letter-spacing:0.14em;color:var(--hc-text-primary);' +
     'line-height:1;text-align:center';
-  mark.append(document.createTextNode('HULLCRACKER'));
+  mark.append(document.createTextNode(WORDMARK_NAME));
   const io = document.createElement('span');
-  io.textContent = '.IO';
+  io.textContent = WORDMARK_TLD;
   io.style.color = 'var(--hc-phosphor-bright)';
   mark.appendChild(io);
   const tagline = document.createElement('div');
   tagline.textContent = pickTagline();
   tagline.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);letter-spacing:0.44em;margin-top:8px`;
   const ver = document.createElement('div');
-  ver.textContent = `v${version}`;
+  ver.textContent = versionLine(version);
   ver.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.2em`;
   wrap.append(mark, tagline, ver);
   return wrap;
@@ -728,13 +736,8 @@ const UNDERPLAY_LINK_CSS =
   `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
   'text-underline-offset:4px;cursor:pointer';
 
-/**
- * The How-to-Play page's URL (Story 7.3). A LOCAL CONSTANT rather than a
- * `CLIENT_CONFIG` entry: `consent.policyHref` earns its config home because the
- * privacy policy's address is read by this link AND by the How-to-Play page's
- * own footer, so two surfaces must agree on it. This URL has exactly one reader.
- */
-const HOWTO_HREF = '/how-to-play';
+// The How-to-Play URL and both link labels live in `ui/siteCopy.ts` (Story
+// 13.1): the build-time prerender writes the same row into the served HTML.
 
 /**
  * A community anchor (Eric ruling 2026-08-28). Same treatment as the two
@@ -772,7 +775,7 @@ function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   // and the two static-page links are now built identically, which is the point
   // of the row.
   const howto = document.createElement('a');
-  howto.textContent = 'HOW TO PLAY';
+  howto.textContent = HOWTO_LINK_LABEL;
   howto.href = HOWTO_HREF;
   howto.style.cssText = UNDERPLAY_LINK_CSS;
   // A REAL ANCHOR, not a click handler on a span: `/privacy` is a genuine URL on
@@ -781,7 +784,7 @@ function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   // and Google's CMP setup both want a reachable privacy-policy URL, and a span
   // that calls `location.href` is not one.
   const privacy = document.createElement('a');
-  privacy.textContent = 'PRIVACY';
+  privacy.textContent = PRIVACY_LINK_LABEL;
   privacy.href = CLIENT_CONFIG.consent.policyHref;
   privacy.style.cssText = UNDERPLAY_LINK_CSS;
   row.append(howto, privacy);

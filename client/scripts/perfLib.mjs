@@ -1,10 +1,8 @@
 // Shared plumbing for the Story 7.1 performance captures.
 //
-// IT ADDS NO DEPENDENCY TO THE REPO. Same posture as
-// client/scripts/readabilityCapture.mjs and server/scripts/*.mjs: plain node, no
-// build step, no install. `playwright-core` is resolved from an EXISTING install
-// (the gstack skill suite ships one with its browsers already cached) and never
-// added to any package.json. The static server below is node:http rather than
+// Plain node, no build step. `playwright-core` is a client devDependency (Eric
+// 2026-11-24: "just install playwright if you use it"); its browsers come from
+// `npx playwright-core install chromium firefox`. The static server below is node:http rather than
 // `vite preview` because the perf build lands in a SEPARATE out dir and the
 // capture must serve exactly the bytes that were built, with no dev middleware
 // of any kind in the path.
@@ -15,7 +13,6 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
-import { homedir } from 'node:os';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = resolve(HERE, '..', '..');
@@ -150,13 +147,11 @@ export function serveDir(dir, port = 0) {
   });
 }
 
-/** Where an existing playwright-core might live, in priority order. */
+/** Where playwright-core lives, in priority order (an override, then the repo's own install). */
 function playwrightCandidates() {
   const list = [];
   if (process.env.HC_PLAYWRIGHT) list.push(process.env.HC_PLAYWRIGHT);
   list.push(join(REPO, 'node_modules', 'playwright-core', 'index.mjs'));
-  list.push(join(homedir(), '.claude', 'skills', 'gstack', 'node_modules', 'playwright-core', 'index.mjs'));
-  list.push(join(REPO, '..', '..', 'skills', 'gstack', 'node_modules', 'playwright-core', 'index.mjs'));
   return list;
 }
 

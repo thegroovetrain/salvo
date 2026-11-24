@@ -5,6 +5,11 @@ import { fileURLToPath } from 'node:url';
 // The PURE half of the ad-tag injection. `src/ads/adsense.ts` is the only file
 // that names the vendor's origin or client ID; this config names neither.
 import { adsTxtContent, injectAdsHead, isGameIndexPath } from './src/ads/adsHead.js';
+// The PURE half of the crawlable documents (Story 13.1). Node-safe: copy,
+// config tokens and string building only.
+import { crawlableDocument, type CrawlableOptions } from './src/seo/crawlable.js';
+import { robotsTxt, sitemapXml } from './src/seo/robots.js';
+import { communityLinks } from './src/ui/communityLinks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-8'));
@@ -92,6 +97,29 @@ function adsensePlugin(adsClient: string) {
   };
 }
 
+/**
+ * THE CRAWLABLE DOCUMENTS (Story 13.1).
+ *
+ * Every served document carries its words, a semantic structure and its head
+ * set (canonical, Open Graph, Twitter card) in the HTML the server sends, and
+ * every build emits `robots.txt` + `sitemap.xml`. Everything this plugin
+ * DECIDES lives in `src/seo/` as pure functions; what is left here is the two
+ * hooks. Default order, so it runs after `hc-adsense`'s `pre` transform. The
+ * emit is unconditional: unlike `ads.txt`, neither file depends on config.
+ */
+function crawlablePlugin(opts: CrawlableOptions) {
+  return {
+    name: 'hc-crawlable',
+    transformIndexHtml(html: string, ctx: { filename: string }) {
+      return crawlableDocument(html, ctx.filename, opts);
+    },
+    generateBundle(this: EmitContext) {
+      this.emitFile({ type: 'asset', fileName: 'robots.txt', source: robotsTxt() });
+      this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: sitemapXml() });
+    },
+  };
+}
+
 // THE FUNCTION FORM IS LOAD-BEARING (Story 7.1). This took a plain object until
 // this cycle; the perf build needs `mode`, which is the ONE input separating a
 // measurable build from the shipped one.
@@ -106,7 +134,12 @@ export default defineConfig(({ mode }) => {
    * `ads.txt` alike — an unconfigured build emits neither and is byte-identical
    * to the pre-7.4 artifact.
    */
-  const adsClient = (loadEnv(mode, __dirname, 'VITE_').VITE_ADSENSE_CLIENT ?? '').trim();
+  const env = loadEnv(mode, __dirname, 'VITE_');
+  const adsClient = (env.VITE_ADSENSE_CLIENT ?? '').trim();
+  // The home's prerendered community links are the ones the BUILD's env
+  // yields, passed explicitly: `communityLinks()`'s default reads
+  // `import.meta.env`, which the config bundle does not have (Story 13.1).
+  const crawlable: CrawlableOptions = { version: pkg.version, community: communityLinks(env) };
 
   return {
   define: {
@@ -216,6 +249,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     adsensePlugin(adsClient),
+    crawlablePlugin(crawlable),
   ],
   };
 });
