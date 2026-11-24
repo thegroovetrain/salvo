@@ -20,6 +20,7 @@ import {
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
+import { forgetServedHome } from '../ui/homeStatic.js';
 import { HORN_PREF_KEY } from '../net/connection.js';
 import {
   DEFAULT_CLASS_ID,
@@ -1189,7 +1190,13 @@ describe('setLiveness(null) stands the whole surface down (F3)', () => {
 // --- Eric 2026-08-18: the status line beside HOW TO PLAY belongs to the PROBE --
 
 describe('the status line is NEVER written by queue code', () => {
-  beforeEach(() => localStorage.clear());
+  // The link row is the served `<nav>`, adopted ONCE per document load
+  // (ui/homeStatic.ts) and built from the community env of that load; each pin
+  // here is a fresh load with its own env.
+  beforeEach(() => {
+    localStorage.clear();
+    forgetServedHome();
+  });
   afterEach(() => {
     home()?.remove();
     document.getElementById('queue-modal')?.remove();
@@ -1252,6 +1259,7 @@ describe('the status line is NEVER written by queue code', () => {
     showHome('0.0.0-test', vi.fn());
     expect(hrefs()).toEqual(['/how-to-play', '/privacy', 'https://www.reddit.com/r/hullcracker/']);
     home().remove();
+    forgetServedHome();
     vi.stubEnv('VITE_DISCORD_INVITE', 'abc123');
     vi.stubEnv('VITE_SUBREDDIT', 'hull cracker');
     showHome('0.0.0-test', vi.fn());

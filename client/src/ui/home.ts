@@ -91,7 +91,6 @@ import {
   updateQueueModal,
 } from './queueModal.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { communityLinks, type CommunityLink } from './communityLinks.js';
 import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
@@ -99,14 +98,7 @@ import { registerCss } from './theme.js';
 import { makePrivateRow, type PrivateRow } from './privateRow.js';
 import { hullArtSvg, sharedFitPxPerU } from '../render/hullArt/svgArt.js';
 import { pickTagline } from './taglines.js';
-import {
-  HOWTO_HREF,
-  HOWTO_LINK_LABEL,
-  PRIVACY_LINK_LABEL,
-  WORDMARK_NAME,
-  WORDMARK_TLD,
-  versionLine,
-} from './siteCopy.js';
+import { servedHome, type ServedHome } from './homeStatic.js';
 import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import {
   openClassSelect,
@@ -466,24 +458,27 @@ const OVERLAY_CSS = [
   'z-index:1100',
 ].join(';');
 
-function makeWordmark(version: string): HTMLElement {
+/**
+ * The wordmark block: the SERVED `<h1>` (with its `.IO` span) and version line
+ * (Story 13.1, adopted by `ui/homeStatic.ts`), styled as the live home always
+ * was, with the random tagline built here between them. `margin:0` cancels the
+ * UA margins of `h1`/`p` (the `font:` shorthand already overrides their size and
+ * weight), so the block is pixel-identical to the `div`s it replaced.
+ */
+function makeWordmark(served: ServedHome): HTMLElement {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:8px';
-  const mark = document.createElement('div');
+  const mark = served.wordmark;
   mark.style.cssText =
     'font:700 clamp(48px, 9vw, 104px) var(--hc-font-display);letter-spacing:0.14em;color:var(--hc-text-primary);' +
-    'line-height:1;text-align:center';
-  mark.append(document.createTextNode(WORDMARK_NAME));
-  const io = document.createElement('span');
-  io.textContent = WORDMARK_TLD;
-  io.style.color = 'var(--hc-phosphor-bright)';
-  mark.appendChild(io);
+    'line-height:1;text-align:center;margin:0';
+  const io = mark.firstElementChild;
+  if (io instanceof HTMLElement) io.style.color = 'var(--hc-phosphor-bright)';
   const tagline = document.createElement('div');
   tagline.textContent = pickTagline();
   tagline.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);letter-spacing:0.44em;margin-top:8px`;
-  const ver = document.createElement('div');
-  ver.textContent = versionLine(version);
-  ver.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.2em`;
+  const ver = served.version;
+  ver.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.2em;margin:0`;
   wrap.append(mark, tagline, ver);
   return wrap;
 }
@@ -736,27 +731,17 @@ const UNDERPLAY_LINK_CSS =
   `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
   'text-underline-offset:4px;cursor:pointer';
 
-// The How-to-Play URL and both link labels live in `ui/siteCopy.ts` (Story
-// 13.1): the build-time prerender writes the same row into the served HTML.
+// THE LINK ROW IS SERVED (Story 13.1). Its anchors are written into the served
+// HTML by `seo/homeMarkup.ts` and ADOPTED here (`ui/homeStatic.ts`), so the row
+// is the page's `<nav>` and its links are crawlable before any JS runs. They are
+// REAL anchors for the reasons that always held: `/how-to-play` and `/privacy`
+// are genuine URLs on separate documents (middle-clickable, openable in a new
+// tab — and AdSense site review and Google's CMP setup both want a reachable
+// privacy-policy URL). The community anchors (Eric ruling 2026-08-28) FOLLOW
+// them in a fixed order, OFF-SITE (`target="_blank"`, `rel="noopener
+// noreferrer"`), and an unconfigured one is simply absent (ui/communityLinks.ts).
 
-/**
- * A community anchor (Eric ruling 2026-08-28). Same treatment as the two
- * static-page links — the row is uniform — but OFF-SITE, so it opens in a new
- * tab and `rel="noopener noreferrer"` denies the destination a window handle
- * back onto the game tab (and withholds the referrer). The href is already
- * built and validated by ui/communityLinks.ts; nothing is templated here.
- */
-function makeCommunityLink(link: CommunityLink): HTMLAnchorElement {
-  const el = document.createElement('a');
-  el.textContent = link.label;
-  el.href = link.href;
-  el.target = '_blank';
-  el.rel = 'noopener noreferrer';
-  el.style.cssText = UNDERPLAY_LINK_CSS;
-  return el;
-}
-
-function makeUnderplay(statusEl: HTMLElement): HTMLElement {
+function makeUnderplay(statusEl: HTMLElement, links: HTMLElement): HTMLElement {
   // TWO LINES NOW (Eric ruling 2026-08-18, Story 7.2): the LINKS share the top
   // line and the SERVER STATUS gets its own beneath them. Asked where PRIVACY
   // should go given the row's two-child pin, Eric took neither offered option
@@ -766,33 +751,11 @@ function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   // pushes the links sideways.
   const col = document.createElement('div');
   col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:16px';
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:center;gap:26px';
-  // A REAL ANCHOR SINCE STORY 7.3, and no longer a span with a click handler.
-  // It used to paint the `FIELD MANUAL ARRIVES IN A LATER REFIT` stub, because
-  // there was no page behind it; now there is, at a genuine URL on a separate
-  // document. It takes PRIVACY's treatment for PRIVACY's reasons — see below —
-  // and the two static-page links are now built identically, which is the point
-  // of the row.
-  const howto = document.createElement('a');
-  howto.textContent = HOWTO_LINK_LABEL;
-  howto.href = HOWTO_HREF;
-  howto.style.cssText = UNDERPLAY_LINK_CSS;
-  // A REAL ANCHOR, not a click handler on a span: `/privacy` is a genuine URL on
-  // a separate document, and an <a> is what makes it middle-clickable, openable
-  // in a new tab, and — the load-bearing one — CRAWLABLE. AdSense site review
-  // and Google's CMP setup both want a reachable privacy-policy URL, and a span
-  // that calls `location.href` is not one.
-  const privacy = document.createElement('a');
-  privacy.textContent = PRIVACY_LINK_LABEL;
-  privacy.href = CLIENT_CONFIG.consent.policyHref;
-  privacy.style.cssText = UNDERPLAY_LINK_CSS;
-  row.append(howto, privacy);
-  // The community links FOLLOW the static-page ones, in a fixed order, and an
-  // unconfigured one contributes nothing — so with neither var set this loop
-  // runs zero times and the row is byte-identical to what shipped before.
-  for (const link of communityLinks()) row.append(makeCommunityLink(link));
-  col.append(row, statusEl);
+  links.style.cssText = 'display:flex;align-items:center;gap:26px';
+  // Every anchor takes the one row treatment. (The served row's whitespace
+  // between anchors is a flex container's ignorable text: no box, no gap.)
+  for (const a of links.querySelectorAll<HTMLElement>('a')) a.style.cssText = UNDERPLAY_LINK_CSS;
+  col.append(links, statusEl);
   return col;
 }
 
@@ -1103,9 +1066,11 @@ function mountHome(
   h: Home,
   playBtn: HTMLButtonElement,
   soloBtn: HTMLButtonElement,
-  version: string,
+  served: ServedHome,
 ): (e: KeyboardEvent) => void {
-  const console_ = document.createElement('div');
+  // The console column is the page's `<main>` (Story 13.1, AC 8): block-level
+  // like the `div` it replaced, so nothing moves.
+  const console_ = document.createElement('main');
   console_.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:22px';
   console_.append(
     makeCallsignRow(h.input),
@@ -1113,10 +1078,10 @@ function mountHome(
     // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
     // (SOLO VS AI, centered) — Eric ruling 2026-08-17.
     makeDeployStack(makeModeRow(playBtn), soloBtn, h.privateRow.root),
-    makeUnderplay(h.statusEl),
+    makeUnderplay(h.statusEl, served.links),
   );
   h.overlay.append(
-    makeWordmark(version),
+    makeWordmark(served),
     console_,
     // The gear stays top-RIGHT; liveness moved to the BOTTOM-left (Eric ruling
     // 2026-08-18 — top-left collided with the wordmark under 768px).
@@ -1241,7 +1206,7 @@ export function showHome(
     disposers: [],
   };
 
-  const keyHandler = mountHome(h, play, solo, version);
+  const keyHandler = mountHome(h, play, solo, servedHome(version));
   document.body.appendChild(overlay);
   input.focus();
   return makeHandle(h, keyHandler);
