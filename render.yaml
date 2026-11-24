@@ -176,10 +176,11 @@ services:
       # absences below, never by this.
       - key: NODE_ENV
         value: production
-      # KEEP THIS HOST OUT OF SEARCH. Nothing in the build carries a robots.txt,
-      # a canonical URL or a noindex, so without this the staging host is fully
-      # indexable and duplicates hullcracker.io's three pages against the domain
-      # AdSense approval is tied to. `X-Robots-Tag` rather than a robots.txt
+      # KEEP THIS HOST OUT OF SEARCH. The build carries a robots.txt that allows
+      # everything and canonical URLs naming hullcracker.io (Story 13.1), but no
+      # noindex, so without this the staging host is indexable and duplicates
+      # hullcracker.io's three pages against the domain AdSense approval is
+      # tied to. `X-Robots-Tag` rather than a robots.txt
       # because robots.txt only asks a crawler not to FETCH a URL — one
       # discovered elsewhere can still be indexed from that alone. Unset in
       # production, where the middleware is never even mounted.

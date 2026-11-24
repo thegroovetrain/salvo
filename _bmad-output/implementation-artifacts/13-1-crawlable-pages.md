@@ -3,7 +3,7 @@ baseline_commit: 1093bff2
 ---
 # Story 13.1: Crawlable Pages
 
-Status: in-progress
+Status: review
 
 <!-- Created 2026-11-24 by gds-create-story from epics.md Story 13.1 (re-cut by sprint-change-proposal-2026-11-24.md, epic-13 amendment 1). First story of Epic 13 The Front Door. Build order: 13.1 → 13.2 ship select → 13.3 settings → 13.4 approval. -->
 
@@ -77,14 +77,14 @@ Eric, 2026-11-24 (at this create-story): *"despite the fact that I am able to vi
 
 ## Tasks / Subtasks
 
-- [ ] **T1 Pure SEO module** (AC 2-5, 11-14): new `client/src/seo/` (e.g. `site.ts`: `SITE_ORIGIN`, the page table `{ key, path, sourceSuffix }` for the three entries, `pageForHtmlPath(filename)` modelled on `isGameIndexPath`; `head.ts`: `injectHead(html, page, description)`; `robots.ts`: `robotsTxt()`, `sitemapXml()`; `prerender.ts`: `prerenderHome(opts)`, `prerenderHowToPlay()`, `prerenderPrivacy()`, `escapeHtml`). Zero DOM and zero `import.meta.env` at module scope: they are imported by `vite.config.ts` and run in Node.
-  - [ ] T1.1 Extract any runtime string transform (heading form, key-row form) into one exported pure function used by both sides (AC 2).
-- [ ] **T2 Vite plugin** (AC 1, 11, 14): a `hc-crawlable` plugin in `vite.config.ts`, beside `adsensePlugin`. `transformIndexHtml` (default order, after `hc-adsense`'s `pre`) injects the head set + the prerendered body block per page. `generateBundle` emits `robots.txt` + `sitemap.xml`. Community links: pass the `loadEnv` result into `communityLinks(env)` explicitly (its default reads `import.meta.env`, which does not exist in the config bundle). Version: `pkg.version` (already loaded at `vite.config.ts:10`).
-- [ ] **T3 Source HTML** (AC 7, 10): `client/index.html` gets the cover CSS for `#app` + `<noscript><style>`; the subpages get a page-local style for the prerendered block. Still exactly one `<script>` per file; still only the fonts origins; still one `#050807` in `index.html`.
-- [ ] **T4 Runtime takeover** (AC 6, 8, 9): remove the prerendered block in `showHome`, the resume path and the static-page mounts; home wordmark → `h1`, underplay row → `nav`, `main` landmark; `renderPage` body → `main`.
-- [ ] **T5 Tests** (AC 17), in `client/src/__tests__/` (flat; jsdom; Vitest 4). Extend `home.test.ts` / `page.test.ts` / `howToPlay.test.ts` / `privacyPolicy.test.ts` rather than duplicating mounts; new `seo.test.ts` for the pure module.
-- [ ] **T6 Verify** (AC 18, 19): `npm run build` and inspect `dist` (three documents' text, `robots.txt`, `sitemap.xml`); the screenshots; `npm run check` once.
-- [ ] **T7 Records** (AC 20) at PR time; one PR to `development`; never merge.
+- [x] **T1 Pure SEO module** (AC 2-5, 11-14): new `client/src/seo/` (e.g. `site.ts`: `SITE_ORIGIN`, the page table `{ key, path, sourceSuffix }` for the three entries, `pageForHtmlPath(filename)` modelled on `isGameIndexPath`; `head.ts`: `injectHead(html, page, description)`; `robots.ts`: `robotsTxt()`, `sitemapXml()`; `prerender.ts`: `prerenderHome(opts)`, `prerenderHowToPlay()`, `prerenderPrivacy()`, `escapeHtml`). Zero DOM and zero `import.meta.env` at module scope: they are imported by `vite.config.ts` and run in Node.
+  - [x] T1.1 Extract any runtime string transform (heading form, key-row form) into one exported pure function used by both sides (AC 2).
+- [x] **T2 Vite plugin** (AC 1, 11, 14): a `hc-crawlable` plugin in `vite.config.ts`, beside `adsensePlugin`. `transformIndexHtml` (default order, after `hc-adsense`'s `pre`) injects the head set + the prerendered body block per page. `generateBundle` emits `robots.txt` + `sitemap.xml`. Community links: pass the `loadEnv` result into `communityLinks(env)` explicitly (its default reads `import.meta.env`, which does not exist in the config bundle). Version: `pkg.version` (already loaded at `vite.config.ts:10`).
+- [x] **T3 Source HTML** (AC 7, 10): `client/index.html` gets the cover CSS for `#app` + `<noscript><style>`; the subpages get a page-local style for the prerendered block. Still exactly one `<script>` per file; still only the fonts origins; still one `#050807` in `index.html`.
+- [x] **T4 Runtime takeover** (AC 6, 8, 9): remove the prerendered block in `showHome`, the resume path and the static-page mounts; home wordmark → `h1`, underplay row → `nav`, `main` landmark; `renderPage` body → `main`.
+- [x] **T5 Tests** (AC 17), in `client/src/__tests__/` (flat; jsdom; Vitest 4). Extend `home.test.ts` / `page.test.ts` / `howToPlay.test.ts` / `privacyPolicy.test.ts` rather than duplicating mounts; new `seo.test.ts` for the pure module.
+- [x] **T6 Verify** (AC 18, 19): `npm run build` and inspect `dist` (three documents' text, `robots.txt`, `sitemap.xml`); the screenshots; `npm run check` once.
+- [x] **T7 Records** (AC 20) at PR time; one PR to `development`; never merge.
 
 ## Dev Notes
 
@@ -167,12 +167,73 @@ Unit tests on the pure SEO functions; integration via jsdom mounts for the compo
 
 ### Agent Model Used
 
+Orchestrator: Claude Opus 5.5 (`/gds-dev-story` + `/orchestrate`). Implementation: Opus subagents (wave A; home and subpages one-version rework; review fixes); Sonnet (baseline screenshots). Review gate: Fable + Codex `gpt-5.6-sol`.
+
 ### Debug Log References
+
+- Baseline screenshots from `5383375e` and after screenshots from the built branch (`vite build` + `vite preview`, muted Chromium, `capture.mjs`), kept in the job scratch dir; attached to the PR.
+- Codex review log: build-on-it, no defects. Fable review: build-on-it; 2 CONFIRMED + 3 PLAUSIBLE, all fixed with regression tests.
 
 ### Completion Notes List
 
+- **Eric ruling mid-build (epic-13 amendment 3): one version of every page.** *"I don't want two versions of the same thing."* — and "Yes, all three" for How to Play / Privacy. The first Wave-B design (a static block that JS deletes and rebuilds) was stopped and rejected. Supersedes AC 6's reading of record, AC 17's composer-equality bullet and AC 9's `<button>` clause; everything else in the ACs stands.
+- How to Play / Privacy: the build writes the whole styled page (stat tables, glyphs, theme vars); `attachPage` binds only ESC, Space on the back link and `pagehide`. BACK TO PORT is an `<a href="/">` in a `<nav>`. Scripting-off shows the same page.
+- Home: the served wordmark h1, version line and link nav are adopted at boot (`ui/homeStatic.ts`) and reused by every `showHome`; console column is `<main>`. Look and behavior unchanged (screenshots identical apart from the random tagline/background).
+- Meta (canonical, OG, Twitter; Eric's home description verbatim), robots.txt and sitemap.xml every build. Staging unchanged; ads.txt untouched; PROTOCOL_VERSION 115 unchanged.
+- Dev: the config never imports the page builder (`ssrLoadModule` in serve, `runnerImport` in build): config deps 39 → 9, no restarts, no stale markup. A node-environment test guards the build-time graph.
+- **Playwright (Eric: "just install playwright if you use it")**: `playwright-core` 1.65.1 is a client devDependency; the capture scripts no longer borrow gstack's copy.
+- How to Play's HTML is ~231 KB raw (inline styles, identical to the old DOM builders' look) but ~12 KB on the wire (production serves Brotli).
+- Client suite 186 files / 4580 tests green; tsc clean; ESLint 0 errors; `npm run check` run once at the end.
+
 ### File List
+
+- VERSION
+- _bmad-output/gds-workflow-status.yaml
+- _bmad-output/implementation-artifacts/13-1-crawlable-pages.md
+- _bmad-output/implementation-artifacts/epic-13-context-amendments.md
+- (new) _bmad-output/implementation-artifacts/spec-13-1-crawlable-pages.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- client/index.html
+- client/package.json
+- client/scripts/perfLib.mjs
+- client/scripts/readabilityCapture.mjs
+- (new) client/src/__tests__/crawlableNode.test.ts
+- client/src/__tests__/home.test.ts
+- (new) client/src/__tests__/homeMarkup.test.ts
+- client/src/__tests__/howToPlay.test.ts
+- client/src/__tests__/page.test.ts
+- client/src/__tests__/privacyPolicy.test.ts
+- (new) client/src/__tests__/seo.test.ts
+- client/src/how-to-play/copy.ts
+- client/src/how-to-play/main.ts
+- (new) client/src/how-to-play/pageMarkup.ts
+- client/src/how-to-play/weaponTables.ts
+- client/src/main.ts
+- client/src/privacy/main.ts
+- (new) client/src/privacy/pageMarkup.ts
+- client/src/render/equipmentIcons.ts
+- (new) client/src/seo/crawlable.ts
+- (new) client/src/seo/escape.ts
+- (new) client/src/seo/head.ts
+- (new) client/src/seo/homeMarkup.ts
+- (new) client/src/seo/prerenderStyle.ts
+- (new) client/src/seo/robots.ts
+- (new) client/src/seo/site.ts
+- client/src/ui/home.ts
+- (new) client/src/ui/homeStatic.ts
+- client/src/ui/page.ts
+- (new) client/src/ui/pageMarkup.ts
+- (new) client/src/ui/siteCopy.ts
+- client/src/ui/theme.ts
+- client/vite.config.ts
+- docs/deploy.md
+- package-lock.json
+- package.json
+- render.yaml
+- (transient) client/src/seo/prerender.ts (created in wave A, deleted by the one-version rework)
+- (transient) client/src/seo/takeover.ts (created in wave A, deleted by the one-version rework)
 
 ## Change Log
 
 - 2026-11-24: story created (gds-create-story), status ready-for-dev.
+- 2026-11-24: built (cycle 255, 0.20.13, PV 115): crawlable pages, one version of every page (epic-13 amendment 3), meta + robots.txt + sitemap.xml, review fixes; playwright-core devDependency. Status review.
