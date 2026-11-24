@@ -16,6 +16,7 @@
 //      (under the fog, therefore under every chart layer), so the radar echo of a
 //      hull you can already see (a wire blip since amendment 210) was drawn ON
 //      TOP of that hull's silhouette. It now sits in chartRoot between `blip` and `aim`.
+//      (Undone 2026-10-12 for contact hulls, RESTORED 2026-11-23 — see below.)
 //
 //   C. ...WHICH COST THE FOG'S FEATHER. `hullSightSoftness` once reproduced it
 //      per contact; epic-9 amendment 212 (cycle 203) RETIRED that — a
@@ -233,8 +234,12 @@ describe('a delivered hull is never softened by the sight boundary (amendment 21
 // it should render above everything except radar paints." A cloud above
 // contact hulls with paints above the cloud means paints above contact hulls,
 // so the OWN hull moved to its own `ownShip` layer above `blip`, and contact
-// hulls (`ship`) now sit below the returns.
-describe('the declared z-order: the own hull over returns, reticle over hulls', () => {
+// hulls (`ship`) sat below the returns.
+//
+// RE-CUT 2026-11-23. Eric: "If a ship is visible, all of its visible parts are
+// visible OVER radar, not UNDER." — contact hulls are above the returns again;
+// the own hull stays above them too.
+describe('the declared z-order: seen hulls over returns, reticle over hulls', () => {
   const at = (name: string): number => CHART_LAYER_ORDER.indexOf(name as never);
 
   it('puts the own hull (`ownShip`) ABOVE `blip`, and every hull layer is charted', () => {
@@ -253,8 +258,10 @@ describe('the declared z-order: the own hull over returns, reticle over hulls', 
     }
   });
 
-  it('contact hulls sit below the returns (the 2026-10-12 re-cut)', () => {
-    expect(at('ship')).toBeLessThan(at('blip'));
+  it('contact hulls sit ABOVE the returns (the 2026-11-23 re-cut), and the '
+    + 'returns above the crate marks', () => {
+    expect(at('ship'), 'nothing may slip between a hull and its echo').toBe(at('blip') + 1);
+    expect(at('blip')).toBeGreaterThan(at('dropChart'));
   });
 
   // `aim` was `ship + 1` when this file was written, asserted as "nothing
@@ -266,9 +273,9 @@ describe('the declared z-order: the own hull over returns, reticle over hulls', 
   // THIS FILE DELIBERATELY DOES NOT RE-ASSERT THE PLATE'S SEAT.
   // `nameplatesAboveTerrain.test.ts` owns it, and two files asserting one fact
   // is how a pin ends up half-updated. What survives here is only what this file
-  // is about — `ship` directly above `blip`, and `ship` below the aim marks —
-  // both of which are stated in the cases around this comment and neither of
-  // which the plate move touched.
+  // is about — `ship` directly above `blip`, and `ship` below the aim marks — both of
+  // which are stated in the cases around this comment and neither of which the
+  // plate move touched.
 
   it('names every layer exactly once across the three roots', () => {
     const all = [...WORLD_LAYER_ORDER, ...CHART_LAYER_ORDER, ...HUD_LAYER_ORDER];

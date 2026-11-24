@@ -165,10 +165,14 @@ describe('the declared CHART order: a name reads over terrain, under the reticle
   // except radar paints", and the own hull is "on top so I can see where I am"
   // — so `cloud`, `blip` and `ownShip` now sit between the plate and the
   // reticle. The plate still sits directly above contact hulls.
-  it('leaves it directly above contact hulls, with only cloud, returns and the own hull between it and the reticle', () => {
+  //
+  // RE-CUT 2026-11-23 (Eric: "If a ship is visible, all of its visible parts
+  // are visible OVER radar, not UNDER."): the returns dropped below the hulls,
+  // so only the cloud and the own hull remain between plate and aim.
+  it('leaves it directly above contact hulls, with only cloud and the own hull between it and the reticle', () => {
     expect(at('plate')).toBe(at('ship') + 1);
     const between = CHART_LAYER_ORDER.slice(at('plate') + 1, at('aim'));
-    expect([...between].sort()).toEqual(['blip', 'cloud', 'ownShip']);
+    expect([...between].sort()).toEqual(['cloud', 'ownShip']);
   });
 
   it('hulls are still charted, never fogged', () => {
@@ -212,13 +216,16 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
 
   // Eric 2026-11-20 (epic-12 amendment 10): "the xp crates and wrecks are not
   // mines and they should be able to be visually seen by the same rules other
-  // ships are" — drawn above the fog like ships.
-  it('crates are charted like hulls: `dropChart` is a chart layer above the fog and the own mines, directly under the contact hulls — and no world layer holds them', () => {
+  // ships are" — drawn above the fog like ships. Since 2026-11-23 the radar
+  // returns sit between the crates and the contact hulls (a crate stays under
+  // the paint, as before; a seen hull is over it).
+  it('crates are charted like hulls: `dropChart` is a chart layer above the fog and the own mines, directly under the returns, under the contact hulls — and no world layer holds them', () => {
     const chart = CHART_LAYER_ORDER as readonly string[];
     expect(chart).toContain('dropChart');
     expect(chart.indexOf('dropChart')).toBeGreaterThan(chart.indexOf('fog'));
     expect(chart.indexOf('dropChart')).toBeGreaterThan(chart.indexOf('mineChart'));
-    expect(chart.indexOf('dropChart')).toBe(chart.indexOf('ship') - 1);
+    expect(chart.indexOf('dropChart')).toBe(chart.indexOf('blip') - 1);
+    expect(chart.indexOf('blip')).toBeLessThan(chart.indexOf('ship'));
     expect((WORLD_LAYER_ORDER as readonly string[]).some((l) => l.startsWith('drop'))).toBe(false);
   });
 });
