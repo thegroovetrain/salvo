@@ -1,11 +1,10 @@
 // Mine activation + trigger resolution — the mine Equipment row.
-// A mine is a STATIC point in world state (not a ballistic): PLACED at the
-// clicked point by a click-aimed WEAPON activation (Story 2.8, amendment 45 —
-// the fireSeq channel; supersedes the 1.8 instant stern drop): the click must
-// lie within the REAR placement sector (heading + CONFIG.mine.offset ±
-// placeHalfArcDeg — sim/arcs.ts, the single arc-shape source) AND within
-// CONFIG.mine.placeRange of the ship; a bad aim is an 'out-of-arc' denial
-// (nothing consumed). The mine arms after armDelay, then TRIPS when any
+// A mine is a STATIC point in world state (not a ballistic): DROPPED by a
+// click-fired WEAPON activation (Story 2.8 — the fireSeq channel). Since Eric
+// 2026-11-23 (*"they'd just roll off the rack into the water"*) it ROLLS OFF
+// THE STERN: the click's aim is ignored and the mine lands at the shared
+// `mineDropPoint` (sim/aim.ts — dead astern, just clear of the transom); there
+// is no placement arc and no leash, so a mine is never 'out-of-arc'. The mine arms after armDelay, then TRIPS when any
 // NON-OWNER live hull silhouette comes within the OWNER's effective
 // triggerRadius of it. A trip detonates as a BLAST (Eric ruling 2026-07-22):
 // every non-owner hull silhouette within the owner's effective blastRadius
@@ -24,8 +23,8 @@
 //
 // THREE KINDS, ONE CHASSIS (Story 8.13, epic-8 amendments 76/81). NAVAL,
 // CAPTIVE and FOULING MINES are three EQUIPMENT LINES over the same rack: the
-// same rear sector, the same 150 u leash, the same 3000 ms arm delay, the same
-// blocked-water refusal. They differ in their own rows' numbers and in what
+// same stern drop point, the same 3000 ms arm delay, the same blocked-water
+// refusal. They differ in their own rows' numbers and in what
 // the trip does, and `mineLine` below builds all three from that one body.
 //
 // THE KIND RIDES THE MINE, NOT THE OWNER. Until 8.13 `captive` and
@@ -58,13 +57,11 @@ import {
   mineTriggerRadius,
   burstVictims,
   hullSilhouette,
-  inArc,
+  mineDropPoint,
   mineEquipmentFor,
   mineKindOf,
   pointPolygonDistance,
-  sectorArcFor,
   transformPolygon,
-  wrapAngle,
   type Island,
   type MineEquipmentId,
   type MineKind,
@@ -207,22 +204,10 @@ export function addMine(
   return mine;
 }
 
-// The mine's ratified REAR placement sector (Story 2.8, amendment 45): the
-// shared arcFor family is the single arc-shape source, so the enforced sector
-// can never drift from what the client classifies/renders. Resolved at module
-// load — a non-sector mine arc is a CONFIG/arcs authoring error, failed loudly
-// at boot (sectorArcFor throws), never mid-tick.
-const REAR_SECTOR = sectorArcFor('navalMines');
-
-/** The clicked placement point: along the aim bearing at the clicked distance
- *  (never negative), measured from the ship CENTER — "place the mine AT the
- *  clicked point" (amendment 45). Range/arc validity is the row's job. */
-export function minePlacePoint(ship: ShipRecord): Vec2 {
-  const dist = Math.max(0, ship.input.aimDist);
-  return {
-    x: ship.state.x + Math.cos(ship.input.aim) * dist,
-    y: ship.state.y + Math.sin(ship.input.aim) * dist,
-  };
+/** Where this ship's next mine lands: the shared stern drop point (sim/aim.ts
+ *  `mineDropPoint`) for its own pose and hull length — the aim is ignored. */
+export function shipMineDropPoint(ship: ShipRecord): Vec2 {
+  return mineDropPoint(ship.state, ship.cls.hull.length);
 }
 
 /**
@@ -421,16 +406,14 @@ export function hullFor(ship: ShipRecord): Target {
 
 /**
  * ONE MINE LINE'S Equipment row — the shared chassis, built three times
- * (Story 8.13). A click-aimed WEAPON since Story 2.8 (amendment 45, isWeapon
+ * (Story 8.13). A click-fired WEAPON since Story 2.8 (amendment 45, isWeapon
  * true via the shared flag): activation rides the fireSeq click channel with
- * the D1-validated fireT (armedAt = fireT + armDelay). Checks in the torpedo's
- * arc-first order, nothing consumed on a denial: the click must lie in the
- * REAR sector (heading + offset ± placeHalfArcDeg) AND within
- * CONFIG.mine.placeRange — either miss is 'out-of-arc' (the aim-denial
- * channel, per the amendment ruling); a clicked point inside a rock / off the
- * water is 'blocked' (Story 1.10); no mine in any rack is 'no-ammo' (the
- * wire's `cooling`). The racks are the ONLY mine bound since Story 8.4
- * deleted the live-board cap.
+ * the D1-validated fireT (armedAt = fireT + armDelay). Since 2026-11-23 the
+ * aim is IGNORED — no arc, no range: the mine rolls off the stern at
+ * `shipMineDropPoint`. Nothing is consumed on a denial: a drop point inside a
+ * rock / off the water is 'blocked' (Story 1.10); no mine in any rack is
+ * 'no-ammo' (the wire's `cooling`). The racks are the ONLY mine bound since
+ * Story 8.4 deleted the live-board cap.
  *
  * THE RACKS (Story 10.6, Eric 2026-11-05, R7 / R17 / R18): the mines live in
  * the ship's stern RACKS (`ship.racks`, shared sim/racks.ts) — one or two,
@@ -439,8 +422,8 @@ export function hullFor(ship: ShipRecord): Target {
  * mine. The slot pool is the racks' SUMMARY (`rackSummary`), re-derived every
  * tick and after every drop.
  *
- * EVERY CHASSIS FIELD IS SHARED AND READ FROM `CONFIG.mine` — the rear sector,
- * the 150 u leash and the 3 s arm delay are the naval rack's, deliberately not
+ * EVERY CHASSIS FIELD IS SHARED AND READ FROM `CONFIG.mine` — the stern drop
+ * point and the 3 s arm delay are the naval rack's, deliberately not
  * restated per line (the CONFIG blocks say so). Only pool size and reload come
  * from THIS line's own effective row, and the kind is what the drop stamps.
  */
@@ -455,12 +438,7 @@ function mineLine(id: MineLineId): Equipment {
     },
     activate(ctx) {
       const ship = ctx.ship;
-      const center = wrapAngle(ship.state.heading + REAR_SECTOR.offset); // astern-centered
-      if (!inArc(ship.input.aim, center, REAR_SECTOR.halfArc)) return { ok: false, reason: 'out-of-arc' };
-      // Out-of-RANGE shares the aim-denial channel (amendment 45 ruling): the
-      // click names a point the rack cannot reach — same "bad aim" grammar.
-      if (ship.input.aimDist > CONFIG.mine.placeRange) return { ok: false, reason: 'out-of-arc' };
-      const p = minePlacePoint(ship);
+      const p = shipMineDropPoint(ship); // the stern drop — the aim is ignored (2026-11-23)
       if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
       // R17 / R18: the rack whose turn it is drops (else the next one holding
       // a mine); no rack holds one → refused, nothing changed.

@@ -311,7 +311,7 @@ export {
   dropBlocked,
   hullFor,
   mineBlastVictims,
-  minePlacePoint,
+  shipMineDropPoint,
   type MineLineId,
   type MineState,
   type MineTripRules,

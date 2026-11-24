@@ -3,14 +3,15 @@
 // every wire reason end-to-end through the REAL input path (submitInput →
 // step → buildFrame): 'out-of-arc' (torpedo click astern), 'cooling' (weapon
 // click against an empty reloading pool), 'no-ammo' (ability press against an
-// empty pool), and 'blocked' (stern drops landing in a rock / off the water).
+// empty pool), and 'blocked' (a mine's stern drop point in a rock / off the
+// water).
 // Every denial spends NOTHING (round/charge + reload untouched), reaches ONLY
 // the pressing client's own frame (owner-only — never another observer, never
 // a spectator frame), lives exactly one tick, and never queues for drones.
 // The stale-client join error's refresh instruction is pinned here too.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, FAMILY_SLOT, PROTOCOL_VERSION, SLOT_BOOST, abilityCode, abilityReadyAt, abilitySlot, type InputMsg } from '@salvo/shared';
+import { CONFIG, FAMILY_SLOT, PROTOCOL_VERSION, SLOT_BOOST, abilityCode, abilityReadyAt, abilitySlot, mineDropPoint, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -212,11 +213,13 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     expect(a.repairReadyAt).toBe(0);
   });
 
-  it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
+  it("blocked (island): a MINE whose stern drop point is on a rock denies {'blocked'} and consumes NOTHING — whatever the aim", () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'warspite'); // heading 0 ⇒ rear sector centers on π
-    w.map.islands.push(circleIsland(-60, 0, 20)); // the rock the click lands on
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: Math.PI, aimDist: 60 }));
+    const a = place(w, 'a', 0, 0, 0, 'warspite');
+    const drop = mineDropPoint(a.state, a.cls.hull.length);
+    w.map.islands.push(circleIsland(drop.x, drop.y, 20)); // the rock astern
+    // A BOW click into open water: the aim is ignored, the stern is on rock.
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 200 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'blocked', seq: 1 }]);
     // Charge AND reload untouched — the previously wasted charge is kept: the
@@ -225,35 +228,28 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     expect(w.mines.size).toBe(0);
   });
 
-  // RETIRED (Story 7-5 wave 2): the DECOY stern drop denial. Its subject —
-  // an un-aimed stern-rack ABILITY that could be blocked by a rock — no longer
-  // exists: the decoy buoy is deleted and the RADAR BUOY replacing it is a
-  // CLICK-PLACED weapon on the mine's rear sector (R2.7), whose 'blocked'
-  // denial is the mine's own, already covered by the two cases below. The
-  // buoy's own denial matrix lands with the buoy (a later agent).
-
-  it("blocked (boundary): a mine click off the water disk denies {'blocked'} too", () => {
+  it("blocked (boundary): a stern drop point off the water disk denies {'blocked'} too", () => {
     const w = bareWorld();
-    // Facing map-inward (heading π → bow along −x), the rear sector centers on
-    // +x — a click 60u astern from 30u inside the rim lands past the edge.
+    // Facing map-inward (heading π → bow along −x) with the stern near the
+    // rim: the drop point lies past the edge.
     const a = place(w, 'a', w.map.radius - 30, 0, Math.PI, 'warspite');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 60 }));
+    expect(mineDropPoint(a.state, a.cls.hull.length).x).toBeGreaterThan(w.map.radius);
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'blocked', seq: 1 }]);
     expect(a.loadout[SLOT_MINE].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 }); // the full rack, untouched
   });
 
-  it("out-of-arc: a mine click at the BOW (or past placeRange) denies {'out-of-arc'} (Story 2.8 rear placement arc)", () => {
+  it('a mine is NEVER out-of-arc: a bow click and a far click both drop (the stern drop, 2026-11-23)', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'warspite');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 40 })); // bow click — outside the rear sector
+    place(w, 'a', 0, 0, 0, 'warspite');
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 40 })); // bow click
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'out-of-arc', seq: 1 }]);
-    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_MINE, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
+    expect('denied' in buildFrame(w, 'a')).toBe(false);
+    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_MINE, aim: 1, aimDist: 5000 })); // far click
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'out-of-arc', seq: 2 }]);
-    expect(a.loadout[SLOT_MINE].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 }); // the full rack, untouched
-    expect(w.mines.size).toBe(0);
+    expect('denied' in buildFrame(w, 'a')).toBe(false);
+    expect(w.mines.size).toBe(2);
   });
 });
 
@@ -301,18 +297,18 @@ describe('pv join gate — the stale-client error', () => {
   });
 });
 
-describe('blocked-drop geometry sanity (Story 2.8: clicked mine placement)', () => {
-  it('an ML clicking open water astern still places normally (the check refuses only illegal water)', () => {
+describe('blocked-drop geometry sanity (the stern drop)', () => {
+  it('an open-water stern drops normally (the check refuses only illegal water) — at mineDropPoint', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0, 'warspite');
-    w.map.islands.push(circleIsland(200, 200, 40)); // a rock nowhere near the click
+    const a = place(w, 'a', 0, 0, 0, 'warspite');
+    w.map.islands.push(circleIsland(200, 200, 40)); // a rock nowhere near the stern
+    const drop = mineDropPoint(a.state, a.cls.hull.length);
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(w.mines.size).toBe(1);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    // The mine lands AT the clicked point (amendment 45), 60u dead astern.
     const mine = [...w.mines.values()][0];
-    expect(mine.x).toBeCloseTo(-60, 6);
-    expect(mine.y).toBeCloseTo(0, 6);
+    expect(mine.x).toBeCloseTo(drop.x, 6);
+    expect(mine.y).toBeCloseTo(drop.y, 6);
   });
 });

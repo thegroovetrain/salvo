@@ -1,0 +1,115 @@
+---
+title: 'Mines roll off the stern; weapon select setting PRIME | TOGGLE'
+type: 'feature'
+created: '2026-11-23'
+status: 'done'
+baseline_revision: '10b8bc88e7848871812bb16b4895f1cc77d7fd3f'
+review_loop_iteration: 0
+context:
+  - '{project-root}/_bmad-output/project-context.md'
+warnings: ['multiple-goals', 'oversized']
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** Eric 2026-11-23 (`/bmad-dev-auto`, verbatim): *"For mines, realistically speaking, you wouldn't have a targeting area to aim them in, they'd just roll off the rack into the water. … Press E to prime, clicking will drop a mine behind you."* And: *"Lets add an option in settings so that weapons are set to either Toggle or Prime. Prime is the current setting, you press the weapon button and then click to fire, it immediately resets to your main gun. Toggle basically toggles the weapon on, and it doesn't go back to the main gun until the weapon is either out of ammo or the player presses that weapon's button again. Pressing a different weapon switches to that weapon."* Follow-up (AskUserQuestion, same day): a toggled weapon returns to the gun **"When stock hits 0"** — the moment the shot just fired empties its loaded stock (single-round weapons therefore behave like PRIME; only multi-round pools stay toggled).
+
+**Approach:** (1) Mines: the server ignores the click's aim for every mine line and drops the mine at ONE shared pure drop point astern of the hull; the rear wedge, the 150 u leash and their CONFIG keys are deleted; the client draws no wedge/leash for mines, only the existing blast/trigger preview rings at the drop point. (2) A client-only `weaponSelect: 'PRIME' | 'TOGGLE'` setting (default PRIME) gating the existing revert-on-release latch.
+
+## Boundaries & Constraints
+
+**Always:**
+- Drop point = ship center − heading-unit × `hullClearOffset(cls.hull.length, CONFIG.mine.hitRadiusU)`, ONE pure function in `shared/src/sim/` (exported via the barrel) used by the server mine row, the client preview, the bots and the smoke. `[reading of record: "roll off the rack" = dead astern, marker just clear of the transom; both racks drop at the same point — racks still alternate as before]`.
+- A mine click anywhere on the canvas (any bearing, any distance) drops a mine when one is held and the drop point is open water; `blockedWater` at the drop point still denies `'blocked'`; empty racks still deny `'no-ammo'`. Mines no longer deny `'out-of-arc'`.
+- Delete `CONFIG.mine.offset`, `placeHalfArcDeg`, `placeRange` and the mine rear sector (`mineSector` in `shared/src/sim/arcs.ts` and every caller) — no dead config. Bump `PROTOCOL_VERSION` +1 (CONFIG snapshot shape changes; the number is taken at PR time after `git fetch`).
+- Bots keep their mine TACTICS unchanged: any distance that was derived from `placeRange` (e.g. `placeRange * MINE_NEAR_MULT` want-ranges, `reachU`) is replaced by a `CONFIG.bots` key holding the same numeric value; a bot's blocked check reads the shared drop point.
+- Toggle mode is CLIENT-ONLY: no wire, server or bot change. In TOGGLE, a fireable click reverts to the gun (via the existing release latch, never on press) iff the slot's predicted loaded stock before the shot is ≤ 1 (torpedo: tubes loaded summed over launchers; mines: held over racks; specials: pool). The same key reverts to the gun; a different key switches (both already true). Death, empty-under-stats and every other forced revert stay in both modes. A denied click keeps the selection in both modes.
+- PRIME behaves exactly as today. The setting persists in the existing `hullcracker.settings` blob through `sanitizeSettings`/`sameSettings`.
+- Complexity ≤ 10; tests assert contracts, never copy strings or bare CONFIG literals.
+
+**Block If:** a change would need a new wire field, server-side selection state, or a new visible HUD element beyond the one settings row.
+
+**Never:** a thrown/flying mine, a placement clamp, per-rack lateral offsets, a mine aim reticle or wedge, a new keybind, a change to the main battery / secondaries / torpedo arcs, changing what Shift/C/V do, a seventh perception exception.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected | Error |
+|---|---|---|---|
+| Mine bow click | E primed, click 400 u off the bow | mine at the stern drop point | none |
+| Mine stern on rock | drop point on land | `'blocked'` denial, mine kept | denial tone |
+| Racks empty | E primed, 0 held | `'no-ammo'` | denial tone |
+| TOGGLE 3 naval | 3 held, click ×3 | stays E after 1st and 2nd; reverts to gun on release of 3rd | none |
+| TOGGLE 1-round special | R toggled, 1 loaded | reverts on release (same as PRIME) | none |
+| TOGGLE reloading | Q toggled, 0 loaded, click | denied, stays Q | denial tone |
+| TOGGLE same key / other key | Q toggled, press Q / press E | gun / E | none |
+| PRIME | any weapon fireable click | reverts on release (unchanged) | none |
+
+</intent-contract>
+
+## Code Map
+
+- `shared/src/sim/aim.ts` -- `hullClearOffset`; home for `mineDropPoint` (or a new `sim/mineDrop.ts`); export via `shared/src/index.ts`
+- `shared/src/constants.ts:1776-1808` -- `CONFIG.mine` placement keys to delete; `CONFIG.bots` gets the moved distance(s)
+- `shared/src/sim/arcs.ts:93-120` -- `mineSector`, `arcFor`/`sectorArcFor` mine branch
+- `server/src/game/equipment/mines.ts:215-226,447-474` -- `REAR_SECTOR`, `minePlacePoint`, `activate`
+- `server/src/game/ai/equipment.ts:105-115,449,525-558`, `ai/tacticKit.ts:300-309` -- bot mine placement/ranges
+- `server/scripts/weaponsSmoke.mjs:583-670` -- `astern()`, `DROP_U`, `dropPoint`, `layOne`; phases 2/3/5 need distinct mine positions (sail between drops)
+- `client/src/render/weaponArc.ts:90,187,225,395-439`, `render/firing.ts:433-467,690-711`, `render/aimPreview.ts:658-693,940-953`, `client/src/main.ts:3953-3958,4030,4089-4162` -- mine wedge/leash/preview/click gates
+- `client/src/main.ts:4276-4344`, `client/src/sim/inputSampler.ts:41-65`, `client/src/input/keyboard.ts` -- prime revert latch
+- `client/src/settings/store.ts`, `client/src/ui/settings.ts` -- new setting + choice row (pattern: HUD SIDE)
+- `client/src/how-to-play/copy.ts:142` -- NAVAL MINES copy
+
+## Tasks & Acceptance
+
+**Execution:**
+- [x] `shared/src/sim/*`, `shared/src/constants.ts`, `shared/src/index.ts` -- add `mineDropPoint`, delete the three keys + mine sector, add `CONFIG.bots` replacement key(s), bump PV; update shared tests (`arcs`, `barrel`) -- one source for the drop
+- [x] `server/src/game/equipment/mines.ts` + server tests (`equipment`, `denials`, `weapons`, `botTactics`, `launchersRacks`, `match`, `botSweep`) -- drop at `mineDropPoint`, no arc/range gate; tests assert "lands at the drop point whatever the aim"
+- [x] `server/src/game/ai/*` -- bots fire the mine slot without a placement aim; ranges from the new bots key
+- [x] `server/scripts/weaponsSmoke.mjs` -- lay at the stern drop point, sailing between drops so mines stay distinct; must pass
+- [x] `client/src/render/{weaponArc,firing,aimPreview}.ts`, `client/src/main.ts` + client tests -- mines: no wedge, no leash, click always "in arc", preview rings at the drop point with the blocked tell
+- [x] `client/src/settings/store.ts`, `client/src/ui/settings.ts`, `client/src/main.ts`/`inputSampler.ts` + tests -- `weaponSelect` setting (label `WEAPON SELECT`, options `PRIME` / `TOGGLE`, a `WEAPONS` section holding only this row, placed immediately before `CONTROLS — REFERENCE ONLY`), TOGGLE revert rule
+- [x] `client/src/how-to-play/copy.ts:142` -- minimal edit: "Click to drop a mine off your stern." replaces "Click behind your ship to drop a mine."
+- [x] `EXPERIENCE.md` Interaction Primitives Q/E/R row -- one appended sentence for the TOGGLE option; mine aim language if present
+
+**Acceptance Criteria:**
+- Given any ship class and heading, when a mine click is consumed, then the mine's position equals `mineDropPoint(ship)` regardless of `aim`/`aimDist`.
+- Given TOGGLE and a pool of N>1, when the player fires N times, then selection stays on the slot after shots 1..N-1 and returns to the gun on release of shot N.
+- Given PRIME, then every existing prime-release test passes unchanged.
+- Given a reload of the page, then the chosen weapon select mode persists.
+
+## Spec Change Log
+
+## Review Triage Log
+
+### 2026-11-23 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6 (high 2, medium 2, low 2)
+- defer: 0
+- reject: 4 (narrow latch timing on an unrelated held click; preview vs server pose at a coast; revert still owed after a mid-hold refill — the stock did hit 0, Eric's rule; renaming `isPlacedItem`)
+- addressed_findings:
+  - `[high]` `[patch]` A blocked stern drop was predicted fireable (PRIME / last TOGGLE round lost the selection, late tone) — `client/src/sim/mineDrop.ts` `mineDropSpot`; `slotHasRound` false while blocked; preview reads the same helper. (Blind + Edge)
+  - `[high]` `[patch]` TOGGLE read the frame-stale server stock (fast double-click kept an empty weapon) — pure `client/src/sim/toggleSelect.ts`: stock = server n − un-acked own shots (`ackSeq`), backstop on 0; behavior tests. (Codex + Blind + Edge)
+  - `[medium]` `[patch]` Mines still drew the aim reticle + ship-to-cursor bearing line (spec Never: a mine aim reticle) — `drawReticle` returns for mines (OS cursor is not hidden, so nothing is lost).
+  - `[medium]` `[patch]` TOGGLE had no behavioral test — 12 tests over the pure module.
+  - `[low]` `[patch]` EXPERIENCE `1 / 2 / 3 / 4` row still said "click into the mine's rear arc" — inline 2026-11-23 supersede.
+  - `[low]` `[patch]` Dead `'sector'` grammar on the client + vacuous test scans; smoke advanced `lastDrop` on a denied drop — deleted / fixed (the shared `ArcShape` `'sector'` stays: torpedo launcher bands use it).
+- For Eric (not changed, readings): a STOPPED ship now stacks every mine on one point (stacking by clicking one spot was possible before; now it is the default at rest); bot mines now land at the transom instead of 75 / 150 u astern, so bot mine tuning may drift.
+
+## Design Notes
+
+TOGGLE rule as code shape (in `consumePrimeOnFire`): `if (shouldConsumePrime(...) && (mode === 'PRIME' || loadedBefore <= 1)) armPrimeRevert(g, clickSeq)`. `loadedBefore` comes from the same predicted ammo the click prediction already reads.
+
+## Verification
+
+**Commands:**
+- `npm test -w shared && npm test -w server && npm test -w client` -- green
+- `npm run lint` -- no errors
+- `HC_DEV_OPTIONS=1` weaponsSmoke (see `server/scripts/weaponsSmoke.mjs` header) -- passes first try
+- `npm run check` -- green once at the end
+
+## Auto Run Result
+
+Status: done. Mines on every line drop at the shared `mineDropPoint` (dead astern, half the hull + the 10 u marker behind center) whatever the click; the rear wedge, 150 u leash and `CONFIG.mine.offset` / `placeHalfArcDeg` / `placeRange` are gone (bot distances moved to `CONFIG.bots.mineReachU` 150 / `mineAsternHalfArcDeg` 60, same values); a blocked stern denies `'blocked'`, predicted on the client. New client setting WEAPON SELECT (Settings → WEAPONS): PRIME (default, unchanged) | TOGGLE (stays selected until the shot that empties the loaded stock — Eric: "When stock hits 0" — or its key; another key switches). PV +1. Verification: shared 1458 / server 2994 / client 4514 tests, lint 0 errors, tsc clean, weaponsSmoke OK; full `npm run check` at PR time. Review: Codex + two Fable hunters; 6 patches, 0 deferred. Residual: stacked mines at rest and bot mine geometry (above) await Eric.

@@ -21,6 +21,7 @@ import {
   launcherStationWorld,
   launcherDeadRad,
   launcherTrainRad,
+  mineDropPoint,
   DEFAULT_CLASS_ID,
   transformPolygon,
   type BlipEvent,
@@ -325,21 +326,22 @@ describe('mines — NO CAP: a laid mine stays laid', () => {
   });
 });
 
-describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
-  it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
+describe('World — mine drop + trigger end-to-end (the stern drop, blast trip)', () => {
+  it('a clicked mine rolls off the stern whatever the aim, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'warspite', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    // Mines are an aimed WEAPON (amendment 45): a click astern places one.
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
-    w.step(); // places one mine at the clicked point (40u astern, -x)
+    const drop = mineDropPoint(a.state, a.cls.hull.length);
+    // A BOW click: the aim is ignored (2026-11-23), the mine drops astern.
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
+    w.step();
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
-    expect(mine.x).toBeCloseTo(-40, 6); // AT the click, not a stern-rack offset
-    expect(mine.y).toBeCloseTo(0, 6);
-    // The close placement leaves the owner's own hull inside the 48u blast
-    // radius — the built-in owner-exclusion geometry this test also pins below.
+    expect(mine.x).toBeCloseTo(drop.x, 6);
+    expect(mine.y).toBeCloseTo(drop.y, 6);
+    // The stern drop leaves the owner's own hull inside its blast radius —
+    // the built-in owner-exclusion geometry this test also pins below.
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: mine.x, y: mine.y, heading: 0, speed: 0 };
     b.hp = 1; // any landed blow (floored at 1) sinks it

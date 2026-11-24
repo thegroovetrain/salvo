@@ -1,7 +1,7 @@
 // arcFor — the single arc-shape source (Story 1.10). These tests pin the
 // RATIFIED geometry byte-for-byte to CONFIG: the gun family 360°, the heavy torpedo
-// bow sector ±30°, the mine's aimed REAR sector (FLIPPED from the stern drop
-// in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg), the
+// bow sector ±30°, the mines (never out of arc since 2026-11-23 — they roll
+// off the stern whatever the aim; the rear sector is deleted), the
 // BROADSIDE's twin beam sectors, and the aimless speed boost. The three weapons
 // that were consumables until Story 10.5 (supercav, flash, fouling shell) keep
 // their arcs as equipment. A geometry change
@@ -18,7 +18,6 @@ import {
   EQUIPMENT_IS_WEAPON,
   SHIFT_IDS,
   arcFor,
-  sectorArcFor,
   twinSectorArcFor,
   twinSectorSide,
   type EquipmentId,
@@ -69,20 +68,10 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     }
   });
 
-  it('the mine is the aimed REAR sector heading + 180° ± placeHalfArcDeg (FLIPPED, Story 2.8)', () => {
-    expect(arcFor('navalMines')).toEqual({
-      kind: 'sector',
-      offset: CONFIG.mine.offset,
-      halfArc: deg(CONFIG.mine.placeHalfArcDeg),
-    });
-    expect(CONFIG.mine.offset).toBeCloseTo(deg(180), 12);
-  });
-
-  it('the captive AND fouling mines share the naval mine chassis sector (R25, amendment 81)', () => {
-    // Not merely equal-shaped: the SAME sector for all three kinds, so the
-    // placement wedges can never drift apart.
-    expect(arcFor('captiveMines')).toEqual(arcFor('navalMines'));
-    expect(arcFor('foulingMines')).toEqual(arcFor('navalMines'));
+  it('every mine line is never out of arc — the stern drop ignores the aim (2026-11-23)', () => {
+    for (const id of ['navalMines', 'captiveMines', 'foulingMines'] as const) {
+      expect(arcFor(id), id).toEqual({ kind: 'full' });
+    }
   });
 
   it('the twin-sector side rule: a click in neither beam is denied (the broadside\'s rule)', () => {
@@ -131,7 +120,7 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   it('covers every EquipmentId (a new id cannot ship without an arc shape)', () => {
     const ids: EquipmentId[] = [...EQUIPMENT_IDS];
     for (const id of ids) {
-      expect(['full', 'sector', 'twin-sector', 'launcher', 'none'], id).toContain(arcFor(id).kind);
+      expect(['full', 'twin-sector', 'launcher', 'none'], id).toContain(arcFor(id).kind);
     }
   });
 
@@ -139,25 +128,6 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(arcFor('heavyTorpedo')).toEqual(arcFor('heavyTorpedo'));
     expect(arcFor('gun')).toEqual(arcFor('gun'));
     expect(arcFor('broadside')).toEqual(arcFor('broadside'));
-  });
-});
-
-describe('sectorArcFor — narrow-or-throw (the mine rear arc)', () => {
-  it('narrows the mines to their sector', () => {
-    expect(sectorArcFor('foulingMines')).toEqual(sectorArcFor('navalMines'));
-    expect(sectorArcFor('captiveMines')).toEqual(sectorArcFor('navalMines'));
-    expect(sectorArcFor('navalMines')).toEqual({
-      kind: 'sector',
-      offset: CONFIG.mine.offset,
-      halfArc: deg(CONFIG.mine.placeHalfArcDeg),
-    });
-    expect(sectorArcFor('foulingMines')).toEqual(sectorArcFor('navalMines'));
-  });
-
-  it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
-    for (const id of ['gun', 'broadside', 'starShells', 'boost', 'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo', 'foulingShell'] as const) {
-      expect(() => sectorArcFor(id)).toThrow(/must be a sector/);
-    }
   });
 });
 

@@ -6,6 +6,7 @@ import {
   buildInput,
   hornPressVerdict,
   primeFireable,
+  revertsAfterShot,
   shouldConsumePrime,
   type Aiming,
 } from '../sim/inputSampler.js';
@@ -439,5 +440,17 @@ describe('hornPressVerdict — what one F press means', () => {
     // bug: it makes the UI contradict what the sim actually did. There is no
     // phase parameter here, and adding one would be the regression.
     expect(hornPressVerdict.length).toBe(4);
+  });
+});
+
+describe('revertsAfterShot', () => {
+  it('PRIME always reverts', () => {
+    for (const n of [0, 1, 2, 6]) expect(revertsAfterShot('PRIME', n)).toBe(true);
+  });
+  it('TOGGLE reverts only when the shot empties the loaded stock', () => {
+    expect(revertsAfterShot('TOGGLE', 1)).toBe(true);
+    expect(revertsAfterShot('TOGGLE', 0)).toBe(true);
+    expect(revertsAfterShot('TOGGLE', 2)).toBe(false);
+    expect(revertsAfterShot('TOGGLE', 6)).toBe(false);
   });
 });

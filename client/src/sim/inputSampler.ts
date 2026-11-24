@@ -10,6 +10,7 @@
 
 import { MSG, SLOT_GUN, type InputMsg } from '@salvo/shared';
 import type { Axes } from '../input/keyboard.js';
+import type { WeaponSelectMode } from '../settings/store.js';
 import { clamp } from '../util/math.js';
 
 /** The fire-facing fields sampled from mouse + keyboard prime each tick. */
@@ -62,6 +63,15 @@ export function shouldConsumePrime(
   inArc: boolean,
 ): boolean {
   return alive && primeFireable(primedSlot, loaded, inArc);
+}
+
+/**
+ * Pure: after a shot that consumed the prime, does the selection revert to the
+ * main gun? PRIME always; TOGGLE only when the shot just fired empties the
+ * slot's loaded stock (`loadedBefore` is the predicted stock BEFORE the shot).
+ */
+export function revertsAfterShot(mode: WeaponSelectMode, loadedBefore: number): boolean {
+  return mode === 'PRIME' || loadedBefore <= 1;
 }
 
 /**

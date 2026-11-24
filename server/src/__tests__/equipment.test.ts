@@ -26,6 +26,7 @@ import {
   WEAPON_SLOTS,
   familySlotFor,
   equipmentMaxAmmo,
+  mineDropPoint,
   isStubLine,
   tierTargetOf,
   EQUIPMENT_IDS,
@@ -227,7 +228,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
     expect(EQUIPMENT.captiveMines!.isWeapon).toBe(true); // Story 8.13
     expect(EQUIPMENT.foulingMines!.isWeapon).toBe(true); // Story 8.13 (amendment 81)
     // Story 2.8 (amendment 45) DELIBERATELY FLIPS the 1.8 ability pin: the mine
-    // is a click-aimed weapon again (rear placement arc + placeRange).
+    // is a click-fired weapon again (since 2026-11-23 it drops astern).
     expect(EQUIPMENT.navalMines!.isWeapon).toBe(true);
     expect(EQUIPMENT.boost!.isWeapon).toBe(false);
     expect(EQUIPMENT.broadside!.isWeapon).toBe(true); // Story 7-5 wave 2
@@ -305,29 +306,27 @@ describe('denial reasons — derived through the gate without changing effects',
     });
   });
 
-  it('mine with every rack empty denies no-ammo (in-arc, in-range aim — Story 2.8 aimed placement)', () => {
+  it('mine with every rack empty denies no-ammo', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    // Heading 0 ⇒ the rear placement sector centers on π; aim astern, in range.
-    setInput(ship, { aim: Math.PI, aimDist: CONFIG.mine.placeRange / 2, slot: SLOT_MINE });
+    setInput(ship, { aim: Math.PI, aimDist: 50, slot: SLOT_MINE });
     for (const r of ship.racks.racks) Object.assign(r, { n: 0, reloadMsLeft: ship.stats.equipment.navalMines.reloadMs }); // the racks are the truth
     expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'no-ammo' });
     expect(w.mines.size).toBe(0);
   });
 
-  it('mine out-of-arc (bow click) and out-of-RANGE both deny out-of-arc, keeping the drop (Story 2.8)', () => {
-    const w = bareWorld();
-    const ship = place(w, 'a');
-    // Bow click: outside the rear sector entirely.
-    setInput(ship, { aim: 0, aimDist: 20, slot: SLOT_MINE });
-    expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'out-of-arc' });
-    // Astern but past placeRange: the rack cannot reach — same aim-denial
-    // channel (amendment 45 ruling).
-    setInput(ship, { aim: Math.PI, aimDist: CONFIG.mine.placeRange + 1, slot: SLOT_MINE });
-    expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'out-of-arc' });
-    // Nothing consumed either way.
-    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: ship.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
-    expect(w.mines.size).toBe(0);
+  it('a mine lands at mineDropPoint whatever the aim — a bow click and a far click alike (2026-11-23)', () => {
+    for (const aim of [{ aim: 0, aimDist: 20 }, { aim: 2, aimDist: 4000 }]) {
+      const w = bareWorld();
+      const ship = place(w, 'a');
+      const drop = mineDropPoint(ship.state, ship.cls.hull.length);
+      setInput(ship, { ...aim, slot: SLOT_MINE });
+      expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: true });
+      expect(w.mines.size).toBe(1);
+      const [mine] = [...w.mines.values()];
+      expect(mine.x).toBeCloseTo(drop.x, 9);
+      expect(mine.y).toBeCloseTo(drop.y, 9);
+    }
   });
 
 });
@@ -335,15 +334,17 @@ describe('denial reasons — derived through the gate without changing effects',
 // ---------- 2b. mine dispatch channel (Story 2.8: aimed weapon, fire control) --
 
 describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 2.8 flip of the 1.8 pin)', () => {
-  it('a fireSeq CLICK astern places a mine at the clicked point; an actSeq press on the slot is inert', () => {
+  it('a fireSeq CLICK drops a mine at the stern drop point; an actSeq press on the slot is inert', () => {
     const w = bareWorld();
-    const ship = place(w, 'a'); // ML fit: mine at weapon slot 2; heading 0 => astern = pi
-    // CLICK (weapon channel): places at the clicked point.
+    const ship = place(w, 'a'); // ML fit: mine at weapon slot 2
+    // CLICK (weapon channel): drops astern.
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(1);
     const [mine] = [...w.mines.values()];
-    expect(mine.x).toBeCloseTo(ship.state.x - 50, 0); // AT the click (astern 50u; hull barely moved)
+    const drop = mineDropPoint(ship.state, ship.cls.hull.length);
+    expect(mine.x).toBeCloseTo(drop.x, 0); // at the stern (hull barely moved)
+    expect(mine.y).toBeCloseTo(drop.y, 0);
     // PRESS (ability channel) with a reloaded rack: a press names an ABILITY
     // (Story 10.5 — `act`), never a slot, so it can never reach the rack.
     // A FULL rack with an idle clock (Story 10.6: the racks are the truth) —
