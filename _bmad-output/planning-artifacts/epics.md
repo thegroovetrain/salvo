@@ -668,9 +668,9 @@ The match-data store, now, strictly for Eric's trends, balance and bot tuning fr
 **Standing constraints:** the ledger never takes the game down; nothing in a tick awaits it; `world.ts` / `match.ts` keep zero persistence imports; `databases:` lands with the code that reads it, never ahead; PII rule on every log line.
 
 ### Epic 13: The Front Door *(was Epic 12 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E13)*
-H5 Games Ads is approved; the AdSense site review says Google cannot crawl the site and finds no content (every page is an empty document filled by JavaScript; no description on the home, no Open Graph, no robots.txt, no sitemap). The landing page is redesigned in Google Stitch (prompts by the agent, Eric driving), every page carries its real text in the HTML at build time with the meta set, robots.txt and sitemap, and the site is carried through publisher approval to the first live interstitial on production.
+H5 Games Ads is approved; the AdSense site review says Google cannot crawl the site and finds no content (every page is an empty document filled by JavaScript; no description on the home, no Open Graph, no robots.txt, no sitemap). *(Re-cut 2026-11-24 — `sprint-change-proposal-2026-11-24.md`; Eric: "The home page looks great, it just isn't crawlable.")* Every page carries its real text in the HTML at build time with a semantic structure and the meta set, plus robots.txt and sitemap — the home's look unchanged; ship select and settings are redesigned (agent-rendered candidates, Eric picks); and the site is carried through publisher approval to the first live interstitial on production.
 **FRs covered:** FR39–FR40 (hardens NFR7–NFR9, NFR18–NFR19) · **Also:** AR11, UX-DR29, UX-DR39
-**Standing constraints:** DESIGN.md is the source of truth and the Stitch output is reconciled with it before anything is built; NFR2's load budget untouched; staging's noindex / gate untouched; no in-game copy.
+**Standing constraints:** DESIGN.md is the design source of truth; the home's visible look is unchanged; NFR2's load budget untouched; staging's noindex / gate untouched; no in-game copy; what each redesigned screen offers changes only by Eric's ruling at its design sitting.
 
 ### Epic 14: The Account *(was Epic 13 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; GDD E14; was Epic 10 from 2026-10-06 to 2026-10-25 — `sprint-change-proposal-2026-10-25.md`, text kept whole; was Epic 9 until 2026-10-06; re-cut 2026-09-21 — no decks)*
 Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Under it: the first persistent store (Render Postgres behind an absence-gated in-process module), OAuth-only auth verified at both doors, the server-only unlock check at the door and the match-record writer, two-state settings, self-serve deletion, Eric's admin console, the privacy paragraph, and key rebinding. **Closes with a design & doc reconciliation story** (the Story 7.6 pattern, Eric 2026-09-11) that writes the v3 corrections back into `gdd.md`, `game-architecture.md`, the deferred-work ledger and both tracker files, so no implementing agent ever again reads a sentence the rulings retired.
@@ -3131,10 +3131,12 @@ Eric, 2026-11-18, verbatim: *"Also a change to airdrops and radio beacons."* / *
 
 ## Epic 13: The Front Door *(was Epic 12 until 2026-11-08 — `sprint-change-proposal-2026-11-08.md`, text whole; inserted 2026-10-25 — `sprint-change-proposal-2026-10-25.md`; GDD E13)*
 
-Eric has **H5 Games Ads approval**; the **AdSense site review says Google cannot crawl the site and finds no content**, so the publisher site is not approved. Today every page — home, How-to-Play, Privacy — is an empty document filled by JavaScript; the home has no description; no page has Open Graph tags, a canonical or structured data; there is no `robots.txt` or `sitemap.xml`. The interstitial, the certified CMP and GA4 are already built behind the `PortalAdapter` (Epic 7). This epic redesigns the landing page (Google Stitch, prompts by the agent, Eric driving — Eric 2026-10-25), makes every page crawlable with its real text in the HTML, and carries the site through approval. Standing constraints: DESIGN.md is the design source of truth and the Stitch output is reconciled with it before anything is built; NFR2's load budget is untouched; staging's `noindex` / gate posture is untouched; no in-game copy; `render.yaml` stays the live deploy config.
+Eric has **H5 Games Ads approval**; the **AdSense site review says Google cannot crawl the site and finds no content**, so the publisher site is not approved. Today every page — home, How-to-Play, Privacy — is an empty document filled by JavaScript; the home has no description; no page has Open Graph tags, a canonical or structured data; there is no `robots.txt` or `sitemap.xml`. The interstitial, the certified CMP and GA4 are already built behind the `PortalAdapter` (Epic 7). This epic makes every page crawlable with its real text in the HTML (the home's look unchanged), redesigns ship select and settings, and carries the site through approval. *(Re-cut 2026-11-24 — `sprint-change-proposal-2026-11-24.md`: the Stitch landing redesign is cancelled; ship select and settings added.)* Standing constraints: DESIGN.md is the design source of truth; the home's visible look is unchanged; NFR2's load budget is untouched; staging's `noindex` / gate posture is untouched; no in-game copy; `render.yaml` stays the live deploy config.
 **FRs covered:** FR39–FR40 (hardens NFR7–NFR9, NFR18–NFR19) · **Also:** AR11 (AdSense), UX-DR29, UX-DR39
 
-### Story 13.1: The Landing Page, Redesigned *(design pass — Google Stitch; team effort)*
+### ~~Story 13.1: The Landing Page, Redesigned~~ — CANCELLED 2026-11-24 *(design pass — Google Stitch; team effort)*
+
+*Eric: the home looks great; it only needs to be crawlable (`sprint-change-proposal-2026-11-24.md`, epic-13 amendment 1). Text kept below as history.*
 
 As a first-time visitor (and as Google's crawler),
 I want the front page to tell me what this game is and how to play it before I ever click,
@@ -3150,22 +3152,59 @@ So that I know whether to sail — and the site reads as a real site.
 **And** the chosen output is reconciled with DESIGN.md (tokens, type ramp, registers, the 1366×768 floor) and recorded there as a dated v5 update with the mock; EXPERIENCE.md's Journey A gains the first-visit read; Eric ratifies before 13.2 builds
 **And** no code changes.
 
-### Story 13.2: Crawlable Pages
+### Story 13.1: Crawlable Pages *(was 13.2 until 2026-11-24 — `sprint-change-proposal-2026-11-24.md`)*
 
 As Google's crawler (and a reader with scripting off),
-I want every page to carry its words in the HTML it serves,
+I want every page to carry its words in the HTML it serves, with a real document structure,
 So that the site has content to index and nothing to guess.
+
+**Eric (2026-11-24):** *"The home page looks great, it just isn't crawlable because it doesn't have a crawlable semantic structure."* **Ruled:** the home's look is unchanged; How to Play and Privacy carry the long text (epic-13 amendment 1).
 
 **Acceptance Criteria:**
 
-**Given** the three Vite entries (`/`, `/how-to-play`, `/privacy`) whose bodies are filled by JS from `home.ts`, `how-to-play/copy.ts`, `privacy/policyCopy.ts`, and the ratified 13.1 design
+**Given** the three Vite entries (`/`, `/how-to-play`, `/privacy`) whose bodies are filled by JS from `home.ts`, `how-to-play/copy.ts`, `privacy/policyCopy.ts`
 **When** crawlable pages land
-**Then** every page's content is in the document AT BUILD TIME — the home pitch per 13.1, the How-to-Play copy and the privacy policy prerendered from their existing copy modules (the modules stay the single source; the runtime hydrates, never re-renders different text); a scripting-disabled reader gets the full text (NFR2 untouched — static text costs nothing)
-**And** the home carries a `<meta name="description">`; every page carries Open Graph + Twitter-card tags, a canonical URL and a page-specific `<title>`; production serves `/robots.txt` (allow all; sitemap pointer) and `/sitemap.xml` (the three pages); `ads.txt` verified present; the staging host keeps `X-Robots-Tag: noindex` and the gate exactly as today
-**And** the home's visible chrome follows the 13.1 design; the game canvas and every DOM layer behave as today; the client build order and `express.static` serving are unchanged
-**And** structural tests only (the three documents contain their copy modules' headings; the meta set per page; robots/sitemap routes) — never a copy pin; `PROTOCOL_VERSION` unchanged.
+**Then** every page's content is in the document AT BUILD TIME with a semantic structure (one `<h1>`, headings in order, `<main>` / `<nav>` landmarks, the HOW TO PLAY / PRIVACY / community links as real `<a href>`s) — the home's existing words, the How-to-Play copy and the privacy policy prerendered from their existing copy modules (the modules stay the single source; the runtime hydrates, never re-renders different text); a scripting-disabled reader gets the full text
+**And** the home looks and behaves exactly as today: the canvas, every DOM layer, the queue / class / settings layers and every key binding unchanged; no new visible text
+**And** the home carries a `<meta name="description">` (Eric's words, `[unruled]` at create-story); every page carries Open Graph + Twitter-card tags, a canonical URL and a page-specific `<title>`; production serves `/robots.txt` (allow all; sitemap pointer) and `/sitemap.xml` (the three pages) — both 404 on 2026-11-24; `ads.txt` stays as built; the staging host keeps `X-Robots-Tag: noindex` and the gate exactly as today
+**And** NFR2's load budget untouched; the client build order and `express.static` serving unchanged
+**And** structural tests only (the three documents contain their copy modules' headings; the meta set per page; robots / sitemap routes) — never a copy pin; `PROTOCOL_VERSION` unchanged.
 
-### Story 13.3: Publisher Approval
+### Story 13.2: Ship Select, Redesigned *(added 2026-11-24 — `sprint-change-proposal-2026-11-24.md`)*
+
+As a captain picking a hull before a match,
+I want the ship select screen laid out clearly,
+So that I can read the four hulls and my pick at a glance.
+
+**Eric (2026-11-24):** *"Redesign of ship select."* **Ruled:** agent-rendered candidates, Eric picks (epic-13 amendment 1).
+
+**Acceptance Criteria:**
+
+**Given** today's ship select layer (`client/src/ui/classSelect.ts`: four hull cards, the SPECIAL pick, the horn row, CONFIRM SELECTION) and DESIGN.md
+**When** the design sitting runs
+**Then** the agent renders 2–3 candidate layouts on one artifact page using DESIGN.md's real tokens and type ramp and the real hull art and index data; Eric picks or adjusts; the pick is built
+**And** what the screen offers (hulls, SPECIAL, horn, confirm / ESC, keyboard 1–4 / arrows / Enter) stays unless Eric rules a change at the sitting; no new visible text without his words
+**And** the pick is recorded in DESIGN.md as a dated update; the 1366×768 floor holds; no tiny text; fixed-size elements stay fixed-size
+**And** client-only; `PROTOCOL_VERSION` unchanged; structural tests only.
+
+### Story 13.3: Settings, Redesigned *(added 2026-11-24 — `sprint-change-proposal-2026-11-24.md`)*
+
+As a captain changing a setting,
+I want the settings page organized so I can find a row and read its value,
+So that it is not a garbled mess.
+
+**Eric (2026-11-24):** *"Redesign of settings page so its not a garbled mess."* **Ruled:** agent-rendered candidates, Eric picks (epic-13 amendment 1).
+
+**Acceptance Criteria:**
+
+**Given** today's settings layer (`client/src/ui/settings.ts`) and DESIGN.md
+**When** the design sitting runs
+**Then** the agent renders 2–3 candidate layouts on one artifact page using DESIGN.md's real tokens and the real list of settings rows; Eric picks or adjusts; the pick is built
+**And** every setting keeps its stored key and behavior; none is added, removed or renamed unless Eric rules it at the sitting
+**And** the pick is recorded in DESIGN.md as a dated update; the 1366×768 floor holds; no tiny text
+**And** client-only; `PROTOCOL_VERSION` unchanged; structural tests only.
+
+### Story 13.4: Publisher Approval *(was 13.3 until 2026-11-24 — `sprint-change-proposal-2026-11-24.md`)*
 
 As the operator (Eric),
 I want the site resubmitted and the first live interstitial seen on production,
@@ -3173,9 +3212,9 @@ So that the H5 approval turns into revenue.
 
 **Acceptance Criteria:**
 
-**Given** 13.2 on production
+**Given** 13.1 on production
 **When** the approval loop runs
-**Then** Eric resubmits the site in AdSense; whatever the review names is fixed in this story (each fix its own cycle, trackers stamped once)
+**Then** Eric resubmits the site in AdSense; whatever the review names is fixed in this story — including an About / Contact page only if the review names one (Eric 2026-11-24: not up front) — each fix its own cycle, trackers stamped once
 **And** once approved, the production smoke the ledger has owed since Epic 7 is run and recorded — Google's CMP renders, the `return-to-port` interstitial fires, GA4 consent flows (`deferred-work.md` "production smoke once Google's CMP renders", both entries closed); `VITE_ADSENSE_SLOT_RESULTS` stays Eric's call
 **And** done = the publisher site is approved and the first live interstitial is seen on production; no game code changes.
 
