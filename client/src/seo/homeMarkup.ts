@@ -26,7 +26,10 @@ import {
   versionLine,
 } from '../ui/siteCopy.js';
 import { escapeHtml } from './escape.js';
-import { PRERENDER_ID } from './takeover.js';
+
+/** The id of the home's served container: the words a reader with scripting
+ *  off sees, until the live home adopts its elements (`ui/homeStatic.ts`). */
+export const PRERENDER_ID = 'hc-prerender';
 
 /** The stable ids the live home adopts its served elements by. */
 export const HOME_WORDMARK_ID = 'hc-wordmark';

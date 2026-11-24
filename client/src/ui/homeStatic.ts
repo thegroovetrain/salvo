@@ -22,9 +22,9 @@ import {
   HOME_LINKS_ID,
   HOME_VERSION_ID,
   HOME_WORDMARK_ID,
+  PRERENDER_ID,
   prerenderHome,
 } from '../seo/homeMarkup.js';
-import { PRERENDER_ID } from '../seo/takeover.js';
 
 /** The home's three served elements, once adopted. */
 export interface ServedHome {

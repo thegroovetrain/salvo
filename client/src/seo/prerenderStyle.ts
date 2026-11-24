@@ -1,20 +1,23 @@
-// THE PRERENDERED BLOCK'S LOOK BEFORE JS (Story 13.1, AC 7 and 10).
+// THE HOME'S SERVED BLOCK, FOR A READER WITHOUT SCRIPTING (Story 13.1, AC 7).
 //
-// Before the module script runs, the theme bridge has not published any
-// `--hc-*` property, so the block cannot be styled in tokens. This writes a
-// `<style>` at BUILD time from the token source itself (`CLIENT_CONFIG`), so
-// the pre-JS frame reads as the live page (the page panel's bed, the primary
-// text color, the body face; headings and links in phosphor) and a reader with
-// scripting off gets legible text. Generated rather than typed into the source
-// HTML: `tokens.test.ts` allows `client/index.html` exactly one color literal,
-// and a hand-copied hex in a page would drift from its token.
+// HOME ONLY. How to Play and Privacy no longer use it: their served markup IS
+// the page, styled by its own inline styles and the theme's custom properties
+// (`ui/theme.ts`'s `themeCss`, injected into their head by `seo/crawlable.ts`).
 //
-// On the home the block sits under `#app` (fixed, opaque) when scripting is on,
-// so it is never seen there; `<noscript>` hides `#app` for a reader without it.
+// The home's block lives in `#hc-prerender` (`seo/homeMarkup.ts`). This writes
+// a `<style>` at BUILD time from the token source itself (`CLIENT_CONFIG`) —
+// the page panel's bed, the primary text color, the body face, headings and
+// links in phosphor — so a reader with scripting off gets legible text.
+// Generated rather than typed into the source HTML: `tokens.test.ts` allows
+// `client/index.html` exactly one color literal, and a hand-copied hex would
+// drift from its token.
+//
+// With scripting on, the block sits under `#app` (fixed, opaque), so it is
+// never seen; `<noscript>` hides `#app` for a reader without it.
 
 import { CLIENT_CONFIG } from '../config.js';
 import { cssHex } from '../util/color.js';
-import { PRERENDER_ID } from './takeover.js';
+import { PRERENDER_ID } from './homeMarkup.js';
 
 /** The `<style>` element for the prerendered block. */
 export function prerenderStyle(): string {

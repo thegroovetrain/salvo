@@ -13,14 +13,16 @@ import { CLIENT_CONFIG } from '../config.js';
 import { cssHex } from '../util/color.js';
 import { HOWTO_HREF, wordmarkText, versionLine } from '../ui/siteCopy.js';
 import { escapeHtml, unescapeHtml } from '../seo/escape.js';
-import { prerenderHowToPlay, prerenderPrivacy } from '../seo/prerender.js';
+import { HOWTO_PAGE_ID, howToPlayMarkup } from '../how-to-play/pageMarkup.js';
+import { PRIVACY_PAGE_ID, privacyMarkup } from '../privacy/pageMarkup.js';
+import { injectTheme, themeCss, themeVars } from '../ui/theme.js';
 import { prerenderHome } from '../seo/homeMarkup.js';
 import { prerenderStyle } from '../seo/prerenderStyle.js';
 import { headTags, injectHead, readDescription, readTitle } from '../seo/head.js';
 import { robotsTxt, sitemapXml } from '../seo/robots.js';
 import { SITE_ORIGIN, SITE_PAGES, canonicalUrl, pageForHtmlPath } from '../seo/site.js';
-import { crawlableDocument, injectBody } from '../seo/crawlable.js';
-import { PRERENDER_ID } from '../seo/takeover.js';
+import { THEME_STYLE_ID, crawlableDocument, injectBody } from '../seo/crawlable.js';
+import { PRERENDER_ID } from '../seo/homeMarkup.js';
 
 const HOME_OPTS = { version: '9.9.9', community: [] };
 
@@ -53,27 +55,53 @@ function skipsNoLevel(levels: readonly number[]): boolean {
   return levels[0] === 1 && levels.every((l, i) => i === 0 || l <= levels[i - 1] + 1);
 }
 
-const BLOCKS = {
-  home: prerenderHome(HOME_OPTS),
-  howToPlay: prerenderHowToPlay(),
-  privacy: prerenderPrivacy(),
+const HOME_BLOCK = prerenderHome(HOME_OPTS);
+
+describe('the home prerendered block', () => {
+  it('one block, one h1, a main and a nav of real links', () => {
+    const doc = parse(HOME_BLOCK);
+    const block = doc.getElementById(PRERENDER_ID);
+    expect(block).not.toBeNull();
+    expect(doc.querySelectorAll(`#${PRERENDER_ID}`)).toHaveLength(1);
+    expect(doc.querySelectorAll('h1')).toHaveLength(1);
+    expect(block?.querySelector('main h1')).not.toBeNull();
+    const nav = block?.querySelector('nav');
+    expect(nav).not.toBeNull();
+    const links = [...(nav?.querySelectorAll('a') ?? [])];
+    expect(links.length).toBeGreaterThan(0);
+    for (const a of links) expect(a.getAttribute('href') ?? '').not.toBe('');
+    expect(nav?.children.length).toBe(links.length);
+  });
+
+  it('headings never skip a level', () => {
+    expect(skipsNoLevel(headingLevels(parse(HOME_BLOCK)))).toBe(true);
+  });
+
+  it('carries no script and loads nothing', () => {
+    expect(HOME_BLOCK).not.toMatch(/<script\b/i);
+    expect(parse(HOME_BLOCK).querySelectorAll('[src], link, style, iframe, img')).toHaveLength(0);
+  });
+});
+
+// HOW TO PLAY AND PRIVACY: the served string IS the page (Eric 2026-11-24, one
+// version of every page), built by the real page builders.
+const PAGES = {
+  howToPlay: { id: HOWTO_PAGE_ID, html: howToPlayMarkup() },
+  privacy: { id: PRIVACY_PAGE_ID, html: privacyMarkup() },
 } as const;
 
-describe('the prerendered block (every page)', () => {
-  for (const [key, html] of Object.entries(BLOCKS)) {
-    it(`${key}: one block, one h1, a main and a nav of real links`, () => {
+describe('the served static pages', () => {
+  for (const [key, { id, html }] of Object.entries(PAGES)) {
+    it(`${key}: one page root, one h1, one main, a nav leading home`, () => {
       const doc = parse(html);
-      const block = doc.getElementById(PRERENDER_ID);
-      expect(block).not.toBeNull();
-      expect(doc.querySelectorAll(`#${PRERENDER_ID}`)).toHaveLength(1);
+      expect(doc.querySelectorAll(`#${id}`)).toHaveLength(1);
+      expect(doc.body.children).toHaveLength(1);
       expect(doc.querySelectorAll('h1')).toHaveLength(1);
-      expect(block?.querySelector('main h1')).not.toBeNull();
-      const nav = block?.querySelector('nav');
-      expect(nav).not.toBeNull();
-      const links = [...(nav?.querySelectorAll('a') ?? [])];
-      expect(links.length).toBeGreaterThan(0);
-      for (const a of links) expect(a.getAttribute('href') ?? '').not.toBe('');
-      expect(nav?.children.length).toBe(links.length);
+      expect(doc.querySelectorAll('main')).toHaveLength(1);
+      const navs = doc.querySelectorAll('nav');
+      expect(navs).toHaveLength(1);
+      const links = [...navs[0].querySelectorAll('a')];
+      expect(links.map((a) => a.getAttribute('href'))).toEqual(['/']);
     });
 
     it(`${key}: headings never skip a level`, () => {
@@ -87,8 +115,8 @@ describe('the prerendered block (every page)', () => {
   }
 });
 
-describe('how to play prerender', () => {
-  const doc = parse(BLOCKS.howToPlay);
+describe('how to play, served', () => {
+  const doc = parse(PAGES.howToPlay.html);
 
   it('every title, section heading and entry name, in source order', () => {
     const expected = [
@@ -116,14 +144,23 @@ describe('how to play prerender', () => {
     expect(texts(doc, 'main p')).toEqual(expected);
   });
 
-  it('key bindings are table rows: one kbd per key, then the action', () => {
+  it('key bindings are table rows: one keycap per key, then the action', () => {
     const rows = HOWTO_SECTIONS.flatMap((s) => s.keys ?? []);
-    const trs = [...doc.querySelectorAll('main table tr')];
+    // Key rows lead with a <td> of caps; stat rows lead with a <th> label.
+    const trs = [...doc.querySelectorAll('main table tr')].filter((tr) => tr.firstElementChild?.tagName === 'TD');
     expect(trs).toHaveLength(rows.length);
     trs.forEach((tr, i) => {
-      expect(texts(tr, 'kbd')).toEqual(rows[i].keys);
+      expect(texts(tr, 'td:first-child span')).toEqual(rows[i].keys);
       expect(tr.lastElementChild?.textContent).toBe(rows[i].action);
     });
+  });
+
+  it('carries the stat tables and the entry glyphs, built at build time', () => {
+    const statRows = [...doc.querySelectorAll('main table tr')].filter((tr) => tr.firstElementChild?.tagName === 'TH');
+    expect(statRows.length).toBeGreaterThan(0);
+    const glyphs = doc.querySelectorAll('main h3 > svg');
+    expect(glyphs.length).toBeGreaterThan(0);
+    for (const svg of glyphs) expect(svg.children.length, 'a glyph has primitives').toBeGreaterThan(0);
   });
 
   it('the footer links to the policy, and the nav leads home', () => {
@@ -134,8 +171,8 @@ describe('how to play prerender', () => {
   });
 });
 
-describe('privacy prerender', () => {
-  const doc = parse(BLOCKS.privacy);
+describe('privacy, served', () => {
+  const doc = parse(PAGES.privacy.html);
 
   it('the title, then every section heading, in source order', () => {
     expect(texts(doc, 'h1,h2,h3')).toEqual([POLICY_TITLE, ...POLICY_SECTIONS.map((s) => s.heading)]);
@@ -143,10 +180,11 @@ describe('privacy prerender', () => {
 
   it('the updated line right after the h1, then paragraphs, bullets and trailing in order', () => {
     expect(doc.querySelector('h1')?.nextElementSibling?.textContent).toBe(POLICY_UPDATED);
-    const expected = [
-      POLICY_UPDATED,
-      ...POLICY_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.bullets ?? []), ...(s.trailing ?? [])]),
-    ];
+    const expected = POLICY_SECTIONS.flatMap((s) => [
+      ...(s.paragraphs ?? []),
+      ...(s.bullets ?? []),
+      ...(s.trailing ?? []),
+    ]);
     expect(texts(doc, 'main p, main li')).toEqual(expected);
   });
 
@@ -288,6 +326,27 @@ describe('the pre-JS style', () => {
   });
 });
 
+describe('the theme at build time', () => {
+  it('is the same list injectTheme publishes — one source', () => {
+    const root = document.createElement('div');
+    injectTheme(root);
+    expect(themeVars().length).toBeGreaterThan(0);
+    for (const [k, v] of themeVars()) {
+      expect(root.style.getPropertyValue(k), k).toBe(v);
+      expect(themeCss(), k).toContain(`${k}:${v}`);
+    }
+  });
+
+  it('names only token colors, pins tabular digits, and carries no markup', () => {
+    const css = themeCss();
+    const tokens = new Set(Object.values(CLIENT_CONFIG.colors).filter((v) => typeof v === 'number').map(cssHex));
+    for (const c of css.match(/#[0-9a-f]{6}\b/gi) ?? []) expect(tokens.has(c.toLowerCase()), c).toBe(true);
+    expect(css).toMatch(/^:root\{/);
+    expect(css).toContain('tabular-nums !important');
+    expect(css).not.toMatch(/</);
+  });
+});
+
 describe('the hc-crawlable plugin is wired', () => {
   const src = readFileSync(join(process.cwd(), 'vite.config.ts'), 'utf8');
 
@@ -302,14 +361,14 @@ describe('the hc-crawlable plugin is wired', () => {
 });
 
 describe('the real source documents, transformed', () => {
-  const PAGES = [
-    { rel: 'index.html' },
-    { rel: 'how-to-play/index.html' },
-    { rel: 'privacy/index.html' },
+  const DOCS = [
+    { rel: 'index.html', id: PRERENDER_ID },
+    { rel: 'how-to-play/index.html', id: HOWTO_PAGE_ID },
+    { rel: 'privacy/index.html', id: PRIVACY_PAGE_ID },
   ] as const;
   const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 
-  for (const { rel } of PAGES) {
+  for (const { rel, id } of DOCS) {
     it(`${rel}: one h1, main, nav, canonical, description, and no added script or origin`, () => {
       const abs = join(process.cwd(), rel);
       const source = readFileSync(abs, 'utf8');
@@ -318,8 +377,8 @@ describe('the real source documents, transformed', () => {
       expect(doc.querySelectorAll('h1')).toHaveLength(1);
       expect(doc.querySelectorAll('main')).toHaveLength(1);
       expect(doc.querySelectorAll('nav')).toHaveLength(1);
-      expect(doc.querySelectorAll(`#${PRERENDER_ID}`)).toHaveLength(1);
-      expect(doc.body.firstElementChild?.id).toBe(PRERENDER_ID);
+      expect(doc.body.firstElementChild?.id).toBe(id);
+      expect(doc.querySelectorAll(`#${id}`)).toHaveLength(1);
       expect(doc.querySelectorAll('title')).toHaveLength(1);
       expect(doc.querySelectorAll('link[rel="canonical"]')).toHaveLength(1);
       expect((readDescription(out) ?? '').length).toBeGreaterThan(0);
@@ -327,6 +386,16 @@ describe('the real source documents, transformed', () => {
       // Origins named in MARKUP (attributes). The policy's prose names URLs as
       // plain text, exactly as the live page shows them; text loads nothing.
       for (const o of attributeOrigins(doc)) expect([...FONT_ORIGINS, SITE_ORIGIN], o).toContain(o);
+    });
+  }
+
+  for (const { rel } of DOCS.slice(1)) {
+    it(`${rel}: the theme is in the head, so the page is styled before any script`, () => {
+      const abs = join(process.cwd(), rel);
+      const doc = parse(crawlableDocument(readFileSync(abs, 'utf8'), abs, HOME_OPTS));
+      expect(doc.querySelectorAll(`head style#${THEME_STYLE_ID}`)).toHaveLength(1);
+      expect(doc.getElementById(THEME_STYLE_ID)?.textContent).toBe(themeCss());
+      expect(doc.getElementById(PRERENDER_ID)).toBeNull();
     });
   }
 });

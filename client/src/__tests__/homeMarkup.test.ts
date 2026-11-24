@@ -9,7 +9,7 @@ import { showHome } from '../ui/home.js';
 import { forgetServedHome } from '../ui/homeStatic.js';
 import { communityLinks } from '../ui/communityLinks.js';
 import { HOME_LINKS_ID, HOME_VERSION_ID, HOME_WORDMARK_ID, prerenderHome } from '../seo/homeMarkup.js';
-import { PRERENDER_ID } from '../seo/takeover.js';
+import { PRERENDER_ID } from '../seo/homeMarkup.js';
 import { HOWTO_HREF, WORDMARK_TLD, wordmarkText } from '../ui/siteCopy.js';
 
 const VERSION = '0.0.0-test';
