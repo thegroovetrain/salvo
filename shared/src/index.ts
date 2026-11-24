@@ -9,7 +9,7 @@
  *  `lightTorpedo.damage` 250 → 150, `supercavTorpedo.damage` 300 → 200,
  *  `phosphorShells.damage` 50 → 30 and `phosphorShells.dps` 20 → 12.
  *  Perception exception count stays SIX.
- *  114 —2026-11-23 MINES ROLL OFF THE STERN (Eric: "they'd just roll off
+ *  114 — 2026-11-23 MINES ROLL OFF THE STERN (Eric: "they'd just roll off
  *  the rack into the water"). No wire shape changes; a mine click's aim is
  *  ignored and every mine line drops at the new shared `mineDropPoint`
  *  (sim/aim.ts — dead astern, just clear of the transom), never denied

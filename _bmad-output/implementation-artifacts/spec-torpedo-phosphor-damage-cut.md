@@ -28,7 +28,7 @@ warnings: []
 ## Acceptance Criteria
 
 - Given the shipped `CONFIG`, when a heavy / light / supercav torpedo hits a hull at Tier I with no armor difference, then it deals 200 / 150 / 200 hp.
-- Given a Tier I phosphor shell bursting on a hull, when the hull stays in the burning zone for its full 8 s, then it takes 30 burst + 12 hp/s (126 hp ceiling).
+- Given a Tier I phosphor shell bursting on a hull, when the hull stays in the burning zone for its full 8 s, then it takes 30 burst + 12 hp/s (about 126 hp).
 - Given a client at PV 114, when it joins a PV 115 server, then it is refused with the version error.
 
 ## Tasks
