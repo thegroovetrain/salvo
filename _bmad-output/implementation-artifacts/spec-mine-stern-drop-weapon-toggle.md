@@ -2,7 +2,7 @@
 title: 'Mines roll off the stern; weapon select setting PRIME | TOGGLE'
 type: 'feature'
 created: '2026-11-23'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '10b8bc88e7848871812bb16b4895f1cc77d7fd3f'
 review_loop_iteration: 0
 context:
@@ -64,14 +64,14 @@ warnings: ['multiple-goals', 'oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/*`, `shared/src/constants.ts`, `shared/src/index.ts` -- add `mineDropPoint`, delete the three keys + mine sector, add `CONFIG.bots` replacement key(s), bump PV; update shared tests (`arcs`, `barrel`) -- one source for the drop
-- [ ] `server/src/game/equipment/mines.ts` + server tests (`equipment`, `denials`, `weapons`, `botTactics`, `launchersRacks`, `match`, `botSweep`) -- drop at `mineDropPoint`, no arc/range gate; tests assert "lands at the drop point whatever the aim"
-- [ ] `server/src/game/ai/*` -- bots fire the mine slot without a placement aim; ranges from the new bots key
-- [ ] `server/scripts/weaponsSmoke.mjs` -- lay at the stern drop point, sailing between drops so mines stay distinct; must pass
-- [ ] `client/src/render/{weaponArc,firing,aimPreview}.ts`, `client/src/main.ts` + client tests -- mines: no wedge, no leash, click always "in arc", preview rings at the drop point with the blocked tell
-- [ ] `client/src/settings/store.ts`, `client/src/ui/settings.ts`, `client/src/main.ts`/`inputSampler.ts` + tests -- `weaponSelect` setting (label `WEAPON SELECT`, options `PRIME` / `TOGGLE`, a `WEAPONS` section holding only this row, placed immediately before `CONTROLS — REFERENCE ONLY`), TOGGLE revert rule
-- [ ] `client/src/how-to-play/copy.ts:142` -- minimal edit: "Click to drop a mine off your stern." replaces "Click behind your ship to drop a mine."
-- [ ] `EXPERIENCE.md` Interaction Primitives Q/E/R row -- one appended sentence for the TOGGLE option; mine aim language if present
+- [x] `shared/src/sim/*`, `shared/src/constants.ts`, `shared/src/index.ts` -- add `mineDropPoint`, delete the three keys + mine sector, add `CONFIG.bots` replacement key(s), bump PV; update shared tests (`arcs`, `barrel`) -- one source for the drop
+- [x] `server/src/game/equipment/mines.ts` + server tests (`equipment`, `denials`, `weapons`, `botTactics`, `launchersRacks`, `match`, `botSweep`) -- drop at `mineDropPoint`, no arc/range gate; tests assert "lands at the drop point whatever the aim"
+- [x] `server/src/game/ai/*` -- bots fire the mine slot without a placement aim; ranges from the new bots key
+- [x] `server/scripts/weaponsSmoke.mjs` -- lay at the stern drop point, sailing between drops so mines stay distinct; must pass
+- [x] `client/src/render/{weaponArc,firing,aimPreview}.ts`, `client/src/main.ts` + client tests -- mines: no wedge, no leash, click always "in arc", preview rings at the drop point with the blocked tell
+- [x] `client/src/settings/store.ts`, `client/src/ui/settings.ts`, `client/src/main.ts`/`inputSampler.ts` + tests -- `weaponSelect` setting (label `WEAPON SELECT`, options `PRIME` / `TOGGLE`, a `WEAPONS` section holding only this row, placed immediately before `CONTROLS — REFERENCE ONLY`), TOGGLE revert rule
+- [x] `client/src/how-to-play/copy.ts:142` -- minimal edit: "Click to drop a mine off your stern." replaces "Click behind your ship to drop a mine."
+- [x] `EXPERIENCE.md` Interaction Primitives Q/E/R row -- one appended sentence for the TOGGLE option; mine aim language if present
 
 **Acceptance Criteria:**
 - Given any ship class and heading, when a mine click is consumed, then the mine's position equals `mineDropPoint(ship)` regardless of `aim`/`aimDist`.
@@ -82,6 +82,21 @@ warnings: ['multiple-goals', 'oversized']
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-11-23 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6 (high 2, medium 2, low 2)
+- defer: 0
+- reject: 4 (narrow latch timing on an unrelated held click; preview vs server pose at a coast; revert still owed after a mid-hold refill — the stock did hit 0, Eric's rule; renaming `isPlacedItem`)
+- addressed_findings:
+  - `[high]` `[patch]` A blocked stern drop was predicted fireable (PRIME / last TOGGLE round lost the selection, late tone) — `client/src/sim/mineDrop.ts` `mineDropSpot`; `slotHasRound` false while blocked; preview reads the same helper. (Blind + Edge)
+  - `[high]` `[patch]` TOGGLE read the frame-stale server stock (fast double-click kept an empty weapon) — pure `client/src/sim/toggleSelect.ts`: stock = server n − un-acked own shots (`ackSeq`), backstop on 0; behavior tests. (Codex + Blind + Edge)
+  - `[medium]` `[patch]` Mines still drew the aim reticle + ship-to-cursor bearing line (spec Never: a mine aim reticle) — `drawReticle` returns for mines (OS cursor is not hidden, so nothing is lost).
+  - `[medium]` `[patch]` TOGGLE had no behavioral test — 12 tests over the pure module.
+  - `[low]` `[patch]` EXPERIENCE `1 / 2 / 3 / 4` row still said "click into the mine's rear arc" — inline 2026-11-23 supersede.
+  - `[low]` `[patch]` Dead `'sector'` grammar on the client + vacuous test scans; smoke advanced `lastDrop` on a denied drop — deleted / fixed (the shared `ArcShape` `'sector'` stays: torpedo launcher bands use it).
+- For Eric (not changed, readings): a STOPPED ship now stacks every mine on one point (stacking by clicking one spot was possible before; now it is the default at rest); bot mines now land at the transom instead of 75 / 150 u astern, so bot mine tuning may drift.
 
 ## Design Notes
 
@@ -94,3 +109,7 @@ TOGGLE rule as code shape (in `consumePrimeOnFire`): `if (shouldConsumePrime(...
 - `npm run lint` -- no errors
 - `HC_DEV_OPTIONS=1` weaponsSmoke (see `server/scripts/weaponsSmoke.mjs` header) -- passes first try
 - `npm run check` -- green once at the end
+
+## Auto Run Result
+
+Status: done. Mines on every line drop at the shared `mineDropPoint` (dead astern, half the hull + the 10 u marker behind center) whatever the click; the rear wedge, 150 u leash and `CONFIG.mine.offset` / `placeHalfArcDeg` / `placeRange` are gone (bot distances moved to `CONFIG.bots.mineReachU` 150 / `mineAsternHalfArcDeg` 60, same values); a blocked stern denies `'blocked'`, predicted on the client. New client setting WEAPON SELECT (Settings → WEAPONS): PRIME (default, unchanged) | TOGGLE (stays selected until the shot that empties the loaded stock — Eric: "When stock hits 0" — or its key; another key switches). PV +1. Verification: shared 1458 / server 2994 / client 4514 tests, lint 0 errors, tsc clean, weaponsSmoke OK; full `npm run check` at PR time. Review: Codex + two Fable hunters; 6 patches, 0 deferred. Residual: stacked mines at rest and bot mine geometry (above) await Eric.
