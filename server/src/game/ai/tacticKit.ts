@@ -27,6 +27,8 @@ import {
   batteryTerrainStop,
   bearing,
   blockedWater,
+  hullEnvelope,
+  mineDropPoint,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
@@ -294,19 +296,14 @@ export function solveTorpedoShot(
 // PLACEMENTS AND BURSTS shared across axes.
 // ---------------------------------------------------------------------------
 
-/** A drop commanded at the centre of the given ratified placement sector —
- *  so arc and range pass by construction and only the water can refuse
- *  (`blockedWater` is the SAME predicate the equipment rows deny with). The
- *  mines drop this way. */
-export function sectorPlacement(
-  ctx: TacticContext,
-  sector: { offset: number },
-  dropU: number,
-): Shot | null {
-  const aim = wrapAngle(ctx.self.state.heading + sector.offset);
-  const p = { x: ctx.sit.x + Math.cos(aim) * dropU, y: ctx.sit.y + Math.sin(aim) * dropU };
+/** A MINE DROP: the mine rolls off the stern at the shared `mineDropPoint`
+ *  (2026-11-23 — the server ignores the aim), so the only refusal is the water
+ *  there (`blockedWater` is the SAME predicate the equipment rows deny with).
+ *  The aim fields are sent dead astern / 0 for a sane wire value only. */
+export function sternDrop(ctx: TacticContext): Shot | null {
+  const p = mineDropPoint(ctx.self.state, hullEnvelope(ctx.self.hullId).hull.length);
   if (blockedWater(p, ctx.port.map.islands, ctx.port.map.radius)) return null;
-  return { aim, aimDist: dropU, slot: ctx.slot };
+  return { aim: wrapAngle(ctx.self.state.heading + Math.PI), aimDist: 0, slot: ctx.slot };
 }
 
 /** The nearest LIVE, actionable track inside our own truesight bubble — the

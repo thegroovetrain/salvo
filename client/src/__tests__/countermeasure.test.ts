@@ -722,13 +722,17 @@ describe('the cloud\'s OWN stamped life and disc', () => {
   });
 });
 
-describe('the declared seat (Eric 2026-10-12: above everything except radar paints; own hull on top)', () => {
+// Eric 2026-10-12: above everything except radar paints; own hull on top.
+// 2026-11-23: the cloud's seat is UNCHANGED by the hulls-over-radar fix (Eric:
+// "DO NOT TOUCH THE SMOKE"); only `blip` moved, under the contact hulls.
+describe('the declared seat (smoke over contact hulls; own hull on top)', () => {
   const at = (n: string): number => CHART_LAYER_ORDER.indexOf(n as never);
-  it('cloud above contact hulls and names, below radar paints, which sit below the own hull', () => {
+  it('cloud above contact hulls and names; below the own hull, which sits below the reticle', () => {
     expect(at('cloud')).toBeGreaterThan(at('ship'));
     expect(at('cloud')).toBeGreaterThan(at('plate'));
-    expect(at('blip')).toBeGreaterThan(at('cloud'));
-    expect(at('ownShip')).toBeGreaterThan(at('blip'));
+    for (const below of ['cloud', 'blip']) {
+      expect(at('ownShip')).toBeGreaterThan(at(below));
+    }
     expect(at('aim')).toBeGreaterThan(at('ownShip'));
   });
 });

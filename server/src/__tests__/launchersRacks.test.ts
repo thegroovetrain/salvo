@@ -95,10 +95,10 @@ function clickTorpedo(w: World, rec: ShipRecord, aim: number): number {
   return fireSeq;
 }
 
-/** One mine click dead astern inside the rack's reach. */
+/** One mine click (the mine drops at the stern whatever the aim). */
 function clickMine(w: World, rec: ShipRecord): void {
   const fireSeq = rec.lastFireSeq + 1;
-  submit(w, rec, { aim: rec.state.heading + Math.PI, aimDist: CONFIG.mine.placeRange / 2, slot: SLOT_MINE, fireSeq });
+  submit(w, rec, { aim: rec.state.heading + Math.PI, aimDist: 0, slot: SLOT_MINE, fireSeq });
   w.step();
 }
 

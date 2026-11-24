@@ -2,13 +2,9 @@
 // One `CONFIG` object, nested by system. Units are noted per field:
 //   u = world units, u/s = units/second, u/s^2 = accel, rad = radians,
 //   rad/s = angular rate, ms = milliseconds.
-//
-// Angle helpers below keep mount/arc definitions readable in degrees.
 
 import type { TargetKind } from './sim/shell.js';
 import { hmToU } from './sim/hm.js';
-
-const deg = (d: number): number => (d * Math.PI) / 180;
 
 // THE TWELFTHS LADDER IS RETIRED (Story 11.2, 2026-11-12, epic-11 amendment
 // 4; rulings R1 / R18). The module constants
@@ -861,6 +857,21 @@ export const CONFIG = {
      * tunes. A harness dial.
      */
     dropLaneU: 100,
+    /**
+     * THE BOT MINE RULER (2026-11-23, mines roll off the stern): u — the unit
+     * every bot mine-laying range is a multiple of (`ai/equipment.ts`: the
+     * near / closing want ranges). It is the old 150 u placement leash's
+     * value, kept here when the leash was deleted so bot mine tactics stay
+     * unchanged. A harness dial.
+     */
+    mineReachU: 150,
+    /**
+     * deg — half-width of the cone dead astern a track must sit in before a
+     * bot lays a REACTIVE mine on it (`ai/equipment.ts` `behindUs`). The old
+     * rear placement sector's half-arc, kept when the sector was deleted. A
+     * harness dial.
+     */
+    mineAsternHalfArcDeg: 60,
   },
 
   /** True ship globals shared by every class (no per-class variation). */
@@ -1663,7 +1674,7 @@ export const CONFIG = {
     // RE-RULED 90 → 300 on the 1000 hp hull (Story 10.3, Eric 2026-11-04,
     // epic-10 amendment 8, ruling 5: "HEAVY 300 → 600"): the line authors
     // +75 a rung → 300/375/450/525/600 — Tier V is 60 % of a hull.
-    damage: 300,
+    damage: 200, // 300 → 200, Eric 2026-11-24 (−100 at every torpedo kind; batch-sim torp-100 arm)
     maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4) — AFT TORPEDO LAUNCHER and SECOND LAUNCHER TUBE multiply it
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
@@ -1735,7 +1746,7 @@ export const CONFIG = {
    */
   lightTorpedo: {
     speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
-    damage: 250, // hp per contact hit at every tier — 200 → 250, Eric 2026-11-16 (with acoustic homing standard); was +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
+    damage: 150, // hp per contact hit at every tier — 250 → 150, Eric 2026-11-24 (−100 at every torpedo kind); 200 → 250, Eric 2026-11-16 (with acoustic homing standard); was +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
     maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls — it runs UNDER a minefield.
@@ -1764,7 +1775,7 @@ export const CONFIG = {
    */
   supercavTorpedo: {
     speed: 195, // u/s (amendment 74, R19's speed kept)
-    damage: 300, // hp per contact hit at every tier — 400 → 300, Eric 2026-11-16 ("Supercav 300 base damage"), with tiers adding weapon POWER instead of damage; was +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
+    damage: 200, // hp per contact hit at every tier — 300 → 200, Eric 2026-11-24 (−100 at every torpedo kind); 400 → 300, Eric 2026-11-16 ("Supercav 300 base damage"), with tiers adding weapon POWER instead of damage; was +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
     maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
     reloadMs: 45000, // ms — Eric 2026-11-05, Story 10.5, R4 ("SUPERCAV 45")
     // AR44: hulls only, never a mine — it runs UNDER a minefield.
@@ -1774,11 +1785,11 @@ export const CONFIG = {
   },
 
   /**
-   * Mines (Mine Layer slot 1): a click-aimed WEAPON as of Story 2.8 (amendment
-   * 45 — supersedes the 1.8 instant-activate stern drop): prime the slot, aim
-   * within the REAR arc (heading + `offset` ± `placeHalfArcDeg`), and a click
-   * places the mine AT the clicked point up to `placeRange` (out-of-arc/range →
-   * the denial register). Arms after `armDelay`; an enemy silhouette within
+   * Mines (Mine Layer slot 1): a click-fired WEAPON (Story 2.8 put it on the
+   * click channel). Since Eric 2026-11-23 a mine ROLLS OFF THE STERN: prime
+   * the slot and a click anywhere drops the mine at `mineDropPoint`
+   * (sim/aim.ts — dead astern, just clear of the transom); the aim is ignored,
+   * there is no placement arc and no leash. Arms after `armDelay`; an enemy silhouette within
    * `triggerRadius` trips it, BLASTING every non-owner hull within the larger
    * `blastRadius` for full `damage` (owner excluded — the gun/starShells
    * owner-excluded AoE precedent). Chain reactions are NAVAL-ONLY, BOTH WAYS
@@ -1789,22 +1800,6 @@ export const CONFIG = {
    * (amendment 200; by blast reach since Story 9.12; flat with range since Story 11.1). Every number is a DESIGN TARGET, tunable.
    */
   mine: {
-    // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
-    // Story 2.8: now the CENTER of the mine's aimed rear placement arc.
-    offset: deg(180),
-    // deg — half-arc of the aimed rear placement sector about `offset`
-    // (Story 2.8, amendment 45 — DRAFT value, 2.10 tunes).
-    placeHalfArcDeg: 60,
-    // u — max distance of the clicked placement point. Eric ruling 2026-08-02:
-    // 90u was barely a hull and a half astern of a battleship (124u long), so
-    // "laying a field" meant dropping mines on your own transom and sailing off
-    // it; 150u is a real leash — you can seed the water you just left, or the
-    // gap you are backing away from, without the rack becoming a ranged weapon
-    // (it stays a fraction of gun/radar reach). Every consumer derives from
-    // this: the rear placement wedge IS drawn at placeRange (render/firing.ts
-    // via weaponArc.weaponRangeU), the client's range-denial gate and the
-    // server's activation check both read it, so the leash moves in one place.
-    placeRange: 150,
     armDelay: 3000, // ms — before it can trigger
     // u — detonation proximity (enemy pass-over trips it). THE BASE-STATS RUNG:
     // at runtime this is DERIVED from the effective blast radius via
@@ -1947,9 +1942,8 @@ export const CONFIG = {
     homingTurnRate: 0.3, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
     damage: 100, // hp — the fish's warhead at tier I; +25 a rung → 200 at V (Story 10.3, Eric 2026-11-04, ruling 6: "CAPTIVE 100 → 200"; was 90 +11/+11/+11/+12 → 135, Eric 2026-10-16, Story 9.12; 55 +5 before, R25)
-    // The naval chassis is SHARED, not duplicated: the rear placement sector
-    // (`CONFIG.mine.offset` / `placeHalfArcDeg`), the 150 u leash
-    // (`placeRange`) and the 3 s `armDelay` are read from `CONFIG.mine`.
+    // The naval chassis is SHARED, not duplicated: the stern drop point
+    // (`mineDropPoint`) and the 3 s `armDelay` are read from `CONFIG.mine`.
   },
 
   /**
@@ -2332,10 +2326,10 @@ export const CONFIG = {
     // "PHOSPHOR 50 burst + 20/s burn → 100 + 40/s", the +12/+13/+12/+13 split
     // the implementer's; was 10 / 12 / 15 / 17 / 20 — swapped 2026-10-01,
     // Eric, epic-8 amendment 208).
-    damage: 50,
+    damage: 20, // 50 → 20, Eric 2026-11-24 (30 first, then 20 after the 198-match sims still read it the strongest special shell)
     zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
     zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
-    dps: 20, // hp/s — tier-I burn on every non-owner afloat hull inside; +5 a rung → 40 at V (Story 10.3, ruling 9; was 5 → 10)
+    dps: 10, // 20 → 10, Eric 2026-11-24 (12 first, then 10). hp/s — tier-I burn on every non-owner afloat hull inside; +5 a rung → 40 at V (Story 10.3, ruling 9; was 5 → 10)
     shellRadius: 2, // u — shell collision radius (star-shell parity)
   },
 

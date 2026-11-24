@@ -32,6 +32,13 @@ export type HudSide = 'left' | 'right';
 /** The two HUD sides, in the settings row's order. */
 export const HUD_SIDES: readonly HudSide[] = ['left', 'right'];
 
+/** WEAPON SELECT (Eric 2026-11-23): PRIME = a special weapon reverts to the
+ *  main gun after each shot (default); TOGGLE = it stays selected until its
+ *  loaded stock hits 0 or its key is pressed again. */
+export type WeaponSelectMode = 'PRIME' | 'TOGGLE';
+
+export const WEAPON_SELECT_MODES = ['PRIME', 'TOGGLE'] as const satisfies readonly WeaponSelectMode[];
+
 /** The complete, committed v1 settings set (Story 2.3 AC — exactly these). */
 export interface Settings {
   motion: MotionLevel;
@@ -50,6 +57,8 @@ export interface Settings {
   muted: boolean;
   /** The HUD bar's edge (Story 12.3 Part B); the left edge by default. */
   hudSide: HudSide;
+  /** WEAPON SELECT: PRIME by default. */
+  weaponSelect: WeaponSelectMode;
   /** AIM COLOR (Story 11.1 R15 / R18): `#rrggbb`, tints the reticle AND the
    *  main-battery oval; the palette amber by default. */
   aimColor: string;
@@ -67,6 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   monoAudio: false,
   muted: false,
   hudSide: 'left',
+  weaponSelect: 'PRIME',
   aimColor: CLIENT_CONFIG.reticle.defaultColor,
   aimSize: CLIENT_CONFIG.reticle.defaultSize,
 };
@@ -81,6 +91,10 @@ function coerceMotion(v: unknown): MotionLevel {
 
 function coerceHudSide(v: unknown): HudSide {
   return HUD_SIDES.includes(v as HudSide) ? (v as HudSide) : DEFAULT_SETTINGS.hudSide;
+}
+
+function coerceWeaponSelect(v: unknown): WeaponSelectMode {
+  return (WEAPON_SELECT_MODES as readonly unknown[]).includes(v) ? (v as WeaponSelectMode) : DEFAULT_SETTINGS.weaponSelect;
 }
 
 /** AIM COLOR coercion: a `#rrggbb` hex (lower-cased), else the default. */
@@ -146,6 +160,7 @@ export function sanitizeSettings(raw: unknown, legacyMuted = false): Settings {
     monoAudio: coerceBool(o.monoAudio, DEFAULT_SETTINGS.monoAudio),
     muted: coerceBool(o.muted, legacyMuted),
     hudSide: coerceHudSide(o.hudSide),
+    weaponSelect: coerceWeaponSelect(o.weaponSelect),
     aimColor: coerceAimColor(o.aimColor),
     aimSize: coerceAimSize(o.aimSize),
   };
@@ -336,6 +351,10 @@ export class SettingsStore {
 
 /** Pure: field-by-field settings equality (no deep values in the schema). */
 export function sameSettings(a: Settings, b: Settings): boolean {
+  return sameDisplayAudio(a, b) && a.hudSide === b.hudSide && a.weaponSelect === b.weaponSelect && sameAim(a, b);
+}
+
+function sameDisplayAudio(a: Settings, b: Settings): boolean {
   return (
     a.motion === b.motion &&
     a.uiScale === b.uiScale &&
@@ -343,11 +362,12 @@ export function sameSettings(a: Settings, b: Settings): boolean {
     a.masterVolume === b.masterVolume &&
     a.effectsVolume === b.effectsVolume &&
     a.monoAudio === b.monoAudio &&
-    a.muted === b.muted &&
-    a.hudSide === b.hudSide &&
-    a.aimColor === b.aimColor &&
-    a.aimSize === b.aimSize
+    a.muted === b.muted
   );
+}
+
+function sameAim(a: Settings, b: Settings): boolean {
+  return a.aimColor === b.aimColor && a.aimSize === b.aimSize;
 }
 
 /**

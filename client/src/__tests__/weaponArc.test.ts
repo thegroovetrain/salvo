@@ -7,8 +7,8 @@
 // the wrong marker. The gun family
 // (gun/starShells) is 360°; the three torpedoes share the deck LAUNCHER arcs
 // (Story 10.6, R6 / R28 — each launcher's side-firing band, the aft's when held); the MINE
-// has a rear placement arc; the BROADSIDE BARRAGE has TWIN mirrored beam
-// sectors.
+// is never out of arc (it rolls off the stern whatever the aim, 2026-11-23);
+// the BROADSIDE BARRAGE has TWIN mirrored beam sectors.
 //
 // `slotsWithCards` over the
 // hull's FITTED CARDS is the authoritative id→slot map, so we derive the ids
@@ -18,8 +18,7 @@
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` pins wholesale: that shape is
 // deleted from sim/arcs.ts with the old decoy buoy that was its only user, so
 // "the buoy is never in arc at any bearing" is no longer true and no longer
-// asserted — every buoy since (the radar buoy, deleted in 8.16, and the 8.16
-// DECOY BUOY consumable) is a placement SECTOR like the mine.
+// asserted.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -59,7 +58,6 @@ import {
   twinSectorSide,
   clickInArc,
   weaponArcHit,
-  weaponRangeHit,
   weaponRangeU,
   weaponReachU,
 } from '../render/weaponArc.js';
@@ -108,12 +106,6 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
     expect(fireArcKind('foulingShell')).toBe('gunLike');
   });
 
-  it('classes the SECTOR ids — the mines\' rear arc', () => {
-    // PIN FLIPPED (Story 2.8, amendment 45): the mine is a click-aimed weapon
-    // with a rear placement sector — it used to classify `none`.
-    expect(fireArcKind('navalMines')).toBe('sector');
-  });
-
   it('classes FLASH SHELLS `gunLike` — a 360° arc (Story 10.9, ruling 9)', () => {
     expect(fireArcKind('dazzleShells')).toBe('gunLike');
   });
@@ -135,8 +127,8 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   // classified as an unaimed slot, and the belt's SUPERCAV — a click-aimed
   // consumable (epic-8 amendment 74) — was trusted blind.
 
-  it('classes ALL THREE mine lines as the rear placement SECTOR', () => {
-    for (const id of MINE_EQUIPMENT_IDS) expect(fireArcKind(id), id).toBe('sector');
+  it('classes ALL THREE mine lines `gunLike` — never out of arc, no wedge (the stern drop, 2026-11-23)', () => {
+    for (const id of MINE_EQUIPMENT_IDS) expect(fireArcKind(id), id).toBe('gunLike');
   });
 
   // STORY 10.6 (R6): the light torpedo's twin beams and the heavy / supercav
@@ -146,38 +138,17 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   });
 });
 
-// THE ID SETS AGAINST THE ARC GRAMMAR (Story 8.13). The mine list, its guard
-// and its two kind maps used to be a CLIENT-LOCAL restatement of a shared fact,
-// because `sim/arcs.ts` kept `isMineChassis` private; they are one declaration
-// now (shared, re-exported through render/weaponArc.ts), so the first case
-// below is trivially true.
-//
-// IT IS KEPT ANYWAY, deliberately. What it actually pins is the SECOND case:
-// every EquipmentId that declares the mine's rear placement sector must be one
-// of the three lines. That is the assertion a FOURTH mine
-// kind trips — a new line can declare the sector in `equipmentArc` without
-// anyone remembering to add it to `MINE_EQUIPMENT_IDS`, and then every
-// kind-keyed reader on both sides would silently treat it as no mine at all.
-describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
-  it('every id it calls a MINE really does declare the mine\'s rear sector', () => {
-    const rear = arcFor('navalMines');
-    for (const id of MINE_EQUIPMENT_IDS) {
-      expect(arcFor(id), id).toEqual(rear);
-      expect(isMineEquipment(id), id).toBe(true);
-    }
+// THE ID SETS (Story 8.13). The mine list, its guard and its two kind maps are
+// one shared declaration (sim/arcs.ts, re-exported through render/weaponArc.ts).
+// The mines' rear placement sector that used to make them one arc family is
+// gone (2026-11-23), so what is pinned here is the id sets themselves.
+describe('the mine + torpedo id sets', () => {
+  it('every id it calls a MINE is one of the three lines', () => {
+    for (const id of MINE_EQUIPMENT_IDS) expect(isMineEquipment(id), id).toBe(true);
   });
 
-  it('...and every EQUIPMENT id declaring that sector is a mine (the radar buoy is gone)', () => {
-    const rear = JSON.stringify(arcFor('navalMines'));
-    const strays = EQUIPMENT_IDS
-      .filter((id) => JSON.stringify(arcFor(id)) === rear)
-      .filter((id) => !isMineEquipment(id));
-    expect(strays).toEqual([]);
-  });
-
-  it('only the mines are click-PLACED; the mines keep their rear sector (Story 10.5: the buoys are gone)', () => {
+  it('only the mines are DROPPED rather than aimed (Story 10.5: the buoys are gone)', () => {
     for (const id of EQUIPMENT_IDS) expect(isPlacedItem(id), id).toBe(isMineEquipment(id));
-    expect(arcFor('navalMines').kind).toBe('sector');
     expect(isPlacedItem('dazzleShells')).toBe(false); // a shell clamps, it is not placed
   });
 
@@ -197,52 +168,44 @@ describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
   });
 });
 
-// THE CLICK GATE OVER A SLOT'S CONTENT (review patch P8).
-//
-// A click-placed CONSUMABLE used to be BLIND-TRUSTED here (the decoy buoy had
-// no arc before Story 8.16, so the client could only defer to the server).
-// STORY 8.16 ENDED THAT: the DECOY BUOY declares the mine's rear sector and
-// shares the mine's placement leash, so the client gates it exactly like a
-// mine — a predicted denial over a click the server would refuse, and nothing
-// else. The key-fires consumables still answer false.
-describe('clickInArc — the click-aimed consumables are GATED by their arcs', () => {
-  it('FLASH SHELLS is 360° and CLAMPS rather than denying — any bearing, any distance', () => {
-    expect(clickInArc(0, Math.PI, 99_999, 'dazzleShells')).toBe(true);
+// THE CLICK GATE OVER A SLOT'S CONTENT (review patch P8): the bearing gate of
+// the fitted weapon's own descriptor. Nothing denies on distance since the
+// mines' leash was deleted (2026-11-23).
+describe('clickInArc — the click gate over a slot\'s content', () => {
+  it('FLASH SHELLS is 360° — any bearing', () => {
+    expect(clickInArc(0, Math.PI, 'dazzleShells')).toBe(true);
   });
 
-  it('the FOULING SHELL is a 360° click — never out of arc, never a placement leash (Story 9.4)', () => {
+  it('the FOULING SHELL is a 360° click — never out of arc (Story 9.4)', () => {
     for (const aim of [0, Math.PI / 2, Math.PI, -Math.PI / 3]) {
-      expect(clickInArc(0, aim, 10, 'foulingShell'), `aim ${aim}`).toBe(true);
-      expect(clickInArc(0, aim, 99_999, 'foulingShell'), `aim ${aim} far`).toBe(true); // range clamps, never denies
+      expect(clickInArc(0, aim, 'foulingShell'), `aim ${aim}`).toBe(true);
     }
   });
 
   it('GATES a torpedo by the held launchers\' firing bands: fore only denies the aft quarter; the aft launcher opens it', () => {
     const quarter = (3 * Math.PI) / 4;
     const H = DEFAULT_CLASS_ID; // R30: the bands are per hull
-    expect(clickInArc(0, Math.PI / 2, 10, 'supercavTorpedo', 1, H)).toBe(true); // the beam: the fore launcher bears
-    expect(clickInArc(0, 0, 10, 'supercavTorpedo', 2, H)).toBe(false); // dead ahead: no launcher ever fires there
-    expect(clickInArc(0, quarter, 10, 'supercavTorpedo', 1, H)).toBe(false); // aft quarter, fore only: denied
-    expect(clickInArc(0, quarter, 10, 'supercavTorpedo', 2, H)).toBe(true); // ...the aft launcher bears
-    expect(clickInArc(0, Math.PI / 2, 10, 'supercavTorpedo', 1)).toBe(false); // no hull named: no band
+    expect(clickInArc(0, Math.PI / 2, 'supercavTorpedo', 1, H)).toBe(true); // the beam: the fore launcher bears
+    expect(clickInArc(0, 0, 'supercavTorpedo', 2, H)).toBe(false); // dead ahead: no launcher ever fires there
+    expect(clickInArc(0, quarter, 'supercavTorpedo', 1, H)).toBe(false); // aft quarter, fore only: denied
+    expect(clickInArc(0, quarter, 'supercavTorpedo', 2, H)).toBe(true); // ...the aft launcher bears
+    expect(clickInArc(0, Math.PI / 2, 'supercavTorpedo', 1)).toBe(false); // no hull named: no band
   });
 
-  it('gates EVERY mine line on the ONE shared leash, not just the naval rack', () => {
+  it('a mine click is in arc on EVERY bearing, at every heading — every mine line (the stern drop, 2026-11-23)', () => {
     for (const id of MINE_EQUIPMENT_IDS) {
-      expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange, id), id).toBe(true);
-      expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange + 1, id), id).toBe(false);
-      expect(weaponRangeU(effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []), id), id)
-        .toBe(CONFIG.mine.placeRange);
+      for (const heading of [0, 1.3, -2.2]) {
+        for (let k = 0; k < 16; k++) {
+          expect(clickInArc(heading, (k * Math.PI) / 8, id), `${id} h${heading} k${k}`).toBe(true);
+        }
+      }
     }
   });
 
-  it('leaves EQUIPMENT exactly as it was — both tables still gate it', () => {
-    expect(clickInArc(0, 0, 10, 'gun')).toBe(true);
-    expect(clickInArc(0, 0, 10, 'heavyTorpedo')).toBe(weaponArcHit(0, 0, 'heavyTorpedo'));
-    expect(clickInArc(0, Math.PI, 10, 'navalMines')).toBe(true);
-    // ...the mine's placement leash included.
-    expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange + 1, 'navalMines')).toBe(false);
-    expect(clickInArc(0, 0, 10, null)).toBe(false);
+  it('the gun is in arc, a torpedo answers its own arc, the empty slot never', () => {
+    expect(clickInArc(0, 0, 'gun')).toBe(true);
+    expect(clickInArc(0, 0, 'heavyTorpedo')).toBe(weaponArcHit(0, 0, 'heavyTorpedo'));
+    expect(clickInArc(0, 0, null)).toBe(false);
   });
 });
 
@@ -308,29 +271,6 @@ describe('weaponArcHit — instant abilities / empty slot', () => {
   it('is FALSE for the ability and the empty slot (not a weapon, never in arc)', () => {
     expect(weaponArcHit(0, 0, 'boost')).toBe(false);
     expect(weaponArcHit(0, 0, null)).toBe(false); // empty slot 3 / defensive null
-  });
-});
-
-describe('weaponArcHit — mine REAR placement arc (Story 2.8, amendment 45)', () => {
-  const arc = arcFor('navalMines');
-  if (arc.kind !== 'sector') throw new Error('mine must declare a sector');
-
-  it('is true astern (the sector is centred on CONFIG.mine.offset) and false dead ahead', () => {
-    // PIN FLIPPED: the mine used to answer FALSE at every bearing.
-    expect(weaponArcHit(0, arc.offset, 'navalMines')).toBe(true);
-    expect(weaponArcHit(0, 0, 'navalMines')).toBe(false); // dead ahead is out of the rear arc
-  });
-
-  it('is boundary-inclusive at the sector edge and denied a hair past it', () => {
-    expect(weaponArcHit(0, arc.offset + arc.halfArc, 'navalMines')).toBe(true);
-    expect(weaponArcHit(0, arc.offset - arc.halfArc, 'navalMines')).toBe(true);
-    expect(weaponArcHit(0, arc.offset + arc.halfArc + 0.001, 'navalMines')).toBe(false);
-  });
-
-  it('rotates with heading, exactly like the bow arc', () => {
-    const heading = Math.PI / 2; // facing +y — the rear arc points at -y
-    expect(weaponArcHit(heading, heading + arc.offset, 'navalMines')).toBe(true);
-    expect(weaponArcHit(heading, heading, 'navalMines')).toBe(false);
   });
 });
 
@@ -428,12 +368,10 @@ describe('weaponArcHit — the fitted torpedo and mine (Story 1.8)', () => {
     expect(weaponArcHit(0, quarter, torp, 2, DEFAULT_CLASS_ID)).toBe(true); // ...the aft launcher held
   });
 
-  it('the mine is an AIMED rear-sector id', () => {
-    const rear = arcFor('navalMines');
-    if (rear.kind !== 'sector') throw new Error('mine must declare a sector');
-    expect(fireArcKind('navalMines')).toBe('sector');
-    expect(weaponArcHit(0, rear.offset, 'navalMines')).toBe(true);
-    expect(weaponArcHit(0, 0, 'navalMines')).toBe(false); // dead ahead
+  it('the fitted mine is in arc dead ahead and dead astern alike (it drops astern whatever the aim)', () => {
+    const mine = idAt('mineFit', E);
+    expect(weaponArcHit(0, 0, mine)).toBe(true);
+    expect(weaponArcHit(0, Math.PI, mine)).toBe(true);
   });
 });
 
@@ -469,16 +407,12 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(stats, 'broadside')).toBeLessThan(weaponRangeU(stats, 'gun'));
   });
 
-  it('the gun reads its own range block (the default for every non-mine id)', () => {
+  it('the gun reads its own range block (the default for every other id)', () => {
     expect(weaponRangeU(stats, 'gun')).toBe(stats.equipment.gun.rangeU);
-    // Non-gun-like ids draw no ring; the gun range is the harmless default.
+    // Ids with no range ring (a torpedo, a mine, the empty slot); the gun range is the harmless default.
     expect(weaponRangeU(stats, 'heavyTorpedo')).toBe(stats.equipment.gun.rangeU);
+    expect(weaponRangeU(stats, 'navalMines')).toBe(stats.equipment.gun.rangeU);
     expect(weaponRangeU(stats, null)).toBe(stats.equipment.gun.rangeU);
-  });
-
-  it('the MINE reads its ratified placement reach — NOT radar range (Story 2.8)', () => {
-    expect(weaponRangeU(stats, 'navalMines')).toBe(CONFIG.mine.placeRange);
-    expect(weaponRangeU(stats, 'navalMines')).toBeLessThan(stats.equipment.gun.rangeU);
   });
 
   // A WIDER `radarRange` moves NO weapon range (Story 9.8, ruling 125): the
@@ -503,7 +437,6 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     for (const id of ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'foulingShell'] as const) {
       expect(weaponRangeU(intel, id), id).toBe(weaponRangeU(stats, id));
     }
-    expect(weaponRangeU(intel, 'navalMines')).toBe(CONFIG.mine.placeRange); // untouched
   });
 });
 
@@ -555,7 +488,7 @@ describe('weaponReachU — the gun reaches into its own flare (R2.15)', () => {
     expect(reach('broadside', d, FAR_ZONE)).toBe(reachStats.equipment.broadside.rangeU);
     expect(reach('starShells', d, FAR_ZONE)).toBe(reachStats.equipment.starShells.rangeU);
     expect(reach('heavyTorpedo', d, FAR_ZONE)).toBe(reachStats.equipment.gun.rangeU);
-    expect(reach('navalMines', d, FAR_ZONE)).toBe(CONFIG.mine.placeRange);
+    expect(reach('navalMines', d, FAR_ZONE)).toBe(reachStats.equipment.gun.rangeU);
   });
 
   it('no zones at all is the pre-wave-2 clamp, byte for byte', () => {
@@ -637,33 +570,6 @@ describe('weaponReachU — the gun reaches into its own flare (R2.15)', () => {
   });
 });
 
-describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial (Story 2.8)', () => {
-  // The server's mine row refuses `aimDist > CONFIG.mine.placeRange` through
-  // the SAME 'out-of-arc' denial channel as a bad bearing, consuming nothing.
-  // The client's predicted gate must be its exact complement, or an
-  // out-of-range click would silently consume the prime and revert to the gun.
-  //
-  // STORY 8.16: the DECOY BUOY joined the mine on this gate (the radar buoy
-  // that held the seat is deleted). The decoy row reuses `CONFIG.mine.placeRange`
-  // verbatim, so a client that answered `true` at any distance would eat the
-  // prime for a drop the server refuses.
-  for (const id of MINE_EQUIPMENT_IDS) {
-    it(`${id}: accepts a click inside the reach, boundary included, and refuses one past it`, () => {
-      expect(weaponRangeHit(0, id)).toBe(true);
-      expect(weaponRangeHit(CONFIG.mine.placeRange - 1, id)).toBe(true);
-      expect(weaponRangeHit(CONFIG.mine.placeRange, id)).toBe(true); // inclusive, like the server
-      expect(weaponRangeHit(CONFIG.mine.placeRange + 0.001, id)).toBe(false);
-    });
-  }
-
-  it('never gates any OTHER id on distance — they clamp or run on, they do not deny', () => {
-    for (const id of ['gun', 'broadside', 'starShells', 'heavyTorpedo', 'boost'] as const) {
-      expect(weaponRangeHit(1e6, id), id).toBe(true);
-    }
-    expect(weaponRangeHit(1e6, null)).toBe(true);
-  });
-});
-
 // --- Story 1.10: classification derives from the shared arcFor descriptor ----
 
 describe('weaponArc — arcFor single-source (Story 1.10)', () => {
@@ -672,7 +578,6 @@ describe('weaponArc — arcFor single-source (Story 1.10)', () => {
   it('fireArcKind is a straight projection of the shared descriptor for every id', () => {
     const PROJECTION: Record<string, string> = {
       full: 'gunLike',
-      sector: 'sector',
       'twin-sector': 'twin',
       launcher: 'launcher',
       none: 'none',
@@ -695,10 +600,8 @@ describe('weaponArc — arcFor single-source (Story 1.10)', () => {
   });
 });
 
-// The mine's rear wedge is the one sector whose radius is REAL reach, so its
-// boundary is information: the stroked edge (render/firing.ts sectorEdge) says
-// "exactly this far, exactly this sector" where the fill only suggests it.
-describe('sectorOutline — the placement wedge boundary', () => {
+// The broadside's hairline deny boundary (render/firing.ts strokeSectorOutline).
+describe('sectorOutline — a sector wedge boundary', () => {
   it('puts the side rays on the sector edges at the wedge radius', () => {
     const { rays, arc } = sectorOutline(0, Math.PI / 3, 150);
     expect(Math.hypot(rays[0].x, rays[0].y)).toBeCloseTo(150, 9);
@@ -706,17 +609,6 @@ describe('sectorOutline — the placement wedge boundary', () => {
     expect(Math.atan2(rays[0].y, rays[0].x)).toBeCloseTo(-Math.PI / 3, 9);
     expect(Math.atan2(rays[1].y, rays[1].x)).toBeCloseTo(Math.PI / 3, 9);
     expect(arc).toEqual({ from: -Math.PI / 3, to: Math.PI / 3, r: 150 });
-  });
-
-  it('is the mine’s enforced sector at its true placement reach (never a promise of water the rack cannot reach)', () => {
-    const t = arcFor('navalMines');
-    if (t.kind !== 'sector') throw new Error('mine must declare a sector');
-    const { rays, arc } = sectorOutline(t.offset, t.halfArc, CONFIG.mine.placeRange);
-    expect(arc.r).toBe(CONFIG.mine.placeRange);
-    expect(arc.to - arc.from).toBeCloseTo(2 * t.halfArc, 12);
-    // Both rays land on the placement leash, astern (offset 180°: x < 0).
-    for (const r of rays) expect(Math.hypot(r.x, r.y)).toBeCloseTo(CONFIG.mine.placeRange, 9);
-    expect(rays[0].x).toBeLessThan(0);
   });
 
   it('a degenerate radius collapses to the apex rather than drawing a stray ring', () => {

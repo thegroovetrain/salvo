@@ -7781,9 +7781,9 @@ export class World {
 
   /** Store a newly-dropped mine at an already-validated point. NO CAP of any
    *  kind since Story 8.4 (FR57/AR48): nothing is evicted, so a laid trap stays
-   *  laid until it is tripped or shot. Story 2.8 (amendment 45): mines are a click-aimed
-   *  WEAPON on the fireSeq channel — the equipment row validates the rear
-   *  placement sector + placeRange and hands us the CLICKED point, and the
+   *  laid until it is tripped or shot. Story 2.8 (amendment 45): mines are a click-fired
+   *  WEAPON on the fireSeq channel — the equipment row hands us the stern
+   *  drop point (`mineDropPoint`, 2026-11-23 — the aim is ignored), and the
    *  activation carries the D1-compensated fire time, so `droppedAt` is that
    *  validated fireT (not necessarily `now`) and armedAt = droppedAt +
    *  armDelay. */

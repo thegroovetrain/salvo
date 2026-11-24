@@ -112,9 +112,9 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // nothing.
   boost: false,
   lightTorpedo: true,
-  // Story 2.8 (amendment 45) and the v3 rename: the mine is a click-aimed
-  // WEAPON — prime, aim within the rear arc, click places at the clicked point
-  // up to placeRange.
+  // Story 2.8 (amendment 45) and the v3 rename: the mine is a click-fired
+  // WEAPON — prime, click, and (since 2026-11-23) it rolls off the stern at
+  // `mineDropPoint` whatever the aim.
   heavyTorpedo: true,
   navalMines: true,
   captiveMines: true,

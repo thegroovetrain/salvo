@@ -14,6 +14,7 @@ import {
   clampInsideMap,
   gunReachU,
   hullClearOffset,
+  mineDropPoint,
   muzzleOrTarget,
   muzzleSpawn,
   pointInLitZone,
@@ -36,6 +37,27 @@ describe('hullClearOffset', () => {
   it('is half the hull length plus the extra clearance', () => {
     expect(hullClearOffset(120, 8)).toBe(68);
     expect(hullClearOffset(len('yamato'), 0)).toBe(len('yamato') / 2);
+  });
+});
+
+describe('mineDropPoint — the mine rolls off the stern (2026-11-23)', () => {
+  it('lies dead astern of the hull, hullClearOffset(length, mine marker) from the center, on every hull and heading', () => {
+    for (const id of HULLS) {
+      for (const heading of [0, 1, -2.5, Math.PI]) {
+        const pose = { x: 300, y: -120, heading };
+        const p = mineDropPoint(pose, len(id));
+        const back = Math.hypot(p.x - pose.x, p.y - pose.y);
+        expect(back).toBeCloseTo(hullClearOffset(len(id), CONFIG.mine.hitRadiusU), 9);
+        expect(Math.abs(wrapAngle(Math.atan2(p.y - pose.y, p.x - pose.x) - (heading + Math.PI)))).toBeLessThan(1e-9);
+      }
+    }
+  });
+
+  it('moves with the ship: the same hull at a new position drops at the same offset from it', () => {
+    const a = mineDropPoint({ x: 0, y: 0, heading: 0.7 }, len('iowa'));
+    const b = mineDropPoint({ x: 50, y: 80, heading: 0.7 }, len('iowa'));
+    expect(b.x - a.x).toBeCloseTo(50, 9);
+    expect(b.y - a.y).toBeCloseTo(80, 9);
   });
 });
 

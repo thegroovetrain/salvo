@@ -201,8 +201,22 @@ describe('main.ts wires the revert to the RELEASE, not the press', () => {
     // — the fire input and the D1 fire-time stamp are built around it.
     const fire = bodyOf('consumePrimeOnFire');
     expect(fire).toContain('shouldConsumePrime(');
-    expect(fire).toContain('armPrimeRevert(g, clickSeq)');
+    expect(fire).toContain('armFireRevert(');
     expect(fire).not.toContain('revertToGun()');
+    // WEAPON SELECT (2026-11-23): the PRIME | TOGGLE rule (sim/toggleSelect.ts,
+    // tested behaviourally there) only ever ARMS — never reverts on the press.
+    expect(bodyOf('armFireRevert')).toContain('armPrimeRevert(g, clickSeq)');
+    expect(bodyOf('armFireRevert')).not.toContain('revertToGun()');
+  });
+
+  it('TOGGLE\'s backstop runs after the release edge, before the wire slot is read, and only arms', () => {
+    expect(bodyOf('toggleOutOfStock')).not.toContain('revertToGun()');
+    const release = MAIN_TS.indexOf('consumePrimeOnRelease(g);');
+    const stock = MAIN_TS.indexOf('toggleOutOfStock(g);');
+    const wire = MAIN_TS.indexOf('const primedSlot = g.keyboard.primedSlot', release);
+    expect(release).toBeGreaterThan(-1);
+    expect(stock).toBeGreaterThan(release);
+    expect(wire).toBeGreaterThan(stock);
   });
 
   it('the arm NAMES ITS CLICK, and settles a tap released inside the same tick', () => {
@@ -245,9 +259,6 @@ describe('main.ts wires the revert to the RELEASE, not the press', () => {
     const decl = MAIN_TS.slice(at, MAIN_TS.indexOf('function latchOwnFire('));
     expect(decl).toContain('clickInArc(');
     expect(decl).not.toContain('weaponArcHit(');
-    expect(decl).not.toContain('weaponRangeHit(');
-    // ...and main.ts no longer imports either raw table: one predicate, one call.
-    expect(MAIN_TS).not.toContain('weaponRangeHit,');
   });
 
   it('reverts to the gun when the PRIMED slot empties under a stats apply', () => {

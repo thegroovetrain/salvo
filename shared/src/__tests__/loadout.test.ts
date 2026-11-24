@@ -145,9 +145,8 @@ describe('the slot-family model — every slot weapon has ONE fixed home', () =>
 
 describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
   it('marks every aimed-click weapon true; the two boosts are the only abilities', () => {
-    // FLIPPED PIN (amendment 45): the mine is a click-aimed rear-arc WEAPON
-    // again — prime, aim within CONFIG.mine.offset ± placeHalfArcDeg, click
-    // places at the point up to placeRange. Supersedes the 1.8 stern drop.
+    // FLIPPED PIN (amendment 45): the mine is a click-fired WEAPON — prime,
+    // click (since 2026-11-23 it rolls off the stern whatever the aim).
     // FLIPPED AGAIN, Story 7-5 wave 2 (R2.7): the RADAR BUOY replacing the
     // decoy is click-placed in that same rear sector, so it left the actSeq
     // ability channel for the fireSeq weapon channel — which leaves the speed

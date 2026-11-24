@@ -7,8 +7,10 @@
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, mines
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, fog (the field), smoke, SHIP, PLATE, cloud, blip,
+//   chartRoot   (camera-transformed): map, fog (the field), smoke, blip, SHIP, PLATE, cloud,
 //                                     OWNSHIP, aim, burstFx, sweep
+//                                     (re-cut 2026-11-23: seen hulls over radar —
+//                                     CHART_LAYER_ORDER)
 //                                     (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD, then foghorn chevrons
 //
@@ -80,7 +82,10 @@
 // was drawn on top of the very silhouette it represents. It now sits in chartRoot immediately ABOVE `blip` and
 // immediately BELOW `aim`: above the returns, below the reticle and the burst
 // rings, which are the marks you aim and read damage with and must never be
-// occluded by a hull.
+// occluded by a hull. (2026-10-12 put the paints back over contact hulls;
+// 2026-11-23 restored hulls directly above `blip`, with `plate`, `cloud` and
+// `ownShip` now between `ship` and `aim` — CHART_LAYER_ORDER is the current
+// contract.)
 //
 // THE COST OF THAT LIFT, AND WHERE IT IS PAID. Being under the fog gave hulls the
 // composite's feathered sight hole for free — a contact softened as it neared the
@@ -216,8 +221,9 @@ export interface StageLayers {
    *  same rules other ships are" — "Exactly like a hull"): the server sends a
    *  crate wherever a hull at its spot would be sent, so like `ship` it must
    *  not be eaten by the fog, and it carries the hull's haze fade itself. It
-   *  was the fogged `dropWorld` world layer (Story 10.9). Directly BELOW
-   *  `ship`: a hull collecting a crate sails over it. */
+   *  was the fogged `dropWorld` world layer (Story 10.9). Below `ship` (a hull
+   *  collecting a crate sails over it) and, since 2026-11-23, directly below
+   *  `blip` (a crate stays under the paint, as before). */
   dropChart: Container;
   /**
    * CONTACT HULL SILHOUETTES — every other hull (render/contacts.ts). The own
@@ -227,8 +233,11 @@ export interface StageLayers {
    * the sight-boundary softening the fog used to supply is applied per hull — see
    * this file's header. It sat directly ABOVE `blip` from the hull lift until
    * 2026-10-12, when the smoke-is-paint ruling put radar paints above the cloud
-   * and the cloud above contact hulls (see CHART_LAYER_ORDER), so a return now
-   * reads over a contact hull.
+   * and the cloud above contact hulls (see CHART_LAYER_ORDER), so a return
+   * read over a contact hull. RESTORED 2026-11-23: directly above `blip` again
+   * (Eric: "If a ship is visible, all of its visible parts are visible OVER
+   * radar, not UNDER."; "Only ships being covered by radar returns when I
+   * should be able to see them. Only fix that."), still below the cloud.
    */
   ship: Container;
   /**
@@ -250,10 +259,15 @@ export interface StageLayers {
   plate: Container;
   /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
    *  9.3, 2026-10-12) — the spraypaint bitmap, above contact hulls and their
-   *  names, below radar paints and the own hull. Eric: "If I am not the user
-   *  then it should render above everything except radar paints." */
+   *  names, below the own hull. Eric (2026-10-12): "If I am not the
+   *  user then it should render above everything except radar paints." Since
+   *  2026-11-23 it is also above the radar paints — the cloud did not move;
+   *  `blip` moved down under the contact hulls. */
   cloud: Container;
-  /** Radar paints (render/radar.ts) — above the cloud since 2026-10-12. */
+  /** Radar paints (render/radar.ts) — directly BELOW contact hulls since
+   *  2026-11-23 (Eric: "If a ship is visible, all of its visible parts are
+   *  visible OVER radar, not UNDER."), directly above the crate marks; under
+   *  contact names and the cloud. It sat above the cloud 2026-10-12 → 2026-11-23. */
   blip: Container;
   /** THE OWN HULL (main.ts) and its firing-arc sectors (render/firing.ts) —
    *  above the cloud and the radar paints (Eric 2026-10-12: "If I'm the user,
@@ -306,10 +320,20 @@ export type LayerName = keyof StageLayers;
 /** worldRoot, bottom → top: everything the fog composite dims. */
 export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld'] as const; // the buoy layers went with the buoys (2026-11-05, Story 10.5); the beacon bodies with the beacons (Story 12.4); the crates moved above the fog (`dropChart`, 2026-11-20)
 /** chartRoot, bottom → top: everything above the fog. The legibility contract,
- *  read upward: `ship` (contact hulls), `plate` (the name that outranks terrain
- *  and hulls), `cloud` (countermeasure smoke), `blip` (radar paint), `ownShip`
- *  (your own hull), then `aim`/`burstFx`/`sweep` (the marks you aim and read
- *  damage with, which outrank everything below them).
+ *  read upward: `blip` (radar paint), `ship` (contact hulls), `plate` (the
+ *  name that outranks terrain and hulls), `cloud` (countermeasure smoke),
+ *  `ownShip` (your own hull), then
+ *  `aim`/`burstFx`/`chartMark`/`sweep` (the marks you aim and read damage with,
+ *  which outrank everything below them).
+ *
+ *  RE-CUT 2026-11-23 (hulls over radar). Eric: "If a ship is visible, all of
+ *  its visible parts are visible OVER radar, not UNDER." and "Only ships being
+ *  covered by radar returns when I should be able to see them. Only fix that."
+ *  So `blip` alone moves, to directly below `ship` (a seen hull outranks its
+ *  own echo again, restoring epic-5 amendment 22). Rain (`fog`) and the
+ *  countermeasure `cloud` do NOT move (Eric: "DO NOT TOUCH THE SMOKE OR THE
+ *  RAIN"); with `blip` under the hulls, the paint is now under contact names
+ *  and the cloud as a consequence of that one move.
  *
  *  RE-CUT 2026-10-12 (Story 9.3, "smoke is paint"). Eric: "You could, rather
  *  than fucking with whether I can see something, just draw it on top of
@@ -318,7 +342,8 @@ export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld'] as
  *  So the cloud sits over contact hulls and names, radar paints over the
  *  cloud, and the own hull over both. This reverses the hull lift's `ship`
  *  directly above `blip` for CONTACT hulls (a return now reads over a contact
- *  hull). The wounded-smoke/fire `smoke` layer keeps its old seat.
+ *  hull). The wounded-smoke/fire `smoke` layer keeps its old seat. (The
+ *  paints-over-cloud half was reversed 2026-11-23, above.)
  *
  *  `fog` (Story 9.10) sits between `litZone` and `smoke`: weather haze under
  *  every mark and hull (see its `StageLayers` doc). */
@@ -331,10 +356,10 @@ export const CHART_LAYER_ORDER = [
   'supplyChart',
   'mineChart',
   'dropChart',
+  'blip',
   'ship',
   'plate',
   'cloud',
-  'blip',
   'ownShip',
   'aim',
   'burstFx',

@@ -57,6 +57,19 @@ export function hullClearOffset(hullLength: number, extra: number): number {
 }
 
 /**
+ * THE MINE DROP POINT (Eric 2026-11-23: *"they'd just roll off the rack into
+ * the water"*): every mine line drops DEAD ASTERN, just clear of the transom —
+ * the ship center pushed back along the heading by `hullClearOffset(hull
+ * length, CONFIG.mine.hitRadiusU)`. The click's aim is ignored. ONE function
+ * for the server's mine row, the client's drop preview, the bots' blocked
+ * check and the smoke; both racks drop here.
+ */
+export function mineDropPoint(pose: AimPose, hullLength: number): Vec2 {
+  const back = hullClearOffset(hullLength, CONFIG.mine.hitRadiusU);
+  return { x: pose.x - Math.cos(pose.heading) * back, y: pose.y - Math.sin(pose.heading) * back };
+}
+
+/**
  * Hull-SILHOUETTE muzzle spawn (Eric ruling 2026-07-21 — no dead ring): the
  * point where a ray from the ship CENTER along bearing `dir` crosses the
  * ship's own transformed silhouette boundary, pushed `clearance` further out
