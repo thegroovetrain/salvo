@@ -1,13 +1,14 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, runnerImport } from 'vite';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // The PURE half of the ad-tag injection. `src/ads/adsense.ts` is the only file
 // that names the vendor's origin or client ID; this config names neither.
 import { adsTxtContent, injectAdsHead, isGameIndexPath } from './src/ads/adsHead.js';
-// The PURE half of the crawlable documents (Story 13.1). Node-safe: copy,
-// config tokens and string building only.
-import { crawlableDocument, type CrawlableOptions } from './src/seo/crawlable.js';
+// The crawlable documents' builder (Story 13.1) is NOT imported here: its ~35
+// client files would join this config's dependency graph (see `crawlablePlugin`).
+// Types only — erased, so they load nothing.
+import type { CrawlableOptions } from './src/seo/crawlable.js';
 import { robotsTxt, sitemapXml } from './src/seo/robots.js';
 import { communityLinks } from './src/ui/communityLinks.js';
 
@@ -41,6 +42,11 @@ const STATIC_PAGE_PATHS = ['/privacy', '/how-to-play'] as const;
 /** The Rollup emit context `generateBundle` is called with. Declared locally so
  *  this config needs no `rollup` type import. */
 type EmitContext = { emitFile: (file: { type: 'asset'; fileName: string; source: string }) => void };
+
+/** The dev server's SSR loader, the one piece of it `hc-crawlable` uses. */
+type SsrServer = { ssrLoadModule: (url: string) => Promise<Record<string, unknown>> };
+
+type CrawlableModule = typeof import('./src/seo/crawlable.js');
 
 const staticPageRedirect: DevMiddleware = (req, res, next) => {
   const url = req.url ?? '';
@@ -106,12 +112,35 @@ function adsensePlugin(adsClient: string) {
  * DECIDES lives in `src/seo/` as pure functions; what is left here is the two
  * hooks. Default order, so it runs after `hc-adsense`'s `pre` transform. The
  * emit is unconditional: unlike `ads.txt`, neither file depends on config.
+ *
+ * THE BUILDER IS LOADED, NEVER IMPORTED BY THIS FILE. A static import bundled
+ * its whole graph (copy, `config.ts`, the console layout, `@salvo/shared`) into
+ * the config, so the dev server restarted on any edit to those files and still
+ * served the markup the config had loaded at start. Now:
+ *   - serve: `ssrLoadModule` through the dev server's own module graph, per
+ *     request — always the current markup, and no file of it is a config dep;
+ *   - build: `runnerImport` (Vite's module runner) once. Not `import()`: esbuild
+ *     bundles a literal dynamic import into the config just the same.
  */
-function crawlablePlugin(opts: CrawlableOptions) {
+function crawlablePlugin(opts: CrawlableOptions, alias: Record<string, string>) {
+  const MODULE = '/src/seo/crawlable.ts';
+  let server: SsrServer | null = null;
+  let built: Promise<CrawlableModule> | null = null;
+  const load = (): Promise<CrawlableModule> => {
+    if (server !== null) return server.ssrLoadModule(MODULE) as Promise<CrawlableModule>;
+    built ??= runnerImport<CrawlableModule>(resolve(__dirname, `.${MODULE}`), {
+      root: __dirname,
+      resolve: { alias },
+    }).then((r) => r.module);
+    return built;
+  };
   return {
     name: 'hc-crawlable',
-    transformIndexHtml(html: string, ctx: { filename: string }) {
-      return crawlableDocument(html, ctx.filename, opts);
+    configureServer(s: SsrServer) {
+      server = s;
+    },
+    async transformIndexHtml(html: string, ctx: { filename: string }) {
+      return (await load()).crawlableDocument(html, ctx.filename, opts);
     },
     generateBundle(this: EmitContext) {
       this.emitFile({ type: 'asset', fileName: 'robots.txt', source: robotsTxt() });
@@ -140,6 +169,7 @@ export default defineConfig(({ mode }) => {
   // yields, passed explicitly: `communityLinks()`'s default reads
   // `import.meta.env`, which the config bundle does not have (Story 13.1).
   const crawlable: CrawlableOptions = { version: pkg.version, community: communityLinks(env) };
+  const alias = { '@salvo/shared': resolve(__dirname, '../shared/src/index.ts') };
 
   return {
   define: {
@@ -213,11 +243,7 @@ export default defineConfig(({ mode }) => {
       },
     },
   },
-  resolve: {
-    alias: {
-      '@salvo/shared': resolve(__dirname, '../shared/src/index.ts'),
-    },
-  },
+  resolve: { alias },
   plugins: [
     {
       /**
@@ -249,7 +275,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     adsensePlugin(adsClient),
-    crawlablePlugin(crawlable),
+    crawlablePlugin(crawlable, alias),
   ],
   };
 });

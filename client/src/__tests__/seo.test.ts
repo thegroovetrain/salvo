@@ -352,11 +352,21 @@ describe('the hc-crawlable plugin is wired', () => {
 
   it('registers the transform and emits both files', () => {
     expect(src).toContain("name: 'hc-crawlable'");
-    expect(src).toMatch(/transformIndexHtml\(html: string, ctx: \{ filename: string \}\) \{\s*return crawlableDocument\(/);
+    expect(src).toMatch(/transformIndexHtml\(html: string, ctx: \{ filename: string \}\) \{\s*return \(await load\(\)\)\.crawlableDocument\(/);
     expect(src).toContain("fileName: 'robots.txt'");
     expect(src).toContain("fileName: 'sitemap.xml'");
-    expect(src).toMatch(/plugins: \[[\s\S]*crawlablePlugin\(crawlable\)[\s\S]*\]/);
+    expect(src).toMatch(/plugins: \[[\s\S]*crawlablePlugin\(crawlable, alias\)[\s\S]*\]/);
     expect(src).toContain('communityLinks(env)');
+  });
+
+  // A value import of the builder (static OR a literal `import()`, which the
+  // config bundler inlines all the same) puts its whole client graph into the
+  // config: dev restarts on every copy edit and serves stale markup.
+  it('never imports the builder: the dev server loads it per request, the build once', () => {
+    expect(src).not.toMatch(/^import (?!type )[^;]*from '\.\/src\/seo\/crawlable\.js'/m);
+    expect(src).not.toMatch(/(?<!typeof )\bimport\(\s*'[^']*crawlable/);
+    expect(src).toMatch(/ssrLoadModule\(MODULE\)/);
+    expect(src).toMatch(/runnerImport<CrawlableModule>\(/);
   });
 });
 

@@ -4,12 +4,16 @@
 // and every style — is built ONCE, as an HTML string, by `ui/pageMarkup.ts`,
 // and the build writes it into the served document. This module builds
 // nothing: `attachPage` finds the served root and wires only what needs
-// JavaScript (ESC returns home; `pagehide` disposes the listeners). It never
+// JavaScript (ESC returns home; Space on the way back clicks it, as a
+// button would; `pagehide` disposes the listeners). It never
 // removes, clones or redraws the served page.
 //
 // THE ONE EXCEPTION IS A DOCUMENT WITH NO SERVED ROOT — a bare jsdom test, never
 // a production page. There `attachPage` inserts the SAME `markup()` string
-// first, so the one builder is still the one source.
+// first, so the one builder is still the one source — and injects the theme
+// the build would have put in the head, so that page is never unthemed.
+
+import { injectTheme } from './theme.js';
 
 /** An attached page: its served root, and the one teardown path. */
 export interface AttachedPage {
@@ -42,10 +46,12 @@ export function goHome(): void {
   window.location.href = '/';
 }
 
-/** The served root, or the build string inserted first thing in `<body>`. */
+/** The served root, or the build string inserted first thing in `<body>`
+ *  (themed first: the served head's theme `<style>` is absent too). */
 function servedRoot(opts: AttachOptions): HTMLElement {
   const served = document.getElementById(opts.id);
   if (served !== null) return served;
+  injectTheme();
   document.body.insertAdjacentHTML('afterbegin', opts.markup());
   return document.getElementById(opts.id) as HTMLElement;
 }
@@ -84,11 +90,14 @@ export function attachPage(opts: AttachOptions): AttachedPage {
   const root = servedRoot(opts);
   const onBack = opts.onBack ?? goHome;
 
+  const back = root.querySelector<HTMLAnchorElement>('nav a[href="/"]');
+
   let bound = true;
   const detach = (): void => {
     if (!bound) return;
     bound = false;
     document.removeEventListener('keydown', onKey, true);
+    back?.removeEventListener('keydown', onBackSpace);
     window.removeEventListener('pagehide', onPageHide);
     if (live === page) live = null;
   };
@@ -117,7 +126,19 @@ export function attachPage(opts: AttachOptions): AttachedPage {
     e.preventDefault();
     onBack();
   }
+  /**
+   * SPACE ON THE WAY BACK. It was a `<button>`, which Space activates; an
+   * anchor answers only Enter, and Enter on a link IS a click on it. So Space
+   * is that same click — the link's own navigation, nothing re-implemented —
+   * and the key is claimed so it does not scroll the page instead.
+   */
+  function onBackSpace(e: KeyboardEvent): void {
+    if (e.key !== ' ' || e.repeat) return;
+    e.preventDefault();
+    back?.click();
+  }
   document.addEventListener('keydown', onKey, true);
+  back?.addEventListener('keydown', onBackSpace);
   window.addEventListener('pagehide', onPageHide);
 
   const page: AttachedPage = { root, detach };

@@ -13,9 +13,12 @@
 // the runtime version and `communityLinks()`, which read the same build-time
 // env the plugin did — and adopts from that. One builder, one source.
 //
-// On a resumed match (`tryResumeMatch` → 'resumed') no home mounts, so the
-// served container simply stays under the opaque, fixed `#app`: one copy,
-// invisible, adopted whenever the player next comes back to port.
+// ADOPTED EAGERLY AT BOOT. `main()` calls `servedHome(version)` before the
+// resume branch: a resumed match (`tryResumeMatch` → 'resumed') mounts no home,
+// and a served container left in place would keep its anchors focusable under
+// the opaque `#app` (Shift+Tab from an overlay reached an invisible link). So
+// the nodes are taken out at boot and held here, detached — still moved once,
+// never cloned — until the player next comes back to port.
 
 import { communityLinks } from './communityLinks.js';
 import {

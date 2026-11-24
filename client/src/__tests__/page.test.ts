@@ -300,6 +300,41 @@ describe('the way back (EXPERIENCE.md:37)', () => {
     esc();
     expect(onBack).toHaveBeenCalledTimes(1);
   });
+
+  // It was a <button>, which Space activates; an anchor only answers Enter.
+  // Enter on a link IS a click on it, so Space must be the same click.
+  function clicksOnBack(): ReturnType<typeof vi.fn> {
+    const clicked = vi.fn();
+    backLink().addEventListener('click', (e) => {
+      e.preventDefault(); // jsdom cannot navigate; the click itself is the contract
+      clicked();
+    });
+    return clicked;
+  }
+
+  function space(target: EventTarget): KeyboardEvent {
+    const e = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    target.dispatchEvent(e);
+    return e;
+  }
+
+  it('Space on the focused way back clicks it, as Enter does, and claims the key', () => {
+    serveAndAttach();
+    const clicked = clicksOnBack();
+    backLink().focus();
+    expect(space(backLink()).defaultPrevented).toBe(true);
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  it('Space anywhere else does nothing, and detach() unbinds it', () => {
+    const page = serveAndAttach();
+    const clicked = clicksOnBack();
+    expect(space(document.body).defaultPrevented).toBe(false);
+    page.detach();
+    backLink().focus();
+    expect(space(backLink()).defaultPrevented).toBe(false);
+    expect(clicked).not.toHaveBeenCalled();
+  });
 });
 
 // --- attach -------------------------------------------------------------------
@@ -319,6 +354,23 @@ describe('attachPage wires behavior onto the served page', () => {
     attached = attachPage({ id: ID, markup, onBack: vi.fn() });
     expect(document.body.firstElementChild).toBe(rootOf());
     expect(rootOf().outerHTML).toBe(node(markup()).outerHTML);
+  });
+
+  it('with no served root, themes the document before inserting (the head theme is absent too)', () => {
+    const html = document.documentElement;
+    html.removeAttribute('style');
+    attached = attachPage({ id: ID, markup, onBack: vi.fn() });
+    // Every var the page's styles name is defined on :root.
+    for (const v of new Set(rootOf().outerHTML.match(/--hc-[\w-]+/g) ?? [])) {
+      expect(html.style.getPropertyValue(v), v).not.toBe('');
+    }
+  });
+
+  it('a served root is left to its served head: attaching themes nothing', () => {
+    const html = document.documentElement;
+    html.removeAttribute('style');
+    serveAndAttach();
+    expect(html.getAttribute('style') ?? '').toBe('');
   });
 
   it('a second attach re-finds the same root — one page, one ESC, one onBack', () => {

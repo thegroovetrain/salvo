@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showHome } from '../ui/home.js';
-import { forgetServedHome } from '../ui/homeStatic.js';
+import { forgetServedHome, servedHome } from '../ui/homeStatic.js';
 import { communityLinks } from '../ui/communityLinks.js';
 import { HOME_LINKS_ID, HOME_VERSION_ID, HOME_WORDMARK_ID, prerenderHome } from '../seo/homeMarkup.js';
 import { PRERENDER_ID } from '../seo/homeMarkup.js';
@@ -105,6 +105,26 @@ describe('the live home adopts the served elements', () => {
     expect(document.querySelectorAll('h1')).toHaveLength(1);
     expect(document.querySelector('h1')).toBe(h1);
     expect(document.querySelector('nav')).toBe(nav);
+  });
+
+  // A resumed match mounts no home, so `main()` adopts at boot, before the
+  // resume branch: the served anchors must not stay focusable under `#app`.
+  it('adopting at boot (no home mounted) leaves no served link in the document', () => {
+    serve();
+    const h1 = served(HOME_WORDMARK_ID);
+    const nav = served(HOME_LINKS_ID);
+    const pieces = servedHome(VERSION);
+    expect(document.getElementById(PRERENDER_ID)).toBeNull();
+    expect(pieces.wordmark).toBe(h1);
+    expect(pieces.links).toBe(nav);
+    for (const a of document.querySelectorAll('a')) {
+      expect([pieces.wordmark, pieces.version, pieces.links].some((p) => p.contains(a))).toBe(true);
+    }
+    for (const p of [pieces.wordmark, pieces.version, pieces.links]) expect(p.isConnected).toBe(false);
+    // The later home takes the SAME held nodes.
+    showHome(VERSION, vi.fn());
+    expect(menu()?.contains(h1)).toBe(true);
+    expect(menu()?.contains(nav)).toBe(true);
   });
 
   it('with no served container it adopts from the same builder', () => {
