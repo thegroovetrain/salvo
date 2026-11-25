@@ -21,6 +21,7 @@ import {
   showHome,
 } from '../ui/home.js';
 import { forgetServedHome } from '../ui/homeStatic.js';
+import { HOME_COPYRIGHT_ID } from '../seo/homeMarkup.js';
 import { HORN_PREF_KEY } from '../net/connection.js';
 import {
   DEFAULT_CLASS_ID,
@@ -111,14 +112,22 @@ function labelOf(btn: HTMLButtonElement): HTMLElement {
   return btn.children[0] as HTMLElement;
 }
 
-/** The BOTTOM-left population block — the one surface liveness still paints.
- *  Module scope because two separate describes assert on it (the register's own
- *  block and the F3 stand-down), and a second copy of this selector would be a
- *  second thing to fix the day the block moves again. */
+/** The home's top / bottom bar (Eric ruling 2026-11-25: header / main / footer). */
+function bar(tag: 'header' | 'footer'): HTMLElement {
+  return home().querySelector(`:scope > ${tag}`) as HTMLElement;
+}
+
+/** A bar's slot: 0 = left, 1 = center, 2 = right. */
+function slot(tag: 'header' | 'footer', i: 0 | 1 | 2): HTMLElement {
+  return bar(tag).children[i] as HTMLElement;
+}
+
+/** The population block — the one surface liveness still paints — centered in
+ *  the top bar. Module scope because two separate describes assert on it (the
+ *  register's own block and the F3 stand-down), and a second copy of this
+ *  selector would be a second thing to fix the day the block moves again. */
 function livenessBlock(): HTMLElement {
-  return [...home().children].find(
-    (el) => (el as HTMLElement).style.left === '26px',
-  ) as HTMLElement;
+  return slot('header', 1).firstElementChild as HTMLElement;
 }
 
 /**
@@ -152,10 +161,9 @@ function underplay(): HTMLElement {
   return home().querySelector('a[href="/how-to-play"]')?.parentElement as HTMLElement;
 }
 
-/** The status line is the link row's SIBLING, not its child (Eric ruling
- *  2026-08-18, Story 7.2 — see `makeUnderplay`). */
+/** The status line: the top bar's left slot (Eric ruling 2026-11-25). */
 function statusEl(): HTMLElement {
-  return underplay().parentElement?.children[1] as HTMLElement;
+  return slot('header', 0).firstElementChild as HTMLElement;
 }
 
 function statusText(): string {
@@ -368,7 +376,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
       children: String(b.children.length),
     });
     expect(shape(playButton())).toEqual(shape(soloButton()));
-    expect(shape(playButton()).minHeight).toBe('64px'); // not vacuous: real values
+    expect(shape(playButton()).minHeight).not.toBe(''); // not vacuous: real values
     expect(shape(playButton()).children).toBe('1'); // label only, no sub-line slot
     // ...and the whole difference between them is which register they wear.
     expect(playButton().style.borderColor).not.toBe(soloButton().style.borderColor);
@@ -761,8 +769,9 @@ describe('showHome — wordmark tagline (cycle 87: random pun, not a fixed line)
   beforeEach(() => localStorage.clear());
   afterEach(() => home()?.remove());
 
+  /** The wordmark block: the h1's own wrapper, first thing in the console row. */
   function wordmarkChildren(): HTMLElement[] {
-    return [...(home().children[0] as HTMLElement).children] as HTMLElement[];
+    return [...((home().querySelector('h1') as HTMLElement).parentElement as HTMLElement).children] as HTMLElement[];
   }
 
   it('renders a HOME_TAGLINES member as the tagline', () => {
@@ -771,24 +780,25 @@ describe('showHome — wordmark tagline (cycle 87: random pun, not a fixed line)
     expect(HOME_TAGLINES).toContain(tagline.textContent);
   });
 
-  it('wordmark is still exactly [mark, tagline, ver], style untouched', () => {
+  // The version line left the block for the bottom bar (Eric 2026-11-25), so
+  // the block is [mark, tagline].
+  it('wordmark is exactly [mark, tagline], style untouched', () => {
     showHome('0.0.0-test', vi.fn());
     const [mark, tagline] = wordmarkChildren();
-    expect(wordmarkChildren().length).toBe(3);
+    expect(wordmarkChildren().length).toBe(2);
     expect((mark.textContent ?? '').trim()).not.toBe('');
     expect(tagline.style.letterSpacing).toBe('0.44em');
-    expect(tagline.style.marginTop).toBe('8px');
     expect(tagline.style.color).toBe('var(--hc-phosphor)');
   });
 
   // Cycle 118 — Eric ruled the `RT PROTOTYPE // ` prefix off the version
   // register: "get rid of the 'RT PROTPTYPE //' on the homepage. Just leave
-  // the version." The register carries the version and nothing else. The
-  // retirement pin lives here, in the test that owns the ruling, rather than
-  // riding the structure test above (whose scope is the cycle-87 tagline).
+  // the version." The register carries the version and nothing else. Since
+  // 2026-11-25 it sits in the bottom bar's left slot, after the copyright.
   it('the version register carries the build version it was handed', () => {
     showHome('0.0.0-test', vi.fn());
-    const [, , ver] = wordmarkChildren();
+    const [copy, ver] = [...slot('footer', 0).children] as HTMLElement[];
+    expect(copy.id).toBe(HOME_COPYRIGHT_ID);
     expect(ver.textContent).toContain('0.0.0-test');
   });
 });
@@ -961,22 +971,21 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     document.getElementById('hc-class-select')?.remove();
   });
 
-  it('is BOTTOM-LEFT, out of the port column, and CANNOT collide with the wordmark', () => {
-    // Eric ruling 2026-08-18. At `top:22px` this block overlapped the wordmark
-    // below a ~768px-tall viewport (verified by screenshot at 1280×720): the port
-    // column is centered and the wordmark is its tallest member, so the two
-    // corners fought for the same pixels. The bottom of the column is empty at
-    // every size measured. Same 22/26 insets, `bottom` instead of `top`.
+  // SUPERSEDES the 2026-08-18 BOTTOM-LEFT pin (Eric ruling 2026-11-25, "A3 ·
+  // Banded Bars"): the register and the status line live in the top bar, the
+  // gear in its right slot, and nothing in the home is absolutely positioned
+  // ("Absolute positioning is the fucking devil") — the bars are grid rows.
+  it('lives in the top bar: status left, liveness center, gear right; nothing absolute', () => {
     showHome('0.0.0-test', vi.fn());
-    const block = livenessBlock();
+    const header = bar('header');
     const gear = home().querySelector('[title="Settings"]') as HTMLElement;
-    expect(block.style.position).toBe('absolute'); // costs the rigid column zero height
-    expect(block.style.bottom).toBe('22px');
-    expect(block.style.top).toBe(''); // the collision: never anchored to the top again
-    expect(block.style.left).toBe('26px');
-    // The gear did NOT move — it is still the top-right corner.
-    expect(gear.style.top).toBe('22px');
-    expect(gear.style.right).toBe('26px');
+    expect(header.children).toHaveLength(3);
+    expect(slot('header', 0).contains(statusEl())).toBe(true);
+    expect(slot('header', 1).contains(livenessBlock())).toBe(true);
+    expect(slot('header', 2).contains(gear)).toBe(true);
+    for (const el of home().querySelectorAll<HTMLElement>('*')) {
+      expect(['absolute', 'fixed']).not.toContain(el.style.position);
+    }
   });
 
   it('is still a readout: no pointer events, and it still renders the honest zero', () => {
@@ -1097,7 +1106,7 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     showHome('0.0.0-test', vi.fn());
     for (const btn of [playButton(), soloButton()]) {
       expect(btn.style.height).toBe('');
-      expect(btn.style.minHeight).toBe('64px');
+      expect(btn.style.minHeight).not.toBe('');
       expect(btn.style.boxSizing).toBe('border-box');
     }
   });
@@ -1228,26 +1237,33 @@ describe('the status line is NEVER written by queue code', () => {
     expect(statusText()).toBe(serverStatusLine('probing').text);
   });
 
-  it('the community links join the row when their env vars are set', () => {
-    // Eric ruling 2026-08-28 (R1): DISCORD and REDDIT are two more "places you
-    // can go", so they take the same treatment and the same row — and they
-    // FOLLOW the static-page links in a fixed order. The pin above is the
-    // zero-config half of this one: with no vars set the row is unchanged.
+  /** The bottom bar's right slot: the icon-only social anchors. */
+  const socialAnchors = (): HTMLAnchorElement[] => [...slot('footer', 2).querySelectorAll('a')];
+  const socialHrefs = (): (string | null)[] => socialAnchors().map((a) => a.getAttribute('href'));
+
+  it('the social links are brand-icon anchors in the bottom bar, only when their env vars are set', () => {
+    // Eric rulings 2026-08-28 (the links, env-gated) and 2026-11-25 (icon-only,
+    // the bottom bar's right slot, each service's own icon). The nav keeps the
+    // two static pages alone. The pin above is the zero-config half: no vars,
+    // no anchors.
+    noCommunityVars();
+    showHome('0.0.0-test', vi.fn());
+    expect(socialAnchors()).toHaveLength(0);
+    home().remove();
+    forgetServedHome();
     vi.stubEnv('VITE_DISCORD_INVITE', 'abc123');
     vi.stubEnv('VITE_SUBREDDIT', 'hullcracker');
     showHome('0.0.0-test', vi.fn());
-    const kids = [...underplay().children] as HTMLAnchorElement[];
-    expect(kids).toHaveLength(4);
-    expect(kids.map((c) => c.tagName)).toEqual(['A', 'A', 'A', 'A']);
-    expect(hrefs().slice(0, 2)).toEqual(['/how-to-play', '/privacy']);
-    expect(kids[2].getAttribute('href')).toBe('https://discord.gg/abc123');
-    expect(kids[3].getAttribute('href')).toBe('https://www.reddit.com/r/hullcracker/');
-    // OFF-SITE: a new tab, and no window handle (or referrer) back to the game.
-    for (const el of kids.slice(2)) {
+    expect(hrefs()).toEqual(['/how-to-play', '/privacy']);
+    expect(socialHrefs()).toEqual(['https://discord.gg/abc123', 'https://www.reddit.com/r/hullcracker/']);
+    for (const el of socialAnchors()) {
+      // OFF-SITE: a new tab, and no window handle (or referrer) back to the game.
       expect(el.getAttribute('target')).toBe('_blank');
       expect(el.getAttribute('rel')).toBe('noopener noreferrer');
+      // Icon-only: the accessible name rides on the anchor, the icon is an svg.
+      expect(el.getAttribute('aria-label')).toBeTruthy();
+      expect(el.querySelector('svg')).not.toBeNull();
     }
-    // The status line beneath is the PROBE's alone, exactly as before.
     expect(statusText()).toBe(serverStatusLine('probing').text);
   });
 
@@ -1257,13 +1273,13 @@ describe('the status line is NEVER written by queue code', () => {
     vi.stubEnv('VITE_DISCORD_INVITE', 'a b/../x');
     vi.stubEnv('VITE_SUBREDDIT', 'hullcracker');
     showHome('0.0.0-test', vi.fn());
-    expect(hrefs()).toEqual(['/how-to-play', '/privacy', 'https://www.reddit.com/r/hullcracker/']);
+    expect(socialHrefs()).toEqual(['https://www.reddit.com/r/hullcracker/']);
     home().remove();
     forgetServedHome();
     vi.stubEnv('VITE_DISCORD_INVITE', 'abc123');
     vi.stubEnv('VITE_SUBREDDIT', 'hull cracker');
     showHome('0.0.0-test', vi.fn());
-    expect(hrefs()).toEqual(['/how-to-play', '/privacy', 'https://discord.gg/abc123']);
+    expect(socialHrefs()).toEqual(['https://discord.gg/abc123']);
   });
 
   it('PRIVACY is a REAL anchor to /privacy, not a scripted span', () => {

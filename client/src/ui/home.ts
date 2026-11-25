@@ -11,8 +11,14 @@
 // Story 2.3 opens the REAL settings overlay (ui/settings.ts), as does ESC with
 // the class bay closed.
 //
+// THE FRAME IS ui/homeBars.ts (Eric ruling 2026-11-25, "A3 · Banded Bars"): a
+// three-row grid — a top bar (server status · PLAYERS ONLINE / LIVE GAMES ·
+// gear), the console row (`<main>`: wordmark, tagline, then one 540px column of
+// callsign, chip and doors) and a bottom bar (© year + version · HOW TO PLAY ·
+// PRIVACY · social icons). Nothing in it is absolutely positioned.
+//
 // STORY 6.6 gave the port its first knowledge of the world outside it: a
-// BOTTOM-LEFT PLAYERS ONLINE / LIVE GAMES register, fed by `setLiveness()` from
+// PLAYERS ONLINE / LIVE GAMES register (top bar, center), fed by `setLiveness()` from
 // net/liveness.ts and simply not rendered when that read is unavailable. The
 // module also owns `hullcracker.mode` (`saveMode`/`loadSavedMode`), beside the
 // callsign and class it already persisted.
@@ -47,15 +53,12 @@
 // replaces the server status"*). The modal keeps its own `N/20 QUEUED` line
 // (epic-6 amendment 42); that surface is untouched by the ruling above.
 //
-// THE UNDERPLAY ROW CARRIES THE COMMUNITY NOW (Eric ruling 2026-08-28):
-// HOW TO PLAY · PRIVACY · DISCORD · REDDIT. The two new anchors take the same
-// treatment as the static-page links because the row means one thing — places
-// you can go — and DISCORD/REDDIT are two more of them. Their URLs are BUILT,
-// never literal: the templates live in ui/communityLinks.ts and the identity
-// arrives as `VITE_DISCORD_INVITE` / `VITE_SUBREDDIT`, so an unset (or
-// malformed) var simply renders no anchor at all — the GA4/AdSense absence
-// gating, applied to navigation. Both vars ship UNSET, so today the row is
-// still exactly the two static-page links.
+// THE COMMUNITY LINKS (Eric rulings 2026-08-28 and 2026-11-25) are icon-only
+// anchors wearing each service's brand icon at the right of the bottom bar.
+// Their URLs are BUILT, never literal: the templates live in
+// ui/communityLinks.ts and the identity arrives as `VITE_DISCORD_INVITE` /
+// `VITE_SUBREDDIT`, so an unset (or malformed) var simply renders no anchor at
+// all — the GA4/AdSense absence gating, applied to navigation.
 //
 // The settings overlay is TRANSPARENT so the ambient scene breathes behind it;
 // the ambient's scrim keeps this text legible.
@@ -91,7 +94,19 @@ import {
   updateQueueModal,
 } from './queueModal.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { applySafeCenterScroll } from './fit.js';
+import {
+  HOME_ID,
+  ensureHomeStyle,
+  makeConsoleColumn,
+  makeConsoleRow,
+  makeFooter,
+  makeGear,
+  makeHeader,
+  makeLiveness,
+  makeOverlay,
+  makeStatusEl,
+  type LivenessEls,
+} from './homeBars.js';
 import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
@@ -112,7 +127,6 @@ import { loadHornPref, saveHornPref } from '../net/connection.js';
 
 export { NAME_MAX };
 
-const HOME_ID = 'main-menu'; // kept id so index.html / any external hook is stable
 const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
 /** THE SHIFT PICK (Story 10.4 — it replaced the retired `hullcracker.gun`
@@ -278,7 +292,7 @@ export function saveMode(mode: DeployMode): void {
 //
 // That reasoning is now moot and the copy is RULED OUT (Eric 2026-08-19): the
 // queue modal carries the count for anyone actually in the pool (amendment 42)
-// and the bottom-left register carries the population (amendment 43), so the
+// and the liveness register carries the population (amendment 43), so the
 // buttons are bare labels again — *"Just get rid of that text entirely instead of
 // fixing it, i changed my mind, it doesn't need to be there."* `SOLO_AI_SUBLINE`
 // and `queueButtonSubline()` are DELETED, not hidden, and their pins are RETIRED
@@ -318,17 +332,15 @@ export function serverStatusLine(state: ProbeState): StatusLine {
 // `countdownMmSs` went with them: it lives in ui/queueModal.ts now, next to the
 // only countdown left in the port.
 
-/** The bottom-left liveness register's two lines (Story 6.6). */
+/** The liveness register's two readouts (Story 6.6). */
 export interface LivenessLines {
   players: string;
   games: string;
 }
 
 /**
- * The GLOBAL population register, bottom-left (Story 6.6 for the copy; Eric
- * ruling 2026-08-18 for the placement — *"Sure move them wherever if you think
- * its a problem"*, after the top-left block was measured OVERLAPPING the
- * wordmark below a ~768px-tall viewport).
+ * The GLOBAL population register (Story 6.6 for the copy; Eric ruling
+ * 2026-11-25 for the placement — one line, centered in the top bar).
  *
  * `null` in → `null` out: liveness is UNAVAILABLE (an outage, a timeout, a
  * malformed payload) and the block does not render at all. That is the only
@@ -388,7 +400,7 @@ export interface HomeHandle {
    */
   setQueue(status: QueueStatusMsg): void;
   /**
-   * Publish the latest `/liveness` read (Story 6.6) — the bottom-left global
+   * Publish the latest `/liveness` read (Story 6.6) — the top bar's global
    * register — and, since Eric's 2026-08-19 ruling deleted the mode-button
    * sub-lines, NOTHING ELSE. `null` means UNAVAILABLE (outage, timeout, bad
    * shape): the register disappears and the doors stay fully usable. Parallel to
@@ -434,52 +446,35 @@ export function homeYieldStyle(settingsOpen: boolean): YieldStyle {
 
 // --- DOM builders ------------------------------------------------------------
 
-// AMENDMENT 47 (the container-fit law). The port stack is a rigid column of hard
-// px margins — wordmark, callsign field, class chip, PLAY, the HOW TO PLAY /
-// SERVER row — measuring ~668px tall, and it does NOT ride the HUD's ui-scale.
-// Below a 668px-tall viewport it therefore overflowed `inset:0` in BOTH
-// directions: the wordmark clipped off the top and the HOW TO PLAY / SERVER row
-// fell past the bottom edge, unreachable (index.html sets `body{overflow:hidden}`
-// so there is no page scroll to rescue it).
-//
-// The guard is applied by applyOverflowGuard() below, deliberately as SEPARATE
-// property assignments rather than inside this cssText blob (the CSSOM-blob
-// hazard the refit band documents: one declaration the test environment's parser
-// dislikes silently voids the WHOLE blob, and this blob is already one of those
-// — so anything load-bearing has to be assigned on its own).
-const OVERLAY_CSS = [
-  'position:fixed',
-  'inset:0',
-  'display:flex',
-  'flex-direction:column',
-  'align-items:center',
-  'gap:0',
-  'background:transparent', // the ambient CIC scene breathes behind
-  'z-index:1100',
-].join(';');
+// AMENDMENT 47 (the container-fit law) now lives in the frame (ui/homeBars.ts):
+// the console row is the grid's `minmax(0, 1fr)` middle and scrolls internally
+// (safe-centered, ui/fit.ts) when a window is shorter than the console, while
+// both bars hold their height.
 
 /**
- * The wordmark block: the SERVED `<h1>` (with its `.IO` span) and version line
- * (Story 13.1, adopted by `ui/homeStatic.ts`), styled as the live home always
- * was, with the random tagline built here between them. `margin:0` cancels the
- * UA margins of `h1`/`p` (the `font:` shorthand already overrides their size and
- * weight), so the block is pixel-identical to the `div`s it replaced.
+ * The wordmark block: the SERVED `<h1>` (with its `.IO` span; Story 13.1,
+ * adopted by `ui/homeStatic.ts`) and the random tagline built here beneath it.
+ * The version line moved to the bottom bar (Eric 2026-11-25). `margin:0`
+ * cancels the h1's UA margin; the `text-indent` matches the letter-spacing so
+ * the spaced line is optically centered. The mark scales with the window (both
+ * axes) between 28 and 104px.
  */
 function makeWordmark(served: ServedHome): HTMLElement {
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:8px';
+  wrap.style.cssText =
+    'display:flex;flex-direction:column;align-items:center;gap:var(--hc-home-brand-gap)';
   const mark = served.wordmark;
   mark.style.cssText =
-    'font:700 clamp(48px, 9vw, 104px) var(--hc-font-display);letter-spacing:0.14em;color:var(--hc-text-primary);' +
-    'line-height:1;text-align:center;margin:0';
+    'font-family:var(--hc-font-display);font-weight:700;letter-spacing:0.14em;text-indent:0.14em;' +
+    'color:var(--hc-text-primary);line-height:1;text-align:center;white-space:nowrap;margin:0';
+  mark.style.fontSize = 'clamp(28px, min(6.6vw, var(--hc-home-mark-vh)), 104px)';
   const io = mark.firstElementChild;
   if (io instanceof HTMLElement) io.style.color = 'var(--hc-phosphor-bright)';
   const tagline = document.createElement('div');
   tagline.textContent = pickTagline();
-  tagline.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);letter-spacing:0.44em;margin-top:8px`;
-  const ver = served.version;
-  ver.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.2em;margin:0`;
-  wrap.append(mark, tagline, ver);
+  tagline.style.cssText =
+    `${registerCss('label')};color:var(--hc-phosphor);letter-spacing:0.44em;text-indent:0.44em;white-space:nowrap`;
+  wrap.append(mark, tagline);
   return wrap;
 }
 
@@ -494,7 +489,7 @@ function makeNameField(): HTMLInputElement {
   // The border color is a PLACEHOLDER: `paintCallsign` overwrites it (and the
   // focus glow) with the own accent on mount.
   input.style.cssText =
-    'width:340px;max-width:calc(100vw - 48px);height:52px;background:var(--hc-panel-deep);' +
+    'flex:1;min-width:0;height:var(--hc-home-input);box-sizing:border-box;background:var(--hc-panel-deep);' +
     'border:1px solid var(--hc-hairline);border-radius:6px;padding:0 18px;color:var(--hc-text-primary);' +
     'font:500 20px var(--hc-font-mono);letter-spacing:0.12em;text-transform:uppercase;outline:none';
   return input;
@@ -502,10 +497,10 @@ function makeNameField(): HTMLInputElement {
 
 function makeCallsignRow(input: HTMLInputElement): HTMLElement {
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:center;gap:14px;margin-top:44px';
+  row.style.cssText = 'display:flex;align-items:center;gap:14px';
   const label = document.createElement('label');
   label.textContent = 'CALLSIGN';
-  label.style.cssText = `${registerCss('label')};color:var(--hc-text-primary);letter-spacing:0.22em`;
+  label.style.cssText = `${registerCss('label')};color:var(--hc-text-primary);letter-spacing:0.22em;flex:none`;
   row.append(label, input);
   return row;
 }
@@ -528,8 +523,8 @@ function makeChip(onOpen: () => void): ChipEls {
   const root = document.createElement('div');
   root.style.cssText =
     'display:flex;align-items:center;gap:14px;background:var(--hc-panel-deep);border:1px solid var(--hc-hairline);' +
-    'border-radius:8px;padding:10px 16px 10px 12px;cursor:pointer;margin-top:22px;' +
-    'max-width:calc(100vw - 48px);box-sizing:border-box';
+    'border-radius:8px;padding:0 16px 0 12px;cursor:pointer;height:var(--hc-home-chip);' +
+    'min-width:0;box-sizing:border-box';
   root.setAttribute('role', 'button');
   root.setAttribute('title', 'Open the class-select layer');
   root.tabIndex = 0;
@@ -537,7 +532,7 @@ function makeChip(onOpen: () => void): ChipEls {
   sil.style.cssText =
     `display:flex;align-items:center;justify-content:center;width:${CLIENT_CONFIG.home.chipArtW}px;min-height:44px`;
   const meta = document.createElement('span');
-  meta.style.cssText = 'display:flex;flex-direction:column;min-width:0';
+  meta.style.cssText = 'display:flex;flex-direction:column;min-width:0;flex:1';
   const role = document.createElement('span');
   role.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.24em`;
   const name = document.createElement('div');
@@ -548,7 +543,7 @@ function makeChip(onOpen: () => void): ChipEls {
   const change = document.createElement('span');
   change.innerHTML = '<b style="color:var(--hc-phosphor);font-weight:600">▸</b>&nbsp; CHANGE CLASS';
   change.style.cssText =
-    `${registerCss('hudMicro')};margin-left:12px;color:var(--hc-phosphor);letter-spacing:0.18em;` +
+    `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.18em;` +
     'border-left:1px solid var(--hc-hairline);padding-left:14px;white-space:nowrap;' +
     'overflow:hidden;text-overflow:ellipsis;min-width:0';
   root.append(sil, meta, change);
@@ -599,8 +594,8 @@ function makeModeButton(label: string, accent: string, title: string): HTMLButto
   root.type = 'button';
   root.setAttribute('title', title);
   root.style.cssText =
-    'width:480px;max-width:calc(100vw - 48px);min-height:64px;padding:8px 0;' +
-    'box-sizing:border-box;background:var(--hc-panel-deep);' +
+    'width:100%;min-width:0;min-height:var(--hc-home-door);padding:0;' +
+    'box-sizing:border-box;background-color:var(--hc-panel-deep);' +
     'border-radius:8px;display:flex;flex-direction:column;align-items:center;' +
     'justify-content:center;cursor:pointer';
   root.style.borderWidth = '1px';
@@ -609,7 +604,8 @@ function makeModeButton(label: string, accent: string, title: string): HTMLButto
   const big = document.createElement('span');
   big.textContent = label;
   big.style.cssText =
-    `font:800 34px var(--hc-font-mono);letter-spacing:0.34em;text-indent:0.34em;color:${accent}`;
+    'font-family:var(--hc-font-mono);font-weight:800;font-size:var(--hc-home-door-font);line-height:1.2;' +
+    `letter-spacing:0.34em;text-indent:0.34em;white-space:nowrap;color:${accent}`;
   root.append(big);
   return root;
 }
@@ -686,7 +682,7 @@ function makeModeRow(...buttons: HTMLElement[]): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText =
     'display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:center;' +
-    'gap:14px;max-width:100%';
+    'gap:var(--hc-home-door-gap);width:100%';
   row.append(...buttons);
   return row;
 }
@@ -695,146 +691,20 @@ function makeModeRow(...buttons: HTMLElement[]): HTMLElement {
  * The deploy console: ROW 1 (the mode row) over ROW 2 (SOLO VS AI, centered),
  * as one stack — amendment 47, the container-fit law.
  *
- * The port column is a rigid run of hard px margins that does not ride the HUD
- * ui-scale, so a second button is real height. Accounting against the measured
- * ~668px shipped column: the primary's box goes 86px → 64px (−22) and the
- * second row adds 64px on a 12px gap (+76), for a net +54 → **~722px, inside
- * the 768px floor** with ~46px to spare. The 12px gap (rather than the
- * console's 22px) is what buys the last of that headroom, and the overlay's
- * safe-center scroll (ui/fit.ts) still backstops anything shorter.
- *
- * The stack carries the primary's old `margin-top:26px`, so the chip→buttons
- * spacing is unchanged: 22px console gap + 26px = the same 48px as shipped.
+ * Every row fills the console's one 540px column edge (Eric 2026-11-25, A3):
+ * SOLO and SOLO VS AI full width, CREATE / JOIN splitting it. The sizes are
+ * the frame's custom properties (ui/homeBars.ts), so a short window tightens
+ * the doors with the rest of the console, and the console row's safe-center
+ * scroll (ui/fit.ts) backstops anything shorter still.
  */
 function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement, privateRow: HTMLElement): HTMLElement {
   const stack = document.createElement('div');
-  stack.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:26px';
+  stack.style.cssText =
+    'display:flex;flex-direction:column;align-items:center;gap:var(--hc-home-door-gap);' +
+    'margin-top:var(--hc-home-doors-mt);width:100%';
   // ROW 3 (cycle 167, Eric ruling 7): CREATE / JOIN — ui/privateRow.ts.
   stack.append(modeRow, soloBtn, privateRow);
   return stack;
-}
-
-// The underplay row is HOW TO PLAY + the status line, and that is ALL it is
-// again (Eric ruling 2026-08-18). Story 6.1's CANCEL span used to sit here as a
-// third child; it moved into the queue modal, which covers this row, so keeping
-// it would have been an affordance that was invisible for exactly as long as it
-// was meaningful.
-//
-// PRIVACY joins it in Story 7.2, and that does NOT reopen the ruling above. The
-// CANCEL span was struck because it was invisible for exactly as long as it was
-// meaningful (the queue modal covers this row); PRIVACY is the opposite — a
-// permanent affordance that is always meaningful, and the AC requires the policy
-// to be linked from home. This row is also where static-page links belong: it
-// already holds the only other one, and Story 7.3's How-to-Play will land beside
-// it rather than inventing a second home for the same idea.
-const UNDERPLAY_LINK_CSS =
-  `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
-  'text-underline-offset:4px;cursor:pointer';
-
-// THE LINK ROW IS SERVED (Story 13.1). Its anchors are written into the served
-// HTML by `seo/homeMarkup.ts` and ADOPTED here (`ui/homeStatic.ts`), so the row
-// is the page's `<nav>` and its links are crawlable before any JS runs. They are
-// REAL anchors for the reasons that always held: `/how-to-play` and `/privacy`
-// are genuine URLs on separate documents (middle-clickable, openable in a new
-// tab — and AdSense site review and Google's CMP setup both want a reachable
-// privacy-policy URL). The community anchors (Eric ruling 2026-08-28) FOLLOW
-// them in a fixed order, OFF-SITE (`target="_blank"`, `rel="noopener
-// noreferrer"`), and an unconfigured one is simply absent (ui/communityLinks.ts).
-
-function makeUnderplay(statusEl: HTMLElement, links: HTMLElement): HTMLElement {
-  // TWO LINES NOW (Eric ruling 2026-08-18, Story 7.2): the LINKS share the top
-  // line and the SERVER STATUS gets its own beneath them. Asked where PRIVACY
-  // should go given the row's two-child pin, Eric took neither offered option
-  // and moved the status line instead — which is the better shape: the row is
-  // now uniformly "places you can go", and the status register stops being a
-  // sibling of navigation, so a long line like SERVER: UNREACHABLE no longer
-  // pushes the links sideways.
-  const col = document.createElement('div');
-  col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:16px';
-  links.style.cssText = 'display:flex;align-items:center;gap:26px';
-  // Every anchor takes the one row treatment. (The served row's whitespace
-  // between anchors is a flex container's ignorable text: no box, no gap.)
-  for (const a of links.querySelectorAll<HTMLElement>('a')) a.style.cssText = UNDERPLAY_LINK_CSS;
-  col.append(links, statusEl);
-  return col;
-}
-
-function makeStatusEl(): HTMLElement {
-  const el = document.createElement('span');
-  el.style.cssText = `${registerCss('hudMicro')};letter-spacing:0.14em;color:var(--hc-phosphor)`;
-  return el;
-}
-
-interface LivenessEls {
-  root: HTMLElement;
-  players: HTMLElement;
-  games: HTMLElement;
-}
-
-/**
- * The GLOBAL population register, BOTTOM-LEFT: `PLAYERS ONLINE: n` over
- * `LIVE GAMES: n` (Story 6.6's copy; Eric's 2026-08-18 placement).
- *
- * IT MOVED, AND THE REASON IS A MEASUREMENT. Shipped at `top:22px` it was the
- * settings gear's mirror — but the port's rigid column is centered and the
- * wordmark is the tallest thing in it, so below a ~768px-tall viewport the two
- * OVERLAPPED (verified by screenshot at 1280×720). Eric: *"Sure move them
- * wherever if you think its a problem."* The bottom-left corner cannot collide:
- * the bottom of the port column is empty at every size measured, and the
- * wordmark is at the other end of the column. Same 22/26 insets, `bottom`
- * instead of `top`.
- *
- * Everything else about it is unchanged. Absolutely positioned out of the port's
- * rigid column so it costs that column zero height (amendment 47, the
- * container-fit law). It never takes pointer events: it is a readout, and nothing
- * about it is clickable.
- *
- * TYPOGRAPHY. `hudMicro` = Geist Mono, uppercase, letter-spaced (DESIGN.md:183,
- * "Geist Mono for every label, readout, and stat"); `tabular-nums` arrives
- * globally from ui/theme.ts's injected stylesheet, so the digits do not jitter
- * as the counts change under a 10s poll.
- *
- * COLOUR: `--hc-phosphor`, NOT `--hc-text-muted`. DESIGN.md:153 bars muted from
- * load-bearing numbers, and these are the most load-bearing numbers on the page
- * — the whole reason the block exists is that a player cannot otherwise tell
- * whether anyone is here. Phosphor is also the register the answer belongs to:
- * it is the port's SYSTEM voice (the one `serverStatusLine` already speaks in),
- * while amber is reserved for the ACTION register and would read as a second
- * call to act.
- *
- * Hidden (`display:none`) until a payload arrives, and hidden again the moment
- * liveness goes unavailable — see `livenessLines`, which owns that rule.
- */
-function makeLiveness(): LivenessEls {
-  const root = document.createElement('div');
-  root.style.cssText =
-    'position:absolute;bottom:22px;left:26px;display:none;flex-direction:column;' +
-    'align-items:flex-start;gap:6px;pointer-events:none';
-  const line = `${registerCss('hudMicro')};color:var(--hc-phosphor)`;
-  const players = document.createElement('div');
-  players.style.cssText = line;
-  const games = document.createElement('div');
-  games.style.cssText = line;
-  root.append(players, games);
-  return { root, players, games };
-}
-
-function makeGear(onClick: () => void): HTMLElement {
-  const gear = document.createElement('div');
-  gear.textContent = '⚙';
-  gear.setAttribute('role', 'button');
-  gear.setAttribute('title', 'Settings');
-  gear.tabIndex = 0;
-  gear.style.cssText =
-    'position:absolute;top:22px;right:26px;font-size:32px;line-height:1;color:var(--hc-phosphor);' +
-    'cursor:pointer';
-  gear.addEventListener('click', onClick);
-  gear.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    onClick();
-  });
-  return gear;
 }
 
 // --- home controller ---------------------------------------------------------
@@ -858,7 +728,7 @@ interface Home {
   privateRow: PrivateRow;
   /** The private doors — same (name, cls, shift) contract, never a saved mode. */
   privateDoors: PrivateDoors;
-  /** The bottom-left PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
+  /** The top bar's PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
   livenessEls: LivenessEls;
   /** The last `/liveness` read, or null while UNAVAILABLE (nothing renders). */
   liveness: LivenessPayload | null;
@@ -892,7 +762,7 @@ interface Home {
 }
 
 /**
- * Repaint the one surface liveness still owns: the BOTTOM-LEFT PLAYERS ONLINE /
+ * Repaint the one surface liveness still owns: the top bar's PLAYERS ONLINE /
  * LIVE GAMES register. It comes from `h.liveness` alone, so an unavailable read
  * (null) hides it outright rather than leaving a stale population painted.
  *
@@ -1068,25 +938,19 @@ function mountHome(
   soloBtn: HTMLButtonElement,
   served: ServedHome,
 ): (e: KeyboardEvent) => void {
-  // The console column is the page's `<main>` (Story 13.1, AC 8): block-level
-  // like the `div` it replaced, so nothing moves.
-  const console_ = document.createElement('main');
-  console_.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:22px';
-  console_.append(
+  // The frame (Eric ruling 2026-11-25, ui/homeBars.ts): top bar, the console
+  // row (the page's `<main>`, Story 13.1 AC 8), bottom bar — in that order.
+  const column = makeConsoleColumn(
     makeCallsignRow(h.input),
     h.chip.root,
     // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
-    // (SOLO VS AI, centered) — Eric ruling 2026-08-17.
+    // (SOLO VS AI) — Eric ruling 2026-08-17.
     makeDeployStack(makeModeRow(playBtn), soloBtn, h.privateRow.root),
-    makeUnderplay(h.statusEl, served.links),
   );
   h.overlay.append(
-    makeWordmark(served),
-    console_,
-    // The gear stays top-RIGHT; liveness moved to the BOTTOM-left (Eric ruling
-    // 2026-08-18 — top-left collided with the wordmark under 768px).
-    h.livenessEls.root,
-    makeGear(() => h.onSettings()),
+    makeHeader(h.statusEl, h.livenessEls.root, makeGear(() => h.onSettings())),
+    makeConsoleRow(makeWordmark(served), column),
+    makeFooter(served),
   );
   h.input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
@@ -1167,10 +1031,8 @@ export function showHome(
   onHornPreview: (id: HornId) => void = () => undefined,
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
-  const overlay = document.createElement('div');
-  overlay.id = HOME_ID;
-  overlay.style.cssText = OVERLAY_CSS;
-  applySafeCenterScroll(overlay); // amendment 47 — see ui/fit.ts
+  ensureHomeStyle();
+  const overlay = makeOverlay();
 
   const input = makeNameField();
   const statusEl = makeStatusEl();

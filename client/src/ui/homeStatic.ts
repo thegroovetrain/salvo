@@ -1,12 +1,14 @@
 // THE HOME'S SERVED ELEMENTS, ADOPTED (Story 13.1; Eric 2026-11-24: "I don't
 // want two versions of the same thing").
 //
-// The served `index.html` already holds the home's wordmark `<h1>`, version line
-// and link `<nav>` (`seo/homeMarkup.ts`). The first time the home mounts, this
-// MOVES those nodes out of the served container — never clones, never rebuilds —
-// keeps them here, and removes the emptied container. Every later `showHome`
-// re-uses the same nodes: `hide()` drops the overlay with them inside, and the
-// next mount moves them into the new overlay.
+// The served `index.html` already holds the home's wordmark `<h1>`, copyright
+// line, version line, link `<nav>` and social-link group (`seo/homeMarkup.ts`).
+// The first time the home mounts, this MOVES those nodes out of the served
+// container — never clones, never rebuilds — keeps them here, and removes the
+// emptied container. Every later `showHome` re-uses the same nodes: `hide()`
+// drops the overlay with them inside, and the next mount moves them into the
+// new overlay (the wordmark into the console, the rest into the bottom bar —
+// `ui/homeBars.ts`).
 //
 // Where the served container is absent (a dev server without the plugin's
 // output, a bare jsdom test) it parses the SAME `prerenderHome(...)` string —
@@ -22,31 +24,47 @@
 
 import { communityLinks } from './communityLinks.js';
 import {
+  HOME_COPYRIGHT_ID,
   HOME_LINKS_ID,
+  HOME_SOCIAL_ID,
   HOME_VERSION_ID,
   HOME_WORDMARK_ID,
   PRERENDER_ID,
   prerenderHome,
 } from '../seo/homeMarkup.js';
 
-/** The home's three served elements, once adopted. */
+/** The home's served elements, once adopted. */
 export interface ServedHome {
   /** The wordmark `<h1>`: `HULLCRACKER` + its `.IO` span. */
   wordmark: HTMLElement;
-  /** The version line. */
+  /** The version line (bottom bar, left, beside the copyright). */
   version: HTMLElement;
-  /** The underplay link row (`<nav>` of anchors). */
+  /** The static-page link row (`<nav>` of anchors; bottom bar, center). */
   links: HTMLElement;
+  /** The `© {year}` line (bottom bar, left). */
+  copyright: HTMLElement;
+  /** The icon-only social anchors (bottom bar, right); empty when none is set. */
+  social: HTMLElement;
 }
+
+const IDS: Record<keyof ServedHome, string> = {
+  wordmark: HOME_WORDMARK_ID,
+  version: HOME_VERSION_ID,
+  links: HOME_LINKS_ID,
+  copyright: HOME_COPYRIGHT_ID,
+  social: HOME_SOCIAL_ID,
+};
 
 let adopted: ServedHome | null = null;
 
 function pick(root: ParentNode): ServedHome | null {
-  const wordmark = root.querySelector<HTMLElement>(`#${HOME_WORDMARK_ID}`);
-  const version = root.querySelector<HTMLElement>(`#${HOME_VERSION_ID}`);
-  const links = root.querySelector<HTMLElement>(`#${HOME_LINKS_ID}`);
-  if (wordmark === null || version === null || links === null) return null;
-  return { wordmark, version, links };
+  const out: Partial<ServedHome> = {};
+  for (const [key, id] of Object.entries(IDS) as [keyof ServedHome, string][]) {
+    const el = root.querySelector<HTMLElement>(`#${id}`);
+    if (el === null) return null;
+    out[key] = el;
+  }
+  return out as ServedHome;
 }
 
 /** The same served string, parsed off-document (never painted). */
@@ -61,7 +79,7 @@ function built(version: string): ServedHome {
 function adopt(version: string): ServedHome {
   const container = document.getElementById(PRERENDER_ID);
   const pieces = (container !== null ? pick(container) : null) ?? built(version);
-  for (const el of [pieces.wordmark, pieces.version, pieces.links]) el.remove();
+  for (const el of Object.values(pieces)) el.remove();
   // Emptied (or, in an edge that never ships, stale): either way it must not
   // leave a second h1 behind under `#app`.
   container?.remove();

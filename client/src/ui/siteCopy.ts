@@ -33,6 +33,11 @@ export const PRIVACY_LINK_LABEL = 'PRIVACY';
 /** The static pages' back words (`renderPage`'s default back label). */
 export const BACK_TO_PORT_LABEL = 'BACK TO PORT';
 
+/** The home's copyright line (Eric 2026-11-25): the symbol and the year, nothing else. */
+export function copyrightLine(year: number): string {
+  return `© ${year}`;
+}
+
 /** The home's version line. */
 export function versionLine(version: string): string {
   return `v${version}`;

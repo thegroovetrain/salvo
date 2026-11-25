@@ -3,8 +3,9 @@
 //
 // They take SOLO VS AI's register, not SOLO's: the phosphor outline, no glow,
 // the panel-deep bed, {rounded.md} 8px — amber stays reserved for the one
-// primary door. The pair splits the 480px door width between them, so the
-// stack keeps one column edge.
+// primary door. The pair splits the console column's width between them, so
+// the stack keeps one column edge; sizes are the home frame's custom
+// properties (ui/homeBars.ts), so a short window tightens them with the rest.
 //
 // They follow the other doors' contract exactly: home.ts routes both presses
 // through the same `deploy()` body (first-run → the class bay; a press while a
@@ -12,9 +13,6 @@
 // dims them with the other doors in `setBusy`. Neither ever writes
 // `hullcracker.mode` — a private lobby is not a mode a reload or a collapse
 // re-enters.
-
-const DOOR_WIDTH = 480;
-const DOOR_GAP = 14;
 
 export interface PrivateRow {
   root: HTMLElement;
@@ -27,7 +25,7 @@ function makeDoor(label: string, onClick: () => void): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.style.cssText =
-    `width:${(DOOR_WIDTH - DOOR_GAP) / 2}px;max-width:calc(50vw - 31px);min-height:64px;padding:8px 0;` +
+    'flex:1 1 0;min-width:0;min-height:var(--hc-home-door);padding:0;' +
     'box-sizing:border-box;background-color:var(--hc-panel-deep);border-radius:8px;' +
     'display:flex;align-items:center;justify-content:center;cursor:pointer';
   btn.style.borderWidth = '1px';
@@ -36,7 +34,8 @@ function makeDoor(label: string, onClick: () => void): HTMLButtonElement {
   const big = document.createElement('span');
   big.textContent = label;
   big.style.cssText =
-    'font:800 34px var(--hc-font-mono);letter-spacing:0.34em;text-indent:0.34em;color:var(--hc-phosphor)';
+    'font-family:var(--hc-font-mono);font-weight:800;font-size:var(--hc-home-door-font);line-height:1.2;' +
+    'letter-spacing:0.34em;text-indent:0.34em;white-space:nowrap;color:var(--hc-phosphor)';
   btn.append(big);
   btn.addEventListener('click', onClick);
   return btn;
@@ -45,7 +44,7 @@ function makeDoor(label: string, onClick: () => void): HTMLButtonElement {
 export function makePrivateRow(onCreate: () => void, onJoin: () => void): PrivateRow {
   const root = document.createElement('div');
   root.style.cssText =
-    `display:flex;flex-direction:row;justify-content:center;gap:${DOOR_GAP}px;max-width:100%`;
+    'display:flex;flex-direction:row;justify-content:center;gap:var(--hc-home-door-gap);width:100%';
   const create = makeDoor('CREATE', onCreate);
   const join = makeDoor('JOIN', onJoin);
   root.append(create, join);

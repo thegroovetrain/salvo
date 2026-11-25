@@ -11,7 +11,7 @@ import { HOWTO_FOOTER_LEAD, HOWTO_FOOTER_LINK, HOWTO_FOOTER_TAIL, HOWTO_SECTIONS
 import { POLICY_SECTIONS, POLICY_TITLE, POLICY_UPDATED } from '../privacy/policyCopy.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssHex } from '../util/color.js';
-import { HOWTO_HREF, wordmarkText, versionLine } from '../ui/siteCopy.js';
+import { HOWTO_HREF, copyrightLine, wordmarkText, versionLine } from '../ui/siteCopy.js';
 import { escapeHtml, unescapeHtml } from '../seo/escape.js';
 import { HOWTO_PAGE_ID, howToPlayMarkup } from '../how-to-play/pageMarkup.js';
 import { PRIVACY_PAGE_ID, privacyMarkup } from '../privacy/pageMarkup.js';
@@ -195,20 +195,23 @@ describe('privacy, served', () => {
 });
 
 describe('home prerender', () => {
-  it('the h1 is the wordmark, then the version line', () => {
-    const doc = parse(prerenderHome(HOME_OPTS));
+  it('the h1 is the wordmark; the footer leads with the copyright, then the version line', () => {
+    const doc = parse(prerenderHome({ ...HOME_OPTS, year: 2001 }));
     expect(doc.querySelector('h1')?.textContent).toBe(wordmarkText());
-    expect(texts(doc, 'main p')).toEqual([versionLine(HOME_OPTS.version)]);
+    expect(texts(doc, 'main p')).toEqual([]);
+    expect(texts(doc, 'footer > p')).toEqual([copyrightLine(2001), versionLine(HOME_OPTS.version)]);
   });
 
-  it('the nav holds the two static pages, then the build env community links in order', () => {
+  it('the nav holds the two static pages; the build env social links follow it, in order', () => {
     const community = [
-      { label: 'DISCORD' as const, href: 'https://discord.gg/abc' },
-      { label: 'REDDIT' as const, href: 'https://www.reddit.com/r/abc/' },
+      { service: 'discord' as const, name: 'Discord', href: 'https://discord.gg/abc' },
+      { service: 'reddit' as const, name: 'Reddit', href: 'https://www.reddit.com/r/abc/' },
     ];
     const doc = parse(prerenderHome({ version: '1', community }));
     const hrefs = [...doc.querySelectorAll('nav a')].map((a) => a.getAttribute('href'));
-    expect(hrefs).toEqual([HOWTO_HREF, CLIENT_CONFIG.consent.policyHref, ...community.map((c) => c.href)]);
+    expect(hrefs).toEqual([HOWTO_HREF, CLIENT_CONFIG.consent.policyHref]);
+    const social = [...doc.querySelectorAll('nav ~ * a')].map((a) => a.getAttribute('href'));
+    expect(social).toEqual(community.map((c) => c.href));
   });
 });
 
