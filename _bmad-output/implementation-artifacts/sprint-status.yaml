@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-11-24 (2026-11-24 Story 13.1 Crawlable Pages built (cycle 255, 0.20.13, PV 115, epic-13 amendments 2-4; spec-13-1-crawlable-pages.md))
+# last_updated: 2026-11-24 (2026-11-24 MERGED PR #390 Story 13.1 Crawlable Pages + home redesign (cycle 255, 0.20.13, PV 115, epic-13 amendments 2-4; spec-13-1-crawlable-pages.md))
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -386,7 +386,7 @@ development_status:
   epic-12-retrospective: done  # 2026-11-20: epic-12-retro-2026-11-20.md (with Eric; accepted at 0.20.3; no significant-discovery alert)
   epic-13: in-progress  # 2026-11-24 13-1 story created; 2026-11-24 correct-course: Epic 13 re-cut — no landing redesign; 13-1 crawlable, 13-2 ship select, 13-3 settings, 13-4 approval (sprint-change-proposal-2026-11-24.md, epic-13 amendment 1); 2026-11-08 correct-course: was epic-12, shifted right, text whole; 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE FRONT DOOR — AdSense site review "can't crawl / no content"; H5 approved
   13-1-the-landing-page-redesigned: cancelled  # 2026-11-24 Eric: the home looks great, only needs to be crawlable
-  13-1-crawlable-pages: review  # 2026-11-24 Story 13.1 Crawlable Pages built (cycle 255, 0.20.13, PV 115, epic-13 amendments 2-4; spec-13-1-crawlable-pages.md)
+  13-1-crawlable-pages: done  # 2026-11-25 MERGED PR #390 Story 13.1 Crawlable Pages + home redesign (cycle 255, 0.20.13, PV 115, epic-13 amendments 2-4; spec-13-1-crawlable-pages.md)
   13-2-ship-select-redesigned: backlog  # agent-rendered candidates, Eric picks
   13-3-settings-redesigned: backlog  # agent-rendered candidates, Eric picks
   13-4-publisher-approval: backlog  # was 13-3; resubmit; About/Contact only if named; production CMP + interstitial smoke (Epic 7 debt)

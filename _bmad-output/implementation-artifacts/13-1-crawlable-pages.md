@@ -3,7 +3,7 @@ baseline_commit: 1093bff2
 ---
 # Story 13.1: Crawlable Pages
 
-Status: review
+Status: done
 
 <!-- Created 2026-11-24 by gds-create-story from epics.md Story 13.1 (re-cut by sprint-change-proposal-2026-11-24.md, epic-13 amendment 1). First story of Epic 13 The Front Door. Build order: 13.1 → 13.2 ship select → 13.3 settings → 13.4 approval. -->
 
