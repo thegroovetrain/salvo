@@ -25,10 +25,10 @@
 //
 // Section prose may carry numbers (a retune must come back here); an ENTRY's
 // description never does — Eric 2026-10-01: *"give me a stat table showing its
-// exact attributes at each tier"* — `main.ts` derives each table through
+// exact attributes at each tier"* — `pageMarkup.ts` derives each table through
 // `weaponTables.ts` from the sim's one stat function.
 
-import type { KeyBinding } from '../ui/page.js';
+import type { KeyBinding } from '../ui/pageMarkup.js';
 
 /** Which derived table an entry carries (see `weaponTables.ts`): a weapon's
  *  tiers, a ship stat ladder per hull, a C / V ability ladder, or none (a
@@ -193,7 +193,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
   },
 ];
 
-/** The closing line and the privacy link, built by `main.ts`. */
+/** The closing line and the privacy link, built by `pageMarkup.ts`. */
 export const HOWTO_FOOTER_LEAD = 'What this site stores, and what it sends, is set out in the ';
 export const HOWTO_FOOTER_LINK = 'privacy policy';
 export const HOWTO_FOOTER_TAIL = '.';

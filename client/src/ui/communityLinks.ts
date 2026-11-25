@@ -1,6 +1,9 @@
-// THE COMMUNITY LINK TEMPLATES (Eric ruling 2026-08-28). The port's underplay
-// row gains DISCORD and REDDIT beside HOW TO PLAY · PRIVACY, and this module is
-// the one place their URLs are built.
+// THE COMMUNITY LINK TEMPLATES (Eric ruling 2026-08-28). The port's social
+// links — icon-only anchors at the right of the home's bottom bar since Eric's
+// 2026-11-25 redesign, each wearing its service's brand icon — and this module
+// is the one place their URLs are built. Adding a service is ONE entry in
+// `SERVICES` below (name, icon key, env var, href template) plus that icon
+// key's definition in `seo/socialIcons.ts`.
 //
 // THE SPLIT IS THE POINT: THE TEMPLATE IS CODE, THE IDENTITY IS CONFIG. No
 // literal Discord or Reddit URL is committed anywhere else in the repo —
@@ -36,9 +39,15 @@
 // The env is read at CALL time (the `analytics/ga.ts` `measurementId()` shape),
 // never at module load, so tests can stub it and the fold-away is honest.
 
-/** One rendered anchor in the underplay row. `href` is always a built, validated URL. */
+/** The services the port links to; each key names its brand icon
+ *  (`seo/socialIcons.ts`). */
+export type CommunityService = 'discord' | 'reddit';
+
+/** One rendered social anchor. `name` is its accessible name (the anchor shows
+ *  only the icon); `href` is always a built, validated URL. */
 export interface CommunityLink {
-  label: 'DISCORD' | 'REDDIT';
+  service: CommunityService;
+  name: string;
   href: string;
 }
 
@@ -119,9 +128,24 @@ function viteEnv(): Record<string, unknown> {
  */
 export function communityLinks(env: Record<string, unknown> = viteEnv()): CommunityLink[] {
   const out: CommunityLink[] = [];
-  const discord = discordHref(env.VITE_DISCORD_INVITE);
-  if (discord !== null) out.push({ label: 'DISCORD', href: discord });
-  const reddit = subredditHref(env.VITE_SUBREDDIT);
-  if (reddit !== null) out.push({ label: 'REDDIT', href: reddit });
+  for (const s of SERVICES) {
+    const href = s.href(env[s.envKey]);
+    if (href !== null) out.push({ service: s.service, name: s.name, href });
+  }
   return out;
 }
+
+/** One service: its anchor's name and icon, the env var carrying its identity,
+ *  and the template that turns that identity into a validated URL. */
+interface ServiceEntry {
+  service: CommunityService;
+  name: string;
+  envKey: string;
+  href: (raw: unknown) => string | null;
+}
+
+/** THE SERVICES, in ROW ORDER. A new service is one more entry here. */
+const SERVICES: readonly ServiceEntry[] = [
+  { service: 'discord', name: 'Discord', envKey: 'VITE_DISCORD_INVITE', href: discordHref },
+  { service: 'reddit', name: 'Reddit', envKey: 'VITE_SUBREDDIT', href: subredditHref },
+];

@@ -716,27 +716,45 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
  *  drawing rather than two. */
 const SVG_STROKE_W = (1.5 * 2) / 28;
 
-/** One primitive as an SVG `d` fragment / element. */
-function svgPart(part: GlyphPart): SVGElement {
+/** One primitive as its SVG tag + attributes, in the order they are set. ONE
+ *  projection for both emitters (the DOM `svgPart` and the string
+ *  `equipmentGlyphSvgMarkup`), so they can never draw different glyphs. */
+function svgPartAttrs(part: GlyphPart): readonly [string, Readonly<Record<string, string>>] {
   if (part.kind === 'circle') {
-    const el = document.createElementNS(SVG_NS, 'circle');
-    el.setAttribute('cx', String(part.c[0]));
-    el.setAttribute('cy', String(part.c[1]));
-    el.setAttribute('r', String(part.r));
-    return el;
+    return ['circle', { cx: String(part.c[0]), cy: String(part.c[1]), r: String(part.r) }];
   }
-  const el = document.createElementNS(SVG_NS, 'path');
   const d = part.pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' ');
-  el.setAttribute('d', part.fill === undefined ? d : `${d} Z`);
-  if (part.fill !== undefined) {
-    el.setAttribute('fill', svgHex(part.fill));
-    el.setAttribute('stroke', 'none');
-  } else if (part.ink !== undefined) {
-    el.setAttribute('stroke', svgHex(part.ink));
-    el.setAttribute('stroke-width', String(part.inkW ?? 0));
-    el.setAttribute('stroke-linejoin', 'round');
-  }
+  if (part.fill !== undefined) return ['path', { d: `${d} Z`, fill: svgHex(part.fill), stroke: 'none' }];
+  if (part.ink === undefined) return ['path', { d }];
+  return ['path', { d, stroke: svgHex(part.ink), 'stroke-width': String(part.inkW ?? 0), 'stroke-linejoin': 'round' }];
+}
+
+/** One primitive as an SVG element. */
+function svgPart(part: GlyphPart): SVGElement {
+  const [tag, attrs] = svgPartAttrs(part);
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
   return el;
+}
+
+/** The `<svg>` element's own attributes, shared by both emitters. */
+function svgRootAttrs(size: number): Readonly<Record<string, string>> {
+  return {
+    viewBox: '-1 -1 2 2',
+    width: String(size),
+    height: String(size),
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': String(SVG_STROKE_W),
+  };
+}
+
+/** Attributes as markup. Every value the glyph emitters produce is a number,
+ *  a `#rrggbb` or a fixed keyword, so none needs escaping. */
+function attrText(attrs: Readonly<Record<string, string>>): string {
+  return Object.entries(attrs)
+    .map(([k, v]) => ` ${k}="${v}"`)
+    .join('');
 }
 
 /** 0xRRGGBB → `#rrggbb`. */
@@ -756,12 +774,24 @@ export function equipmentGlyphSvg(id: string, size: number): SVGSVGElement | nul
   const parts = glyphPaths(id);
   if (parts === null) return null;
   const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '-1 -1 2 2');
-  svg.setAttribute('width', String(size));
-  svg.setAttribute('height', String(size));
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', String(SVG_STROKE_W));
+  for (const [k, v] of Object.entries(svgRootAttrs(size))) svg.setAttribute(k, v);
   for (const part of parts) svg.appendChild(svgPart(part));
   return svg;
+}
+
+/**
+ * The STRING half of the same glyph (Story 13.1): the identical `<svg>` as
+ * markup, from the same primitives and the same attribute projection, for the
+ * build-time How-to-Play page. `style` is an inline style the CALLER has
+ * already attribute-escaped (or empty). Null when the line has no glyph.
+ */
+export function equipmentGlyphSvgMarkup(id: string, size: number, style = ''): string | null {
+  const parts = glyphPaths(id);
+  if (parts === null) return null;
+  const styleAttr = style === '' ? '' : ` style="${style}"`;
+  const inner = parts.map((part) => {
+    const [tag, attrs] = svgPartAttrs(part);
+    return `<${tag}${attrText(attrs)}></${tag}>`;
+  });
+  return `<svg${attrText(svgRootAttrs(size))}${styleAttr}>${inner.join('')}</svg>`;
 }
