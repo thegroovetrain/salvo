@@ -123,6 +123,13 @@ function makeBar(tag: 'header' | 'footer', edge: Edge, slots: readonly HTMLEleme
 export function makeStatusEl(): HTMLElement {
   const el = document.createElement('span');
   el.style.cssText = BAR_TEXT_CSS;
+  // A long connect-flow line (ALREADY AT SEA…, CONNECTION FAILED…) is wider than
+  // its third of the bar at 1366–1440: it WRAPS inside its own slot (two lines
+  // fit both bar heights) instead of painting over PLAYERS ONLINE.
+  el.style.whiteSpace = 'normal';
+  el.style.lineHeight = '1.25';
+  el.style.minWidth = '0';
+  el.style.overflowWrap = 'anywhere';
   return el;
 }
 

@@ -183,7 +183,8 @@ Orchestrator: Claude Opus 5.5 (`/gds-dev-story` + `/orchestrate`). Implementatio
 - Dev: the config never imports the page builder (`ssrLoadModule` in serve, `runnerImport` in build): config deps 39 → 9, no restarts, no stale markup. A node-environment test guards the build-time graph.
 - **Playwright (Eric: "just install playwright if you use it")**: `playwright-core` 1.65.1 is a client devDependency; the capture scripts no longer borrow gstack's copy.
 - How to Play's HTML is ~231 KB raw (inline styles, identical to the old DOM builders' look) but ~12 KB on the wire (production serves Brotli).
-- Client suite 186 files / 4580 tests green; tsc clean; ESLint 0 errors; `npm run check` run once at the end.
+- **Home redesign (Eric, epic-13 amendment 4):** top bar (status | players/games | gear), bottom bar (© year + version | links | social brand icons via Font Awesome Free inline SVG), squared console; grid layout, no absolute positioning; UI text not highlightable.
+- Client suite 186 files / 4584 tests green; tsc clean; ESLint 0 errors; `npm run check` run once at the end.
 
 ### File List
 
@@ -230,6 +231,12 @@ Orchestrator: Claude Opus 5.5 (`/gds-dev-story` + `/orchestrate`). Implementatio
 - package-lock.json
 - package.json
 - render.yaml
+- (new) client/src/ui/homeBars.ts
+- (new) client/src/seo/socialIcons.ts
+- client/src/ui/privateRow.ts
+- client/src/__tests__/communityLinks.test.ts
+- client/src/__tests__/containerFit.test.ts
+- _bmad-output/implementation-artifacts/13-1-screenshots/
 - (transient) client/src/seo/prerender.ts (created in wave A, deleted by the one-version rework)
 - (transient) client/src/seo/takeover.ts (created in wave A, deleted by the one-version rework)
 
@@ -237,3 +244,4 @@ Orchestrator: Claude Opus 5.5 (`/gds-dev-story` + `/orchestrate`). Implementatio
 
 - 2026-11-24: story created (gds-create-story), status ready-for-dev.
 - 2026-11-24: built (cycle 255, 0.20.13, PV 115): crawlable pages, one version of every page (epic-13 amendment 3), meta + robots.txt + sitemap.xml, review fixes; playwright-core devDependency. Status review.
+- 2026-11-25: home redesign per Eric (A3 banded bars; epic-13 amendment 4); UI not highlightable; Font Awesome brand icons dependency.

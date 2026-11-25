@@ -489,8 +489,8 @@ function makeNameField(): HTMLInputElement {
   // The border color is a PLACEHOLDER: `paintCallsign` overwrites it (and the
   // focus glow) with the own accent on mount.
   input.style.cssText =
-    'flex:1;min-width:0;height:var(--hc-home-input);box-sizing:border-box;background:var(--hc-panel-deep);' +
-    'border:1px solid var(--hc-hairline);border-radius:6px;padding:0 18px;color:var(--hc-text-primary);' +
+    'flex:1;min-width:0;height:var(--hc-home-input);box-sizing:border-box;background-color:var(--hc-panel-deep);' +
+    'border-width:1px;border-style:solid;border-color:var(--hc-hairline);border-radius:6px;padding:0 18px;color:var(--hc-text-primary);' +
     'font:500 20px var(--hc-font-mono);letter-spacing:0.12em;text-transform:uppercase;outline:none';
   return input;
 }
@@ -522,7 +522,8 @@ interface ChipEls {
 function makeChip(onOpen: () => void): ChipEls {
   const root = document.createElement('div');
   root.style.cssText =
-    'display:flex;align-items:center;gap:14px;background:var(--hc-panel-deep);border:1px solid var(--hc-hairline);' +
+    'display:flex;align-items:center;gap:14px;background-color:var(--hc-panel-deep);' +
+    'border-width:1px;border-style:solid;border-color:var(--hc-hairline);' +
     'border-radius:8px;padding:0 16px 0 12px;cursor:pointer;height:var(--hc-home-chip);' +
     'min-width:0;box-sizing:border-box';
   root.setAttribute('role', 'button');

@@ -8,7 +8,7 @@ final_revision: 'PR (this branch: story-13-1-crawlable-pages)'
 cycle: '255'
 version: '0.20.13'
 protocol_version: '115 (unchanged)'
-amendments: 'epic-13 amendments 2 (description), 3 (one version; Playwright)'
+amendments: 'epic-13 amendments 2 (description), 3 (one version; Playwright), 4 (home redesign: top/bottom bars)'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/13-1-crawlable-pages.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-13-context-amendments.md'
@@ -31,6 +31,11 @@ The story file (`13-1-crawlable-pages.md`) holds the ACs; epic-13 amendment 2 ho
 - How to Play / Privacy: the build writes the whole styled page (`ui/pageMarkup.ts`, `how-to-play/pageMarkup.ts`, `privacy/pageMarkup.ts`; stat tables and glyphs included; theme vars in `<head>` from `theme.ts` `themeVars()`, the list `injectTheme` also reads). `ui/page.ts` `attachPage` binds only ESC → home, Space on the back link and `pagehide` (bfcache `persisted` trap kept). BACK TO PORT is an `<a href="/">` in a `<nav>`, styled as the old button. `seo/prerender.ts` (the second implementation) is deleted.
 - Home: the served wordmark `<h1>`, version line and link `<nav>` are adopted (moved, never cloned) by `ui/homeStatic.ts` at boot and reused by every `showHome`; the console column is `<main>`. Everything else on the home is built by JS as before. `#app` is opaque over the served container before JS; `<noscript>` hides it for scripting-off readers.
 
+**Home redesign (Eric 2026-11-24/25, amendment 4)**
+- `#main-menu` is a full-height grid: `header` (server status | players / games | gear) / `main` (wordmark + tagline, squared 540px console) / `footer` (© build year + version | nav links | social brand icons). No absolute positioning; short windows tighten via CSS variables (`ui/homeBars.ts`, one injected `<style id="hc-home-style">`).
+- The © line, version, nav and social anchors are served and adopted (one version). Social icons: Font Awesome Free brands as build-time inline SVG (`seo/socialIcons.ts`); `ui/communityLinks.ts` is a services table, still absence-gated (no icons on production until the Discord / Reddit values are set).
+- UI text is not highlightable (`user-select: none`; inputs selectable).
+
 **Tooling:** `playwright-core` 1.65.1 is a client devDependency; `client/scripts/perfLib.mjs` and `readabilityCapture.mjs` no longer resolve gstack's copy (Eric: *"just install playwright if you use it"*).
 
 ## Verification
@@ -40,6 +45,8 @@ The story file (`13-1-crawlable-pages.md`) holds the ACs; epic-13 amendment 2 ho
 - Screenshots (`vite build` + `vite preview`, muted Chromium, time-bounded): home 1366×768 and 1920×1080 identical to the baseline apart from the random tagline and background; How to Play and Privacy within anti-aliasing noise (≈100 px of 1–2 levels on rounded corners, the same noise as two runs of one build). Scripting-off: the home shows its words; How to Play and Privacy render the full styled page (previously all three were blank).
 - Review gate: Fable (build-on-it; 2 confirmed + 3 plausible, all fixed with regression tests) and Codex `gpt-5.6-sol` (build-on-it, no defects).
 - Production check: pages are served Brotli-compressed (Render/Cloudflare edge), so How to Play's ~231 KB raw HTML (inline styles) is ~12 KB on the wire.
+
+- Redesign: screenshots at 1366×768, 1920×1080 and 1366×480 (bars pinned 0–60 / 708–768 etc., gear 26 px from the right, main never scrolls at those sizes); no phone sizes by Eric's rule. Review gate: Fable + Codex on the redesign diff.
 
 ## Not done here
 
