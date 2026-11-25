@@ -106,11 +106,13 @@ describe('the home stack stays REACHABLE when it outgrows the viewport (amendmen
 
   it('scrolls, and does not centre its overflow out of scroll range', () => {
     const handle = showHome('0.0.0', () => undefined);
-    const overlay = document.getElementById('main-menu') as HTMLElement;
-    expect(overlay.style.overflowY).toBe('auto');
+    // The console row (`main`, between the two bars — Eric 2026-11-25) is what
+    // scrolls; the bars hold.
+    const row = document.querySelector('#main-menu > main') as HTMLElement;
+    expect(row.style.overflowY).toBe('auto');
     // `safe center` (not plain `center`): plain centring pushes the head of an
     // overflowing column above the scroll origin, where it can never be reached.
-    expect(overlay.style.justifyContent).toContain('safe');
+    expect(row.style.justifyContent).toContain('safe');
     handle.hide();
   });
 });

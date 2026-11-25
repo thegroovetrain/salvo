@@ -56,36 +56,62 @@ export function setUiScaleVar(factor: number, root: HTMLElement = document.docum
 const TABULAR_STYLE_ID = 'hc-tabular-nums';
 
 /**
- * Inject a one-rule stylesheet forcing tabular digits across ALL DOM chrome.
- * The `!important` is REQUIRED: the CSS `font:` shorthand (results cells, kill
+ * The one-rule stylesheet forcing tabular digits across ALL DOM chrome. The
+ * `!important` is REQUIRED: the CSS `font:` shorthand (results cells, kill
  * feed, menu, banner, upgradeMenu…) implicitly resets `font-variant-numeric`
- * to `normal`, which would silently defeat the `:root` longhand below. The
- * design mandates tabular digits everywhere — "every number sits still"
- * (UX-DR2). Idempotent: keyed by element id, so a re-call is a no-op.
+ * to `normal`, which would silently defeat the `:root` longhand. The design
+ * mandates tabular digits everywhere — "every number sits still" (UX-DR2).
  */
+const TABULAR_RULE = 'body, body * { font-variant-numeric: tabular-nums !important; }';
+
+/** Inject the tabular rule. Idempotent: keyed by element id. */
 function injectTabularStylesheet(doc: Document): void {
   if (doc.getElementById(TABULAR_STYLE_ID)) return;
   const style = doc.createElement('style');
   style.id = TABULAR_STYLE_ID;
-  style.textContent = 'body, body * { font-variant-numeric: tabular-nums !important; }';
+  style.textContent = TABULAR_RULE;
   doc.head.appendChild(style);
 }
 
 /**
+ * THE ONE LIST of `:root` custom properties the theme publishes — the token
+ * colors, the type stacks and the UI scale at 100%. Both publishers read it:
+ * `injectTheme` at runtime and `themeCss` at build time (Story 13.1), so the
+ * two can never disagree. Nested token groups (`players`, `legacy`) are
+ * Pixi-only and intentionally skipped — DOM chrome never references a personal
+ * hue or a legacy carry-over.
+ */
+export function themeVars(): readonly (readonly [string, string])[] {
+  const vars: [string, string][] = [];
+  for (const [key, val] of Object.entries(CLIENT_CONFIG.colors)) {
+    if (typeof val === 'number' && !UTILITY_ONLY.has(key)) vars.push([`--hc-${kebab(key)}`, cssHex(val)]);
+  }
+  vars.push(['--hc-font-display', CLIENT_CONFIG.type.display]);
+  vars.push(['--hc-font-mono', CLIENT_CONFIG.type.mono]);
+  // 100% until the settings store applies its stored tier.
+  vars.push([UI_SCALE_VAR, '1']);
+  return vars;
+}
+
+/**
+ * The theme as a STYLESHEET (Story 13.1): the same properties `injectTheme`
+ * writes onto `:root`, plus the root's tabular digits and the tabular rule.
+ * The `hc-crawlable` plugin puts it in the head of every static page at build
+ * time, so the served page is fully styled before any script runs. Pure,
+ * Node-safe.
+ */
+export function themeCss(): string {
+  const decls = themeVars().map(([k, v]) => `${k}:${v}`);
+  decls.push('font-variant-numeric:tabular-nums');
+  return `:root{${decls.join(';')}}${TABULAR_RULE}`;
+}
+
+/**
  * Inject the token custom properties + type stacks onto `:root`. Idempotent
- * (setProperty overwrites), so a re-call is harmless. Nested token groups
- * (`players`, `legacy`) are Pixi-only and intentionally skipped — DOM chrome
- * never references a personal hue or a legacy carry-over.
+ * (setProperty overwrites), so a re-call is harmless.
  */
 export function injectTheme(root: HTMLElement = document.documentElement): void {
-  for (const [key, val] of Object.entries(CLIENT_CONFIG.colors)) {
-    if (typeof val === 'number' && !UTILITY_ONLY.has(key)) {
-      root.style.setProperty(`--hc-${kebab(key)}`, cssHex(val));
-    }
-  }
-  root.style.setProperty('--hc-font-display', CLIENT_CONFIG.type.display);
-  root.style.setProperty('--hc-font-mono', CLIENT_CONFIG.type.mono);
-  setUiScaleVar(1, root); // 100% until the settings store applies its stored tier
+  for (const [k, v] of themeVars()) root.style.setProperty(k, v);
   // Every DOM number sits still (tabular-nums inherits to all chrome).
   root.style.fontVariantNumeric = 'tabular-nums';
   injectTabularStylesheet(root.ownerDocument ?? document);

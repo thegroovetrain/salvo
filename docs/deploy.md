@@ -17,6 +17,7 @@ Each service still serves the built client AND the Colyseus game process from on
 | Plan | pro (2 CPU / 4 GB) | starter (0.5 CPU / 512 MB) |
 | Analytics / ads | GA4 + AdSense live | **neither** — both absence-gated off |
 | Indexable | yes | no (`HC_NOINDEX=1` → `X-Robots-Tag`) |
+| robots / sitemap / canonical | `/robots.txt` + `/sitemap.xml` built every build; canonicals name `https://hullcracker.io` (Story 13.1) | same files, behind the password gate (401); the noindex header still rules |
 | Access | public | **shared password** (`HC_STAGING_KEY`) |
 
 **The staging password.** Set `HC_STAGING_KEY` in the Render dashboard for `hullcracker-dev` (it is `sync: false` in `render.yaml`, so the value is never committed). Visiting the host shows a password page; entering it sets a cookie and you are in. Hand the same password to a playtester. **To rotate, change the env var** — every issued cookie is a digest of the old key, so all of them stop matching at once and everyone is re-prompted. Leave the var unset to run staging open.

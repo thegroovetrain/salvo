@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-11-24 (2026-11-24 MERGED PR #386 every torpedo −100 (heavy 200, light 150, supercav 200); phosphor burst 20 + burn 10/s (cycle 254, 0.20.12, PV 115, epic-12 amendment 21; spec-torpedo-phosphor-damage-cut.md))
+# last_updated: 2026-11-24 (2026-11-24 MERGED PR #390 Story 13.1 Crawlable Pages + home redesign (cycle 255, 0.20.13, PV 115, epic-13 amendments 2-4; spec-13-1-crawlable-pages.md))
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -187,7 +187,7 @@
 # A32/A33 headers still read "cycle 110"/"cycle 111" and are stale.
 
 generated: 2026-07-17
-last_updated: 2026-11-20
+last_updated: 2026-11-24
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -384,10 +384,12 @@ development_status:
   12-3-the-in-game-ui-pass: done  # 2026-11-19 MERGED PR #367 (Eric: "merge and ff"); was: review — 2026-11-19 built (cycle 243, 0.20.1, PV 110 -> 111, epic-12 amendment 7; spec-12-3-the-in-game-ui-pass.md); 2026-11-19 dev started; 2026-11-19 one tier mark (epic-12 amendment 4); 2026-11-19 Part B HUD bar added (epic-12 amendment 3); 2026-11-18 create-story Part A (12-3-the-in-game-ui-pass.md, epic-12 amendment 2); was backlog: 2026-11-18 correct-course (sprint-change-proposal-2026-11-18.md, epic-12 amendment 1): SIDE STORY, built first; design sitting first
   12-4-airdrops-and-radio-beacons: done  # 2026-11-19 MERGED PR #368; built (cycle 244, 0.20.2, PV 112, epic-12 amendment 8); 2026-11-19 create-story (12-4-airdrops-and-radio-beacons.md, epic-12 amendment 5: XP crates, level stat roll, wreck +1 per victim level, beacons -> supply drops); was backlog: 2026-11-18 correct-course (epic-12 amendment 1): split from 12.3 by Eric; built second; design sitting first
   epic-12-retrospective: done  # 2026-11-20: epic-12-retro-2026-11-20.md (with Eric; accepted at 0.20.3; no significant-discovery alert)
-  epic-13: backlog  # 2026-11-08 correct-course: was epic-12, shifted right, text whole; 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE FRONT DOOR — AdSense site review "can't crawl / no content"; H5 approved
-  13-1-the-landing-page-redesigned: backlog  # design pass in Google Stitch — agent writes prompts, Eric drives
-  13-2-crawlable-pages: backlog  # text in the HTML at build time, description / OG / canonical / robots.txt / sitemap
-  13-3-publisher-approval: backlog  # resubmit; production CMP + interstitial smoke (Epic 7 debt)
+  epic-13: in-progress  # 2026-11-24 13-1 story created; 2026-11-24 correct-course: Epic 13 re-cut — no landing redesign; 13-1 crawlable, 13-2 ship select, 13-3 settings, 13-4 approval (sprint-change-proposal-2026-11-24.md, epic-13 amendment 1); 2026-11-08 correct-course: was epic-12, shifted right, text whole; 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE FRONT DOOR — AdSense site review "can't crawl / no content"; H5 approved
+  13-1-the-landing-page-redesigned: cancelled  # 2026-11-24 Eric: the home looks great, only needs to be crawlable
+  13-1-crawlable-pages: done  # 2026-11-25 MERGED PR #390 Story 13.1 Crawlable Pages + home redesign (cycle 255, 0.20.13, PV 115, epic-13 amendments 2-4; spec-13-1-crawlable-pages.md)
+  13-2-ship-select-redesigned: backlog  # agent-rendered candidates, Eric picks
+  13-3-settings-redesigned: backlog  # agent-rendered candidates, Eric picks
+  13-4-publisher-approval: backlog  # was 13-3; resubmit; About/Contact only if named; production CMP + interstitial smoke (Epic 7 debt)
   epic-13-retrospective: optional
   epic-14: backlog  # 2026-11-20: +14-12 reading the match data (was 12-2), store built whole by 14-1; 2026-11-08 correct-course: was epic-13, shifted right, text whole; 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): was epic-10 from 2026-10-06; shifted right, text kept whole; 14-1 inherits the Epic 12 store
   14-1-the-account-store-foundation: backlog  # floor story

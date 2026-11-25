@@ -18,7 +18,8 @@ import {
   HOWTO_SECTIONS,
   HOWTO_TITLE,
 } from '../how-to-play/copy.js';
-import { entryGlyphId, mountHowToPlayPage } from '../how-to-play/main.js';
+import { attachHowToPlayPage } from '../how-to-play/main.js';
+import { HOWTO_PAGE_ID, entryGlyphId, howToPlayMarkup } from '../how-to-play/pageMarkup.js';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   FAMILY_SLOT,
@@ -30,10 +31,10 @@ import {
   isStubLine,
   type EquipmentId,
 } from '@salvo/shared';
-import { glyphPaths } from '../render/equipmentIcons.js';
+import { equipmentGlyphSvg, equipmentGlyphSvgMarkup, glyphPaths } from '../render/equipmentIcons.js';
 import { boonName } from '../ui/boonCopy.js';
 
-const page = (): HTMLElement => document.getElementById('how-to-play-page') as HTMLElement;
+const page = (): HTMLElement => document.getElementById(HOWTO_PAGE_ID) as HTMLElement;
 
 const allEntries = (): HowToEntry[] => HOWTO_SECTIONS.flatMap((s) => [...(s.entries ?? [])]);
 
@@ -121,10 +122,13 @@ describe('how-to-play copy', () => {
   });
 });
 
-describe('how-to-play page mount', () => {
+// The page as SERVED: the build string first thing in <body> (what the
+// `hc-crawlable` plugin writes), then the boot's attach.
+describe('how-to-play page, served and attached', () => {
   beforeEach(() => {
-    page()?.remove();
-    mountHowToPlayPage();
+    for (const el of document.querySelectorAll(`#${HOWTO_PAGE_ID}`)) el.remove();
+    document.body.insertAdjacentHTML('afterbegin', howToPlayMarkup());
+    attachHowToPlayPage();
   });
 
   it('renders in the standard page chrome, titled', () => {
@@ -182,8 +186,30 @@ describe('how-to-play page mount', () => {
     for (const e of ship) expect(names[entries.indexOf(e)]!.querySelector('svg'), e.name).not.toBeNull();
   });
 
-  it('mounts once, not twice, when booted again', () => {
-    mountHowToPlayPage();
-    expect(document.querySelectorAll('#how-to-play-page')).toHaveLength(1);
+  // The served glyph is the string half of the ONE glyph source: it must parse
+  // to exactly the element the DOM half (the refit card's) builds.
+  it('every served glyph is the DOM glyph, primitive for primitive', () => {
+    const size = CLIENT_CONFIG.page.glyph;
+    const ids = allEntries().map(entryGlyphId).filter((id): id is string => id !== null && glyphPaths(id) !== null);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      const host = document.createElement('div');
+      host.innerHTML = equipmentGlyphSvgMarkup(id, size) ?? '';
+      expect(host.firstElementChild?.outerHTML, id).toBe(equipmentGlyphSvg(id, size)?.outerHTML);
+    }
+  });
+
+  it('attaching again adds nothing: one page, the same served nodes', () => {
+    const h1 = page().querySelector('h1');
+    const before = document.body.innerHTML;
+    attachHowToPlayPage();
+    expect(document.querySelectorAll(`#${HOWTO_PAGE_ID}`)).toHaveLength(1);
+    expect(document.querySelectorAll('h1')).toHaveLength(1);
+    expect(page().querySelector('h1')).toBe(h1);
+    expect(document.body.innerHTML).toBe(before);
+  });
+
+  it('the way back is a real link home, inside a nav', () => {
+    expect(page().querySelector('nav a')?.getAttribute('href')).toBe('/');
   });
 });

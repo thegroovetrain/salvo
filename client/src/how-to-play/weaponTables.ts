@@ -9,7 +9,7 @@
 // the manual can never disagree with the card. A retune in `CONFIG` or the
 // catalog moves this page with no edit here.
 //
-// Pure: plain data out, no DOM. `ui/page.ts`'s `makeStatTable` draws it.
+// Pure: plain data out, no DOM. `ui/pageMarkup.ts`'s `statTable` draws it.
 
 import {
   CATALOG,

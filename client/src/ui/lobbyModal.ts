@@ -166,6 +166,11 @@ function makeCodeLine(): HTMLElement {
   const el = makeFixedLine('code', 'hudReadout', 'var(--hc-phosphor)');
   el.style.letterSpacing = '0.18em';
   el.style.cursor = 'pointer';
+  // The page turns text selection off (UI is not highlightable); the code is the
+  // one thing a player must pass on, and drag-select is the fallback where the
+  // clipboard API is absent (plain-http LAN playtests).
+  el.style.userSelect = 'text';
+  el.style.setProperty('-webkit-user-select', 'text');
   el.addEventListener('click', () => {
     const code = mounted?.view?.code ?? '';
     if (code === '') return;

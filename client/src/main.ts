@@ -223,6 +223,7 @@ import {
   type DeployMode,
   type HomeHandle,
 } from './ui/home.js';
+import { servedHome } from './ui/homeStatic.js';
 import { startLivenessPoll, type LivenessPoll } from './net/liveness.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
@@ -6451,6 +6452,9 @@ async function main(): Promise<void> {
   const audio = new Audio();
   audioRef = audio;
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
+  // Adopt the served home NOW, ahead of every branch that skips the home (a
+  // resume, the staged scene): its links must never sit focusable under `#app`.
+  servedHome(version);
 
   // The settings overlay outlives the join — and, since Story 6.3, it outlives
   // the STAGE too: the home gear and home ESC open it pre-connect, the same

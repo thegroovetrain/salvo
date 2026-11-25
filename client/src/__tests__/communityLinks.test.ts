@@ -119,7 +119,8 @@ describe('communityLinks', () => {
   it('returns the Discord link then the Reddit link when both are configured', () => {
     const links = communityLinks({ VITE_DISCORD_INVITE: 'abc123', VITE_SUBREDDIT: 'hullcracker' });
     expect(links.map((l) => l.href)).toEqual(['https://discord.gg/abc123', 'https://www.reddit.com/r/hullcracker/']);
-    for (const l of links) expect(l.label.length).toBeGreaterThan(0);
+    for (const l of links) expect(l.name.length).toBeGreaterThan(0);
+    expect(links.map((l) => l.service)).toEqual(['discord', 'reddit']);
   });
 
   it('drops a missing one without reordering the rest', () => {
