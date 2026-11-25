@@ -44,7 +44,7 @@ const wholeIn = (v: number, lo: number, hi: number): number => (Number.isFinite(
  */
 export function clampMounts(stats: EffectiveStats): void {
   stats.torpedoLaunchers = wholeIn(stats.torpedoLaunchers, BASE_MOUNTS.torpedoLaunchers, BASE_MOUNTS.torpedoLaunchers + 1);
-  stats.tubesPerLauncher = wholeIn(stats.tubesPerLauncher, BASE_MOUNTS.tubesPerLauncher, BASE_MOUNTS.tubesPerLauncher + 1);
+  stats.tubesPerLauncher = wholeIn(stats.tubesPerLauncher, 1, 3);
   stats.mineRacks = wholeIn(stats.mineRacks, BASE_MOUNTS.mineRacks, BASE_MOUNTS.mineRacks + 1);
   stats.rackBonus = wholeIn(stats.rackBonus, BASE_MOUNTS.rackBonus, BASE_MOUNTS.rackBonus + 1);
 }
@@ -62,4 +62,13 @@ export function applyMountCapacity(stats: EffectiveStats): void {
   const eq = stats.equipment;
   for (const id of TORPEDO_ROWS) eq[id].maxAmmo = eq[id].maxAmmo * stats.torpedoLaunchers * stats.tubesPerLauncher;
   for (const id of MINE_ROWS) eq[id].maxAmmo = stats.mineRacks * (eq[id].maxAmmo + stats.rackBonus);
+}
+
+/** EXPERIMENT (Eric 2026-11-25): every launcher comes with the kind's full tubes — light 3, heavy 2, supercav 1. */
+const TUBES_BY_KIND: Readonly<Record<string, number>> = { lightTorpedo: 3, heavyTorpedo: 2, supercavTorpedo: 1 };
+
+/** The held torpedo kind's tubes per launcher (1 with no torpedo held). */
+export function tubesForCards(cards: readonly string[]): number {
+  for (const c of cards) if (Object.hasOwn(TUBES_BY_KIND, c)) return TUBES_BY_KIND[c];
+  return BASE_MOUNTS.tubesPerLauncher;
 }

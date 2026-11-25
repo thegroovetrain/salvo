@@ -87,7 +87,7 @@ const RAD_PER_DEG = Math.PI / 180;
 export const MAX_LAUNCHERS = 2;
 
 /** The most tubes one launcher can hold (a count above it is clamped, never looped to). */
-export const MAX_TUBES_PER_LAUNCHER = 2;
+export const MAX_TUBES_PER_LAUNCHER = 3;
 
 /** One launcher's runtime state (also the `OwnShip.launchers` wire entry). */
 export interface LauncherState {

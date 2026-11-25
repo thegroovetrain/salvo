@@ -1001,7 +1001,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // Cap 1 each, dealt only once their family slot is filled, applying to
   // whichever torpedo or mine is held, in either order.
   aftTorpedoLauncher: oneOff('aftTorpedoLauncher', 'torpedo', 'torpedoLaunchers'), // the fore launcher's twin, dead astern
-  secondLauncherTube: oneOff('secondLauncherTube', 'torpedo', 'tubesPerLauncher'), // +1 tube on EVERY launcher (max four tubes)
+  secondLauncherTube: { ...oneOff('secondLauncherTube', 'torpedo', 'tubesPerLauncher'), stub: true }, // EXPERIMENT 2026-11-25: tubes come from the torpedo kind; // +1 tube on EVERY launcher (max four tubes)
   secondMineRack: oneOff('secondMineRack', 'mine', 'mineRacks'), // a whole second rack, its own mines and reload
   expandedMineRacks: oneOff('expandedMineRacks', 'mine', 'rackBonus'), // +1 capacity on EACH rack (max 8 naval / fouling, 4 captive)
 });

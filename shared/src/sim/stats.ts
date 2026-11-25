@@ -123,7 +123,7 @@ import {
   type RepairStats,
   type SmokeStats,
 } from './abilityStats.js';
-import { BASE_MOUNTS, applyMountCapacity, clampMounts } from './mountStats.js';
+import { BASE_MOUNTS, applyMountCapacity, clampMounts, tubesForCards } from './mountStats.js';
 
 /**
  * What EVERY equipment row carries (Story 8.1).
@@ -1169,6 +1169,7 @@ export function effectiveStats(
   const points = bonus ?? NO_INDEX_BONUS;
   const stats = baseStats(cls);
   if (cards.length > 0) applyCardStats(stats, cards, catalog);
+  stats.tubesPerLauncher = tubesForCards(cards);
   applyIndexBonus(stats, points);
   clampStats(stats);
   return stats;
