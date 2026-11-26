@@ -272,7 +272,7 @@ describe('R6 / R7 / R10 — the one-off WEAPON cards', () => {
   it('SECOND LAUNCHER TUBE is never offered and a pick naming it is refused like any unknown id (Eric 2026-11-25)', () => {
     for (const eq of familyMembers('torpedo')) {
       const ship = shipOf([lineOf(eq), 'aftTorpedoLauncher']);
-      expect(eligibleLines(shipOf([lineOf(eq)])).some((e) => e.id === 'secondLauncherTube'), eq).toBe(false);
+      expect(eligibleLines(shipOf([lineOf(eq)])).some((e) => (e.id as string) === 'secondLauncherTube'), eq).toBe(false);
       expect(pickRefusal(ship.held, ship.slotIds, 'secondLauncherTube'), eq).toBe(pickRefusal(ship.held, ship.slotIds, 'noSuchLine'));
       expect(pickRefusal(ship.held, ship.slotIds, 'secondLauncherTube'), eq).not.toBeNull();
     }

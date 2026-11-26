@@ -527,7 +527,9 @@ function torpedoFit(line, shooterCls, target, rangeU) {
     const blow = Math.max(1, Math.floor(row.damage * damageMultiplierFor(tgt.armor - shooter.power)));
     return { cards, row, blow, plan: killPlan({ hp: tgt.maxHp, damage: blow, tubes: row.maxAmmo, reloadMs: row.reloadMs, flightMs }) };
   };
-  const pick = planFor([line]);
+  // The kind and the AFT launcher: one launcher alone never out-damages the
+  // target's passive regen for the heavy and the supercav (2026-11-25 damage).
+  const pick = planFor([line, 'aftTorpedoLauncher']);
   const kind = TORPEDO_CONFIG[line];
   const want = statsOf(shooterCls, pick.cards).torpedoLaunchers * kind.tubesPerLauncher * kind.maxAmmo;
   precondition(pick.row.maxAmmo === want, `${line}: the fit folds to ${pick.row.maxAmmo} tubes, not the kind's ${want}`);

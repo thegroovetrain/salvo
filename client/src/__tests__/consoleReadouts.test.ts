@@ -46,6 +46,7 @@ import {
   type ReadoutShip,
   type Readout,
   type WeaponsInput,
+  weaponRowModel,
 } from '../render/console/readouts.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { lineForEquipment } from '../render/equipmentInfo.js';
@@ -454,5 +455,22 @@ describe('clocks and abilities', () => {
     const shift = abilityModels({ stats, cards: [], shift: 'boost', nowMs: 0, repairReadyAt: undefined, smokeReadyAt: undefined, shiftAmmo: { n: 0, reloadMsLeft: 5000 }, shiftActiveMsLeft: 3000 })[2];
     expect(shift.state).toBe('active');
     expect(shift.msLeft).toBe(3000);
+  });
+});
+
+describe('the mine drop wait reads NOT ready (Eric 2026-11-25: "Show it as not ready")', () => {
+  const GAP = CONFIG.mine.rackDropGapMs;
+  const minesRow = (racks: WeaponsInput['racks']) => weaponRowModel('mines', weaponsInput(['navalMines'], { racks }));
+
+  it('a stocked rack inside its wait: its ring runs the wait and the row is cooling', () => {
+    const row = minesRow([{ n: 2, reloadMsLeft: 0, gapMsLeft: GAP / 2 }]);
+    expect(row.state).toBe('cooling');
+    expect(row.clocks[0].ready).toBe(false);
+    expect(row.clocks[0].progress).toBeCloseTo(0.5);
+    expect(minesRow([{ n: 2, reloadMsLeft: 0 }]).state).toBe('ready');
+  });
+
+  it('one rack waiting, the other stocked and free: the row is ready', () => {
+    expect(minesRow([{ n: 1, reloadMsLeft: 0, gapMsLeft: GAP }, { n: 1, reloadMsLeft: 0 }]).state).toBe('ready');
   });
 });

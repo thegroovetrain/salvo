@@ -94,12 +94,14 @@ const TORP_SLOT = familySlotFor(TORP); // the torpedo FAMILY slot, Q (Story 10.5
 const CENTER_FRACTION = 0.15;
 
 /**
- * THE FIT: the torpedo alone — its fore launcher holds the kind's own tubes
- * (Eric 2026-11-25: `CONFIG.torpedo.tubesPerLauncher` for the heavy), each on
- * its own reload clock. The tube count is read back from the same
- * effectiveStats fold the server runs, and must be a salvo (more than one).
+ * THE FIT: the torpedo and the AFT TORPEDO LAUNCHER — each launcher holds the
+ * kind's own tubes (Eric 2026-11-25: `CONFIG.torpedo.tubesPerLauncher` for the
+ * heavy), each on its own reload clock, and both launchers bear on B's beam.
+ * The kind alone (one launcher) never out-damages B's passive regen at the
+ * 2026-11-25 damage, so the kill plan needs both. The tube count is read back
+ * from the same effectiveStats fold the server runs, and must be a salvo.
  */
-const FIT = [TORP];
+const FIT = [TORP, 'aftTorpedoLauncher'];
 const SHOOTER = effectiveStats(TB, FIT);
 {
   const pool = equipmentMaxAmmo(SHOOTER, TORP);

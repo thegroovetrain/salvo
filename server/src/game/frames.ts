@@ -47,7 +47,7 @@ function ownMounts(ship: ShipRecord): Pick<OwnShip, 'launchers' | 'racks'> {
   return {
     ...(ship.launchers.length > 0 ? { launchers: ship.launchers.map((l) => ({ a: l.a, tubes: [...l.tubes] })) } : {}),
     ...(ship.racks.racks.length > 0
-      ? { racks: ship.racks.racks.map((r) => ({ n: r.n, reloadMsLeft: r.reloadMsLeft })) }
+      ? { racks: ship.racks.racks.map((r) => ({ n: r.n, reloadMsLeft: r.reloadMsLeft, ...((r.gapMsLeft ?? 0) > 0 ? { gapMsLeft: r.gapMsLeft } : {}) })) }
       : {}),
   };
 }

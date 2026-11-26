@@ -557,6 +557,8 @@ export interface RackPips {
   rack: number;
   held: number;
   capacity: number;
+  /** The rack is inside its drop wait (it cannot drop yet). */
+  waiting?: boolean;
 }
 
 export interface WeaponRowModel {
@@ -632,12 +634,20 @@ function shotClocks(ammo: WeaponAmmo | null, max: number, reloadMs: number): Mou
   });
 }
 
+/** Pure: one rack's ring — its DROP WAIT while that runs (Eric 2026-11-25:
+ *  "Show it as not ready"; the same wedge and seconds against
+ *  `CONFIG.mine.rackDropGapMs`), else its reload clock. */
+function rackClock(r: RackState, reloadMs: number, group: number): MountClock {
+  const gap = r.gapMsLeft ?? 0;
+  return gap > 0 ? mountClock(gap, CONFIG.mine.rackDropGapMs, group) : mountClock(r.reloadMsLeft, reloadMs, group);
+}
+
 /** Pure: a row's clocks — one per turret / tube / rack / special shot. */
 export function rowClocks(kind: WeaponRowKind, id: EquipmentId, input: WeaponsInput): MountClock[] {
   const reloadMs = equipmentReloadMs(input.stats, id);
   if (kind === 'mainBattery') return input.turrets.map((t) => mountClock(t.reloadMsLeft, reloadMs));
   if (kind === 'torpedo') return input.launchers.flatMap((l, g) => l.tubes.map((t) => mountClock(t, reloadMs, g)));
-  if (kind === 'mines') return input.racks.map((r, g) => mountClock(r.reloadMsLeft, reloadMs, g));
+  if (kind === 'mines') return input.racks.map((r, g) => rackClock(r, reloadMs, g));
   if (kind === 'special') return shotClocks(input.ammo[rowSlot(kind) ?? -1] ?? null, equipmentMaxAmmo(input.stats, id), reloadMs);
   return [];
 }
@@ -646,12 +656,12 @@ export function rowClocks(kind: WeaponRowKind, id: EquipmentId, input: WeaponsIn
 export function rowRackPips(id: EquipmentId, input: WeaponsInput): RackPips[] {
   if (!isMineEquipment(id)) return [];
   const capacity = rackCapacity(input.stats, id);
-  return input.racks.map((r, rack) => ({ rack, held: Math.max(0, Math.min(r.n, capacity)), capacity }));
+  return input.racks.map((r, rack) => ({ rack, held: Math.max(0, Math.min(r.n, capacity)), capacity, waiting: (r.gapMsLeft ?? 0) > 0 }));
 }
 
 /** Pure: is anything on the row ready to fire now? */
 function rowReady(kind: WeaponRowKind, clocks: readonly MountClock[], racks: readonly RackPips[], ammo: WeaponAmmo | null): boolean {
-  if (kind === 'mines' && racks.length > 0) return racks.some((r) => r.held > 0);
+  if (kind === 'mines' && racks.length > 0) return racks.some((r) => r.held > 0 && r.waiting !== true);
   if (clocks.length > 0) return clocks.some((c) => c.ready);
   return ammo !== null && ammo.n > 0;
 }

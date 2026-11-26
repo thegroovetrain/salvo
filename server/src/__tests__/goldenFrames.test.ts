@@ -1843,6 +1843,11 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // exactly one token moved — Bismarck `b`'s sighted `hb` at tick 72 reads
     // 4, not 3 (a 200 hp heavy torpedo leaves it one hull block healthier
     // than the old 300). No pose, contact, event or denial changed.
+    // RE-RECORDED 2026-11-25 (the per-rack mine DROP WAIT): exactly one token
+    // moved — scnMineBlast's layer `a`'s own `you.racks[0]` on the drop tick
+    // carries `gapMsLeft` (the full wait); by the boom at tick 61 the wait has
+    // run out and the field is gone again. No pose, contact, event or denial
+    // changed.
     expect(runBattery()).toMatchSnapshot();
   });
 });

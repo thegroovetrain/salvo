@@ -1685,7 +1685,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       expect('maxLive' in a.stats.equipment.navalMines).toBe(false);
       w.step();
       for (let i = 0; i < drops; i++) {
-        Object.assign(a.racks.racks[0], { n: 1, reloadMsLeft: 0 }); // skip the reload wait (the racks are the truth — Story 10.6)
+        Object.assign(a.racks.racks[0], { n: 1, reloadMsLeft: 0, gapMsLeft: 0 }); // skip the reload wait and the drop wait (the racks are the truth — Story 10.6)
         // Mines are an aimed WEAPON (Story 2.8): each placement is one rear-arc click.
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: Math.PI,

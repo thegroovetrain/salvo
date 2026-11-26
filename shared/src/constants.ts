@@ -1804,6 +1804,12 @@ export const CONFIG = {
    */
   mine: {
     armDelay: 3000, // ms — before it can trigger
+    // ms — THE DROP WAIT (Eric 2026-11-25: "add a 3s cooldown before any single
+    // mine rack is able to drop another mine. so i can't just make a huge death
+    // stack"). After a rack drops, THAT rack cannot drop again until this has
+    // passed (a stocked second rack still can); every mine kind, fixed — no tier
+    // or RELOAD scales it. INSTANT RELOAD clears it (Eric). sim/racks.ts.
+    rackDropGapMs: 3000,
     // u — detonation proximity (enemy pass-over trips it). THE BASE-STATS RUNG:
     // at runtime this is DERIVED from the effective blast radius via
     // `triggerFactor` below (Eric ruling 2026-08-16), never read directly, so a
@@ -1937,7 +1943,7 @@ export const CONFIG = {
     // the captive mine "can upgrade to having a range where they will fire before
     // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
     // tier-V ring is 175.7 u, was 210.8).
-    triggerRadius: 180, // u — the TRIP ring at tier I: 120 → 180, Eric 2026-11-15/16 ("up the trigger range on captive mines so that players who trigger them have more time to react"); 144 until 2026-10-08 (R25)
+    triggerRadius: 250, // u — the TRIP ring at tier I: 180 → 250, Eric 2026-11-25 ("give the Captive Mine a 250u base range"); 120 → 180, Eric 2026-11-15/16 ("up the trigger range on captive mines so that players who trigger them have more time to react"); 144 until 2026-10-08 (R25)
     triggerStepPerTier: 1.1,
     // rad/s — the captive fish's ACOUSTIC reference turn rate at every tier
     // (experiment, Eric 2026-11-16: "use their current Tier V tracking number

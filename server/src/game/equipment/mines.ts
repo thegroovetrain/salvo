@@ -442,7 +442,7 @@ function mineLine(id: MineLineId): Equipment {
       if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
       // R17 / R18: the rack whose turn it is drops (else the next one holding
       // a mine); no rack holds one → refused, nothing changed.
-      const rack = dropFromRack(ship.racks, ship.stats.equipment[id].reloadMs);
+      const rack = dropFromRack(ship.racks, ship.stats.equipment[id].reloadMs, CONFIG.mine.rackDropGapMs);
       if (rack === null) return { ok: false, reason: 'no-ammo' };
       syncMineSlot(ship);
       ctx.dropMine(p.x, p.y, kind);

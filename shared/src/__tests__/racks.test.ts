@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  copyRacks,
   MINE_EQUIPMENT_IDS,
   dropMine,
   effectiveStats,
@@ -28,6 +29,7 @@ import {
   resizeRacks,
   tickRacks,
   type RackBank,
+  type RackState,
 } from '../index.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -97,9 +99,9 @@ describe('one clock per rack', () => {
     const b = bank([3]);
     tick(b, 3, 50);
     expect(clocks(b)).toEqual([0]); // a full rack runs no clock
-    expect(dropMine(b, RELOAD)).toBe(0);
+    expect(dropMine(b, RELOAD, 0)).toBe(0);
     expect(b.racks[0]).toEqual({ n: 2, reloadMsLeft: RELOAD }); // started at once
-    expect(dropMine(b, RELOAD)).toBe(0);
+    expect(dropMine(b, RELOAD, 0)).toBe(0);
     tick(b, 3, 5);
     expect(b.racks[0]).toEqual({ n: 1, reloadMsLeft: RELOAD - 5 * DT }); // a second drop never restarts the cycle
     tick(b, 3, 15);
@@ -113,7 +115,7 @@ describe('one clock per rack', () => {
   it('carries overshoot: a k-deep deficit refills in exactly k cycles', () => {
     const odd = 7 * DT + DT / 2; // a reload that is not a whole number of ticks
     const b = bank([3]);
-    for (let k = 0; k < 3; k += 1) dropMine(b, odd);
+    for (let k = 0; k < 3; k += 1) dropMine(b, odd, 0);
     let ticks = 0;
     while (b.racks[0].n < 3) {
       tickRacks(b, 3, odd, DT);
@@ -124,9 +126,9 @@ describe('one clock per rack', () => {
 
   it("two racks' clocks run at once and independently", () => {
     const b = bank([3, 3]);
-    dropMine(b, RELOAD); // A
+    dropMine(b, RELOAD, 0); // A
     tick(b, 3, 4);
-    dropMine(b, RELOAD); // B
+    dropMine(b, RELOAD, 0); // B
     expect(clocks(b)).toEqual([RELOAD - 4 * DT, RELOAD]);
     tick(b, 3, 16);
     expect(counts(b)).toEqual([3, 2]);
@@ -137,29 +139,29 @@ describe('one clock per rack', () => {
 describe('alternation (R17, R18)', () => {
   it('two racks drop A, B, A, B', () => {
     const b = bank([3, 3]);
-    expect([dropMine(b, RELOAD), dropMine(b, RELOAD), dropMine(b, RELOAD), dropMine(b, RELOAD)]).toEqual([0, 1, 0, 1]);
+    expect([dropMine(b, RELOAD, 0), dropMine(b, RELOAD, 0), dropMine(b, RELOAD, 0), dropMine(b, RELOAD, 0)]).toEqual([0, 1, 0, 1]);
     expect(counts(b)).toEqual([1, 1]);
     expect(clocks(b).every((c) => c > 0)).toBe(true); // both clocks running
   });
 
   it('the turn rack empty: the next rack holding a mine drops, and the turn passes on from it', () => {
     const b = bank([0, 2], 0, [RELOAD, RELOAD]);
-    expect(dropMine(b, RELOAD)).toBe(1); // A's turn, A empty → B drops
+    expect(dropMine(b, RELOAD, 0)).toBe(1); // A's turn, A empty → B drops
     expect(b.next).toBe(0); // the turn passes on from B: A's again
-    expect(dropMine(b, RELOAD)).toBe(1); // A still empty → B again
+    expect(dropMine(b, RELOAD, 0)).toBe(1); // A still empty → B again
     expect(counts(b)).toEqual([0, 0]);
   });
 
   it('no rack holds a mine: refused, nothing changes', () => {
     const b = bank([0, 0], 1, [300, 700]);
     const before = JSON.stringify(b);
-    expect(dropMine(b, RELOAD)).toBeNull();
+    expect(dropMine(b, RELOAD, 0)).toBeNull();
     expect(JSON.stringify(b)).toBe(before);
   });
 
   it('one rack is its own alternation', () => {
     const b = bank([2]);
-    expect([dropMine(b, RELOAD), dropMine(b, RELOAD), dropMine(b, RELOAD)]).toEqual([0, 0, null]);
+    expect([dropMine(b, RELOAD, 0), dropMine(b, RELOAD, 0), dropMine(b, RELOAD, 0)]).toEqual([0, 0, null]);
   });
 
   it('the general law: the rack that drops is the first holding a mine from the turn onward', () => {
@@ -167,7 +169,7 @@ describe('alternation (R17, R18)', () => {
       for (const next of [0, 1]) {
         const b = bank(ns, next, ns.map(() => RELOAD));
         const want = b.racks[next].n > 0 ? next : b.racks[1 - next].n > 0 ? 1 - next : null;
-        const got = dropMine(b, RELOAD);
+        const got = dropMine(b, RELOAD, 0);
         expect(got).toBe(want);
         if (got !== null) expect(b.next).toBe((got + 1) % 2);
       }
@@ -235,5 +237,61 @@ describe('lifecycle', () => {
     expect(rackSummary(bank([3, 3]))).toEqual({ n: 6, reloadMsLeft: 0 });
     expect(rackSummary(bank([1, 2], 0, [900, 250]))).toEqual({ n: 3, reloadMsLeft: 250 });
     expect(rackSummary(bank([]))).toEqual({ n: 0, reloadMsLeft: 0 });
+  });
+});
+
+describe('the drop wait (Eric 2026-11-25)', () => {
+  const GAP = CONFIG.mine.rackDropGapMs;
+  const gapTicks = Math.ceil(GAP / DT);
+
+  it('a rack that just dropped cannot drop again until its wait has run, and keeps its mines meanwhile', () => {
+    const b = bank([3]);
+    expect(dropMine(b, RELOAD, GAP)).toBe(0);
+    tick(b, 3, gapTicks - 1);
+    expect(dropMine(b, RELOAD, GAP)).toBeNull();
+    tick(b, 3, 1);
+    expect(dropMine(b, RELOAD, GAP)).toBe(0);
+  });
+
+  it('a stocked second rack drops at once; then both wait out their own wait', () => {
+    const b = bank([3, 3]);
+    expect([dropMine(b, RELOAD, GAP), dropMine(b, RELOAD, GAP), dropMine(b, RELOAD, GAP)]).toEqual([0, 1, null]);
+    tick(b, 3, gapTicks);
+    expect(dropMine(b, RELOAD, GAP)).toBe(0);
+  });
+
+  it('the wait never touches the reload clock or the mines held', () => {
+    const waited = bank([3]);
+    const plain = bank([3]);
+    dropMine(waited, RELOAD, GAP);
+    dropMine(plain, RELOAD, 0);
+    tick(waited, 3, gapTicks + 2);
+    tick(plain, 3, gapTicks + 2);
+    expect(clocks(waited)).toEqual(clocks(plain));
+    expect(counts(waited)).toEqual(counts(plain));
+  });
+
+  it('INSTANT RELOAD clears every wait', () => {
+    const b = bank([3, 3]);
+    dropMine(b, RELOAD, GAP);
+    dropMine(b, RELOAD, GAP);
+    instantReloadRacks(b, 3, RELOAD);
+    expect([dropMine(b, RELOAD, GAP), dropMine(b, RELOAD, GAP)]).toEqual([0, 1]);
+  });
+
+  it('a malformed wait (NaN, negative) is no wait', () => {
+    for (const bad of [Number.NaN, -5]) {
+      const b = bank([2]);
+      dropMine(b, RELOAD, bad);
+      expect(dropMine(b, RELOAD, bad)).toBe(0);
+    }
+  });
+
+  it('the wire copy carries a running wait and clears a finished one', () => {
+    const into: RackState[] = [{ n: 1, reloadMsLeft: 0 }];
+    copyRacks(into, [{ n: 1, reloadMsLeft: 0, gapMsLeft: 1200 }]);
+    expect(into[0].gapMsLeft).toBe(1200);
+    copyRacks(into, [{ n: 1, reloadMsLeft: 0 }]);
+    expect(into[0].gapMsLeft ?? 0).toBe(0);
   });
 });

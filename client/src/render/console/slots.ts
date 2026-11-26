@@ -3,13 +3,15 @@
 //
 // "None of the cooldown icons should EVER shift in position for ANY reason"
 // (Eric 2026-11-19). So every slot position here is a function of the tile's
-// body rect and the two things fixed for a match — the hull's turret count and
-// the fitted mine KIND — and of nothing else: never a current count, an
-// unlock, a tier, a reload or a held mine. A slot that is not unlocked yet is
-// LOCKED (drawn dashed gray, in place), never removed.
+// body rect and the things fixed for a match — the hull's turret count, the
+// fitted torpedo KIND and the fitted mine KIND — and of nothing else: never a
+// current count, an unlock, a tier, a reload or a held mine. A slot that is
+// not unlocked yet is LOCKED (drawn dashed gray, in place), never removed.
 //
 //   MAIN BATTERY  one shell per turret of the hull (3 or 4)
-//   TORPEDO       always four tubes in two pairs: fore launcher, aft launcher
+//   TORPEDO       always two launcher groups, fore then aft, each EXACTLY the
+//                 held kind's tubes per launcher (Eric 2026-11-25, layout B
+//                 "slots match the torpedo"), packed left
 //   MINES         always two racks, each a wedge ring + its fixed slots
 //                 (4 per rack naval / fouling, 2 captive — the most a rack can
 //                 ever hold, EXPANDED MINE RACKS included)
@@ -23,7 +25,9 @@ import {
   CONFIG,
   DEFAULT_CLASS_ID,
   effectiveStats,
+  familyMembers,
   isMineEquipment,
+  lineForEquipment,
   rackCapacity,
   type EquipmentId,
   type MineEquipmentId,
@@ -59,16 +63,24 @@ export function shellSlots(body: Rect, turrets: number): IconSlot[] {
 }
 
 /** The span between two groups: the row's item gaps around the spacer. */
-const GROUP_SPACER = 2 * B.itemGap + B.groupGap;
+export const GROUP_SPACER = 2 * B.itemGap + B.groupGap;
 
-/** Pure: TORPEDO — always `tubePairs` pairs of `tubesPerPair` tubes (AC 29). */
-export function tubeSlots(body: Rect): IconSlot[] {
+/** A per-group slot count, sanitised to a whole number of at least 1. */
+function perGroup(n: number): number {
+  return Math.max(1, Math.floor(Number.isFinite(n) ? n : 1));
+}
+
+/** Pure: TORPEDO — always `launchers` groups (fore, aft) of `perLauncher`
+ *  tubes each, the held kind's (`slotsPerLauncher`), the aft group one
+ *  `GROUP_SPACER` after the fore group's last tube (AC 29). */
+export function tubeSlots(body: Rect, perLauncher: number): IconSlot[] {
   const T = B.torp;
-  const pairW = B.tubesPerPair * T.w + (B.tubesPerPair - 1) * B.iconGap;
+  const n = perGroup(perLauncher);
+  const groupW = n * T.w + (n - 1) * B.iconGap;
   const out: IconSlot[] = [];
-  for (let g = 0; g < B.tubePairs; g++) {
-    const gx = body.x + g * (pairW + GROUP_SPACER);
-    for (let t = 0; t < B.tubesPerPair; t++) {
+  for (let g = 0; g < B.launchers; g++) {
+    const gx = body.x + g * (groupW + GROUP_SPACER);
+    for (let t = 0; t < n; t++) {
       out.push({ kind: 'torp', group: g, index: t, x: gx + t * (T.w + B.iconGap), y: bottomY(body, T.h), w: T.w, h: T.h });
     }
   }
@@ -78,7 +90,7 @@ export function tubeSlots(body: Rect): IconSlot[] {
 /** Pure: MINES — always `racks` racks, each its wedge ring then `perRack` slots. */
 export function rackSlots(body: Rect, perRack: number): { rings: IconSlot[]; slots: IconSlot[] } {
   const M = B.mine;
-  const n = Math.max(1, Math.floor(Number.isFinite(perRack) ? perRack : 1));
+  const n = perGroup(perRack);
   const groupW = B.rack + n * (B.iconGap + M.w);
   const rings: IconSlot[] = [];
   const slots: IconSlot[] = [];
@@ -90,6 +102,30 @@ export function rackSlots(body: Rect, perRack: number): { rings: IconSlot[]; slo
     }
   }
   return { rings, slots };
+}
+
+/** The torpedo kind an EMPTY torpedo tile lays out for (no torpedo fitted
+ *  yet): the base `CONFIG.torpedo` row. */
+const DEFAULT_TORPEDO: EquipmentId = 'heavyTorpedo';
+
+const TORPEDO_KINDS: readonly EquipmentId[] = familyMembers('torpedo');
+
+const PER_LAUNCHER = new Map<EquipmentId, number>();
+
+/**
+ * Pure (memoised per kind): the tubes on each launcher of this torpedo KIND —
+ * the folded `tubesPerLauncher` of a hull holding that kind's card (Eric
+ * 2026-11-25: `CONFIG.<kind>.tubesPerLauncher`). A property of the kind alone,
+ * never of the player's build. An empty torpedo slot lays out as the heavy.
+ */
+export function slotsPerLauncher(id: EquipmentId | null): number {
+  const kind = id !== null && TORPEDO_KINDS.includes(id) ? id : DEFAULT_TORPEDO;
+  const hit = PER_LAUNCHER.get(kind);
+  if (hit !== undefined) return hit;
+  const line = lineForEquipment(kind, CATALOG);
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], line === undefined ? [] : [line.id], CATALOG);
+  PER_LAUNCHER.set(kind, stats.tubesPerLauncher);
+  return stats.tubesPerLauncher;
 }
 
 /** The mine kind an EMPTY mines tile lays out for (no mine fitted yet). */
@@ -188,13 +224,15 @@ export function shellStates(clocks: readonly MountClock[], turrets: number): Slo
   return Array.from({ length: Math.max(0, turrets) }, (_, i) => ({ locked: false, open: false, clock: clocks[i] ?? null }));
 }
 
-/** Pure: TORPEDO — the four tubes: mounted ones carry their tube's clock;
- *  unmounted ones are locked, `open` where the card would mount them. */
-export function tubeStates(clocks: readonly MountClock[], now: MountCounts, next: MountCounts = now): SlotState[] {
+/** Pure: TORPEDO — every tube slot of `tubeSlots(body, perLauncher)`, in its
+ *  order: mounted ones carry their tube's clock; unmounted ones are locked,
+ *  `open` where the card would mount them. */
+export function tubeStates(clocks: readonly MountClock[], perLauncher: number, now: MountCounts, next: MountCounts = now): SlotState[] {
+  const n = perGroup(perLauncher);
   const out: SlotState[] = [];
-  for (let g = 0; g < B.tubePairs; g++) {
+  for (let g = 0; g < B.launchers; g++) {
     const mine = groupClocks(clocks, g);
-    for (let t = 0; t < B.tubesPerPair; t++) {
+    for (let t = 0; t < n; t++) {
       const mounted = tubeMounted(now, g, t);
       out.push({ locked: !mounted, open: !mounted && tubeMounted(next, g, t), clock: mounted ? (mine[t] ?? null) : null });
     }
