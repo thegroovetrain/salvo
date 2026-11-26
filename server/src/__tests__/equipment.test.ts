@@ -349,10 +349,11 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     expect(mine.y).toBeCloseTo(drop.y, 0);
     // PRESS (ability channel) with a reloaded rack: a press names an ABILITY
     // (Story 10.5 — `act`), never a slot, so it can never reach the rack.
-    // A FULL rack with an idle clock (Story 10.6: the racks are the truth) —
-    // so the only thing that could move it is the press.
+    // A FULL rack with an idle clock and its drop wait cleared (Story 10.6:
+    // the racks are the truth; 2026-11-25: a waiting rack reads not ready on
+    // the slot) — so the only thing that could move it is the press.
     const full = ship.stats.equipment.navalMines.maxAmmo;
-    Object.assign(ship.racks.racks[0], { n: full, reloadMsLeft: 0 });
+    Object.assign(ship.racks.racks[0], { n: full, reloadMsLeft: 0, gapMsLeft: 0 });
     w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon

@@ -16,8 +16,10 @@
 // same `effectiveStats()` fold the server uses, never typed here):
 //   1. TORPEDO KILL — an Iowa with a stationary Yamato on its starboard BEAM
 //      (R28: the launchers fire across the beam, never dead ahead), fitted
-//      heavy torpedo alone (the kind's own tubes on the fore launcher,
-//      each on its own clock — Eric 2026-11-25), aims the launcher at the target
+//      heavy torpedo AND the AFT launcher (the kind's own tubes on each
+//      launcher, each on its own clock — Eric 2026-11-25; one launcher alone
+//      never out-damages the target's passive regen at the 2026-11-25
+//      torpedo damage, so the kill plan needs both), aims the launcher at the target
 //      (it points there at once — no traverse, Story 11.1), then clicks
 //      every tick. The own block's `launchers` are checked loaded. The KILL
 //      PLAN (torpedo count, time) is simulated below from the fitted row and
@@ -510,10 +512,12 @@ function killPlan({ hp, damage, tubes, reloadMs, flightMs }) {
 const TORPEDO_CONFIG = { lightTorpedo: CONFIG.lightTorpedo, heavyTorpedo: CONFIG.torpedo, supercavTorpedo: CONFIG.supercavTorpedo };
 
 /**
- * Pick the torpedo fit: the line alone — the fore launcher holds the kind's
- * own tubes (Eric 2026-11-25: `CONFIG.<kind>.tubesPerLauncher`; the SECOND
- * LAUNCHER TUBE one-off is deleted, and no tier adds a tube). The plan goes
- * to the trace.
+ * Pick the torpedo fit: the kind AND the AFT TORPEDO LAUNCHER — each launcher
+ * holds the kind's own tubes (Eric 2026-11-25: `CONFIG.<kind>.tubesPerLauncher`;
+ * the SECOND LAUNCHER TUBE one-off is deleted, and no tier adds a tube). Both
+ * launchers because one alone never out-damages the target's passive regen
+ * at the 2026-11-25 torpedo damage (the heavy's and the supercav's kill plans
+ * never close). The plan goes to the trace.
  */
 function torpedoFit(line, shooterCls, target, rangeU) {
   const tgt = effectiveStats(CONFIG.shipClasses[target.cls], target.fit);

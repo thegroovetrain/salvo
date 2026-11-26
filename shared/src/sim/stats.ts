@@ -88,7 +88,8 @@
 //     −5 %-per-tier step): a row's reload is base × the haste law over the
 //     ship's RELOAD + `reloadBonusPerTier` × (tier − 1), that row only;
 //   - THE MOUNT CAPACITY (Story 10.6, R6 / R7): the torpedo and mine rows'
-//     `maxAmmo` × the launchers / tubes / racks the one-offs bought;
+//     `maxAmmo` × the launchers / racks the one-offs bought and the held
+//     torpedo kind's tubes per launcher;
 //   - ARMOR (Story 9.7, epic-9 amendments 86–88): `armor` floored to a whole
 //     number ≥ 0, and `damageMultiplier = damageMultiplierFor(armor − base)`
 //     (K = CONFIG.armor.k, base = CONFIG.index.base) derived from it — the ONE
@@ -1087,8 +1088,9 @@ function clampStats(stats: EffectiveStats): void {
   deriveMineRings(eq);
   floorIntegerFields(eq);
   // THE MOUNT CAPACITY (Story 10.6, R6 / R7): the one-shot multiply of the
-  // torpedo and mine rows' pools by the launchers / tubes / racks the one-off
-  // cards bought — after the floor, so it multiplies whole numbers.
+  // torpedo and mine rows' pools by the launchers / racks the one-off cards
+  // bought and the held kind's tubes per launcher — after the floor, so it
+  // multiplies whole numbers.
   applyMountCapacity(stats);
   // Barrels are a fixed 2 since Story 9.12 (CONFIG.gun.barrels; no rung
   // authors them); the clamp guards malformed data (a hostile --tune, a test

@@ -287,6 +287,24 @@ describe('the drop wait (Eric 2026-11-25)', () => {
     }
   });
 
+  it('the slot summary during a wait: a waiting rack is not ready, and its wait is the soonest clock', () => {
+    const one = bank([3]);
+    dropMine(one, RELOAD, GAP);
+    expect(rackSummary(one)).toEqual({ n: 0, reloadMsLeft: GAP });
+    tick(one, 3, gapTicks);
+    expect(rackSummary(one).n).toBe(one.racks[0].n); // the wait has run: every mine held is ready again
+
+    const two = bank([3, 3]);
+    dropMine(two, RELOAD, GAP); // rack 0 waits; rack 1 is free
+    expect(rackSummary(two).n).toBe(3);
+  });
+
+  it('an EMPTY waiting rack can drop only once both its reload and its wait have run', () => {
+    const empty = (reloadMsLeft: number, gapMsLeft: number): RackBank => ({ racks: [{ n: 0, reloadMsLeft, gapMsLeft }], next: 0 });
+    expect(rackSummary(empty(2 * GAP, GAP))).toEqual({ n: 0, reloadMsLeft: 2 * GAP });
+    expect(rackSummary(empty(GAP / 2, GAP))).toEqual({ n: 0, reloadMsLeft: GAP });
+  });
+
   it('the wire copy carries a running wait and clears a finished one', () => {
     const into: RackState[] = [{ n: 1, reloadMsLeft: 0 }];
     copyRacks(into, [{ n: 1, reloadMsLeft: 0, gapMsLeft: 1200 }]);

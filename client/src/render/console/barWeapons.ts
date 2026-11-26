@@ -35,9 +35,9 @@ import {
   previewCounts,
   rackSlots,
   rackStates,
+  rowTubesPerLauncher,
   shellSlots,
   shellStates,
-  slotsPerLauncher,
   slotsPerRack,
   torpFins,
   tubeSlots,
@@ -177,9 +177,10 @@ export class WeaponTiles {
     else this.drawRacks(row, body, tt, f);
   }
 
-  /** TORPEDO (AC 29): both launcher groups, each the held kind's tubes. */
+  /** TORPEDO (AC 29): both launcher groups, each the held kind's tubes (an
+   *  empty row under a hovered torpedo card: the hovered kind's). */
   private drawTubes(row: WeaponRowModel, body: Rect, tt: TileTexts, f: Frame): void {
-    const per = slotsPerLauncher(row.id);
+    const per = rowTubesPerLauncher(row.id, f.next);
     this.drawIcons(tubeSlots(body, per), tubeStates(row.clocks, per, f.now, f.next), tt);
   }
 

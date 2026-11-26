@@ -4297,7 +4297,12 @@ function armPrimeRevert(g: Game, clickSeq: number): void {
 
 /** The server's loaded stock for a slot (0 before the first frame). */
 function serverStockOf(g: Game, slot: number): number {
-  return g.state.net.you?.ammo[slot]?.n ?? 0;
+  const you = g.state.net.you;
+  // A mine slot's `ammo.n` is "droppable now" (it reads 0 during a rack's drop
+  // wait, Eric 2026-11-25); TOGGLE's stock is the mines HELD, so the selection
+  // stays on mines through the wait until the racks are empty, as before.
+  if (isMineEquipment(g.ownSlots[slot] ?? null) && you?.racks !== undefined) return you.racks.reduce((sum, r) => sum + r.n, 0);
+  return you?.ammo[slot]?.n ?? 0;
 }
 
 /**

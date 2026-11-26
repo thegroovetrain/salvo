@@ -634,12 +634,13 @@ function shotClocks(ammo: WeaponAmmo | null, max: number, reloadMs: number): Mou
   });
 }
 
-/** Pure: one rack's ring — its DROP WAIT while that runs (Eric 2026-11-25:
- *  "Show it as not ready"; the same wedge and seconds against
- *  `CONFIG.mine.rackDropGapMs`), else its reload clock. */
+/** Pure: one rack's ring — its DROP WAIT while that runs on a rack still
+ *  holding a mine (Eric 2026-11-25: "Show it as not ready"; the same wedge and
+ *  seconds against `CONFIG.mine.rackDropGapMs`), else its reload clock. */
 function rackClock(r: RackState, reloadMs: number, group: number): MountClock {
   const gap = r.gapMsLeft ?? 0;
-  return gap > 0 ? mountClock(gap, CONFIG.mine.rackDropGapMs, group) : mountClock(r.reloadMsLeft, reloadMs, group);
+  const waiting = r.n > 0 && gap > 0; // an EMPTY rack's next mine is its reload, whatever the wait says
+  return waiting ? mountClock(gap, CONFIG.mine.rackDropGapMs, group) : mountClock(r.reloadMsLeft, reloadMs, group);
 }
 
 /** Pure: a row's clocks — one per turret / tube / rack / special shot. */

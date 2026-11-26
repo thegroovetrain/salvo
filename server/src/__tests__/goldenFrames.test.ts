@@ -1843,11 +1843,20 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // exactly one token moved — Bismarck `b`'s sighted `hb` at tick 72 reads
     // 4, not 3 (a 200 hp heavy torpedo leaves it one hull block healthier
     // than the old 300). No pose, contact, event or denial changed.
-    // RE-RECORDED 2026-11-25 (the per-rack mine DROP WAIT): exactly one token
-    // moved — scnMineBlast's layer `a`'s own `you.racks[0]` on the drop tick
-    // carries `gapMsLeft` (the full wait); by the boom at tick 61 the wait has
-    // run out and the field is gone again. No pose, contact, event or denial
-    // changed.
+    // RE-RECORDED 2026-11-25/26 (torpedo tubes by kind + the per-rack mine
+    // DROP WAIT), diffed token by token against the pre-change baseline
+    // (21e27305). TUBES BY KIND: every own frame of a heavy-torpedo hull holds
+    // the heavy's two tubes on its fore launcher — `launchers[0].tubes`
+    // `[0]` → `[0, 0]` (a fired tube's clock stays first, the second loaded
+    // beside it) and the torpedo slot's `ammo` n 1 → 2 (0 → 1 after a shot);
+    // the two tick-1 offers redraw over the catalog without the deleted
+    // `secondLauncherTube` line. The torpedo damage moved no token (no `hb` /
+    // `hp` changed). THE DROP WAIT: scnMineBlast's layer `a`'s own frame on
+    // the drop tick — `you.racks[0]` carries `gapMsLeft` (the full wait), and
+    // the mine slot's `ammo` summary reads that lone rack NOT READY (n 2 → 0,
+    // `reloadMsLeft` 15000 → 3000, the wait — `rackSummary` counts only racks
+    // that can drop now); by the boom at tick 61 the wait has run out. No
+    // pose, contact, event or denial changed.
     expect(runBattery()).toMatchSnapshot();
   });
 });

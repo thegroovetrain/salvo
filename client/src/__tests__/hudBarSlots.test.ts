@@ -10,6 +10,7 @@ import {
   CATALOG,
   CONFIG,
   DEFAULT_CLASS_ID,
+  DEFAULT_SHIFT,
   MAX_TUBES_PER_LAUNCHER,
   MINE_EQUIPMENT_IDS,
   SHIP_CLASS_IDS,
@@ -22,7 +23,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { barLayout } from '../render/console/layout.js';
-import { mountClock, type MountClock, type RackPips } from '../render/console/readouts.js';
+import { hoverPreview, mountClock, shipReadouts, type MountClock, type RackPips, type ReadoutShip } from '../render/console/readouts.js';
 import {
   GROUP_SPACER,
   clipBelow,
@@ -32,6 +33,7 @@ import {
   previewCounts,
   rackSlots,
   rackStates,
+  rowTubesPerLauncher,
   shellSlots,
   shellStates,
   slotsPerLauncher,
@@ -73,8 +75,7 @@ describe('fixed positions — NO icon ever moves (AC 30)', () => {
       const racks = rackSlots(body('mines'), slotsPerRack(id));
       for (const now of COMBOS) {
         for (const next of [now, COMBOS[COMBOS.length - 1]]) {
-          // the geometry takes no state at all: recomputing it under any state is the same object shape and numbers
-          expect(rackSlots(body('mines'), slotsPerRack(id))).toEqual(racks);
+          // the geometry takes no state at all; the state model must cover exactly the drawn slots
           const rs = rackStates([], [], slotsPerRack(id), now, next);
           expect(rs).toHaveLength(racks.rings.length);
           for (const r of rs) expect(r.slots).toHaveLength(slotsPerRack(id));
@@ -94,11 +95,9 @@ describe('fixed positions — NO icon ever moves (AC 30)', () => {
         for (const now of COMBOS) {
           for (const next of [now, COMBOS[COMBOS.length - 1]]) {
             expect(tubeStates(clocks, per, now, next)).toHaveLength(tubes.length);
-            expect(tubeSlots(b, per)).toEqual(tubes);
           }
         }
       }
-      expect(body('torpedo')).toEqual(b); // the row body takes no kind and no state
     }
   });
 
@@ -198,6 +197,29 @@ describe('per-slot state — locked in place, open under a card, live otherwise'
       expect(s.map((x) => x.locked), id).toEqual(groupOf.map((g) => g !== 0));
       expect(s.map((x) => x.open), id).toEqual(groupOf.map((g) => g === 1));
       expect(tubeStates([], per, next).every((x) => !x.locked), id).toBe(true);
+    }
+  });
+
+  it('TORPEDO, EMPTY row under a hovered torpedo card: it re-lays as the HOVERED kind and the fore group opens (Eric 2026-11-26)', () => {
+    const you: ReadoutShip = { cls: DEFAULT_CLASS_ID, cards: [], ib: {}, shift: DEFAULT_SHIFT };
+    const now = mountCounts(shipReadouts(you)!);
+    for (const id of TORPEDO_KINDS) {
+      const next = previewCounts(now, hoverPreview(you, lineOf(id)));
+      const per = rowTubesPerLauncher(null, next);
+      expect(per, id).toBe(fold([lineOf(id)]).tubesPerLauncher);
+      const groupOf = tubeSlots(body('torpedo'), per).map((sl) => sl.group);
+      const s = tubeStates([], per, now, next);
+      expect(s.map((x) => x.open), id).toEqual(groupOf.map((g) => g === 0));
+      expect(s.every((x) => x.locked), id).toBe(true);
+    }
+    // No hover, or a hovered card that fits no torpedo: the empty layout (the heavy's).
+    expect(rowTubesPerLauncher(null, now)).toBe(slotsPerLauncher(null));
+    expect(rowTubesPerLauncher(null, previewCounts(now, hoverPreview(you, 'armor')))).toBe(slotsPerLauncher(null));
+    // A fitted row keeps its own kind's layout whatever is hovered.
+    for (const id of TORPEDO_KINDS) {
+      const held = fold([lineOf(id)]);
+      const hovered = counts(1, fold([lineOf(TORPEDO_KINDS.find((k) => k !== id)!)]).tubesPerLauncher, 0, 0);
+      expect(rowTubesPerLauncher(id, hovered), id).toBe(held.tubesPerLauncher);
     }
   });
 

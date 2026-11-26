@@ -11,7 +11,9 @@
 //   MAIN BATTERY  one shell per turret of the hull (3 or 4)
 //   TORPEDO       always two launcher groups, fore then aft, each EXACTLY the
 //                 held kind's tubes per launcher (Eric 2026-11-25, layout B
-//                 "slots match the torpedo"), packed left
+//                 "slots match the torpedo"), packed left; an EMPTY row lays
+//                 out as the heavy, or as a hovered torpedo card's kind (Eric
+//                 2026-11-26, "Re-lay as hovered kind" — `rowTubesPerLauncher`)
 //   MINES         always two racks, each a wedge ring + its fixed slots
 //                 (4 per rack naval / fouling, 2 captive — the most a rack can
 //                 ever hold, EXPANDED MINE RACKS included)
@@ -116,7 +118,8 @@ const PER_LAUNCHER = new Map<EquipmentId, number>();
  * Pure (memoised per kind): the tubes on each launcher of this torpedo KIND —
  * the folded `tubesPerLauncher` of a hull holding that kind's card (Eric
  * 2026-11-25: `CONFIG.<kind>.tubesPerLauncher`). A property of the kind alone,
- * never of the player's build. An empty torpedo slot lays out as the heavy.
+ * never of the player's build. An empty torpedo slot lays out as the heavy
+ * (`rowTubesPerLauncher` re-lays it under a hovered torpedo card).
  */
 export function slotsPerLauncher(id: EquipmentId | null): number {
   const kind = id !== null && TORPEDO_KINDS.includes(id) ? id : DEFAULT_TORPEDO;
@@ -126,6 +129,19 @@ export function slotsPerLauncher(id: EquipmentId | null): number {
   const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], line === undefined ? [] : [line.id], CATALOG);
   PER_LAUNCHER.set(kind, stats.tubesPerLauncher);
   return stats.tubesPerLauncher;
+}
+
+/**
+ * Pure: the tubes per launcher the TORPEDO row lays out for this frame — the
+ * held kind's (`slotsPerLauncher`); with NO torpedo fitted while a torpedo
+ * card is hovered, the HOVERED kind's, read off that card's own re-fold (the
+ * preview counts `next`: its tube total over its launchers — Eric 2026-11-26,
+ * "Re-lay as hovered kind"), so the amber preview is exact; with neither, the
+ * empty layout (the heavy). Only the icons re-lay: the row box never moves.
+ */
+export function rowTubesPerLauncher(id: EquipmentId | null, next: MountCounts): number {
+  if (id === null && next.launchers > 0) return perGroup(Math.round(next.tubes / next.launchers));
+  return slotsPerLauncher(id);
 }
 
 /** The mine kind an EMPTY mines tile lays out for (no mine fitted yet). */

@@ -178,8 +178,9 @@ import {
  * `rudder` is GONE (R2) — no alias, its seat closes and every line after it
  * moves up one. APPENDED, in this order and never inserted: the three new
  * SHIP ladders `range`, `hullRepair`, `smokeScreen` (R1 / R8 / R9), then the
- * four one-off WEAPON cards `aftTorpedoLauncher`, `secondLauncherTube`,
- * `secondMineRack`, `expandedMineRacks` (R6 / R7). `hullRepair` and
+ * four one-off WEAPON cards `aftTorpedoLauncher`, `secondLauncherTube`
+ * (deleted 2026-11-25, above), `secondMineRack`, `expandedMineRacks`
+ * (R6 / R7). `hullRepair` and
  * `smokeScreen` REUSE ids retired in Stories 10.5 and 9.3 (both then named
  * consumables of the same abilities); neither collides with an
  * `EquipmentId`, an `AbilityId` or a stat path.
@@ -554,7 +555,8 @@ function machineGunTier(magStep: number): BoonEffect[] {
 /** One upgrade tier of a TORPEDO line: the tier's whole-number damage step,
  *  +2.5 u/s and +0.125 rad/s of homing on every rung. NO TUBE STEP since
  *  Story 10.6 (Eric 2026-11-05, R4 — it was +0.5 tubes on the rungs to II
- *  and III): extra tubes are the one-off cards' (R6). Damage since Story 10.3
+ *  and III): a launcher's tubes are the kind's CONFIG count (Eric
+ *  2026-11-25), the second launcher the AFT one-off's (R6). Damage since Story 10.3
  *  (Eric 2026-11-04, epic-10 amendment 8, ruling 5): light +50 ×4
  *  (200 → 400), heavy +75 ×4 (300 → 600). (Eric 2026-10-16, Story 9.12:
  *  light +10 ×4, 80 → 120; heavy +11 / +11 / +11 / +12, 90 → 135.) And the

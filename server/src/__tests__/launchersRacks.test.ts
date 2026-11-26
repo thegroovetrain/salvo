@@ -382,6 +382,20 @@ describe('racks on the world — restock, alternation, the empty-turn rack (R7 /
     expect(a.racks.racks[0].n).toBe(before - 1);
   });
 
+  it('THE DROP WAIT on the slot pair: a lone waiting rack reads NOT READY (n 0) until the wait runs, then every mine it holds', () => {
+    // The pair the bots' `slotReady` and the client's click gate read (`n > 0`).
+    const w = bareWorld();
+    const a = place(w, 'a');
+    w.applyCard(a, 'navalMines');
+    clickMine(w, a);
+    expect(a.racks.racks[0].n).toBeGreaterThan(0); // stocked, but waiting
+    expect(a.loadout[SLOT_MINE].state!.n).toBe(0);
+    expect(buildFrame(w, 'a').you!.ammo[SLOT_MINE]!.n).toBe(0);
+    expect(a.loadout[SLOT_MINE].state!.reloadMsLeft).toBeGreaterThan(0);
+    for (let i = 0; i < GAP_TICKS; i += 1) w.step();
+    expect(a.loadout[SLOT_MINE].state!.n).toBe(a.racks.racks[0].n);
+  });
+
   it('THE EMPTY-TURN RACK: A empty on its turn, B drops, and the next turn is A\'s (R18)', () => {
     const w = bareWorld();
     const a = place(w, 'a');

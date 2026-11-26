@@ -473,4 +473,12 @@ describe('the mine drop wait reads NOT ready (Eric 2026-11-25: "Show it as not r
   it('one rack waiting, the other stocked and free: the row is ready', () => {
     expect(minesRow([{ n: 1, reloadMsLeft: 0, gapMsLeft: GAP }, { n: 1, reloadMsLeft: 0 }]).state).toBe('ready');
   });
+
+  it('an EMPTY rack inside its wait shows its reload clock, not the wait', () => {
+    const reloading = GAP * 4;
+    const waitingEmpty = minesRow([{ n: 0, reloadMsLeft: reloading, gapMsLeft: GAP / 2 }]);
+    const plainEmpty = minesRow([{ n: 0, reloadMsLeft: reloading }]);
+    expect(waitingEmpty.clocks[0]).toEqual(plainEmpty.clocks[0]);
+    expect(waitingEmpty.clocks[0].ready).toBe(false);
+  });
 });

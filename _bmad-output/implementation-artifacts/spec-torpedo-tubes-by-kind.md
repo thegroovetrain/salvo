@@ -2,7 +2,7 @@
 title: 'Torpedo tubes by kind (light 3 / heavy 2 / supercav 1; SECOND TUBE card deleted); 3 s per-rack mine drop wait; captive mine trip ring 250'
 type: 'feature'
 created: '2026-11-25'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '21e27305a0022001b55b8b96f1ff68ecd32b5940'
 context: []
 ---
@@ -21,7 +21,7 @@ context: []
 
 **Ask First:** if a 3-tube launcher renders visibly wrong on any hull (tubes overrun the mount or the deck).
 
-**Added by Eric mid-implementation (2026-11-25, renegotiated), verbatim:** *"add a 3s cooldown before any single mine rack is able to drop another mine. so i can't just make a huge death stack. And give the Captive Mine a 250u base range."* His answers in chat: during the wait the mine box shows its existing not-ready look ("Show it as not ready"), and INSTANT RELOAD clears the wait ("Clears the wait"). The wait is per rack, so a stocked second rack can drop at once; it is a fixed CONFIG value on the shared mine chassis (`CONFIG.mine`), applied to all three mine kinds. "Base range" is the captive mine's Tier I trip ring, `triggerRadius` 180 → 250 (×1.1 per tier, unchanged). **HUD torpedo row** (Eric picked from rendered options, 2026-11-25: "B: slots match torpedo"): each launcher group draws exactly the held kind's tubes, packed left (light 3 + 3, heavy 2 + 2, supercav 1 + 1); the row box never changes size.
+**Added by Eric mid-implementation (2026-11-25, renegotiated), verbatim:** *"add a 3s cooldown before any single mine rack is able to drop another mine. so i can't just make a huge death stack. And give the Captive Mine a 250u base range."* His answers in chat: during the wait the mine box shows its existing not-ready look ("Show it as not ready"), and INSTANT RELOAD clears the wait ("Clears the wait"). The wait is per rack, so a stocked second rack can drop at once; it is a fixed CONFIG value on the shared mine chassis (`CONFIG.mine`), applied to all three mine kinds. "Base range" is the captive mine's Tier I trip ring, `triggerRadius` 180 → 250 (×1.1 per tier, unchanged). **HUD torpedo row** (Eric picked from rendered options, 2026-11-25: "B: slots match torpedo"): each launcher group draws exactly the held kind's tubes, packed left (light 3 + 3, heavy 2 + 2, supercav 1 + 1); the row box never changes size. With no torpedo fitted, hovering a torpedo card re-lays the empty row as the hovered kind (Eric at review, 2026-11-26: "Re-lay as hovered kind").
 
 **Never:** change reloads, speeds, homing, runs, arcs, tiers, other mine values or the aft card. Never add new player copy (the console's existing TUBES readout already shows the count). Never pin the ruled numbers in a test. Never merge the experiment branch's hack (`worktree-balance-sim-torpedo-tubes`).
 
@@ -58,18 +58,18 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- damage 100 / 150 / 300 and `tubesPerLauncher` 3 / 2 / 1 on the three rows -- CONFIG is the single source
-- [ ] `shared/src/sim/mountStats.ts` + `stats.ts` -- derive `stats.tubesPerLauncher` from the held torpedo row (1 with none), clamp to [1, 3]; keep the capacity multiply -- one pure fold path for both sides
-- [ ] `shared/src/sim/launchers.ts` -- `MAX_TUBES_PER_LAUNCHER` = 3 -- the light needs it
-- [ ] `shared/src/sim/catalog.ts` + `effects.ts` -- delete the line and its whitelist entry; update the count comments -- no buyable tubes
-- [ ] `shared/src/index.ts` -- `PROTOCOL_VERSION` +1 with a history line -- catalog content changed
-- [ ] client copy, icon and How-to-Play -- delete the card's entries
-- [ ] smokes -- fit the kind alone; precondition the pool = the kind's tubes
-- [ ] tests -- update the card-naming tests to the new contract (pool = launchers × kind tubes; the aft card adds a full launcher; `secondLauncherTube` is not a line); re-record golden frames only if the wire changed
-- [ ] `shared/src/constants.ts` `mine` + `captiveMines` -- the per-rack drop wait (3000 ms) and `triggerRadius` 250 -- Eric's mine additions
-- [ ] `shared/src/sim/racks.ts` -- a per-rack wait clock: a drop starts it, `tickRacks` runs it down, `nextDropRack` skips a waiting rack, `instantReloadRacks` clears it, `rackSummary` reads not ready while the turn's rack can't drop; the client reads the summary as it does today -- one shared machine for both sides
-- [ ] rack tests + the perception `you`-only check if the wire shape grows -- the matrix rows above
-- [ ] GDD catalog-v3 line 283 -- minimal edit: three one-off cards
+- [x] `shared/src/constants.ts` -- damage 100 / 150 / 300 and `tubesPerLauncher` 3 / 2 / 1 on the three rows -- CONFIG is the single source
+- [x] `shared/src/sim/mountStats.ts` + `stats.ts` -- derive `stats.tubesPerLauncher` from the held torpedo row (1 with none), clamp to [1, 3]; keep the capacity multiply -- one pure fold path for both sides
+- [x] `shared/src/sim/launchers.ts` -- `MAX_TUBES_PER_LAUNCHER` = 3 -- the light needs it
+- [x] `shared/src/sim/catalog.ts` + `effects.ts` -- delete the line and its whitelist entry; update the count comments -- no buyable tubes
+- [x] `shared/src/index.ts` -- `PROTOCOL_VERSION` +1 with a history line -- catalog content changed
+- [x] client copy, icon and How-to-Play -- delete the card's entries
+- [x] smokes -- precondition the pool = the kind's tubes; both fit the AFT launcher too (the kind alone never out-damages passive regen at the new damage — the kill plans need both launchers)
+- [x] tests -- update the card-naming tests to the new contract (pool = launchers × kind tubes; the aft card adds a full launcher; `secondLauncherTube` is not a line); re-record golden frames only if the wire changed
+- [x] `shared/src/constants.ts` `mine` + `captiveMines` -- the per-rack drop wait (3000 ms) and `triggerRadius` 250 -- Eric's mine additions
+- [x] `shared/src/sim/racks.ts` -- a per-rack wait clock: a drop starts it, `tickRacks` runs it down, `nextDropRack` skips a waiting rack, `instantReloadRacks` clears it, `rackSummary` reads not ready while the turn's rack can't drop; the client reads the summary as it does today -- one shared machine for both sides
+- [x] rack tests + the perception `you`-only check if the wire shape grows -- the matrix rows above
+- [x] GDD catalog-v3 line 283 -- minimal edit: three one-off cards
 - [ ] records at PR time -- `VERSION` / `package.json` / lock, `epic-13-context-amendments.md` (append), both trackers (one-line stamps), CHANGELOG
 
 **Acceptance Criteria:**

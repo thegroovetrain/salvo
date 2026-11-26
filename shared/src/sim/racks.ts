@@ -232,16 +232,35 @@ export function instantReloadRacks(bank: RackBank, capacity: number, reloadMs: n
 
 /**
  * THE HOTBAR SUMMARY — the `{ n, reloadMsLeft }` pair the mine slot's
- * `EquipmentState` / `OwnShip.ammo[slot]` carries: `n` = mines held across
- * every rack, `reloadMsLeft` = the SOONEST running rack clock (0 when none
- * runs).
+ * `EquipmentState` / `OwnShip.ammo[slot]` carries, read as READY TO DROP
+ * (the `launcherSummary` "tubes loaded" sense): `n` = mines held in the racks
+ * that can drop NOW (`rackCanDrop` — a waiting rack's mines are not counted),
+ * `reloadMsLeft` = the SOONEST running clock that could make a mine droppable
+ * — a stocked waiting rack's drop wait, a short rack's reload clock (an empty
+ * waiting rack: the later of the two; see `rackSoonest`) — 0 when none runs.
+ * Every reader of the slot pair (the bots' `slotReady`, the client's click
+ * gate, the TOGGLE stock) therefore sees a waiting rack as not ready; the
+ * mines HELD are the racks' own `n` (`OwnShip.racks`).
  */
 export function rackSummary(bank: RackBank): { n: number; reloadMsLeft: number } {
   let n = 0;
   let soonest = Infinity;
   for (const r of bank.racks) {
-    n += r.n;
-    if (r.reloadMsLeft > 0 && r.reloadMsLeft < soonest) soonest = r.reloadMsLeft;
+    if (rackCanDrop(r)) n += r.n;
+    soonest = Math.min(soonest, rackSoonest(r));
   }
   return { n, reloadMsLeft: Number.isFinite(soonest) ? soonest : 0 };
+}
+
+/**
+ * When one rack could next drop, as a running clock (Infinity when none
+ * runs): a rack outside its wait reads its reload clock (the pre-wait
+ * summary); a STOCKED waiting rack reads its wait; an EMPTY waiting rack
+ * needs both its reload and its wait, so it reads the later of the two.
+ */
+function rackSoonest(r: RackState): number {
+  const gap = r.gapMsLeft ?? 0;
+  const reload = r.reloadMsLeft > 0 ? r.reloadMsLeft : Infinity;
+  if (!(gap > 0)) return reload;
+  return r.n > 0 ? gap : Math.max(gap, reload);
 }

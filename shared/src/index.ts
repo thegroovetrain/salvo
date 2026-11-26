@@ -3,14 +3,19 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  116 — 2026-11-25 TORPEDO TUBES BY KIND (Eric; placeholder — final number
- *  at PR time): no wire shape changes. Boon catalog content: the
- *  `secondLauncherTube` line is DELETED (26 → 25 lines). CONFIG the client
- *  reads: each torpedo block gains `tubesPerLauncher` (light 3 / heavy 2 /
- *  supercav 1, the derived `stats.tubesPerLauncher` — sim/mountStats.ts) and
- *  `torpedo.damage` 200 → 150, `lightTorpedo.damage` 150 → 100,
- *  `supercavTorpedo.damage` 200 → 300; `MAX_TUBES_PER_LAUNCHER` 2 → 3.
- *  Perception exception count stays SIX.
+ *  116 — 2026-11-25 TORPEDO TUBES BY KIND + THE MINE DROP WAIT (Eric;
+ *  placeholder — final number at PR time). Boon catalog content: the
+ *  `secondLauncherTube` line is DELETED (26 → 25 lines). Wire shape: each
+ *  `OwnShip.racks[]` entry gains an optional `gapMsLeft` (the rack's drop
+ *  wait, present only while > 0; own frame only, `you` — never a contact);
+ *  the mine slot's `OwnShip.ammo` summary (`rackSummary`) now reads the mines
+ *  that can drop NOW and the soonest clock that could make one droppable.
+ *  CONFIG the client reads: each torpedo block gains `tubesPerLauncher`
+ *  (light 3 / heavy 2 / supercav 1, the derived `stats.tubesPerLauncher` —
+ *  sim/mountStats.ts) and `torpedo.damage` 200 → 150, `lightTorpedo.damage`
+ *  150 → 100, `supercavTorpedo.damage` 200 → 300; `mine.rackDropGapMs` (new,
+ *  3000); `captiveMines.triggerRadius` 180 → 250; `MAX_TUBES_PER_LAUNCHER`
+ *  2 → 3. Perception exception count stays SIX.
  *  115 — 2026-11-24 TORPEDO AND PHOSPHOR DAMAGE CUT (Eric; epic-12
  *  amendment 21): no wire shape changes. CONFIG the client reads (the card
  *  and weapon-box damage readouts): `torpedo.damage` 300 → 200,
