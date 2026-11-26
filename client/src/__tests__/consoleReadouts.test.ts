@@ -178,9 +178,10 @@ describe('hoverPreview — the incoming values ARE effectiveStats with the card 
     }
   });
 
-  it('a SECOND LAUNCHER TUBE card marks the torpedo row`s tube count up (a new clock)', () => {
+  it('an AFT LAUNCHER card marks the torpedo row`s launcher and tube counts up (the new launcher`s clocks)', () => {
     const you = { ...SHIP, cards: ['lightTorpedo'] };
-    const marks = hoverPreview(you, 'secondLauncherTube')!;
+    const marks = hoverPreview(you, 'aftTorpedoLauncher')!;
+    expect(marks.get(READOUT_KEY.count('torpedo', 'launchers'))!.direction).toBe('up');
     expect(marks.get(READOUT_KEY.count('torpedo', 'tubes'))!.direction).toBe('up');
   });
 

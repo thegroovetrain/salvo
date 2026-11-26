@@ -1,8 +1,9 @@
 // STORY 10.6 — THE CATALOG UNDER THE INDEX, on the card surfaces (Eric
 // 2026-11-05, R1 / R6–R11; orchestrator ruling 6). The three new SHIP ladders
-// (RANGE, HULL REPAIR, SMOKE SCREEN) and the four one-off WEAPON cards (AFT
-// TORPEDO LAUNCHER, SECOND LAUNCHER TUBE, SECOND MINE RACK, EXPANDED MINE
-// RACKS) on the refit card face, its hover and the `C` / `V` tooltip.
+// (RANGE, HULL REPAIR, SMOKE SCREEN) and the one-off WEAPON cards (AFT
+// TORPEDO LAUNCHER, SECOND MINE RACK, EXPANDED MINE RACKS — SECOND LAUNCHER
+// TUBE was deleted 2026-11-25) on the refit card face, its hover and the
+// `C` / `V` tooltip.
 //
 // Label-blind (labels are copy): every expectation is a VALUE read off the
 // same `effectiveStats` fold the surface reads, compared as `[cur, next]`.
@@ -35,9 +36,9 @@ const ship = (cards: readonly string[]) => ({ cls: DEFAULT_CLASS_ID, cards: [...
 const pairs = (rows: readonly { cur: string | null; next: string }[]): (string | null)[][] => rows.map((r) => [r.cur, r.next]);
 const rep = (id: string, n: number): string[] => Array<string>(n).fill(id);
 
-const ONE_OFFS = ['aftTorpedoLauncher', 'secondLauncherTube', 'secondMineRack', 'expandedMineRacks'] as const;
+const ONE_OFFS = ['aftTorpedoLauncher', 'secondMineRack', 'expandedMineRacks'] as const;
 
-describe('the four one-off WEAPON cards (R6 / R7 / R10 / R11)', () => {
+describe('the one-off WEAPON cards (R6 / R7 / R10 / R11)', () => {
   it('wear GOLD — the ramp\'s top rung (Eric 2026-11-05: "The Launcher/Mine Rack upgrades should be Gold")', () => {
     for (const id of ONE_OFFS) expect(cardColorTier(CATALOG[id], 0), id).toBe(ONE_OFF_COLOR_TIER);
   });
@@ -46,11 +47,10 @@ describe('the four one-off WEAPON cards (R6 / R7 / R10 / R11)', () => {
     for (const id of ONE_OFFS) expect(cardTierLabel(CATALOG[id], 0), id).toBeNull();
   });
 
-  it('print ONE row: the launcher / tube / rack count they add, before → after', () => {
+  it('print ONE row: the launcher / rack count they add, before → after', () => {
     const cases: [string, string[], (s: EffectiveStats) => number][] = [
       ['aftTorpedoLauncher', ['heavyTorpedo'], (s) => s.torpedoLaunchers],
-      ['secondLauncherTube', ['lightTorpedo'], (s) => s.tubesPerLauncher],
-      ['secondLauncherTube', ['lightTorpedo', 'aftTorpedoLauncher'], (s) => s.tubesPerLauncher],
+      ['aftTorpedoLauncher', ['lightTorpedo'], (s) => s.torpedoLaunchers],
       ['secondMineRack', ['captiveMines'], (s) => s.mineRacks],
     ];
     for (const [id, cards, read] of cases) {
@@ -75,7 +75,6 @@ describe('the four one-off WEAPON cards (R6 / R7 / R10 / R11)', () => {
   it('hover prints the HELD weapon\'s own table, valued after the card', () => {
     const cases: [string, string[], 'heavyTorpedo' | 'navalMines'][] = [
       ['aftTorpedoLauncher', ['heavyTorpedo'], 'heavyTorpedo'],
-      ['secondLauncherTube', ['heavyTorpedo'], 'heavyTorpedo'],
       ['secondMineRack', ['navalMines'], 'navalMines'],
       ['expandedMineRacks', ['navalMines'], 'navalMines'],
     ];

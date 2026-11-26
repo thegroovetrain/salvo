@@ -183,6 +183,7 @@ import {
   encodeLauncherAngles,
   hullBlocks,
   initialLaunchers,
+  MAX_TUBES_PER_LAUNCHER,
   launcherRest,
   launcherTrainRad,
   turretMounts,
@@ -3122,13 +3123,13 @@ function scrambleTurrets(rec: ShipRecord, side: { next(): number }): void {
 }
 
 /** Story 10.6 fuzz helper: about half the hulls mount torpedo LAUNCHERS (one
- *  or two, one or two tubes each — angles scrambled inside each arc, tube
+ *  or two, 1..MAX_TUBES_PER_LAUNCHER tubes each — angles scrambled inside each arc, tube
  *  clocks random) and about half carry mine RACKS — raw state writes off the
  *  SIDE stream (the scrambleTurrets posture), so `lu` and the self-private
  *  `launchers` / `racks` pins see varied, non-rest state. */
 function scrambleMounts(rec: ShipRecord, side: { next(): number }): void {
   if (side.next() < 0.5) {
-    const counts = { torpedoLaunchers: side.next() < 0.5 ? 1 : 2, tubesPerLauncher: side.next() < 0.5 ? 1 : 2 };
+    const counts = { torpedoLaunchers: side.next() < 0.5 ? 1 : 2, tubesPerLauncher: 1 + Math.floor(side.next() * MAX_TUBES_PER_LAUNCHER) };
     rec.launchers = initialLaunchers(rec.hullId, counts);
     rec.launchers.forEach((l, i) => {
       l.a = launcherRest(i) + (side.next() * 2 - 1) * launcherTrainRad(rec.hullId, i);

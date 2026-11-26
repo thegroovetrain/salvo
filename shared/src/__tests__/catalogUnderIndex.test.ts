@@ -5,8 +5,11 @@
 //          and the bonus reaches its own weapon only;
 //   - R8/R9 HULL REPAIR and SMOKE SCREEN: amounts, life, size and the "+5 to a
 //          fixed score of 100" cooldown, at 0..5 cards, never touched by RELOAD;
-//   - R6/R7/R10 the four one-off WEAPON cards: eligible and pickable only while
-//          their family slot is filled, and they own ALL extra capacity;
+//   - R6/R7/R10 the one-off WEAPON cards: eligible and pickable only while
+//          their family slot is filled, and they own ALL extra capacity
+//          beyond the torpedo kind's own tubes (Eric 2026-11-25: each kind
+//          brings `CONFIG.<kind>.tubesPerLauncher`; SECOND LAUNCHER TUBE is
+//          deleted);
 //   - R4   no weapon tier changes a tube, mine or shot count;
 //   - R1   the RANGE card reaches the main battery and the secondaries only;
 //   - R2   every captain hull turns at one baseline rate; drones keep theirs.
@@ -23,12 +26,14 @@ import {
   INDEX_IDS,
   LINE_IDS,
   BOON_STAT_PATH_SET,
+  MAX_TUBES_PER_LAUNCHER,
   SHIP_CLASS_IDS,
   abilityCooldownFraction,
   abilityCooldownMs,
   abilityReadyAt,
   cloudOutlineRadius,
   cloudScale,
+  clampMounts,
   effectiveStats,
   eligibleLines,
   familyMembers,
@@ -49,10 +54,9 @@ const BASE = NEUTRAL_HULL;
 const stack = (id: LineId, n: number): LineId[] => new Array<LineId>(n).fill(id);
 const HULLS = SHIP_CLASS_IDS.map((id) => [id, CONFIG.shipClasses[id]] as const);
 
-/** The four one-off lines and the family each serves (R6 / R7 / R10). */
+/** The one-off lines and the family each serves (R6 / R7 / R10). */
 const ONE_OFFS: readonly (readonly [LineId, SlotFamily])[] = [
   ['aftTorpedoLauncher', 'torpedo'],
-  ['secondLauncherTube', 'torpedo'],
   ['secondMineRack', 'mine'],
   ['expandedMineRacks', 'mine'],
 ];
@@ -209,7 +213,14 @@ describe('the ability functions read the ship\'s stats, never CONFIG (R8 / R9)',
   });
 });
 
-describe('R6 / R7 / R10 — the four one-off WEAPON cards', () => {
+/** Each torpedo kind's CONFIG block (the heavy's is `CONFIG.torpedo`). */
+const KIND_CONFIG: Partial<Record<EquipmentId, { maxAmmo: number; tubesPerLauncher: number }>> = {
+  lightTorpedo: CONFIG.lightTorpedo,
+  heavyTorpedo: CONFIG.torpedo,
+  supercavTorpedo: CONFIG.supercavTorpedo,
+};
+
+describe('R6 / R7 / R10 — the one-off WEAPON cards', () => {
   it('each is a cap-1 line, never a stub', () => {
     for (const [id] of ONE_OFFS) {
       expect(CATALOG[id].cap, id).toBe(1);
@@ -243,19 +254,52 @@ describe('R6 / R7 / R10 — the four one-off WEAPON cards', () => {
     }
   });
 
-  it('TORPEDOES: the row holds launchers × tubes — 1 / 2 / 2 / 4 — on every torpedo, in either card order', () => {
+  it('TORPEDOES: the row holds launchers × the held kind\'s CONFIG tubes — the aft card doubles it, in either card order (Eric 2026-11-25)', () => {
+    for (const eq of familyMembers('torpedo')) {
+      const cfg = KIND_CONFIG[eq]!;
+      const line = lineOf(eq);
+      const fore = effectiveStats(BASE, [line]);
+      expect([fore.torpedoLaunchers, fore.tubesPerLauncher], eq).toEqual([1, cfg.tubesPerLauncher]);
+      expect(fore.equipment[eq].maxAmmo, eq).toBe(cfg.maxAmmo * cfg.tubesPerLauncher);
+      for (const hand of [[line, 'aftTorpedoLauncher'], ['aftTorpedoLauncher', line]] as LineId[][]) {
+        const s = effectiveStats(BASE, hand);
+        expect([s.torpedoLaunchers, s.tubesPerLauncher], `${eq} ${hand}`).toEqual([2, cfg.tubesPerLauncher]);
+        expect(s.equipment[eq].maxAmmo, `${eq} ${hand}`).toBe(2 * cfg.maxAmmo * cfg.tubesPerLauncher);
+      }
+    }
+  });
+
+  it('SECOND LAUNCHER TUBE is never offered and a pick naming it is refused like any unknown id (Eric 2026-11-25)', () => {
+    for (const eq of familyMembers('torpedo')) {
+      const ship = shipOf([lineOf(eq), 'aftTorpedoLauncher']);
+      expect(eligibleLines(shipOf([lineOf(eq)])).some((e) => e.id === 'secondLauncherTube'), eq).toBe(false);
+      expect(pickRefusal(ship.held, ship.slotIds, 'secondLauncherTube'), eq).toBe(pickRefusal(ship.held, ship.slotIds, 'noSuchLine'));
+      expect(pickRefusal(ship.held, ship.slotIds, 'secondLauncherTube'), eq).not.toBeNull();
+    }
+  });
+
+  it('TORPEDOES: the tube count is the held kind\'s, so tiers and other cards never move it; no torpedo held is one tube', () => {
+    expect(effectiveStats(BASE).tubesPerLauncher).toBe(1);
+    expect(effectiveStats(BASE, ['navalMines', 'secondMineRack', 'reload']).tubesPerLauncher).toBe(1);
     for (const eq of familyMembers('torpedo')) {
       const line = lineOf(eq);
-      const ammo = (hand: LineId[]): number => effectiveStats(BASE, [line, ...hand]).equipment[eq].maxAmmo;
-      const base = effectiveStats(BASE, [line]).equipment[eq].maxAmmo;
-      expect(ammo([]), eq).toBe(base);
-      expect(ammo(['aftTorpedoLauncher']), eq).toBe(2 * base);
-      expect(ammo(['secondLauncherTube']), eq).toBe(2 * base);
-      expect(ammo(['secondLauncherTube', 'aftTorpedoLauncher']), eq).toBe(4 * base);
-      expect(ammo(['aftTorpedoLauncher', 'secondLauncherTube']), eq).toBe(4 * base);
-      const s = effectiveStats(BASE, [line, 'aftTorpedoLauncher', 'secondLauncherTube']);
-      expect([s.torpedoLaunchers, s.tubesPerLauncher], eq).toEqual([2, 2]);
+      for (let n = 1; n <= CATALOG[line].cap; n += 1) {
+        expect(effectiveStats(BASE, [...stack(line, n), 'navalMines']).tubesPerLauncher, `${eq} x${n}`).toBe(KIND_CONFIG[eq]!.tubesPerLauncher);
+      }
     }
+  });
+
+  it('TORPEDOES: a malformed tube count (0, a huge one, NaN, a fraction) clamps to a whole number in [1, MAX_TUBES_PER_LAUNCHER]', () => {
+    for (const bad of [0, -2, 9, 1e9, Number.NaN, Number.POSITIVE_INFINITY, 2.7]) {
+      const s = effectiveStats(BASE);
+      s.tubesPerLauncher = bad;
+      clampMounts(s);
+      expect(Number.isInteger(s.tubesPerLauncher), String(bad)).toBe(true);
+      expect(s.tubesPerLauncher, String(bad)).toBeGreaterThanOrEqual(1);
+      expect(s.tubesPerLauncher, String(bad)).toBeLessThanOrEqual(MAX_TUBES_PER_LAUNCHER);
+    }
+    // Every authored kind fits the bound unclamped.
+    for (const cfg of Object.values(KIND_CONFIG)) expect(cfg!.tubesPerLauncher).toBeLessThanOrEqual(MAX_TUBES_PER_LAUNCHER);
   });
 
   it('MINES: the row holds racks × (per-rack base + bonus) — max 8 naval / fouling, 4 captive', () => {
@@ -276,7 +320,7 @@ describe('R6 / R7 / R10 — the four one-off WEAPON cards', () => {
 
   it('a one-off of one family never moves the other family\'s capacity', () => {
     const base = effectiveStats(BASE).equipment;
-    const torp = effectiveStats(BASE, ['aftTorpedoLauncher', 'secondLauncherTube']).equipment;
+    const torp = effectiveStats(BASE, ['aftTorpedoLauncher']).equipment;
     const mine = effectiveStats(BASE, ['secondMineRack', 'expandedMineRacks']).equipment;
     for (const eq of familyMembers('mine')) expect(torp[eq].maxAmmo, eq).toBe(base[eq].maxAmmo);
     for (const eq of familyMembers('torpedo')) expect(mine[eq].maxAmmo, eq).toBe(base[eq].maxAmmo);

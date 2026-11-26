@@ -128,7 +128,7 @@ describe('per-slot state — locked in place, open under a card, live otherwise'
     expect(s[0].clock).toBe(clocks[0]);
     // AFT LAUNCHER: the aft pair's first tube opens
     expect(tubeStates(clocks, one, counts(2, 1, 0, 0)).map((x) => x.open)).toEqual([false, false, true, false]);
-    // SECOND LAUNCHER TUBE: the fore pair's second tube opens
+    // a second tube per launcher (the kind's count): the fore pair's second tube opens
     expect(tubeStates(clocks, one, counts(1, 2, 0, 0)).map((x) => x.open)).toEqual([false, true, false, false]);
     // no torpedo: everything locked
     expect(tubeStates([], counts(0, 1, 0, 0)).every((x) => x.locked && !x.open)).toBe(true);

@@ -147,7 +147,6 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       { name: 'FOULING SHELL', lineId: 'foulingShell', table: 'tier', description: 'Leaves a patch of fouled water where it lands. Any enemy inside is slowed, and stays slow for a moment after leaving.' },
       { name: 'FLASH SHELLS', lineId: 'dazzleShells', table: 'tier', description: 'Every enemy caught in the flash is blinded for a while. Radar unaffected. No damage.' },
       { name: 'AFT LAUNCHER', lineId: 'aftTorpedoLauncher', table: 'none', description: 'Adds a torpedo launcher at your stern.' },
-      { name: 'SECOND TUBE', lineId: 'secondLauncherTube', table: 'none', description: 'Every torpedo launcher gets one more tube.' },
       { name: 'SECOND MINE RACK', lineId: 'secondMineRack', table: 'none', description: 'A second mine rack with its own mines and reload. Your racks take turns.' },
       { name: 'RACK CAPACITY', lineId: 'expandedMineRacks', table: 'none', description: 'Every mine rack holds one more mine.' },
     ],

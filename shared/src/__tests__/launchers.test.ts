@@ -345,7 +345,6 @@ describe('tube count is bounded', () => {
   it('a huge tubesPerLauncher clamps to MAX_TUBES_PER_LAUNCHER on every launcher', () => {
     const ls = initialLaunchers(HULL, counts(2, 1e12));
     expect(ls.map((l) => l.tubes.length)).toEqual([MAX_TUBES_PER_LAUNCHER, MAX_TUBES_PER_LAUNCHER]);
-    expect(MAX_TUBES_PER_LAUNCHER).toBe(2);
     expect(resizeLaunchers(ls, HULL, counts(2, Infinity)).every((l) => l.tubes.length === 1)).toBe(true); // non-finite -> the floor of 1
   });
 });
@@ -394,14 +393,19 @@ describe('the launch point', () => {
 });
 
 describe('lifecycle', () => {
-  it('follows the folded counts: the cards mount launchers and tubes, in either order', () => {
+  it('follows the folded counts: the kind brings its CONFIG tubes on every launcher, the aft card a second launcher, in either order', () => {
     const cls = hullEnvelope(HULL);
     const shape = (cards: string[]): number[] => initialLaunchers(HULL, effectiveStats(cls, cards)).map((l) => l.tubes.length);
-    expect(shape(['heavyTorpedo'])).toEqual([1]);
-    expect(shape(['heavyTorpedo', 'aftTorpedoLauncher'])).toEqual([1, 1]);
-    expect(shape(['heavyTorpedo', 'secondLauncherTube'])).toEqual([2]);
-    expect(shape(['heavyTorpedo', 'secondLauncherTube', 'aftTorpedoLauncher'])).toEqual([2, 2]);
-    expect(shape(['heavyTorpedo', 'aftTorpedoLauncher', 'secondLauncherTube'])).toEqual([2, 2]);
+    const kinds = [
+      ['lightTorpedo', CONFIG.lightTorpedo.tubesPerLauncher],
+      ['heavyTorpedo', CONFIG.torpedo.tubesPerLauncher],
+      ['supercavTorpedo', CONFIG.supercavTorpedo.tubesPerLauncher],
+    ] as const;
+    for (const [line, tubes] of kinds) {
+      expect(shape([line]), line).toEqual([tubes]);
+      expect(shape([line, 'aftTorpedoLauncher']), line).toEqual([tubes, tubes]);
+      expect(shape(['aftTorpedoLauncher', line]), line).toEqual([tubes, tubes]);
+    }
   });
 
   it('everything arrives loaded', () => {
@@ -414,7 +418,7 @@ describe('lifecycle', () => {
     settle(ls, HULL, POSE, at(POSE, 0.9));
     fireTube(ls, 0, 0, 12345);
     const a0 = ls[0].a;
-    resizeLaunchers(ls, HULL, counts(1, 2)); // SECOND LAUNCHER TUBE
+    resizeLaunchers(ls, HULL, counts(1, 2)); // a grown tube count (the model is generic)
     expect(ls).toEqual([{ a: a0, tubes: [12345, 0] }]);
     resizeLaunchers(ls, HULL, counts(2, 2)); // AFT TORPEDO LAUNCHER — arrives with two tubes
     expect(ls).toEqual([

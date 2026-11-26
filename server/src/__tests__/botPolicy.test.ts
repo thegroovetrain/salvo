@@ -1116,10 +1116,10 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     expect(raider.taste.favoriteUpgrades).toContain('weapons');
     expect(bulwark.taste.favoriteUpgrades).not.toContain('weapons');
     const unhosted = spendState({ cards: [], slotIds: slotsOf() });
-    expect(cardScore(raider, unhosted, 'secondLauncherTube')).toBeNull(); // no torpedo held: `noHost`
+    expect(cardScore(raider, unhosted, 'aftTorpedoLauncher')).toBeNull(); // no torpedo held: `noHost`
     const hosted = spendState({ cards: ['heavyTorpedo'], slotIds: slotsOf(['heavyTorpedo'], 'mainBattery') });
-    const fav = cardScore(raider, hosted, 'secondLauncherTube')!;
-    const plain = cardScore(bulwark, hosted, 'secondLauncherTube')!;
+    const fav = cardScore(raider, hosted, 'aftTorpedoLauncher')!;
+    const plain = cardScore(bulwark, hosted, 'aftTorpedoLauncher')!;
     expect(fav).not.toBeNull();
     expect(plain).not.toBeNull();
     // Same build, same style standing: the only difference is the favorite bonus

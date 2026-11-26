@@ -31,7 +31,7 @@
 //     is mounted). See `ladderHost`;
 //   - an `addon` (cap 1, so eligible only unheld) is an `equipment` card iff
 //     its host is ABOARD — some equipment it names sits in its family slot
-//     (Story 10.6, Eric 2026-11-05, R10 / I8: the four one-off WEAPON cards are
+//     (Story 10.6, Eric 2026-11-05, R10 / I8: the one-off WEAPON cards are
 //     "dealt only once their family slot is filled"). The old "or any weapon
 //     slot still open" held-ahead rule (amendment 89b) is retired;
 //

@@ -159,14 +159,14 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   foulingShell: 'FOULING SHELL',
   phosphorShells: 'PHOSPHOR SHELLS',
   // --- Story 10.6 (Eric 2026-11-05, R1 / R6–R9): three SHIP ladders and the
-  // four one-off WEAPON cards, Eric's names verbatim. HULL REPAIR and SMOKE
+  // one-off WEAPON cards, Eric's names verbatim (SECOND TUBE left the catalog
+  // 2026-11-25). HULL REPAIR and SMOKE
   // SCREEN are also the `C` / `V` abilities' names (`ABILITY_NAMES` reads
   // these two entries, so the card and the square can never disagree).
   // RANGE's card left the catalog with the index row (Story 11.2, R9).
   hullRepair: 'HULL REPAIR',
   smokeScreen: 'SMOKE SCREEN',
   aftTorpedoLauncher: 'AFT LAUNCHER', // Eric 2026-11-05 (line id unchanged)
-  secondLauncherTube: 'SECOND TUBE', // Eric 2026-11-05 (line id unchanged)
   secondMineRack: 'SECOND MINE RACK',
   expandedMineRacks: 'RACK CAPACITY',
 };
@@ -1119,7 +1119,8 @@ function abilityDiffRows(id: CooldownAbilityId, before: EffectiveStats, after: E
 /**
  * THE ONE-OFF WEAPON CARDS' ROW (Story 10.6, Eric 2026-11-05, R6 / R7): each
  * prints the ONE mount count its single tier steps, before → after —
- * launchers, tubes per launcher, racks — except RACK CAPACITY (the expandedMineRacks line), whose
+ * launchers, racks (the tubes-per-launcher row left with SECOND TUBE,
+ * 2026-11-25) — except RACK CAPACITY (the expandedMineRacks line), whose
  * `rackBonus` is not a count of anything a player holds, so its row prints
  * what it buys: the HELD mine's capacity per rack (`rackCapacity`, the shared
  * one helper). Keyed by the stat path the tier authors, so the row is
@@ -1127,7 +1128,6 @@ function abilityDiffRows(id: CooldownAbilityId, before: EffectiveStats, after: E
  */
 const MOUNT_ROWS: Readonly<Record<string, { label: string; read: (s: EffectiveStats, host: EquipmentId | null) => number }>> = {
   torpedoLaunchers: { label: 'LAUNCHERS', read: (s) => s.torpedoLaunchers },
-  tubesPerLauncher: { label: 'TUBES', read: (s) => s.tubesPerLauncher },
   mineRacks: { label: 'RACKS', read: (s) => s.mineRacks },
   rackBonus: { label: 'PER RACK', read: (s, host) => (isMineEquipment(host) ? rackCapacity(s, host) : s.rackBonus) },
 };

@@ -529,10 +529,6 @@ const aftTorpedoLauncher: GlyphPaths = [
   path([-0.62, -0.42], [-0.95, 0], [-0.62, 0.42]),
 ];
 
-/** Second launcher tube (Story 10.6 DRAFT, R6): one mount with TWO parallel
- *  tubes pointing ahead. */
-const secondLauncherTube: GlyphPaths = launcherGlyph(-0.55, 0.95, [[-0.4, -0.12], [0.12, 0.4]]);
-
 /** A mine rack: a rail at `y` with mines (small spheres) resting on it at
  *  `xs`. */
 function rackGlyph(y: number, xs: readonly number[], r: number): GlyphPart[] {
@@ -553,7 +549,7 @@ const expandedMineRacks: GlyphPaths = [
 
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the eight ship ladders, the four one-off WEAPON cards (Story 10.6), and the CANNON ladder `deckGun`, which draws the
+ * the eight ship ladders, the one-off WEAPON cards (Story 10.6), and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
@@ -566,11 +562,11 @@ const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
   deckGun: gun,
   // Story 10.6 (Eric 2026-11-05): the three new SHIP ladders — the two
   // ability ladders wear their ability's drawing (the `C` / `V` square's) —
-  // and the four one-off WEAPON cards. (RANGE's left with it, Story 11.2.)
+  // and the one-off WEAPON cards. (RANGE's left with it, Story 11.2; SECOND
+  // TUBE's left the catalog 2026-11-25.)
   hullRepair,
   smokeScreen: countermeasure,
   aftTorpedoLauncher,
-  secondLauncherTube,
   secondMineRack,
   expandedMineRacks,
 };

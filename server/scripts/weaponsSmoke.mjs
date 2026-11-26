@@ -16,8 +16,8 @@
 // same `effectiveStats()` fold the server uses, never typed here):
 //   1. TORPEDO KILL — an Iowa with a stationary Yamato on its starboard BEAM
 //      (R28: the launchers fire across the beam, never dead ahead), fitted
-//      heavy torpedo + SECOND LAUNCHER TUBE (two tubes on the fore launcher,
-//      each on its own clock — Story 10.6), aims the launcher at the target
+//      heavy torpedo alone (the kind's own tubes on the fore launcher,
+//      each on its own clock — Eric 2026-11-25), aims the launcher at the target
 //      (it points there at once — no traverse, Story 11.1), then clicks
 //      every tick. The own block's `launchers` are checked loaded. The KILL
 //      PLAN (torpedo count, time) is simulated below from the fitted row and
@@ -506,11 +506,14 @@ function killPlan({ hp, damage, tubes, reloadMs, flightMs }) {
   return null;
 }
 
+/** Each torpedo kind's CONFIG block (the heavy's is `CONFIG.torpedo`). */
+const TORPEDO_CONFIG = { lightTorpedo: CONFIG.lightTorpedo, heavyTorpedo: CONFIG.torpedo, supercavTorpedo: CONFIG.supercavTorpedo };
+
 /**
- * Pick the torpedo fit: the line plus the SECOND LAUNCHER TUBE one-off — TWO
- * tubes on the fore launcher (Story 10.6, R4 / R6: tubes come only from the
- * one-off cards now, never a tier). The bare-line plan and the chosen plan
- * both go to the trace.
+ * Pick the torpedo fit: the line alone — the fore launcher holds the kind's
+ * own tubes (Eric 2026-11-25: `CONFIG.<kind>.tubesPerLauncher`; the SECOND
+ * LAUNCHER TUBE one-off is deleted, and no tier adds a tube). The plan goes
+ * to the trace.
  */
 function torpedoFit(line, shooterCls, target, rangeU) {
   const tgt = effectiveStats(CONFIG.shipClasses[target.cls], target.fit);
@@ -524,15 +527,16 @@ function torpedoFit(line, shooterCls, target, rangeU) {
     const blow = Math.max(1, Math.floor(row.damage * damageMultiplierFor(tgt.armor - shooter.power)));
     return { cards, row, blow, plan: killPlan({ hp: tgt.maxHp, damage: blow, tubes: row.maxAmmo, reloadMs: row.reloadMs, flightMs }) };
   };
-  const one = planFor([line]);
-  const pick = planFor([line, 'secondLauncherTube']);
-  precondition(pick.row.maxAmmo === 2, `${line}: the SECOND LAUNCHER TUBE fit folds to ${pick.row.maxAmmo} tubes, not 2`);
-  precondition(pick.plan !== null, `${line}: the two-tube fit never kills inside an hour against the regen`);
+  const pick = planFor([line]);
+  const kind = TORPEDO_CONFIG[line];
+  const want = statsOf(shooterCls, pick.cards).torpedoLaunchers * kind.tubesPerLauncher * kind.maxAmmo;
+  precondition(pick.row.maxAmmo === want, `${line}: the fit folds to ${pick.row.maxAmmo} tubes, not the kind's ${want}`);
+  precondition(pick.plan !== null, `${line}: the fit never kills inside an hour against the regen`);
   const fmt = (p) => `${JSON.stringify(p.cards)} tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg (${p.blow} after armor) / ${secs(p.row.reloadMs)} -> ${p.plan === null ? 'NO KILL inside an hour (the regen outheals it)' : `${p.plan.fish} torpedoes, kill at ${secs(p.plan.killAtMs)}`}`;
   return {
     pick,
     hp: tgt.maxHp,
-    text: `plan vs ${tgt.maxHp} hp, with regen: [${fmt(one)}] [${fmt(pick)}] => fitting ${JSON.stringify(pick.cards)}`,
+    text: `plan vs ${tgt.maxHp} hp, with regen: [${fmt(pick)}] => fitting ${JSON.stringify(pick.cards)}`,
   };
 }
 

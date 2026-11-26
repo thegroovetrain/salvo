@@ -359,7 +359,7 @@ function countReadout(kind: WeaponRowKind, what: CountWhat, n: number): Readout 
   return { key: READOUT_KEY.count(kind, what), label: '', value: String(n), raw: n, role: 'count' };
 }
 
-/** The mount counts a fitted row draws as marks (a SECOND TUBE card adds a clock). */
+/** The mount counts a fitted row draws as marks (an AFT LAUNCHER card adds a launcher's clocks). */
 function countReadouts(kind: WeaponRowKind, id: EquipmentId, stats: EffectiveStats): Readout[] {
   if (kind === 'torpedo') {
     return [countReadout(kind, 'launchers', stats.torpedoLaunchers), countReadout(kind, 'tubes', stats.torpedoLaunchers * stats.tubesPerLauncher)];

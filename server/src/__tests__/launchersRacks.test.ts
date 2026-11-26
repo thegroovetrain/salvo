@@ -6,9 +6,10 @@
 //   * a FORE-only hull aiming astern is refused `out-of-arc`, nothing spent;
 //   * R28 side-firing: dead ahead and dead astern refused with nothing spent,
 //     the beam fires, the aft quarter fires only with the AFT launcher held;
-//   * both launchers bearing, four tubes loaded: ONE click, ONE torpedo;
+//   * both launchers bearing, every tube loaded: ONE click, ONE torpedo;
 //   * no tube loaded: the `cooling` denial;
-//   * SECOND LAUNCHER TUBE before AFT: the aft launcher arrives with two;
+//   * each kind brings its CONFIG tubes (Eric 2026-11-25 — SECOND LAUNCHER
+//     TUBE is deleted); the AFT launcher arrives with the same count, loaded;
 //   * rack restock, alternation and the empty-turn rack on the real world;
 //   * EXPANDED after SECOND (captive): four held;
 //   * HULL REPAIR at three cards, two hulls: the same heal and cooldown;
@@ -105,6 +106,16 @@ function clickMine(w: World, rec: ShipRecord): void {
 const torpsOf = (w: World, owner: string) => [...w.shells.values()].filter((s) => s.ownerId === owner && s.kind === 'torp');
 const tubes = (rec: ShipRecord): number[] => rec.launchers.flatMap((l) => l.tubes);
 const loadedTubes = (rec: ShipRecord): number => tubes(rec).filter((t) => t <= 0).length;
+/** Every tube the folded counts mount: launchers × the held kind's tubes. */
+const tubeCount = (rec: ShipRecord): number => rec.stats.torpedoLaunchers * rec.stats.tubesPerLauncher;
+/** Every mounted tube, loaded. */
+const allLoaded = (rec: ShipRecord): number[] => new Array<number>(tubeCount(rec)).fill(0);
+/** Each torpedo kind's line and CONFIG block (the heavy's is `CONFIG.torpedo`). */
+const KINDS = [
+  ['lightTorpedo', CONFIG.lightTorpedo],
+  ['heavyTorpedo', CONFIG.torpedo],
+  ['supercavTorpedo', CONFIG.supercavTorpedo],
+] as const;
 const minesOf = (w: World, owner: string) => [...w.mines.values()].filter((m) => m.ownerId === owner);
 
 describe('launchers on the world — the R16 pick through the click channel', () => {
@@ -117,7 +128,7 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     expect(a.launchers[0].a).not.toBe(launcherRest(0));
     const seq = clickTorpedo(w, a, Math.PI); // dead astern: beyond the fore launcher's train
     expect(torpsOf(w, 'a')).toHaveLength(0);
-    expect(tubes(a)).toEqual([0]);
+    expect(tubes(a)).toEqual(allLoaded(a));
     expect(a.launchers[0].a).toBe(launcherRest(0)); // the derived angle: rest outside its band
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
   });
@@ -130,7 +141,7 @@ describe('launchers on the world — the R16 pick through the click channel', ()
       train(w, a, aim);
       const seq = clickTorpedo(w, a, aim);
       expect(torpsOf(w, 'a'), `aim ${aim}`).toHaveLength(0);
-      expect(tubes(a)).toEqual([0, 0]);
+      expect(tubes(a)).toEqual(allLoaded(a));
       expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
     }
   });
@@ -171,9 +182,16 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     clickTorpedo(w, a, Math.PI / 2);
     expect(torpsOf(w, 'a')).toHaveLength(1);
     expect(torpsOf(w, 'a')[0].vy).toBeGreaterThan(0); // the port side
-    // The other side: no swing across the ship to wait for — refused only because the one tube is reloading.
+    // The other side: no swing across the ship to wait for — every remaining
+    // tube fires starboard at once, and only an empty launcher refuses.
+    const n = tubeCount(a);
+    for (let k = 1; k < n; k += 1) {
+      clickTorpedo(w, a, -Math.PI / 2);
+      expect(torpsOf(w, 'a')).toHaveLength(k + 1);
+      expect(torpsOf(w, 'a')[k].vy).toBeLessThan(0); // the starboard side
+    }
     const seq = clickTorpedo(w, a, -Math.PI / 2);
-    expect(torpsOf(w, 'a')).toHaveLength(1);
+    expect(torpsOf(w, 'a')).toHaveLength(n);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'cooling', seq }]);
   });
 
@@ -183,7 +201,7 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     w.applyCard(a, 'heavyTorpedo');
     const seq = clickTorpedo(w, a, launcherDeadRad(a.hullId, 0) / 2);
     expect(torpsOf(w, 'a')).toHaveLength(0);
-    expect(tubes(a)).toEqual([0]);
+    expect(tubes(a)).toEqual(allLoaded(a));
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq }]);
   });
 
@@ -198,18 +216,18 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'out-of-arc', seq: fireSeq }]);
   });
 
-  it('BOTH LAUNCHERS BEAR, four tubes loaded: one click is exactly ONE torpedo and ONE tube reloading', () => {
+  it('BOTH LAUNCHERS BEAR, every tube loaded: one click is exactly ONE torpedo and ONE tube reloading', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    for (const id of ['heavyTorpedo', 'aftTorpedoLauncher', 'secondLauncherTube']) w.applyCard(a, id);
-    expect(tubes(a)).toEqual([0, 0, 0, 0]);
+    for (const id of ['heavyTorpedo', 'aftTorpedoLauncher']) w.applyCard(a, id);
+    expect(tubes(a)).toEqual(allLoaded(a));
     train(w, a, Math.PI / 2); // the beam: inside both arcs
     clickTorpedo(w, a, Math.PI / 2);
     expect(torpsOf(w, 'a')).toHaveLength(1);
     expect(tubes(a).filter((t) => t > 0)).toHaveLength(1);
-    // The slot's pair is the launchers' summary: three loaded.
+    // The slot's pair is the launchers' summary: all but one loaded.
     expect(a.loadout[SLOT_TORP].state).toEqual(launcherSummary(a.launchers));
-    expect(a.loadout[SLOT_TORP].state!.n).toBe(3);
+    expect(a.loadout[SLOT_TORP].state!.n).toBe(tubeCount(a) - 1);
   });
 
   it('the fired tube reloads on the held torpedo\'s FOLDED reload; the torpedo runs from its station at the aim point', () => {
@@ -232,44 +250,49 @@ describe('launchers on the world — the R16 pick through the click channel', ()
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
     train(w, a, Math.PI / 2);
-    clickTorpedo(w, a, Math.PI / 2);
-    expect(torpsOf(w, 'a')).toHaveLength(1);
+    const n = tubeCount(a);
+    for (let k = 0; k < n; k += 1) clickTorpedo(w, a, Math.PI / 2);
+    expect(torpsOf(w, 'a')).toHaveLength(n);
     const seq = clickTorpedo(w, a, Math.PI / 2);
-    expect(torpsOf(w, 'a')).toHaveLength(1);
+    expect(torpsOf(w, 'a')).toHaveLength(n);
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_TORP, reason: 'cooling', seq }]);
   });
 });
 
 describe('launchers on the world — cards resize them, everything arrives loaded (I3)', () => {
-  it('SECOND LAUNCHER TUBE before AFT: the fore gets two tubes, then the aft arrives with two', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    w.applyCard(a, 'supercavTorpedo');
-    w.applyCard(a, 'secondLauncherTube');
-    expect(a.launchers.map((l) => l.tubes)).toEqual([[0, 0]]);
-    w.applyCard(a, 'aftTorpedoLauncher');
-    expect(a.launchers.map((l) => l.tubes)).toEqual([[0, 0], [0, 0]]);
-    expect(a.loadout[SLOT_TORP].state).toEqual({ n: 4, reloadMsLeft: 0 });
+  it('each kind brings its CONFIG tubes on the fore launcher, then the AFT arrives with as many, loaded (Eric 2026-11-25)', () => {
+    for (const [line, cfg] of KINDS) {
+      const w = bareWorld();
+      const a = place(w, 'a');
+      w.applyCard(a, line);
+      const full = new Array<number>(cfg.tubesPerLauncher).fill(0);
+      expect(a.launchers.map((l) => l.tubes), line).toEqual([full]);
+      w.applyCard(a, 'aftTorpedoLauncher');
+      expect(a.launchers.map((l) => l.tubes), line).toEqual([full, full]);
+      expect(a.loadout[SLOT_TORP].state, line).toEqual({ n: 2 * cfg.tubesPerLauncher * cfg.maxAmmo, reloadMsLeft: 0 });
+    }
   });
 
-  it('a new tube arrives LOADED beside a running one, whose clock is untouched', () => {
+  it('the AFT launcher arrives LOADED beside a running fore tube, whose clock is untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
     train(w, a, Math.PI / 2);
     clickTorpedo(w, a, Math.PI / 2);
-    const running = a.launchers[0].tubes[0];
-    expect(running).toBeGreaterThan(0);
-    w.applyCard(a, 'secondLauncherTube');
-    expect(a.launchers[0].tubes).toEqual([running, 0]);
+    const fore = [...a.launchers[0].tubes];
+    expect(fore[0]).toBeGreaterThan(0);
+    w.applyCard(a, 'aftTorpedoLauncher');
+    expect(a.launchers[0].tubes).toEqual(fore);
+    expect(a.launchers[1].tubes).toEqual(new Array<number>(a.stats.tubesPerLauncher).fill(0));
   });
 
   it('tier cards change no tube count (R4)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
+    const before = tubes(a).length;
     for (let i = 1; i < CATALOG.heavyTorpedo.cap; i += 1) w.applyCard(a, 'heavyTorpedo');
-    expect(tubes(a)).toHaveLength(1);
+    expect(tubes(a)).toHaveLength(before);
   });
 
   it('a fresh life brings the launchers back at rest and loaded', () => {
@@ -282,7 +305,7 @@ describe('launchers on the world — cards resize them, everything arrives loade
     w.sinkShip('a', 'b');
     for (let i = 0; i < 20_000 / DT && !isAfloat(a.lifecycle); i += 1) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true); // respawned (a standalone World respawns)
-    expect(a.launchers).toEqual([{ a: 0, tubes: [0] }]);
+    expect(a.launchers).toEqual([{ a: 0, tubes: allLoaded(a) }]);
   });
 });
 
@@ -359,7 +382,7 @@ describe('a RELOAD card mid-reload rescales every running tube and rack clock (n
     const w = bareWorld();
     const a = place(w, 'a');
     w.applyCard(a, 'heavyTorpedo');
-    w.applyCard(a, 'secondLauncherTube');
+    w.applyCard(a, 'aftTorpedoLauncher'); // so a loaded tube sits beside the running one whatever the kind's count
     w.applyCard(a, 'navalMines');
     w.applyCard(a, 'secondMineRack');
     train(w, a, Math.PI / 2);
@@ -377,7 +400,7 @@ describe('a RELOAD card mid-reload rescales every running tube and rack clock (n
     const mr = a.stats.equipment.navalMines.reloadMs / oldMine;
     expect(tr).toBeLessThan(1);
     expect(a.launchers[0].tubes[0]).toBeCloseTo(tubeLeft * tr, 9);
-    expect(a.launchers[0].tubes[1]).toBe(0);
+    expect(tubes(a).slice(1).every((t) => t === 0)).toBe(true);
     expect(a.racks.racks[0].reloadMsLeft).toBeCloseTo(rackLeft * mr, 9);
     expect(a.racks.racks[1].reloadMsLeft).toBe(0);
   });
@@ -401,7 +424,7 @@ describe('INSTANT RELOAD on the mounts (R14)', () => {
   it('loads every tube and gives ONE mine to each short rack', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, undefined, 'instantReload');
-    for (const id of ['heavyTorpedo', 'aftTorpedoLauncher', 'secondLauncherTube', 'navalMines', 'secondMineRack']) w.applyCard(a, id);
+    for (const id of ['heavyTorpedo', 'aftTorpedoLauncher', 'navalMines', 'secondMineRack']) w.applyCard(a, id);
     const reload = a.stats.equipment.navalMines.reloadMs;
     for (const l of a.launchers) l.tubes.fill(reload);
     a.racks.racks[0].n = 0;
@@ -409,9 +432,9 @@ describe('INSTANT RELOAD on the mounts (R14)', () => {
     a.racks.racks[1].n = 1;
     a.racks.racks[1].reloadMsLeft = reload / 2;
     expect(w.sinkingActivationGate(a, SLOT_BOOST).ok).toBe(true);
-    expect(loadedTubes(a)).toBe(4);
+    expect(loadedTubes(a)).toBe(tubeCount(a));
     expect(a.racks.racks.map((r) => r.n)).toEqual([1, 2]);
-    expect(a.loadout[SLOT_TORP].state!.n).toBe(4);
+    expect(a.loadout[SLOT_TORP].state!.n).toBe(tubeCount(a));
     expect(a.loadout[SLOT_MINE].state!.n).toBe(3);
   });
 });

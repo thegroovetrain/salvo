@@ -35,9 +35,11 @@
 // STORY 10.6 (Eric 2026-11-05) ADDED THREE PER-SHIP GROUPS the new cards
 // write: `repair` / `smoke` — the two cooldown abilities' numbers, improved by
 // the HULL REPAIR and SMOKE SCREEN ladders (sim/abilityStats.ts, R8 / R9) —
-// and the four MOUNT counts the one-off WEAPON cards buy (`torpedoLaunchers`,
-// `tubesPerLauncher`, `mineRacks`, `rackBonus` — sim/mountStats.ts, R6 / R7),
-// which become the torpedo and mine rows' capacity in clampStats. `maxHp` is 1000 on every hull
+// and the four MOUNT counts (`torpedoLaunchers`, `tubesPerLauncher`,
+// `mineRacks`, `rackBonus` — sim/mountStats.ts, R6 / R7; the one-off WEAPON
+// cards buy three, and `tubesPerLauncher` is the held torpedo kind's CONFIG
+// count since 2026-11-25), which become the torpedo and mine rows' capacity
+// in clampStats. `maxHp` is 1000 on every hull
 // (HULL POINTS is deleted), ARMOR is also the ramming MASS (sim/contact.ts
 // callers pass `stats.armor`), and `damageMultiplier` is published against an
 // AVERAGE attacker (POWER = base) so a base hull reads ×1. The `regen` pair is
@@ -123,7 +125,7 @@ import {
   type RepairStats,
   type SmokeStats,
 } from './abilityStats.js';
-import { BASE_MOUNTS, applyMountCapacity, clampMounts } from './mountStats.js';
+import { BASE_MOUNTS, applyMountCapacity, clampMounts, deriveTubesPerLauncher } from './mountStats.js';
 
 /**
  * What EVERY equipment row carries (Story 8.1).
@@ -479,7 +481,7 @@ export interface EffectiveStats {
   // THE MOUNTS the one-off WEAPON cards buy (Story 10.6, R6 / R7 / R10) —
   // family-wide, applied to whichever torpedo / mine is held:
   torpedoLaunchers: number; // 1 (fore) | 2 (+ AFT TORPEDO LAUNCHER)
-  tubesPerLauncher: number; // 1 | 2 (+ SECOND LAUNCHER TUBE, on every launcher)
+  tubesPerLauncher: number; // the held torpedo kind's CONFIG tubes, on every launcher (1 with none; DERIVED — Eric 2026-11-25)
   mineRacks: number; // 1 | 2 (+ SECOND MINE RACK)
   rackBonus: number; // 0 | 1 (+ EXPANDED MINE RACKS, on each rack)
   equipment: EquipmentRows;
@@ -1169,6 +1171,7 @@ export function effectiveStats(
   const points = bonus ?? NO_INDEX_BONUS;
   const stats = baseStats(cls);
   if (cards.length > 0) applyCardStats(stats, cards, catalog);
+  deriveTubesPerLauncher(stats, cards, catalog);
   applyIndexBonus(stats, points);
   clampStats(stats);
   return stats;

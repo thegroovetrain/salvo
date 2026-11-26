@@ -263,9 +263,9 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  *     the deal — R6), or the slot is missing from a malformed array. Before
  *     10.5 it meant "all three of Q/E/R occupied". The draw never offers such
  *     a line (sim/draw.ts), so this is the forced-pick gate.
- *   - `noHost` — an ADD-ON (since Story 10.6: the four one-off WEAPON cards,
- *     AFT TORPEDO LAUNCHER, SECOND LAUNCHER TUBE, SECOND MINE RACK and
- *     EXPANDED MINE RACKS) whose FAMILY SLOT holds none of the equipment it
+ *   - `noHost` — an ADD-ON (since Story 10.6: the one-off WEAPON cards,
+ *     AFT TORPEDO LAUNCHER, SECOND MINE RACK and EXPANDED MINE RACKS — SECOND
+ *     LAUNCHER TUBE was deleted 2026-11-25) whose FAMILY SLOT holds none of the equipment it
  *     names (Eric 2026-11-05, R10: "dealt only once their family slot is
  *     filled"). The draw never offers one either (`addonHosted`).
  *

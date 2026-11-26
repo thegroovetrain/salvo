@@ -116,10 +116,11 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'maxHp', 'armor', 'power', 'reload', 'engines', 'intel', 'radarRange',
       'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
       // Story 10.6: the two abilities' card-written halves (R8 / R9), then the
-      // four mount counts of the one-off WEAPON cards (R6 / R7).
+      // mount counts of the one-off WEAPON cards (R6 / R7) — `tubesPerLauncher`
+      // is derived from the torpedo kind since 2026-11-25.
       'repair.reload', 'repair.instantHp', 'repair.regenHp',
       'smoke.reload', 'smoke.lifeMs', 'smoke.sizeRung',
-      'torpedoLaunchers', 'tubesPerLauncher', 'mineRacks', 'rackBonus',
+      'torpedoLaunchers', 'mineRacks', 'rackBonus',
     ];
     for (const id of EQUIPMENT_IDS) {
       for (const f of EQUIPMENT_STAT_FIELDS[id] as readonly string[]) expected.push(`equipment.${id}.${f}`);
@@ -143,6 +144,8 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'hullSightRange', // the plain-hull eye (Story 11.2) — a CONFIG fact, never a card path
       'range', // RANGE left the index (Story 11.2, R9) — no `range` path is accepted
       'sweepPeriodMs',
+      // 2026-11-25 (Eric): the held torpedo kind's tube count — derived.
+      'tubesPerLauncher',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): derived from `armor`.
       'damageMultiplier',
       // Story 10.3 (epic-10 amendment 8): derived from the indices in

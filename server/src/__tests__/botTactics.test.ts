@@ -3160,10 +3160,10 @@ describe('TORPEDO LAUNCHERS — the bot clicks only when a tube fires and never 
     w.applyCard(rec, 'heavyTorpedo');
     w.applyCard(rec, 'aftTorpedoLauncher');
     const slot = slotOf(rec, 'heavyTorpedo');
-    rec.launchers[0].tubes[0] = 1e9; // fore reloading
-    rec.launchers[1].tubes[0] = 0; // aft loaded
+    rec.launchers[0].tubes.fill(1e9); // every fore tube reloading
+    rec.launchers[1].tubes.fill(0); // every aft tube loaded
     syncTorpSlot(rec, slot);
-    expect(rec.loadout[slot].state!.n).toBe(1); // the summary says "one loaded"
+    expect(rec.loadout[slot].state!.n).toBe(rec.launchers[1].tubes.length); // the summary says "the aft's loaded"
     const brg = (40 * Math.PI) / 180;
     expect(launcherArcHolds(rec.hullId, rec.stats.torpedoLaunchers, 0, brg)).toBe(true); // ...and a band holds the bearing
     const mind = mkMind('raider');
