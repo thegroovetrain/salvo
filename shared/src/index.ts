@@ -4,7 +4,7 @@
 
 /** Bumped on any breaking change to the client/server wire protocol.
  *  116 — 2026-11-25 TORPEDO TUBES BY KIND + THE MINE DROP WAIT (Eric;
- *  placeholder — final number at PR time). Boon catalog content: the
+ *  cycle 256, 0.20.14, epic-13 amendment 5). Boon catalog content: the
  *  `secondLauncherTube` line is DELETED (26 → 25 lines). Wire shape: each
  *  `OwnShip.racks[]` entry gains an optional `gapMsLeft` (the rack's drop
  *  wait, present only while > 0; own frame only, `you` — never a contact);
