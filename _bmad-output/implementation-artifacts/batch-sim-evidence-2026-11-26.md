@@ -61,3 +61,36 @@ None measured; all are unmeasured candidates for Eric's ruling.
 **Ruling:** none yet.
 
 **After this campaign (Eric 2026-11-26):** *"Take out the 3s wait on mines. I changed my mind."* The drop wait was removed from PR #392 before landing, so this arm measured a mine rule that does not ship. Its mine readings (mine kills 5.7 %; captive / fouling / naval 7.3 / 6.4 / 6.3 %) include the wait.
+
+## Phosphor all burn, no burst (Eric 2026-11-26: "run a 100 match sim on removing all of the initial burst damage from the phosphor shells and having it be all DOT")
+
+**Arm `phos-dot`:** `--tune phosphorShells.damage=0` (burst 20 → 0), with the burn unchanged at 10/s. That is a reading: the burst is removed and its 20 hp is not moved into the burn.
+- Branch `torpedo-tubes-by-kind` at b5f301ec, **after the drop wait was withdrawn**.
+- 100 matches, base seed 2000 (the shard seeds overlap the first matches of `pr392`), even roster.
+- 100/100 resolved; all four quality bars passed in 12/12 shards.
+
+**Confound:** the comparison arm `pr392` (above) still had the mine drop wait. The two arms therefore differ in two things, phosphor burst and the mine wait.
+
+| arm | n | Yamato | Bismarck | Warspite | Iowa | median s | alive 4:00 / 8:00 |
+|---|---|---|---|---|---|---|---|
+| pr392 (burst 20, wait on) | 198 | 29.8 (24–37) | 24.2 (19–31) | 22.7 (17–29) | 23.2 (18–30) | 667 | 10.8 / 4.0 |
+| phos-dot (burst 0, no wait) | 100 | **39.0 (30–49)** | 28.0 (20–37) | 22.0 (15–31) | **11.0 (6–19)** | 669 | 10.9 / 4.1 |
+
+Differences, phos-dot − pr392 (pp, 95 % CI): Yamato +9.2 [−2.3, +20.7], Bismarck +3.8 [−6.9, +14.4], Warspite −0.7 [−10.7, +9.3], **Iowa −12.2 [−20.7, −3.7], significant**.
+
+The Iowa drop cannot be attributed to phosphor: the mine wait also left between the arms, and Iowa read 15.8 and 17.8 in two earlier no-wait baselines.
+
+**Special shells** (per-bot win %, fair 6.3 %):
+
+| arm | phosphor | flash | fouling | star |
+|---|---|---|---|---|
+| pr392 | 10.7 [8.6, 13.1] | 6.4 | 4.9 | 4.1 |
+| phos-dot | **7.6 [5.2, 10.8]** | 7.1 | 6.6 | 5.0 |
+
+- Phosphor kills per bot fell from 1.25 to 1.08, and damage per bot from 2529 to 2323.
+- Burn kills: 3.0 % → 2.6 %.
+- Kills by source are otherwise unchanged: burst 55.0, torpedo 24.2, shell 9.7, mine 6.4 %.
+
+**Reading:** with no burst, phosphor's interval covers the fair rate for the first time in any campaign, and the four special shells sit within about 2.6 pp of one another. The hull readings moved too: Yamato up and Iowa down, with Iowa's drop significant. That hull shift is confounded and needs a clean baseline before anyone believes it.
+
+**Ruling:** none yet.
