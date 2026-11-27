@@ -71,7 +71,7 @@ export interface SessionLockHandle {
   release(): void;
 }
 
-/** The one thing this needs from the home screen — its status line. Narrowed to
+/** The one thing this needs from the home screen — its notice. Narrowed to
  *  a single method so nothing in `app/` depends on the home's DOM. */
 export interface StatusSink {
   setStatus(text: string, tone?: StatusTone): void;
@@ -84,7 +84,7 @@ const NOOP_HANDLE: SessionLockHandle = { release: () => undefined };
  * The refusal, in the house register (uppercase, mono, terse, nautical) and in
  * the two-part `<STATE> — <REMEDY>` grammar every other denied line uses
  * (`VERSION MISMATCH — PLEASE REFRESH THE PAGE`, `QUEUE CLOSED — PLEASE TRY
- * AGAIN`). It goes out through the home's EXISTING status line: no alert, no
+ * AGAIN`). It goes out through the home's notice under CREATE | JOIN: no alert, no
  * dead button, no silent no-op, and the tab stays fully usable — press SOLO
  * again once the other tab finishes and it deploys, with no reload.
  */
@@ -228,7 +228,7 @@ export function releaseSessionLock(): void {
 }
 
 /**
- * Claim the lock for a deploy, painting the refusal on the home's status line
+ * Claim the lock for a deploy, showing the refusal in the home's notice
  * when another tab has it. Returns true when the deploy may proceed — which
  * includes every fail-open case.
  */

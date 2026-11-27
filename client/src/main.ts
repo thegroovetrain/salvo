@@ -218,7 +218,6 @@ import {
   loadSavedMode,
   loadSavedName,
   saveMode,
-  serverStatusLine,
   showHome,
   type DeployMode,
   type HomeHandle,
@@ -5829,10 +5828,11 @@ function markPrivateSession(on: boolean): void {
 //
 // Neither caller exists any more. The queue's wait moved to its own surface
 // (ui/queueModal.ts) and the collapse register was deleted outright with no
-// replacement copy, so `h.statusEl` has exactly one owner again: the server
-// probe, plus the connect flow's own CONNECTING… / failure line. A hold with
-// nothing to arbitrate is a dead knob, so it goes rather than being kept "in
-// case". `startGame` lost its `statusHoldMs` parameter with it.
+// replacement copy. (Since Eric's 2026-11-27 split the probe has its own server
+// icon and the connect flow's messages their own notice under CREATE | JOIN,
+// which holds and fades on its own clock.) A hold with nothing to arbitrate is
+// a dead knob, so it goes rather than being kept "in case". `startGame` lost its
+// `statusHoldMs` parameter with it.
 
 /**
  * Tear the arena session's Pixi app down and hand the shell back to port,
@@ -5964,7 +5964,8 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   // line: that home exists for a fraction of a frame and re-deploys itself, so
   // counting it would inflate home→mode_pick with a step no human took.
   analytics.home();
-  // Client-side server-health probe → the status line (probing → ready/unreachable).
+  // Client-side server-health probe → the top-left server icon + its tooltip
+  // (probing → ready/unreachable). It never touches the notice.
   void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
   // Story 6.6: the population register + the SOLO door's queue count. Started
   // only on THIS branch — the autoQueue path above returns straight into a
@@ -5978,8 +5979,8 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
  *
  * Claimed HERE, at deploy, rather than at page load: a second tab merely sitting
  * on the home screen is harmless, and only an actual connection attempt is worth
- * refusing. A refusal paints the home's own status line (the existing register —
- * no alert, no dead button, no silent no-op) and un-busies both doors, so the
+ * refusing. A refusal shows in the home's notice under CREATE | JOIN (no
+ * alert, no dead button, no silent no-op) and un-busies both doors, so the
  * tab stays fully usable: press SOLO again once the other tab finishes and it
  * deploys, with no reload.
  *
@@ -5994,22 +5995,18 @@ async function claimPortForDeploy(home: HomeHandle): Promise<boolean> {
 }
 
 /**
- * Give the status line beside HOW TO PLAY back to the SERVER register, which is
- * the only thing it is for (Eric ruling 2026-08-18).
+ * Hand the home back to a live port (Eric 2026-11-27): the server icon reads
+ * READY and the notice under CREATE | JOIN is cleared.
  *
- * Why it goes through `setStatus` rather than `setServerProbe`: the handle locks
- * the line the moment the connect flow writes to it, so a probe resolving late
- * cannot stomp a live `CONNECTING…`. That guard is right and stays — but these
- * two transitions (entering the pool, and cancelling out of it) are DELIBERATE
- * hand-backs, not late arrivals, so they have to be able to write through it.
- *
- * READY rather than a re-probe because reachability was just PROVEN: we held a
- * socket to the queue room. And the copy comes from `serverStatusLine` itself,
- * never a literal, so this can never drift from what the probe says.
+ * Called on the two deliberate hand-backs — entering the pool (or a private
+ * lobby), and cancelling out of it — so CONNECTING… is not left standing for
+ * a wait the queue modal now owns. READY rather than a re-probe because
+ * reachability was just PROVEN: we held a socket to the queue room. No text is
+ * written anywhere; the probe and the notice are independent surfaces.
  */
 function handStatusBackToServer(home: HomeHandle): void {
-  const line = serverStatusLine('ready');
-  home.setStatus(line.text, line.tone);
+  home.setServerProbe('ready');
+  home.clearStatus();
 }
 
 async function startGame(
@@ -6051,7 +6048,7 @@ async function startGame(
     // Story 6.1: `connect()` now queues first and only resolves once the ARENA
     // welcome lands, so the home stays up (and the ambient keeps breathing)
     // for the whole pooled wait. The two hooks are that wait's entire surface,
-    // and BOTH now drive the queue MODAL rather than the home's status line
+    // and BOTH now drive the queue MODAL rather than the home's notice
     // (Eric ruling 2026-08-18): `onQueued` opens and closes it, `onQueue` feeds
     // it the live count. Story 6.5: a SOLO VS AI deploy never enters the pool,
     // so it is handed NO queue hooks at all — there is no modal to open and
@@ -6066,14 +6063,12 @@ async function startGame(
             onQueue: (q) => home.setQueue(q),
             onQueued: (cancel) => {
               home.setCancel(cancel);
-              // ...and hand the status line back to the server register the
-              // moment the modal takes over (Eric ruling 2026-08-18). Being
-              // pooled is not "connecting" — the socket is up, which is exactly
-              // what joining the queue proved — so leaving CONNECTING… parked
-              // there for the whole two-minute wait would be the status line
-              // telling a second lie about a second thing. `null` (the modal
-              // closing) deliberately does NOT touch it: by then either the
-              // catch block above has spoken, or the match is starting.
+              // ...and hand the home back the moment the modal takes over: the
+              // server icon reads READY and the notice clears. Being pooled is
+              // not "connecting" — the socket is up, which is exactly what
+              // joining the queue proved. `null` (the modal closing)
+              // deliberately does NOT touch it: by then either the catch block
+              // below has spoken, or the match is starting.
               if (cancel) handStatusBackToServer(home);
             },
           },
@@ -6088,14 +6083,12 @@ async function startGame(
     releaseSessionLock();
     const cancelled = isQueueCancelled(err);
     if (!cancelled) console.error('[net] connection failed', err);
-    // A CANCEL WRITES NOTHING TO THE STATUS LINE (Eric ruling 2026-08-18: "stop
-    // CHANGING THE TEXT ON THE PAGE THAT SERVES ANOTHER PURPOSE"). Leaving the
-    // pool is not a connection outcome and the line beside HOW TO PLAY is the
-    // server register, so it goes back to reporting the server — and it reports
+    // A CANCEL WRITES NO MESSAGE (Eric ruling 2026-08-18). Leaving the pool is
+    // not a connection outcome: the notice is cleared and the server icon reads
     // READY rather than re-probing, because we demonstrably just held a socket
-    // to it. A genuine FAILURE still speaks here: EXPERIENCE.md requires a
-    // failed connection to surface on this line rather than a dead screen, and
-    // that IS server news.
+    // to it. A genuine FAILURE still speaks, in the notice under CREATE | JOIN
+    // (Eric 2026-11-27): EXPERIENCE.md requires a failed connection to surface
+    // on the home rather than a dead screen.
     if (cancelled) handStatusBackToServer(home);
     else home.setStatus(connectErrorStatus(err), 'denied');
     home.setBusy(false);
@@ -6141,7 +6134,7 @@ function launchFromPort(
 /**
  * The port-side seams the private-lobby doors drive (app/privateLobby.ts) —
  * each one the queue door's own step, so a lobby deploy claims the same lock,
- * says the same things on the status line and launches the same way.
+ * says the same things in the notice and launches the same way.
  */
 function privateDeps(
   shell: Shell,
@@ -6517,10 +6510,9 @@ async function main(): Promise<void> {
 
   enterPort(shell, false); // the ordinary door: the home waits for PLAY
   if (resumed === 'failed') {
-    // One plain sentence on the line EXPERIENCE.md already names for exactly
-    // this ("failed connection surfaces on the home status line, never a dead
-    // screen"). It locks the register, so the server probe behind it yields —
-    // which is right: this IS the news.
+    // One plain sentence in the home's notice under CREATE | JOIN (Eric
+    // 2026-11-27; EXPERIENCE.md: a failed connection surfaces on the home, never
+    // a dead screen). The server icon is independent and keeps its probe.
     const line = resumeFailedStatus();
     homeRef?.setStatus(line.text, line.tone);
   }

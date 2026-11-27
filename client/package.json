@@ -15,6 +15,7 @@
   "dependencies": {
     "@colyseus/sdk": "^0.18.2",
     "@fortawesome/free-brands-svg-icons": "^7.3.1",
+    "@fortawesome/free-solid-svg-icons": "^7.3.1",
     "@salvo/shared": "*",
     "pixi.js": "^8.19.0"
   },

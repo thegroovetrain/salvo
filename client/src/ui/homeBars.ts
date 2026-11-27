@@ -7,24 +7,27 @@
 // viewport layer). The bars never move; the `main` row centers the console and
 // scrolls internally only when a window is shorter than the console.
 //
-//   header: server status (left) · PLAYERS ONLINE / LIVE GAMES (center) · the
+//   header: the server icon (left, ui/serverStatus.ts) · PLAYERS ONLINE / LIVE GAMES (center) · the
 //           settings gear (right)
 //   main:   the squared console — wordmark, tagline, then callsign, class chip
-//           and the four doors on one 540px column
+//           and the four doors on one 540px column, with the status notice
+//           (ui/homeNotice.ts, Eric 2026-11-27) in its reserved slot under
+//           CREATE | JOIN
 //   footer: `© {year}` and the version line (left) · HOW TO PLAY · PRIVACY
 //           (center) · the social brand icons (right)
 //
 // Each bar is a BAND: the panel tone at 72% alpha with a hairline edge toward
 // the console, so its readouts stay legible over any water. Every footer piece
 // is a SERVED element adopted by `ui/homeStatic.ts`, never rebuilt here; the
-// header's pieces are JS-driven (the probe, the liveness poll, the gear).
+// header's pieces are JS-driven (the probe's icon, the liveness poll, the gear).
 //
 // THE SHORT WINDOW. The design's sizes switch to a tighter rhythm below a
 // 600px-tall window (bars 60 → 48, doors 64 → 44, …). Inline styles cannot hold
 // a media query, so the sizes are custom properties on `#main-menu`, set by the
 // one small stylesheet `ensureHomeStyle` injects, and every inline style reads
 // them by `var()`. That sheet also carries the keyboard focus ring for the
-// bars' links and the gear (`:focus-visible` cannot be inline either).
+// bars' links, the gear and the server icon (`:focus-visible` cannot be inline
+// either).
 //
 // JSDOM HAZARD: a `border:` or `background:` SHORTHAND inside a `cssText` blob
 // voids the whole blob there, so the band's bed and edge are longhands.
@@ -56,7 +59,12 @@ const SIZES: Record<string, readonly [string, string]> = {
   '--hc-home-input': ['52px', '44px'],
   '--hc-home-chip': ['64px', '56px'],
   '--hc-home-mark-vh': ['11vh', '9.5vh'],
+  /** The notice slot under CREATE | JOIN: one line of the 15px bar text. */
+  '--hc-home-notice': ['24px', '20px'],
 };
+
+/** The server icon's class — the focus ring below targets it. */
+export const SERVER_ICON_CLASS = 'hc-server-icon';
 
 function sizeRule(pick: 0 | 1): string {
   return `#${HOME_ID}{${Object.entries(SIZES).map(([k, v]) => `${k}:${v[pick]}`).join(';')}}`;
@@ -69,7 +77,8 @@ export function ensureHomeStyle(doc: Document = document): void {
   const style = doc.createElement('style');
   style.id = HOME_STYLE_ID;
   const focus =
-    `#${HOME_ID} header [role="button"]:focus-visible,#${HOME_ID} footer a:focus-visible` +
+    `#${HOME_ID} header [role="button"]:focus-visible,#${HOME_ID} header .${SERVER_ICON_CLASS}:focus-visible,` +
+    `#${HOME_ID} footer a:focus-visible` +
     '{outline:2px solid var(--hc-phosphor);outline-offset:4px;border-radius:2px}';
   style.textContent =
     sizeRule(0) + `@media (max-height:${SHORT_WINDOW_PX}px){${sizeRule(1)}}` + focus;
@@ -119,20 +128,6 @@ function makeBar(tag: 'header' | 'footer', edge: Edge, slots: readonly HTMLEleme
   return bar;
 }
 
-/** The server status line (the probe's, plus the connect flow's register). */
-export function makeStatusEl(): HTMLElement {
-  const el = document.createElement('span');
-  el.style.cssText = BAR_TEXT_CSS;
-  // A long connect-flow line (ALREADY AT SEA…, CONNECTION FAILED…) is wider than
-  // its third of the bar at 1366–1440: it WRAPS inside its own slot (two lines
-  // fit both bar heights) instead of painting over PLAYERS ONLINE.
-  el.style.whiteSpace = 'normal';
-  el.style.lineHeight = '1.25';
-  el.style.minWidth = '0';
-  el.style.overflowWrap = 'anywhere';
-  return el;
-}
-
 export interface LivenessEls {
   root: HTMLElement;
   players: HTMLElement;
@@ -177,9 +172,9 @@ export function makeGear(onClick: () => void): HTMLElement {
   return gear;
 }
 
-/** The top bar: status left, liveness center, gear right. */
-export function makeHeader(status: HTMLElement, liveness: HTMLElement, gear: HTMLElement): HTMLElement {
-  return makeBar('header', 'bottom', [[status], [liveness], [gear]]);
+/** The top bar: the server icon left, liveness center, gear right. */
+export function makeHeader(server: HTMLElement, liveness: HTMLElement, gear: HTMLElement): HTMLElement {
+  return makeBar('header', 'bottom', [[server], [liveness], [gear]]);
 }
 
 function styleFooterPieces(served: ServedHome): void {

@@ -15,7 +15,7 @@ import { faDiscord, faReddit } from '@fortawesome/free-brands-svg-icons';
 import type { CommunityService } from '../ui/communityLinks.js';
 
 /** The part of an FA icon definition this reads: `[width, height, _, _, path]`. */
-interface IconData {
+export interface IconData {
   icon: readonly [number, number, unknown, unknown, string | readonly string[]];
 }
 
@@ -28,14 +28,22 @@ const ICONS: Record<CommunityService, IconData> = {
 /** The rendered icon height in px; the width follows the icon's own aspect. */
 export const SOCIAL_ICON_PX = 22;
 
+/** Any FA icon definition as an inline, decorative `<svg>` string `px` tall
+ *  (the width follows its aspect), filled with `currentColor`. Its host element
+ *  carries the accessible name. Shared with the home's server icon
+ *  (ui/serverStatus.ts). */
+export function faIconSvg(def: IconData, px: number): string {
+  const [w, h, , , path] = def.icon;
+  const paths = (typeof path === 'string' ? [path] : path).map((d) => `<path d="${d}"></path>`).join('');
+  const width = Math.round((px * w) / h);
+  return (
+    `<svg viewBox="0 0 ${w} ${h}" width="${width}" height="${px}" fill="currentColor" ` +
+    `aria-hidden="true" focusable="false">${paths}</svg>`
+  );
+}
+
 /** A service's brand icon as an inline, decorative `<svg>` (its anchor carries
  *  the accessible name). */
 export function socialIconSvg(service: CommunityService): string {
-  const [w, h, , , path] = ICONS[service].icon;
-  const paths = (typeof path === 'string' ? [path] : path).map((d) => `<path d="${d}"></path>`).join('');
-  const width = Math.round((SOCIAL_ICON_PX * w) / h);
-  return (
-    `<svg viewBox="0 0 ${w} ${h}" width="${width}" height="${SOCIAL_ICON_PX}" fill="currentColor" ` +
-    `aria-hidden="true" focusable="false">${paths}</svg>`
-  );
+  return faIconSvg(ICONS[service], SOCIAL_ICON_PX);
 }

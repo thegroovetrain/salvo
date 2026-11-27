@@ -139,7 +139,7 @@ export interface Connection {
 }
 
 /**
- * Client-only server health probe (Story 1.14) for the home status line — NOT a
+ * Client-only server health probe (Story 1.14) for the home's server icon — NOT a
  * new server endpoint (Eric ruling: probe the existing HTTP surface). Fires a
  * best-effort request at the server's HTTP origin, derived from the SAME
  * env/origin logic `connect()` uses (`wsEndpoint()`, ws→http / wss→https), with
@@ -574,7 +574,7 @@ export async function resumeConnection(): Promise<Connection | null> {
 }
 
 /**
- * The home status line for a resume that could not land (Story 6.7).
+ * The home notice for a resume that could not land (Story 6.7).
  *
  * The two-part `<STATE> — <REMEDY>` grammar every other denied/info line on this
  * surface already uses (`VERSION MISMATCH — PLEASE REFRESH THE PAGE`, `QUEUE

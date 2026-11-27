@@ -54,7 +54,8 @@ export interface PrivateLobbyDeps {
   home: HomeHandle;
   /** The single-session lock; on refusal it paints + un-busies the home itself. */
   claimPort(): Promise<boolean>;
-  /** The lobby socket is up — the status line goes back to the server register. */
+  /** The lobby socket is up — the home goes back to a live port (server icon
+   *  READY, notice cleared). */
   serverReady(): void;
   /** The lobby ended without a match: release the lock, un-busy, resume the port. */
   backToPort(): void;
@@ -138,7 +139,7 @@ async function joinWithCode(
   setJoinCodePending(true);
   deps.home.setBusy(true);
   if (!(await deps.claimPort())) {
-    hideJoinCodeModal(); // the refusal is on the home's status line — let it show
+    hideJoinCodeModal(); // the refusal is in the home's notice — let it show
     return;
   }
   if (attempt.cancelled) {

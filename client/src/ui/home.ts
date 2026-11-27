@@ -7,14 +7,14 @@
 // door centered on the row below (Story 6.5 — the port's two doors; Eric ruling
 // 2026-08-17 relabelled PLAY → SOLO and deleted both sub-lines), a How-to-Play
 // link (REAL as of Story 7.3 — it used to paint a stub, and there is a page
-// behind it now) + server status line, and the settings gear — which as of
+// behind it now), the server icon, the status notice, and the settings gear — which as of
 // Story 2.3 opens the REAL settings overlay (ui/settings.ts), as does ESC with
 // the class bay closed.
 //
 // THE FRAME IS ui/homeBars.ts (Eric ruling 2026-11-25, "A3 · Banded Bars"): a
-// three-row grid — a top bar (server status · PLAYERS ONLINE / LIVE GAMES ·
+// three-row grid — a top bar (server icon · PLAYERS ONLINE / LIVE GAMES ·
 // gear), the console row (`<main>`: wordmark, tagline, then one 540px column of
-// callsign, chip and doors) and a bottom bar (© year + version · HOW TO PLAY ·
+// callsign, chip, doors and the notice) and a bottom bar (© year + version · HOW TO PLAY ·
 // PRIVACY · social icons). Nothing in it is absolutely positioned.
 //
 // STORY 6.6 gave the port its first knowledge of the world outside it: a
@@ -48,10 +48,17 @@
 //
 // THE QUEUE'S OWN WAIT IS NOT HERE EITHER (Eric rulings 2026-08-18). It has
 // its own surface — ui/queueModal.ts, opened and closed by `setCancel()` — and
-// the status line beside HOW TO PLAY is the SERVER PROBE's alone again (*"Get
-// rid of this information message that pops up next to 'HOW TO PLAY' and
-// replaces the server status"*). The modal keeps its own `N/20 QUEUED` line
-// (epic-6 amendment 42); that surface is untouched by the ruling above.
+// it writes nothing to the home's status surfaces. The modal keeps its own
+// `N/20 QUEUED` line (epic-6 amendment 42); that surface is untouched.
+//
+// THE SERVER READOUT AND THE STATUS MESSAGES ARE SPLIT (Eric 2026-11-27). The
+// top-left used to be one shared `SERVER: …` line the connect flow also wrote
+// into. Now the top-left is the server ICON (ui/serverStatus.ts), tinted by the
+// probe with a hover/focus tooltip, and every status message (`setStatus`:
+// CONNECTING…, connect failures, the session-busy refusal, private-lobby
+// errors, the resume failure) goes to the NOTICE under CREATE | JOIN
+// (ui/homeNotice.ts), which holds, fades and clears. The two never touch each
+// other, so the old `statusLocked` guard is gone.
 //
 // THE COMMUNITY LINKS (Eric rulings 2026-08-28 and 2026-11-25) are icon-only
 // anchors wearing each service's brand icon at the right of the bottom bar.
@@ -104,9 +111,10 @@ import {
   makeHeader,
   makeLiveness,
   makeOverlay,
-  makeStatusEl,
   type LivenessEls,
 } from './homeBars.js';
+import { makeHomeNotice, type HomeNotice, type StatusLine, type StatusTone } from './homeNotice.js';
+import { makeServerStatus, type ProbeState, type ServerStatusEls } from './serverStatus.js';
 import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
@@ -302,20 +310,11 @@ export function saveMode(mode: DeployMode): void {
 // slot machinery those two lines needed is what let the home escape the settings
 // yield (a descendant `visibility:visible` beats the root's `hidden`).
 
-export type ProbeState = 'probing' | 'ready' | 'unreachable';
-export type StatusTone = 'info' | 'denied' | 'tertiary';
-export interface StatusLine {
-  text: string;
-  tone: StatusTone;
-}
-
-/** Server status line copy + tone from the probe outcome (Eric ruling — client
- *  probe, no server endpoint). READY/CHECKING are quiet; UNREACHABLE is denied. */
-export function serverStatusLine(state: ProbeState): StatusLine {
-  if (state === 'ready') return { text: 'SERVER: READY', tone: 'tertiary' };
-  if (state === 'unreachable') return { text: 'SERVER: UNREACHABLE', tone: 'denied' };
-  return { text: 'SERVER: CHECKING…', tone: 'tertiary' };
-}
+// The status types live with their surfaces now (Eric 2026-11-27): the message
+// tone/line with the notice, the probe state with the server icon. Re-exported
+// so callers (app/sessionLock.ts, main.ts) keep importing them from here.
+// `serverStatusLine` (the `SERVER: READY` text) is RETIRED with the text line.
+export type { ProbeState, StatusLine, StatusTone };
 
 // RETIRED (Eric ruling 2026-08-18): `queueStatusLine()` and
 // `requeueStatusLine()`. Both painted `h.statusEl` — the line beside HOW TO PLAY
@@ -325,9 +324,8 @@ export function serverStatusLine(state: ProbeState): StatusLine {
 // ui/queueModal.ts, which is a surface of its own; the collapse register
 // (`LOBBY DISBANDED — SEARCHING FOR A NEW MATCH`) is DELETED with no replacement
 // copy anywhere, because an auto-requeue now simply shows the same `N/20 QUEUED`
-// as any other queue join. Nothing about the queue may write to `h.statusEl`
-// again — it carries the probe, plus the connect flow's own CONNECTING… /
-// failure register, and nothing else.
+// as any other queue join. Nothing about the queue may write to the home's
+// status surfaces — not the server icon, not the notice (Eric 2026-11-27).
 //
 // `countdownMmSs` went with them: it lives in ui/queueModal.ts now, next to the
 // only countdown left in the port.
@@ -355,20 +353,17 @@ export function livenessLines(p: LivenessPayload | null): LivenessLines | null {
   return { players: `PLAYERS ONLINE: ${p.playersOnline}`, games: `LIVE GAMES: ${p.liveGames}` };
 }
 
-function toneColor(tone: StatusTone): string {
-  if (tone === 'info') return 'var(--hc-info)';
-  if (tone === 'denied') return 'var(--hc-denied)';
-  // Story 2.3 (amendment 17): the quiet tone is a SYSTEM line, not decoration —
-  // it reads phosphor now, never the retired grey.
-  return 'var(--hc-phosphor)';
-}
-
 // --- handle ------------------------------------------------------------------
 
 export interface HomeHandle {
-  /** Generic status-line setter (connect flow: CONNECTING / failure copy). */
+  /** Show a status message in the notice under CREATE | JOIN (CONNECTING…,
+   *  failures, refusals). It holds, fades and clears on its own; a new one
+   *  replaces it and restarts the clock. Never touches the server icon. */
   setStatus(text: string, tone?: StatusTone): void;
-  /** Server-probe status line (probing → ready / unreachable). */
+  /** Blank the notice now (the connect flow handing back to a live port). */
+  clearStatus(): void;
+  /** Tint the server icon and its tooltip by the probe (probing → ready /
+   *  unreachable). Never touches the notice. */
   setServerProbe(state: ProbeState): void;
   /** Disable/enable BOTH deploy doors (PLAY + SOLO VS AI) while a join is in flight. */
   setBusy(busy: boolean): void;
@@ -396,7 +391,7 @@ export interface HomeHandle {
    * This is the AUTHORITATIVE queue read: once you are in the pool the room
    * pushes on every change, where `setLiveness` is a 10s poll for players still
    * standing in port (and main.ts stands it down at the deploy door). It writes
-   * ONLY to the modal — never to the status line, which is the server probe's.
+   * ONLY to the modal — never to the notice or the server icon.
    */
   setQueue(status: QueueStatusMsg): void;
   /**
@@ -698,13 +693,19 @@ function makeModeRow(...buttons: HTMLElement[]): HTMLElement {
  * the doors with the rest of the console, and the console row's safe-center
  * scroll (ui/fit.ts) backstops anything shorter still.
  */
-function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement, privateRow: HTMLElement): HTMLElement {
+function makeDeployStack(
+  modeRow: HTMLElement,
+  soloBtn: HTMLElement,
+  privateRow: HTMLElement,
+  notice: HTMLElement,
+): HTMLElement {
   const stack = document.createElement('div');
   stack.style.cssText =
     'display:flex;flex-direction:column;align-items:center;gap:var(--hc-home-door-gap);' +
     'margin-top:var(--hc-home-doors-mt);width:100%';
-  // ROW 3 (cycle 167, Eric ruling 7): CREATE / JOIN — ui/privateRow.ts.
-  stack.append(modeRow, soloBtn, privateRow);
+  // ROW 3 (cycle 167, Eric ruling 7): CREATE / JOIN — ui/privateRow.ts. Under
+  // it, the status notice's always-reserved slot (Eric 2026-11-27).
+  stack.append(modeRow, soloBtn, privateRow, notice);
   return stack;
 }
 
@@ -715,7 +716,10 @@ interface Home {
   input: HTMLInputElement;
   /** The own accent the port chrome is tinted with (ui/ownAccent.ts). */
   accent: OwnAccent;
-  statusEl: HTMLElement;
+  /** The top bar's server icon + tooltip (the probe's alone). */
+  server: ServerStatusEls;
+  /** The status-message slot under CREATE | JOIN. */
+  notice: HomeNotice;
   /** Leave the queue, set by setCancel() while the player is pooled. The
    *  AFFORDANCE lives in ui/queueModal.ts now; this is retained as the home's
    *  record of whether a wait is cancellable at all. */
@@ -753,10 +757,8 @@ interface Home {
   /** The live class-select layer, if open — so hide() can tear it down instead of
    *  orphaning its window listener (which could write hullcracker.class in-game). */
   layer: ClassSelectHandle | null;
-  /** True once the connect flow has written the status line (CONNECTING / error):
-   *  a late server-probe resolution must NOT overwrite it (status state machine). */
-  statusLocked: boolean;
-  /** The line currently painted — what a mid-flight PLAY press re-asserts. */
+  /** The last message shown (null after `clearStatus`) — what a mid-flight
+   *  press re-shows (never-silence), even once the notice has faded. */
   lastStatus: StatusLine | null;
   /** Teardown for subscriptions/listeners created at mount (run by hide()). */
   disposers: Array<() => void>;
@@ -788,8 +790,7 @@ function paintLiveness(h: Home): void {
 
 function paintStatus(h: Home, text: string, tone: StatusTone): void {
   h.lastStatus = { text, tone };
-  h.statusEl.textContent = text;
-  h.statusEl.style.color = toneColor(tone);
+  h.notice.show(text, tone);
 }
 
 /**
@@ -857,10 +858,8 @@ function setClass(h: Home, cls: ShipClassId): void {
  *  actions share this body — the class, the callsign and the never-silence rule
  *  are identical; only the door differs. */
 function deploy(h: Home, go: DeployFn): void {
-  // Never-silence: a press mid-connect re-asserts the LIVE status line rather
-  // than dying. It re-asserts what is ALREADY painted (not a fixed CONNECTING…)
-  // because Story 6.1's queue readout only refreshes when the server pushes —
-  // stamping CONNECTING… over it would blank the countdown until the next push.
+  // Never-silence: a press mid-connect re-shows the LAST message in the notice
+  // (restarting its hold), or CONNECTING… when none is left, rather than dying.
   if (h.busy) return paintStatus(h, ...statusTuple(h.lastStatus ?? { text: NOTE_CONNECTING, tone: 'info' }));
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
@@ -946,10 +945,10 @@ function mountHome(
     h.chip.root,
     // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
     // (SOLO VS AI) — Eric ruling 2026-08-17.
-    makeDeployStack(makeModeRow(playBtn), soloBtn, h.privateRow.root),
+    makeDeployStack(makeModeRow(playBtn), soloBtn, h.privateRow.root, h.notice.root),
   );
   h.overlay.append(
-    makeHeader(h.statusEl, h.livenessEls.root, makeGear(() => h.onSettings())),
+    makeHeader(h.server.root, h.livenessEls.root, makeGear(() => h.onSettings())),
     makeConsoleRow(makeWordmark(served), column),
     makeFooter(served),
   );
@@ -970,7 +969,6 @@ function mountHome(
     paintCallsign(h);
   });
   repaintAccent(h);
-  paintStatus(h, ...statusTuple(serverStatusLine('probing')));
   return bindHomeKeys(h);
 }
 
@@ -1032,11 +1030,14 @@ export function showHome(
   onHornPreview: (id: HornId) => void = () => undefined,
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
+  // A re-mount without a hide() must not leave the old notice's timers running.
+  liveNotice?.dispose();
   ensureHomeStyle();
   const overlay = makeOverlay();
 
   const input = makeNameField();
-  const statusEl = makeStatusEl();
+  const notice = makeHomeNotice();
+  liveNotice = notice;
   const play = makePlayButton(() => onPlay(h));
   const solo = makeSoloButton(() => onSolo(h));
   const chip = makeChip(() => openLayer(h));
@@ -1045,7 +1046,8 @@ export function showHome(
     overlay,
     input,
     accent: OWN_ACCENT,
-    statusEl,
+    server: makeServerStatus(),
+    notice,
     cancel: null,
     chip,
     playBtn: play,
@@ -1064,7 +1066,6 @@ export function showHome(
     busy: false,
     inputFocused: false,
     layer: null,
-    statusLocked: false,
     lastStatus: null,
     disposers: [],
   };
@@ -1075,18 +1076,21 @@ export function showHome(
   return makeHandle(h, keyHandler);
 }
 
-/** Build the HomeHandle main.ts drives — status state machine, busy dimming, and
- *  a hide() that tears down the layer + all mount-time subscriptions. */
+/** The mounted home's notice, so a re-mount can dispose its timers. */
+let liveNotice: HomeNotice | null = null;
+
+/** Build the HomeHandle main.ts drives — the notice, the server icon, busy
+ *  dimming, and a hide() that tears down the layer, the notice's timers and all
+ *  mount-time subscriptions. */
 function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle {
   return {
-    setStatus: (text, tone = 'tertiary') => {
-      h.statusLocked = true; // the connect flow owns the line now; late probes yield
-      paintStatus(h, text, tone);
+    setStatus: (text, tone = 'tertiary') => paintStatus(h, text, tone),
+    clearStatus: () => {
+      h.lastStatus = null;
+      h.notice.clear();
     },
-    setServerProbe: (state) => {
-      if (h.statusLocked) return; // a connect attempt already claimed the line
-      paintStatus(h, ...statusTuple(serverStatusLine(state)));
-    },
+    // Independent of the notice: a late probe only retints the icon + tooltip.
+    setServerProbe: (state) => h.server.setProbe(state),
     setBusy: (busy) => {
       h.busy = busy;
       // BOTH doors dim: a join in flight blocks either deploy (see `deploy`), so
@@ -1126,6 +1130,7 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
       hideQueueModal();
       h.cancel = null;
       for (const off of h.disposers.splice(0)) off();
+      h.notice.dispose(); // no hold/fade timer outlives the home
       window.removeEventListener('keydown', keyHandler);
       h.overlay.remove();
     },

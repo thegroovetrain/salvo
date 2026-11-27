@@ -1374,6 +1374,12 @@ export const CLIENT_CONFIG = {
     paleAtBlocks: 3,
   },
 
+  /** THE HOME NOTICE (ui/homeNotice.ts, Eric 2026-11-27): a status message
+   *  under CREATE | JOIN shows at full opacity for `homeNoticeHoldMs`, then
+   *  fades out over `homeNoticeFadeMs` and the slot goes blank. Feel knobs. */
+  homeNoticeHoldMs: 4000,
+  homeNoticeFadeMs: 1000,
+
   /** Pre-join home chrome + class-select (Story 1.14). Two groups: absolute pip
    *  scale anchors (gameplay-adjacent DISPLAY knobs — they map a raw stat to a
    *  1..5 filled-pip count, they do NOT change the sim) and the ambient CIC scene

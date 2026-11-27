@@ -70,14 +70,14 @@ warnings: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/package.json` -- add `@fortawesome/free-solid-svg-icons` (same major as brands) and install -- the server glyph
-- [ ] `client/src/config.ts` -- add `homeNoticeHoldMs: 4000`, `homeNoticeFadeMs: 1000` -- Eric's timing
-- [ ] `client/src/ui/homeNotice.ts` (new) -- the notice slot element plus `show(text, tone)` / `clear()` / `dispose()`, with an opacity transition and an injected clock/timer seam for tests -- the fading status register
-- [ ] `client/src/ui/serverStatus.ts` (new) -- the services table, the pure `serviceStatusLines(state)`, the icon element with state tint, and the hover/focus tooltip -- the top-left readout
-- [ ] `client/src/ui/home.ts` + `homeBars.ts` -- re-wire: the header left slot gets the server icon, the deploy stack gets the notice under CREATE/JOIN, `setStatus` → notice, `setServerProbe` → icon, remove `statusLocked` / `statusEl` / `serverStatusLine` text use, keep never-silence via `lastStatus`, dispose the notice in `hide()`. Update the retired-ruling comments so they describe the new owners -- the split
-- [ ] `client/src/main.ts` -- `handStatusBackToServer` → `setServerProbe('ready')` plus clear notice (add `clearStatus()` to `HomeHandle`), and fix nearby comments -- no READY text writes
-- [ ] `client/src/ui/queueModal.ts` -- comment-only update
-- [ ] tests -- re-point the existing status tests to contracts. Add: notice shows → fades → clears (fake timers), replace restarts the timer, `hide()` clears the timer, probe never touches the notice, the tooltip lists one row per service with the state's word, icon tint follows the state (by token, not literal)
+- [x] `client/package.json` -- add `@fortawesome/free-solid-svg-icons` (same major as brands) and install -- the server glyph
+- [x] `client/src/config.ts` -- add `homeNoticeHoldMs: 4000`, `homeNoticeFadeMs: 1000` -- Eric's timing
+- [x] `client/src/ui/homeNotice.ts` (new) -- the notice slot element plus `show(text, tone)` / `clear()` / `dispose()`, with an opacity transition and an injected clock/timer seam for tests -- the fading status register
+- [x] `client/src/ui/serverStatus.ts` (new) -- the services table, the pure `serviceStatusLines(state)`, the icon element with state tint, and the hover/focus tooltip -- the top-left readout
+- [x] `client/src/ui/home.ts` + `homeBars.ts` -- re-wire: the header left slot gets the server icon, the deploy stack gets the notice under CREATE/JOIN, `setStatus` → notice, `setServerProbe` → icon, remove `statusLocked` / `statusEl` / `serverStatusLine` text use, keep never-silence via `lastStatus`, dispose the notice in `hide()`. Update the retired-ruling comments so they describe the new owners -- the split
+- [x] `client/src/main.ts` -- `handStatusBackToServer` → `setServerProbe('ready')` plus clear notice (add `clearStatus()` to `HomeHandle`), and fix nearby comments -- no READY text writes
+- [x] `client/src/ui/queueModal.ts` -- comment-only update
+- [x] tests -- re-point the existing status tests to contracts. Add: notice shows → fades → clears (fake timers), replace restarts the timer, `hide()` clears the timer, probe never touches the notice, the tooltip lists one row per service with the state's word, icon tint follows the state (by token, not literal)
 
 **Acceptance Criteria:**
 - Given the home is open, when nothing has been triggered, then the space under CREATE | JOIN is blank and the top-left shows only the server icon.

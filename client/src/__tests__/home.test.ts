@@ -17,9 +17,10 @@ import {
   SHIFT_KEY,
   loadSavedMode,
   saveMode,
-  serverStatusLine,
   showHome,
 } from '../ui/home.js';
+import { probeColor, serviceStatusLines } from '../ui/serverStatus.js';
+import { CLIENT_CONFIG } from '../config.js';
 import { forgetServedHome } from '../ui/homeStatic.js';
 import { HOME_COPYRIGHT_ID } from '../seo/homeMarkup.js';
 import { HORN_PREF_KEY } from '../net/connection.js';
@@ -65,16 +66,10 @@ const OTHER_SHIFT: ShiftId = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT)!;
 // than bent onto new copy. The Story 6.5 `soloSubline` block went the same way,
 // same ruling, same reason.
 
-describe('serverStatusLine — probe reducer', () => {
-  it('probing / ready are quiet, unreachable is denied, and the three read differently', () => {
-    expect(serverStatusLine('probing').tone).toBe('tertiary');
-    expect(serverStatusLine('ready').tone).toBe('tertiary');
-    expect(serverStatusLine('unreachable').tone).toBe('denied');
-    const texts = (['probing', 'ready', 'unreachable'] as const).map((s) => serverStatusLine(s).text);
-    expect(new Set(texts).size).toBe(3);
-    for (const t of texts) expect(t.length).toBeGreaterThan(0);
-  });
-});
+// RETIRED (Eric 2026-11-27): the `serverStatusLine` probe-reducer block. The
+// `SERVER: …` text line is gone — the probe tints the server icon and its
+// tooltip (serverStatus.test.ts), and status messages go to the notice under
+// CREATE | JOIN (homeNotice.test.ts).
 
 // RETIRED (Eric rulings 2026-08-18): the `queueStatusLine` and
 // `requeueStatusLine` blocks. Both reducers painted `h.statusEl`, the line beside
@@ -161,13 +156,24 @@ function underplay(): HTMLElement {
   return home().querySelector('a[href="/how-to-play"]')?.parentElement as HTMLElement;
 }
 
-/** The status line: the top bar's left slot (Eric ruling 2026-11-25). */
-function statusEl(): HTMLElement {
-  return slot('header', 0).firstElementChild as HTMLElement;
+/** The server icon: the top bar's left slot (Eric 2026-11-27), the slot's one
+ *  focusable element. */
+function serverIcon(): HTMLElement {
+  return slot('header', 0).querySelector('[tabindex="0"]') as HTMLElement;
+}
+
+function serverTooltip(): HTMLElement {
+  return slot('header', 0).querySelector('[role="tooltip"]') as HTMLElement;
+}
+
+/** The status notice under CREATE | JOIN (Eric 2026-11-27): the home's one
+ *  live `status` region. */
+function noticeEl(): HTMLElement {
+  return home().querySelector('[role="status"]') as HTMLElement;
 }
 
 function statusText(): string {
-  return statusEl().textContent ?? '';
+  return noticeEl().textContent ?? '';
 }
 
 /** The class bay's footer primary: the one bay button that is neither a
@@ -315,9 +321,10 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     const stack = modeRow.parentElement as HTMLElement;
     expect(stack.style.flexDirection).toBe('column');
     expect(stack.style.alignItems).toBe('center');
-    // Row 3 (cycle 167, Eric ruling 7) is the private row: CREATE / JOIN.
+    // Row 3 (cycle 167, Eric ruling 7) is the private row: CREATE / JOIN, and
+    // under it the status notice's reserved slot (Eric 2026-11-27).
     const priv = stack.children[2] as HTMLElement;
-    expect([...stack.children]).toEqual([modeRow, soloButton(), priv]);
+    expect([...stack.children]).toEqual([modeRow, soloButton(), priv, noticeEl()]);
     expect([...priv.children].map((b) => b.tagName)).toEqual(['BUTTON', 'BUTTON']);
   });
 
@@ -556,10 +563,11 @@ describe('showHome — no color picker; the port chrome wears the OWN accent (St
     expect(nameInput().style.borderColor).toBe(accent); // ...but the callsign does
   });
 
-  it('the phosphor status line keeps its own register (never accent-tinted)', () => {
+  it('the server icon keeps the probe register (never accent-tinted)', () => {
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setServerProbe('ready');
-    expect(statusEl().style.color).toBe('var(--hc-phosphor)');
+    expect(serverIcon().style.color).toBe(probeColor('ready'));
+    expect(serverIcon().style.color).not.toBe(normColor(OWN_ACCENT.accent));
   });
 });
 
@@ -803,26 +811,92 @@ describe('showHome — wordmark tagline (cycle 87: random pun, not a fixed line)
   });
 });
 
-describe('showHome — status-line states via the handle', () => {
+describe('showHome — the server icon and the notice via the handle (Eric 2026-11-27)', () => {
   beforeEach(() => localStorage.clear());
-  afterEach(() => home()?.remove());
-
-  it('boots probing, then reflects probe + connect states', () => {
-    const handle = showHome('0.0.0-test', vi.fn());
-    expect(statusText()).toBe(serverStatusLine('probing').text);
-    handle.setServerProbe('ready');
-    expect(statusText()).toBe(serverStatusLine('ready').text);
-    handle.setServerProbe('unreachable');
-    expect(statusText()).toBe(serverStatusLine('unreachable').text);
-    handle.setStatus('STATUS-A', 'info');
-    expect(statusText()).toBe('STATUS-A');
+  afterEach(() => {
+    home()?.remove();
+    vi.useRealTimers();
   });
 
-  it('a connect-flow status write locks out a late server-probe resolution (fix 2)', () => {
+  /** The tooltip's status words, in row order. */
+  const tipStatuses = (): string[] =>
+    [...serverTooltip().children].filter((_, i) => i % 2 === 1).map((c) => c.textContent ?? '');
+
+  it('boots with a blank notice and the icon probing, then follows the probe', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    handle.setStatus('FAILURE-A', 'denied'); // a connect failure claims the line
-    handle.setServerProbe('ready'); // ...a probe that resolves afterward
-    expect(statusText()).toBe('FAILURE-A'); // is ignored — error stays visible
+    expect(statusText()).toBe('');
+    expect(serverIcon().style.color).toBe(probeColor('probing'));
+    for (const state of ['ready', 'unreachable', 'probing'] as const) {
+      handle.setServerProbe(state);
+      expect(serverIcon().style.color).toBe(probeColor(state));
+      expect(tipStatuses()).toEqual(serviceStatusLines(state).map((l) => l.status));
+    }
+  });
+
+  it('setStatus shows the text in the notice, which clears itself after hold + fade', () => {
+    vi.useFakeTimers();
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setStatus('STATUS-A', 'info');
+    expect(statusText()).toBe('STATUS-A');
+    vi.advanceTimersByTime(CLIENT_CONFIG.homeNoticeHoldMs + CLIENT_CONFIG.homeNoticeFadeMs);
+    expect(statusText()).toBe('');
+  });
+
+  it('a late probe never touches the notice, and a message never touches the icon', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setStatus('CONNECT-A', 'info');
+    handle.setServerProbe('unreachable');
+    expect(statusText()).toBe('CONNECT-A');
+    handle.setServerProbe('ready');
+    expect(statusText()).toBe('CONNECT-A');
+    handle.setStatus('FAILURE-A', 'denied');
+    expect(serverIcon().style.color).toBe(probeColor('ready'));
+  });
+
+  it('clearStatus blanks the notice now and leaves the icon alone', () => {
+    vi.useFakeTimers();
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setServerProbe('ready');
+    const before = vi.getTimerCount();
+    handle.setStatus('STATUS-A', 'info');
+    handle.clearStatus();
+    expect(statusText()).toBe('');
+    expect(serverIcon().style.color).toBe(probeColor('ready'));
+    expect(vi.getTimerCount()).toBe(before);
+  });
+
+  it('hide() mid-hold cancels the notice timer', () => {
+    vi.useFakeTimers();
+    const handle = showHome('0.0.0-test', vi.fn());
+    const before = vi.getTimerCount();
+    handle.setStatus('STATUS-A', 'info');
+    expect(vi.getTimerCount()).toBe(before + 1);
+    handle.hide();
+    expect(vi.getTimerCount()).toBe(before);
+  });
+
+  it('a re-mount without hide() does not leak the old notice timer', () => {
+    vi.useFakeTimers();
+    const first = showHome('0.0.0-test', vi.fn());
+    first.setStatus('STATUS-A', 'info');
+    const old = noticeEl();
+    showHome('0.0.0-test', vi.fn());
+    expect(noticeEl()).not.toBe(old);
+    vi.advanceTimersByTime(CLIENT_CONFIG.homeNoticeHoldMs + CLIENT_CONFIG.homeNoticeFadeMs);
+    // The old notice's hold never ran out: its fade (opacity) and its clear
+    // (text) were both cancelled with it.
+    expect(old.style.opacity).toBe('1');
+    expect(old.textContent).toBe('STATUS-A');
+  });
+
+  it('the notice slot keeps its reserved height whether blank or speaking', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    const blank = noticeEl().style.height;
+    expect(blank).toMatch(/^var\(--hc-/);
+    handle.setStatus('STATUS-A', 'denied');
+    expect(noticeEl().style.height).toBe(blank);
+    handle.clearStatus();
+    expect(noticeEl().style.height).toBe(blank);
   });
 
   it('setBusy dims + un-dims the PLAY button', () => {
@@ -833,10 +907,24 @@ describe('showHome — status-line states via the handle', () => {
     expect(playButton().style.opacity).toBe('1');
   });
 
-  it('a PLAY press mid-queue RE-ASSERTS the live line rather than stamping a connecting line', () => {
-    // Never-silence, without blanking the queue readout: the line only refreshes
-    // when the server pushes, so a fixed connecting line would hide the
-    // countdown until the next push.
+  it('a busy press after the notice has faded re-shows the last message on a fresh hold', () => {
+    vi.useFakeTimers();
+    localStorage.setItem('hullcracker.class', RETURNING);
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setBusy(true);
+    handle.setStatus('LIVE-LINE', 'info');
+    vi.advanceTimersByTime(CLIENT_CONFIG.homeNoticeHoldMs + CLIENT_CONFIG.homeNoticeFadeMs);
+    expect(statusText()).toBe('');
+    playButton().click();
+    expect(statusText()).toBe('LIVE-LINE');
+    vi.advanceTimersByTime(CLIENT_CONFIG.homeNoticeHoldMs - 1);
+    expect(noticeEl().style.opacity).toBe('1');
+    expect(statusText()).toBe('LIVE-LINE');
+  });
+
+  it('a PLAY press mid-join RE-SHOWS the last message rather than stamping a connecting line', () => {
+    // Never-silence: a press while busy re-shows the last message (restarting
+    // its hold), never a different fixed line.
     localStorage.setItem('hullcracker.class', RETURNING);
     const onDeploy = vi.fn();
     const handle = showHome('0.0.0-test', onDeploy);
@@ -972,18 +1060,21 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
   });
 
   // SUPERSEDES the 2026-08-18 BOTTOM-LEFT pin (Eric ruling 2026-11-25, "A3 ·
-  // Banded Bars"): the register and the status line live in the top bar, the
+  // Banded Bars"): the register and the server readout live in the top bar, the
   // gear in its right slot, and nothing in the home is absolutely positioned
-  // ("Absolute positioning is the fucking devil") — the bars are grid rows.
-  it('lives in the top bar: status left, liveness center, gear right; nothing absolute', () => {
+  // ("Absolute positioning is the fucking devil") — the bars are grid rows. The
+  // ONE exception is the server icon's tooltip (Eric 2026-11-27), which floats
+  // off its own wrapper so it never pushes the bars.
+  it('lives in the top bar: server icon left, liveness center, gear right; nothing absolute', () => {
     showHome('0.0.0-test', vi.fn());
     const header = bar('header');
     const gear = home().querySelector('[title="Settings"]') as HTMLElement;
     expect(header.children).toHaveLength(3);
-    expect(slot('header', 0).contains(statusEl())).toBe(true);
+    expect(slot('header', 0).contains(serverIcon())).toBe(true);
     expect(slot('header', 1).contains(livenessBlock())).toBe(true);
     expect(slot('header', 2).contains(gear)).toBe(true);
     for (const el of home().querySelectorAll<HTMLElement>('*')) {
+      if (el === serverTooltip()) continue;
       expect(['absolute', 'fixed']).not.toContain(el.style.position);
     }
   });
@@ -1198,7 +1289,7 @@ describe('setLiveness(null) stands the whole surface down (F3)', () => {
 
 // --- Eric 2026-08-18: the status line beside HOW TO PLAY belongs to the PROBE --
 
-describe('the status line is NEVER written by queue code', () => {
+describe('the home status surfaces are NEVER written by queue code', () => {
   // The link row is the served `<nav>`, adopted ONCE per document load
   // (ui/homeStatic.ts) and built from the community env of that load; each pin
   // here is a fresh load with its own env.
@@ -1234,7 +1325,7 @@ describe('the status line is NEVER written by queue code', () => {
     expect(underplay().children.length).toBe(2);
     expect([...underplay().children].map((c) => c.tagName)).toEqual(['A', 'A']);
     expect(hrefs()).toEqual(['/how-to-play', '/privacy']);
-    expect(statusText()).toBe(serverStatusLine('probing').text);
+    expect(statusText()).toBe('');
   });
 
   /** The bottom bar's right slot: the icon-only social anchors. */
@@ -1264,7 +1355,7 @@ describe('the status line is NEVER written by queue code', () => {
       expect(el.getAttribute('aria-label')).toBeTruthy();
       expect(el.querySelector('svg')).not.toBeNull();
     }
-    expect(statusText()).toBe(serverStatusLine('probing').text);
+    expect(statusText()).toBe('');
   });
 
   it('a malformed community var hides ITS link and nothing else', () => {
@@ -1292,19 +1383,25 @@ describe('the status line is NEVER written by queue code', () => {
     expect(link?.tagName).toBe('A');
   });
 
-  it('setServerProbe owns it, and the whole queue lifecycle does not disturb it', () => {
+  it('the whole queue lifecycle writes neither the notice nor the server icon', () => {
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setServerProbe('ready');
-    const ready = serverStatusLine('ready').text;
-    expect(statusText()).toBe(ready);
+    const tint = serverIcon().style.color;
+    const tip = serverTooltip().textContent;
+    const untouched = (): void => {
+      expect(statusText()).toBe('');
+      expect(serverIcon().style.color).toBe(tint);
+      expect(serverTooltip().textContent).toBe(tip);
+    };
+    untouched();
     // Join, an unarmed push, an armed push, a poll read, then leave.
     handle.setCancel(vi.fn());
     handle.setQueue({ n: 1, min: 2, cap: 20, startsInMs: null });
     handle.setQueue({ n: 7, min: 2, cap: 20, startsInMs: 65_000 });
     handle.setLiveness(livePayload({ queue: { pooled: 7, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
-    expect(statusText()).toBe(ready); // untouched by every one of them
+    untouched(); // untouched by every one of them
     handle.setCancel(null);
-    expect(statusText()).toBe(ready);
+    untouched();
   });
 });
 
@@ -1334,16 +1431,15 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
     expect(mainSrc()).not.toMatch(/function stopHomeLiveness\(/);
   });
 
-  it('the queue hooks drive the MODAL, never the status line (Eric 2026-08-18)', () => {
+  it('the queue hooks drive the MODAL, never the notice (Eric 2026-08-18)', () => {
     const body = bodyOf(mainSrc(), 'async function startGame(');
     expect(body).toMatch(/onQueue: \(q\) => home\.setQueue\(q\)/);
     expect(body).toMatch(/onQueued: \(cancel\) => \{/);
     expect(body).toMatch(/home\.setCancel\(cancel\)/);
-    // Entering the pool hands the status line BACK to the server register
-    // rather than leaving CONNECTING… parked there for the whole two-minute
-    // wait. Being pooled is not "connecting" — joining the queue is itself the
-    // proof the socket is up — so the only thing this line may say is server
-    // news. The queue's own numbers live in the modal.
+    // Entering the pool hands the home BACK to a live port rather than leaving
+    // CONNECTING… parked there for the whole two-minute wait. Being pooled is
+    // not "connecting" — joining the queue is itself the proof the socket is
+    // up. The queue's own numbers live in the modal.
     expect(body).toMatch(/if \(cancel\) handStatusBackToServer\(home\)/);
     // ...and a CANCEL likewise writes no queue copy onto it.
     expect(body).toMatch(/if \(cancelled\) handStatusBackToServer\(home\)/);
@@ -1357,6 +1453,13 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
     expect(src).not.toMatch(/function makeStatusHold\(/);
     expect(src).not.toMatch(/const REQUEUE_STATUS_HOLD_MS/);
     expect(src).not.toMatch(/hold\.(paint|cancel)\(/);
+  });
+
+  it('the hand-back marks the probe ready and clears the notice, writing no text (Eric 2026-11-27)', () => {
+    const body = bodyOf(mainSrc(), 'function handStatusBackToServer(');
+    expect(body).toMatch(/home\.setServerProbe\('ready'\)/);
+    expect(body).toMatch(/home\.clearStatus\(\)/);
+    expect(body).not.toMatch(/setStatus\(/);
   });
 
   it('the door DEMOTES the poll rather than stopping it, and the arena stops it', () => {

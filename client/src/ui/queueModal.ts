@@ -5,7 +5,9 @@
 // was one line of copy HIJACKING the home's server-status register beside HOW TO
 // PLAY — *"Get rid of this information message that pops up next to 'HOW TO
 // PLAY' and replaces the server status."* The wait now has its own surface, and
-// `h.statusEl` is the server probe's again.
+// the home's top-left is the server probe's again (since Eric's 2026-11-27
+// split, a server icon; status messages go to the notice under CREATE | JOIN,
+// and the queue writes to neither).
 //
 // IT SAYS EXACTLY THREE THINGS AND INVENTS NOTHING. `N/cap QUEUED` (the cap is the payload's, 16 today; Eric's own
 // wording; this modal is the ONLY surface that says it now — the SOLO button's
