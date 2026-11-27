@@ -127,7 +127,7 @@ describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', (
     // R10: heat zero, even from full heat.
     expect(a.sec.heat).toBe(0);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.stats.equipment.mainBattery.maxAmmo, reloadMsLeft: 0 });
-    expect(a.loadout[WEAPON_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[WEAPON_SLOTS[0]].state).toEqual({ n: a.stats.equipment.heavyTorpedo.maxAmmo, reloadMsLeft: 0 }); // every tube loads (R14)
     expect(a.loadout[WEAPON_SLOTS[1]].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
     // R10: HULL REPAIR and SMOKE are not reloads — both stamps untouched.
     expect(a.repairReadyAt).toBe(repairReadyAt);

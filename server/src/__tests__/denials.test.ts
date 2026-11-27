@@ -87,7 +87,8 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const fa = buildFrame(w, 'a');
     expect(fa.denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
     // Denied presses spend NOTHING: the round is kept and no reload started.
-    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    const held = a.loadout[SLOT_WEAPON].equipmentId!;
+    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: a.stats.equipment[held].maxAmmo, reloadMsLeft: 0 });
     // SELF-PRIVATE: the other captain's frame is byte-free of the channel.
     expect('denied' in buildFrame(w, 'b')).toBe(false);
   });

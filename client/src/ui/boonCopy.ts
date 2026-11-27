@@ -159,14 +159,14 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   foulingShell: 'FOULING SHELL',
   phosphorShells: 'PHOSPHOR SHELLS',
   // --- Story 10.6 (Eric 2026-11-05, R1 / R6–R9): three SHIP ladders and the
-  // four one-off WEAPON cards, Eric's names verbatim. HULL REPAIR and SMOKE
+  // one-off WEAPON cards, Eric's names verbatim (SECOND TUBE left the catalog
+  // 2026-11-25). HULL REPAIR and SMOKE
   // SCREEN are also the `C` / `V` abilities' names (`ABILITY_NAMES` reads
   // these two entries, so the card and the square can never disagree).
   // RANGE's card left the catalog with the index row (Story 11.2, R9).
   hullRepair: 'HULL REPAIR',
   smokeScreen: 'SMOKE SCREEN',
   aftTorpedoLauncher: 'AFT LAUNCHER', // Eric 2026-11-05 (line id unchanged)
-  secondLauncherTube: 'SECOND TUBE', // Eric 2026-11-05 (line id unchanged)
   secondMineRack: 'SECOND MINE RACK',
   expandedMineRacks: 'RACK CAPACITY',
 };
@@ -823,7 +823,7 @@ function ladderRows(
   const rows: CardStatRow[] = [];
   const range: CardStatRow[] = [];
   for (const e of line.tiers[k] ?? []) {
-    if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path)) continue;
+    if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path) || isHiddenStatPath(e.path)) continue;
     const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
     if (row !== null) (isReachPath(e.path) ? range : rows).push(row);
   }
@@ -881,6 +881,39 @@ function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats):
 }
 
 /**
+ * THE STAT FIELDS NO PLAYER-FACING TABLE PRINTS, per equipment — though the
+ * field stays in `EQUIPMENT_STAT_FIELDS`, which is also the catalog's
+ * stat-path whitelist (so the sim, the fold and the tier paths are untouched).
+ * A PRESENTATION rule only, and the ONE rule: the fit card face
+ * (`faceFields`), the stat tables (`printedStatFields` → `equipmentStatRows`:
+ * the slot tooltip, the refit hover, the How-to-Play tables), the tier-step
+ * rows (`ladderRows`) and the battle console's field list
+ * (render/console/readouts.ts `statRowFields`) all read it, so they stay
+ * aligned row for row.
+ */
+const HIDDEN_STAT_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
+  // Eric 2026-11-26: phosphor is all burn, no burst (its `damage` is 0).
+  phosphorShells: ['damage'],
+};
+
+/** Pure: does no player-facing table print this equipment field? */
+export function isHiddenStatField(target: EquipmentId, field: string): boolean {
+  return HIDDEN_STAT_FIELDS[target]?.includes(field) ?? false;
+}
+
+/** Pure: an equipment's `EQUIPMENT_STAT_FIELDS`, in table order, less its
+ *  `HIDDEN_STAT_FIELDS` — the fields its stat tables print. */
+export function printedStatFields(target: EquipmentId): readonly string[] {
+  return (EQUIPMENT_STAT_FIELDS[target] as readonly string[]).filter((f) => !isHiddenStatField(target, f));
+}
+
+/** Pure: is an authored stat path (`equipment.<id>.<field>`) a hidden field? */
+function isHiddenStatPath(path: string): boolean {
+  const [root, id, field] = path.split('.');
+  return root === 'equipment' && Object.hasOwn(HIDDEN_STAT_FIELDS, id) && isHiddenStatField(id as EquipmentId, field);
+}
+
+/**
  * THE FIELDS A WEAPON'S FIT CARD PRINTS, where that is NOT simply its whole
  * `EQUIPMENT_STAT_FIELDS` table (Story 8.13).
  *
@@ -918,9 +951,9 @@ const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
  *  (Eric 2026-10-13) prints it on every gun's fit face, LAST — the grammar of
  *  the tier cards (`ladderRows`) and the stat tables (amendment 185). */
 function faceFields(target: EquipmentId): readonly string[] {
-  const table = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
+  const table = printedStatFields(target);
   const reach: readonly string[] = REACH_FIELDS;
-  const fields = (FACE_FIELDS[target] ?? table).filter((f) => !reach.includes(f));
+  const fields = (FACE_FIELDS[target] ?? table).filter((f) => !reach.includes(f) && !isHiddenStatField(target, f));
   return [...fields, ...REACH_FIELDS.filter((f) => table.includes(f))];
 }
 
@@ -1119,7 +1152,8 @@ function abilityDiffRows(id: CooldownAbilityId, before: EffectiveStats, after: E
 /**
  * THE ONE-OFF WEAPON CARDS' ROW (Story 10.6, Eric 2026-11-05, R6 / R7): each
  * prints the ONE mount count its single tier steps, before → after —
- * launchers, tubes per launcher, racks — except RACK CAPACITY (the expandedMineRacks line), whose
+ * launchers, racks (the tubes-per-launcher row left with SECOND TUBE,
+ * 2026-11-25) — except RACK CAPACITY (the expandedMineRacks line), whose
  * `rackBonus` is not a count of anything a player holds, so its row prints
  * what it buys: the HELD mine's capacity per rack (`rackCapacity`, the shared
  * one helper). Keyed by the stat path the tier authors, so the row is
@@ -1127,7 +1161,6 @@ function abilityDiffRows(id: CooldownAbilityId, before: EffectiveStats, after: E
  */
 const MOUNT_ROWS: Readonly<Record<string, { label: string; read: (s: EffectiveStats, host: EquipmentId | null) => number }>> = {
   torpedoLaunchers: { label: 'LAUNCHERS', read: (s) => s.torpedoLaunchers },
-  tubesPerLauncher: { label: 'TUBES', read: (s) => s.tubesPerLauncher },
   mineRacks: { label: 'RACKS', read: (s) => s.mineRacks },
   rackBonus: { label: 'PER RACK', read: (s, host) => (isMineEquipment(host) ? rackCapacity(s, host) : s.rackBonus) },
 };
@@ -1255,7 +1288,7 @@ function shiftRows(target: EquipmentId, fields: readonly string[], stats: Effect
 export function equipmentStatRows(target: EquipmentId, stats: EffectiveStats): CardStatRow[] {
   const shift = SHIFT_FIELDS[target];
   if (shift !== undefined) return shiftRows(target, shift, stats);
-  const fields = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
+  const fields = printedStatFields(target);
   // The ROW OBJECT, not `readStatPath`, decides what is derived (see weaponRows).
   const row = stats.equipment[target] as unknown as Record<string, unknown>;
   const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');

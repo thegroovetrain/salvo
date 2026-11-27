@@ -2225,9 +2225,9 @@ export const CLIENT_CONFIG = {
       statLabelW: 84,
       statGap: 6,
       dash: 6,
-      /** TORPEDO (AC 29): always this many PAIRS (fore, aft) of this many tubes. */
-      tubePairs: 2,
-      tubesPerPair: 2,
+      /** TORPEDO (AC 29): always this many launcher groups (fore, aft), each
+       *  the held kind's tubes per launcher (slots.ts `slotsPerLauncher`). */
+      launchers: 2,
       /** MINES (AC 29): always this many racks. */
       racks: 2,
     },

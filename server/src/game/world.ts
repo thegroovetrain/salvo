@@ -6657,7 +6657,7 @@ export class World {
       // `damage > 0` gate it sits inside: a flash must never answer "is a hull
       // within burstRadius of this point?" (it reveals nothing, 135(d)).
       resolved += this.wrecksInBurst(at, shell.burstRadius, shell.ownerId);
-    }
+    } else if (shell.burn) resolved += this.burnCatches(victims);
     // Story 4.3: exactly one of hc/sp per shell resolution — a burst that
     // resolved ≥1 hull is a Hit Call at the burst point; one that resolved
     // none is fall of shot.
@@ -6753,6 +6753,24 @@ export class World {
     if (!victim || !isAfloat(victim.lifecycle)) return 0;
     this.hitShip(victim, amount, shell.ownerId, landingSource(shell), shell.weapon);
     return 1;
+  }
+
+  /** THE ALL-BURN PHOSPHOR'S HIT CALL (Eric 2026-11-26, "Hit mark if zone
+   *  catches"): with no burst damage (`CONFIG.phosphorShells.damage` 0) a
+   *  phosphor shell still calls a hit when its burning zone lands on at least
+   *  one afloat non-owner hull — the hulls it starts burning at once, so the
+   *  mark is true and says no more than the 20-hp burst's did (amendment
+   *  135(b)). Counted for the `hc`/`sp` decision only: no damage, no assist,
+   *  no event. The FLASH shell carries no `burn` tag, so it never reaches
+   *  here (135(d)). */
+  private burnCatches(victims: readonly Target[]): number {
+    let n = 0;
+    for (const t of victims) {
+      if (t.kind !== 'hull') continue;
+      const ship = this.ships.get(t.id);
+      if (ship && isAfloat(ship.lifecycle)) n += 1;
+    }
+    return n;
   }
 
   /** AMENDMENT 19's geometric victims: hulls that sank THIS tick whose

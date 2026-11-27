@@ -4,8 +4,9 @@
 // own tiered reach (`rangeU` — Tier I `CONFIG.phosphorShells.rangeU`, 8/12,
 // + a step per card to 10/12; Story 9.8, ruling 125), 850 u/s, a
 // 1-round pool presented as a 20 s cooldown (−5 %/tier derived). At burst it
-// deals the row's `damage` (20 / 22 / 25 / 27 / 30) to every non-owner hull
-// inside the WHOLE `zoneRadius`, then the World spawns a BURNING ZONE of that
+// deals the row's `damage` — 0 since 2026-11-26 (Eric: all burn, no burst),
+// so the burst lands no blow — to every non-owner hull inside the WHOLE
+// `zoneRadius`, then the World spawns a BURNING ZONE of that
 // radius for `zoneDurationMs` burning `dps` hp/s — all three STAMPED on the
 // shell's server-internal `burn` tag from the OWNER's effective row at
 // launch (amendment 135(e)), so a later tier card never changes a live zone.

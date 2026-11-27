@@ -3,6 +3,15 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  116 — 2026-11-25 TORPEDO TUBES BY KIND (Eric; cycle 256, 0.20.14,
+ *  epic-13 amendment 5). Boon catalog content: the `secondLauncherTube` line
+ *  is DELETED (26 → 25 lines). No wire shape changes. CONFIG the client
+ *  reads: each torpedo block gains `tubesPerLauncher` (light 3 / heavy 2 /
+ *  supercav 1, the derived `stats.tubesPerLauncher` — sim/mountStats.ts) and
+ *  `torpedo.damage` 200 → 150, `lightTorpedo.damage` 150 → 100,
+ *  `supercavTorpedo.damage` 200 → 300; `phosphorShells.damage` 20 → 0 (all
+ *  burn, 2026-11-26); `captiveMines.triggerRadius` 180 →
+ *  250; `MAX_TUBES_PER_LAUNCHER` 2 → 3. Perception exception count stays SIX.
  *  115 — 2026-11-24 TORPEDO AND PHOSPHOR DAMAGE CUT (Eric; epic-12
  *  amendment 21): no wire shape changes. CONFIG the client reads (the card
  *  and weapon-box damage readouts): `torpedo.damage` 300 → 200,
@@ -1172,7 +1181,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 115;
+export const PROTOCOL_VERSION = 116;
 
 // Tunables
 export * from './constants.js';

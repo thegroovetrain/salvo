@@ -155,8 +155,9 @@ export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 't
  * out-of-combat regen (both deleted); `armorPiercing` is `power`.
  *
  * STORY 10.6 (Eric 2026-11-05) ADDS the card-written halves of the two
- * cooldown abilities (R8 / R9 — sim/abilityStats.ts) and the four MOUNT
- * counts of the one-off WEAPON cards (R6 / R7 — sim/mountStats.ts). Their
+ * cooldown abilities (R8 / R9 — sim/abilityStats.ts) and the MOUNT counts of
+ * the one-off WEAPON cards (R6 / R7 — sim/mountStats.ts; three since
+ * 2026-11-25, when `tubesPerLauncher` became derived). Their
  * derived halves — `repair.cooldownMs` / `regenMs`, `smoke.cooldownMs` /
  * `r0` / `r1` — are DELIBERATELY ABSENT, like every derived number.
  */
@@ -205,12 +206,14 @@ export const TOP_LEVEL_STAT_PATHS = [
   'smoke.reload',
   'smoke.lifeMs',
   'smoke.sizeRung',
-  // THE MOUNTS (Story 10.6, R6 / R7): one `add: 1` each, from the four cap-1
+  // THE MOUNTS (Story 10.6, R6 / R7): one `add: 1` each, from the cap-1
   // one-off WEAPON cards — family-wide, read in clampStats as the torpedo and
   // mine rows' capacity. `rackBonus` is the one that seeds at 0 (EXPANDED
-  // MINE RACKS adds a seat to a rack that has no bonus).
+  // MINE RACKS adds a seat to a rack that has no bonus). `tubesPerLauncher`
+  // LEFT 2026-11-25 (Eric): SECOND LAUNCHER TUBE is deleted and the count is
+  // DERIVED from the held torpedo kind (sim/mountStats.ts), so no card
+  // addresses it.
   'torpedoLaunchers',
-  'tubesPerLauncher',
   'mineRacks',
   'rackBonus',
 ] as const;

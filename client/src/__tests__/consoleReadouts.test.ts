@@ -10,7 +10,6 @@ import {
   CONFIG,
   DEFAULT_CLASS_ID,
   EQUIPMENT_IDS,
-  EQUIPMENT_STAT_FIELDS,
   INDEX_IDS,
   SLOT_COUNT,
   damageMultiplierFor,
@@ -24,7 +23,7 @@ import {
   type EquipmentId,
   type MineEquipmentId,
 } from '@salvo/shared';
-import { cardTierSteps, equipmentStatRows } from '../ui/boonCopy.js';
+import { cardTierSteps, equipmentStatRows, printedStatFields } from '../ui/boonCopy.js';
 import { ABILITY_KINDS, WEAPON_ROW_KINDS } from '../render/console/layout.js';
 import {
   READOUT_KEY,
@@ -102,7 +101,7 @@ describe('shownDamage — R19: the gate multiplier against an ARMOR-100 hull', (
   });
 
   it('a weapon row adds its own tier POWER (amendment 17): the printed damage is the gate\'s hit at each tier', () => {
-    for (const [kind, id] of [['torpedo', 'supercavTorpedo'], ['mines', 'navalMines'], ['special', 'phosphorShells']] as const) {
+    for (const [kind, id] of [['torpedo', 'supercavTorpedo'], ['mines', 'navalMines'], ['special', 'starShells']] as const) {
       for (let copies = 1; copies <= 5; copies += 1) {
         const cards = Array<string>(copies).fill(id);
         const stats = fold(cards);
@@ -121,8 +120,10 @@ describe('field labels come from the stat tables the game already prints', () =>
     for (const id of EQUIPMENT_IDS as readonly EquipmentId[]) {
       if (SHIFT_IDS.has(id)) continue;
       expect(statRowFields(id, stats), id).toHaveLength(equipmentStatRows(id, stats).length);
+      // The printed table — EQUIPMENT_STAT_FIELDS less the hidden fields (Eric
+      // 2026-11-26: phosphor's DAMAGE), the cut the rows take too.
       expect(statRowFields(id, stats).filter((f) => f !== 'triggerRadius').sort(), id).toEqual(
-        [...(EQUIPMENT_STAT_FIELDS[id] as readonly string[])].filter((f) => f !== 'rangeU' || typeof (stats.equipment[id] as unknown as Record<string, unknown>).rangeU === 'number').sort(),
+        [...printedStatFields(id)].filter((f) => f !== 'rangeU' || typeof (stats.equipment[id] as unknown as Record<string, unknown>).rangeU === 'number').sort(),
       );
     }
   });
@@ -178,9 +179,10 @@ describe('hoverPreview — the incoming values ARE effectiveStats with the card 
     }
   });
 
-  it('a SECOND LAUNCHER TUBE card marks the torpedo row`s tube count up (a new clock)', () => {
+  it('an AFT LAUNCHER card marks the torpedo row`s launcher and tube counts up (the new launcher`s clocks)', () => {
     const you = { ...SHIP, cards: ['lightTorpedo'] };
-    const marks = hoverPreview(you, 'secondLauncherTube')!;
+    const marks = hoverPreview(you, 'aftTorpedoLauncher')!;
+    expect(marks.get(READOUT_KEY.count('torpedo', 'launchers'))!.direction).toBe('up');
     expect(marks.get(READOUT_KEY.count('torpedo', 'tubes'))!.direction).toBe('up');
   });
 

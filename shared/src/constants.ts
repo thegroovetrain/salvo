@@ -1674,8 +1674,9 @@ export const CONFIG = {
     // RE-RULED 90 → 300 on the 1000 hp hull (Story 10.3, Eric 2026-11-04,
     // epic-10 amendment 8, ruling 5: "HEAVY 300 → 600"): the line authors
     // +75 a rung → 300/375/450/525/600 — Tier V is 60 % of a hull.
-    damage: 200, // 300 → 200, Eric 2026-11-24 (−100 at every torpedo kind; batch-sim torp-100 arm)
-    maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4) — AFT TORPEDO LAUNCHER and SECOND LAUNCHER TUBE multiply it
+    damage: 150, // 200 → 150, Eric 2026-11-25 (tubes by kind); 300 → 200, Eric 2026-11-24 (−100 at every torpedo kind; batch-sim torp-100 arm)
+    maxAmmo: 1, // per TUBE (Story 10.6, R6); no tier steps it (R4) — the pool is launchers × `tubesPerLauncher` (sim/mountStats.ts)
+    tubesPerLauncher: 2, // Eric 2026-11-25: the heavy comes with 2 tubes on every launcher (no tube card any more)
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
     // longer commitment cycle. A max RELOAD build (cooldownScale 0.5) lands
@@ -1746,8 +1747,9 @@ export const CONFIG = {
    */
   lightTorpedo: {
     speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
-    damage: 150, // hp per contact hit at every tier — 250 → 150, Eric 2026-11-24 (−100 at every torpedo kind); 200 → 250, Eric 2026-11-16 (with acoustic homing standard); was +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
-    maxAmmo: 1, // ONE tube on the fore launcher at Tier I (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
+    damage: 100, // hp per contact hit at every tier — 150 → 100, Eric 2026-11-25 (tubes by kind); 250 → 150, Eric 2026-11-24 (−100 at every torpedo kind); 200 → 250, Eric 2026-11-16 (with acoustic homing standard); was +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
+    maxAmmo: 1, // per TUBE (Story 10.6, R6); no tier steps it (R4 — was +0.5 on the rungs to II and III → 1,1,2,2,2)
+    tubesPerLauncher: 3, // Eric 2026-11-25: the light comes with 3 tubes on every launcher
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls — it runs UNDER a minefield.
     hits: HITS_HULL,
@@ -1767,7 +1769,7 @@ export const CONFIG = {
    * TIERS (epic-10 amendment 8(e), "SUPERCAVITATING 400 → 800 over their
    * tiers"): +100 damage a rung, authored in sim/catalog.ts, and since Story
    * 11.2 (R5 / R18) the RUN — 55 → 140 hm like every kind. Speed and the
-   * single tube are fixed.
+   * single tube per launcher are fixed.
    *
    * IT NEVER HOMES (amendment 74, kept): a straight-runner at every tier —
    * its row's `homingTurnRate` is 0 and is not stat-addressable. It shares the
@@ -1775,8 +1777,9 @@ export const CONFIG = {
    */
   supercavTorpedo: {
     speed: 195, // u/s (amendment 74, R19's speed kept)
-    damage: 200, // hp per contact hit at every tier — 300 → 200, Eric 2026-11-24 (−100 at every torpedo kind); 400 → 300, Eric 2026-11-16 ("Supercav 300 base damage"), with tiers adding weapon POWER instead of damage; was +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
-    maxAmmo: 1, // one torpedo in the tube (2026-11-05, Story 10.5)
+    damage: 300, // hp per contact hit at every tier — 200 → 300, Eric 2026-11-25 (tubes by kind); 300 → 200, Eric 2026-11-24 (−100 at every torpedo kind); 400 → 300, Eric 2026-11-16 ("Supercav 300 base damage"), with tiers adding weapon POWER instead of damage; was +100 a rung → 800 at V (epic-10 amendment 8(e)); 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5; 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01
+    maxAmmo: 1, // per TUBE (2026-11-05, Story 10.5)
+    tubesPerLauncher: 1, // Eric 2026-11-25: the supercav keeps 1 tube on every launcher
     reloadMs: 45000, // ms — Eric 2026-11-05, Story 10.5, R4 ("SUPERCAV 45")
     // AR44: hulls only, never a mine — it runs UNDER a minefield.
     hits: HITS_HULL,
@@ -1934,7 +1937,7 @@ export const CONFIG = {
     // the captive mine "can upgrade to having a range where they will fire before
     // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
     // tier-V ring is 175.7 u, was 210.8).
-    triggerRadius: 180, // u — the TRIP ring at tier I: 120 → 180, Eric 2026-11-15/16 ("up the trigger range on captive mines so that players who trigger them have more time to react"); 144 until 2026-10-08 (R25)
+    triggerRadius: 250, // u — the TRIP ring at tier I: 180 → 250, Eric 2026-11-25 ("give the Captive Mine a 250u base range"); 120 → 180, Eric 2026-11-15/16 ("up the trigger range on captive mines so that players who trigger them have more time to react"); 144 until 2026-10-08 (R25)
     triggerStepPerTier: 1.1,
     // rad/s — the captive fish's ACOUSTIC reference turn rate at every tier
     // (experiment, Eric 2026-11-16: "use their current Tier V tracking number
@@ -2326,7 +2329,7 @@ export const CONFIG = {
     // "PHOSPHOR 50 burst + 20/s burn → 100 + 40/s", the +12/+13/+12/+13 split
     // the implementer's; was 10 / 12 / 15 / 17 / 20 — swapped 2026-10-01,
     // Eric, epic-8 amendment 208).
-    damage: 20, // 50 → 20, Eric 2026-11-24 (30 first, then 20 after the 198-match sims still read it the strongest special shell)
+    damage: 0, // NO BURST — all burn (Eric 2026-11-26, after the 100-match all-burn arm: 10.7 % → 7.6 % win rate); 50 → 20, Eric 2026-11-24 (30 first). A settled 0 is NO blow (World burstDamage): no `dmg`, no aggro; the burn still credits kills
     zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
     zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
     dps: 10, // 20 → 10, Eric 2026-11-24 (12 first, then 10). hp/s — tier-I burn on every non-owner afloat hull inside; +5 a rung → 40 at V (Story 10.3, ruling 9; was 5 → 10)

@@ -280,7 +280,7 @@ Dazzle + Phosphor stack on one flare (no exclusivity).
 - **POWER** — was ARMOR PIERCING; subtracts from the victim's ARMOR in the gate, +20 a card (epic-9 amendment 145; epic-10 amendments 8 and 12).
 - **ENGINES** (was SPEED), **INTEL** (was RADAR SWEEP), **RELOAD** — index rows; INTEL +20, ENGINES / RELOAD +10 a card (epic-10 amendments 8 and 12).
 - **HULL REPAIR** and **SMOKE SCREEN** — the `C` / `V` ability ladders, not consumables (epic-10 amendments 11 and 12).
-- **AFT TORPEDO LAUNCHER**, **SECOND LAUNCHER TUBE**, **SECOND MINE RACK**, **EXPANDED MINE RACKS** (the card prints **RACK CAPACITY**) — the four one-off weapon cards that own all extra capacity (epic-10 amendments 12 and 19(k)).
+- **AFT TORPEDO LAUNCHER**, **SECOND MINE RACK**, **EXPANDED MINE RACKS** (the card prints **RACK CAPACITY**) — the three one-off weapon cards that own all extra capacity (epic-10 amendments 12 and 19(k)). SECOND LAUNCHER TUBE is deleted: each torpedo kind comes with its own tubes per launcher (Eric 2026-11-25).
 - **FOULING SHELL** — replaced FLASH SHELLS in 9.4 (epic-9 amendment 24); a reloading `R` slot weapon since 10.5 (epic-10 amendment 11).
 - **FLASH SHELLS** (`dazzleShells`) — back beside the FOULING SHELL (epic-10 amendments 2, 4 and 5); a reloading `R` slot weapon (epic-10 amendment 11).
 - **SUPERCAVITATING TORPEDO** — a `Q` slot weapon again, 45 s (epic-10 amendment 11); base damage 300 (epic-11 amendment 17(c)).

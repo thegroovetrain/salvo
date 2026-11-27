@@ -120,14 +120,16 @@ const windowAround = (me: ShipRecord, brg: number, h = 0.02): void => {
 // Radar paints — the identity-free coverage footprint (the one grammar).
 const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 
-describe('torpedoes — one tube, its own reload (Story 10.6, R6)', () => {
-  it('one launch empties the tube; a second is refused until it reloads', () => {
+describe('torpedoes — every tube on its own reload (Story 10.6, R6; the kind\'s tubes since 2026-11-25)', () => {
+  it('one launch per tube empties the launcher; the next is refused until a tube reloads', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0); // the run: +x, across the beam
-    const t1 = fireTorpedo(ship, 0, mkId);
-    const t2 = fireTorpedo(ship, 0, mkId);
-    expect(t1).not.toBeNull();
-    expect(t2).toBeNull(); // the one tube is reloading
+    const n = ship.launchers.flatMap((l) => l.tubes).length;
+    expect(n).toBe(ship.stats.torpedoLaunchers * ship.stats.tubesPerLauncher);
+    const fired = Array.from({ length: n }, () => fireTorpedo(ship, 0, mkId));
+    expect(fired.every((t) => t !== null)).toBe(true);
+    expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // every tube is reloading
+    const t1 = fired[0];
     expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'heavyTorpedo') });
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
@@ -140,11 +142,13 @@ describe('torpedoes — one tube, its own reload (Story 10.6, R6)', () => {
   it('the tube fires again once its reload elapses', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0);
-    ship.launchers[0].tubes[0] = 200; // almost loaded
+    for (const l of ship.launchers) l.tubes.fill(200); // every tube almost loaded
     expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // still reloading
-    ship.launchers[0].tubes[0] = 0; // loaded
+    ship.launchers[0].tubes[0] = 0; // one loaded
     expect(fireTorpedo(ship, 0, mkId)).not.toBeNull(); // now fires
-    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'heavyTorpedo') });
+    const reloadMs = equipmentReloadMs(ship.stats, 'heavyTorpedo');
+    const others = ship.launchers.flatMap((l) => l.tubes).length - 1;
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: others > 0 ? Math.min(200, reloadMs) : reloadMs });
   });
 });
 
@@ -159,8 +163,8 @@ describe('torpedoes — the FORE launcher\'s firing band (Story 10.6, R6 / R16 /
   };
   const refused = (rec: ShipRecord): void => {
     expect(fireTorpedo(rec, 0, mkId)).toBeNull();
-    expect(rec.launchers[0].tubes).toEqual([0]); // nothing spent
-    expect(rec.loadout[SLOT_TORPEDO].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(rec.launchers[0].tubes.every((t) => t === 0)).toBe(true); // nothing spent
+    expect(rec.loadout[SLOT_TORPEDO].state).toEqual({ n: rec.launchers[0].tubes.length, reloadMsLeft: 0 });
   };
 
   it('launches inside the band on either beam and refuses dead ahead and dead astern, nothing spent', () => {
@@ -778,11 +782,11 @@ describe('LIGHT TORPEDO — the launcher, not a sector (Story 10.6, R6)', () => 
 
     const ahead = carrier(w, 'b', 'lightTorpedo', 1, 0, SLOT_WEAPON_1);
     expect(fireTorpedo(ahead, 0, mkId, 'lightTorpedo')).toBeNull();
-    expect(ahead.loadout[SLOT_WEAPON_1].state).toEqual({ n: 1, reloadMsLeft: 0 }); // tube untouched
+    expect(ahead.loadout[SLOT_WEAPON_1].state).toEqual({ n: ahead.stats.equipment.lightTorpedo.maxAmmo, reloadMsLeft: 0 }); // tubes untouched
 
     const astern = carrier(w, 'c', 'lightTorpedo', 1, Math.PI, SLOT_WEAPON_1);
     expect(fireTorpedo(astern, 0, mkId, 'lightTorpedo')).toBeNull();
-    expect(astern.loadout[SLOT_WEAPON_1].state).toEqual({ n: 1, reloadMsLeft: 0 }); // tube untouched
+    expect(astern.loadout[SLOT_WEAPON_1].state).toEqual({ n: astern.stats.equipment.lightTorpedo.maxAmmo, reloadMsLeft: 0 }); // tubes untouched
   });
 
   // ACOUSTIC HOMING IS STANDARD (Eric 2026-11-16): the light fish homes at
@@ -803,7 +807,7 @@ describe('LIGHT TORPEDO — the launcher, not a sector (Story 10.6, R6)', () => 
     const w = bareWorld(33);
     for (let n = 1; n <= 3; n += 1) {
       const rec = carrier(w, `t${n}`, 'lightTorpedo', n, 0, SLOT_WEAPON_1);
-      expect(rec.launchers.map((l) => l.tubes.length)).toEqual([1]);
+      expect(rec.launchers.map((l) => l.tubes.length)).toEqual([CONFIG.lightTorpedo.tubesPerLauncher]); // the kind's own count (Eric 2026-11-25)
     }
   });
 
@@ -814,7 +818,10 @@ describe('LIGHT TORPEDO — the launcher, not a sector (Story 10.6, R6)', () => 
     expect(fish.damage).toBe(CONFIG.lightTorpedo.damage);
     expect(fish.damage).not.toBe(CONFIG.torpedo.damage);
     expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.lightTorpedo.speed, 6);
-    expect(ship.loadout[SLOT_WEAPON_1].state).toEqual({ n: 0, reloadMsLeft: equipmentReloadMs(ship.stats, 'lightTorpedo') });
+    expect(ship.loadout[SLOT_WEAPON_1].state).toEqual({
+      n: ship.stats.equipment.lightTorpedo.maxAmmo - 1,
+      reloadMsLeft: equipmentReloadMs(ship.stats, 'lightTorpedo'),
+    });
   });
 });
 

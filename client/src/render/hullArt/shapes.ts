@@ -198,7 +198,7 @@ function frameOf(id: ShipClassId): Frame {
 /**
  * Pure: a deck TORPEDO LAUNCHER's art in its own frame (pivot at the origin,
  * tubes along +x — Story 10.6, I2): the pivot disc, then `tubes` outlined
- * tubes side by side (1 or 2), or — `tubes` null, a sighted enemy whose tube
+ * tubes side by side (1..MAX_TUBES_PER_LAUNCHER — the held kind's count), or — `tubes` null, a sighted enemy whose tube
  * count is not on the wire (I7) — ONE generic housing of the same length.
  */
 export function launcherArt(tubes: number | null): readonly Prim[] {

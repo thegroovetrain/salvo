@@ -1409,8 +1409,9 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     // (A positive aimDist names the area — Story 10.6; the fired TUBE starts T.)
     fireTorpedoAbeam(a, 2, 300);
     w.step();
-    expect(a.launchers[0].tubes).toEqual([T]);
-    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
+    expect(a.launchers[0].tubes[0]).toBe(T);
+    expect(a.launchers.flatMap((l) => l.tubes).slice(1).every((t) => t === 0)).toBe(true);
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(a.stats.equipment.heavyTorpedo.maxAmmo - 1);
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(T);
   });
 

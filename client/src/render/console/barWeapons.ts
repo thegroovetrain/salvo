@@ -8,8 +8,8 @@
 //                                      filling from the bottom, seconds inside
 //                                      (no ladder climbs it: no mark)
 //   SECONDARIES                [RMB]   the rate bar, full when fastest (untiered: no mark)
-//   HEAVY TORPEDO     II ●●○○○ [ Q ]   four tubes in two pairs (fore, aft);
-//   ▯▯  ▯▯                             locked tubes dashed gray, in place
+//   HEAVY TORPEDO     II ●●○○○ [ Q ]   two launcher groups (fore, aft), each
+//   ▯▯  ▯▯                             the kind's tubes; locked dashed gray
 //   NAVAL MINES        I ●○○○○ [ E ]   two racks: a wedge ring + fixed slots
 //   ◔ ✳✳✳✳   ◔ ✳✳✳✳
 //   STAR SHELLS      III ●●●○○ [ R ]   one shot: a refill bar with READY /
@@ -35,6 +35,7 @@ import {
   previewCounts,
   rackSlots,
   rackStates,
+  rowTubesPerLauncher,
   shellSlots,
   shellStates,
   slotsPerRack,
@@ -172,8 +173,15 @@ export class WeaponTiles {
   private drawBody(row: WeaponRowModel, body: Rect, tt: TileTexts, f: Frame): void {
     if (row.kind === 'secondaries') this.drawTrack(body, secondariesFill(row.heat?.heat ?? 0), 1, HEAT_ALPHA);
     else if (row.kind === 'mainBattery') this.drawIcons(shellSlots(body, f.view.turrets), shellStates(row.clocks, f.view.turrets), tt);
-    else if (row.kind === 'torpedo') this.drawIcons(tubeSlots(body), tubeStates(row.clocks, f.now, f.next), tt);
+    else if (row.kind === 'torpedo') this.drawTubes(row, body, tt, f);
     else this.drawRacks(row, body, tt, f);
+  }
+
+  /** TORPEDO (AC 29): both launcher groups, each the held kind's tubes (an
+   *  empty row under a hovered torpedo card: the hovered kind's). */
+  private drawTubes(row: WeaponRowModel, body: Rect, tt: TileTexts, f: Frame): void {
+    const per = rowTubesPerLauncher(row.id, f.next);
+    this.drawIcons(tubeSlots(body, per), tubeStates(row.clocks, per, f.now, f.next), tt);
   }
 
   /** A track (heat / refill): silver outline, phosphor fill to `frac`. */

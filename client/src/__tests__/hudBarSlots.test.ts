@@ -1,8 +1,8 @@
 // THE BAR'S COOLDOWN ICONS (render/console/slots.ts, Story 12.3 Part B, AC 29
 // / 30). "None of the cooldown icons should EVER shift in position for ANY
 // reason": every slot position is a pure function of the tile's body, the
-// hull's turret count and the mine KIND — identical across every unlock,
-// tube, rack, capacity, reload and preview combination. Plus the per-slot
+// hull's turret count, the torpedo KIND and the mine KIND — identical across
+// every unlock, tube, rack, capacity, reload and preview combination. Plus the per-slot
 // state (locked / open / live) and the bottom-up fill clip.
 
 import { describe, it, expect } from 'vitest';
@@ -10,17 +10,22 @@ import {
   CATALOG,
   CONFIG,
   DEFAULT_CLASS_ID,
+  DEFAULT_SHIFT,
+  MAX_TUBES_PER_LAUNCHER,
   MINE_EQUIPMENT_IDS,
   SHIP_CLASS_IDS,
   effectiveStats,
+  familyMembers,
+  lineForEquipment,
   rackCapacity,
   rackCount,
   turretMounts,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { barLayout } from '../render/console/layout.js';
-import { mountClock, type MountClock, type RackPips } from '../render/console/readouts.js';
+import { hoverPreview, mountClock, shipReadouts, type MountClock, type RackPips, type ReadoutShip } from '../render/console/readouts.js';
 import {
+  GROUP_SPACER,
   clipBelow,
   fillLine,
   iconOutline,
@@ -28,8 +33,10 @@ import {
   previewCounts,
   rackSlots,
   rackStates,
+  rowTubesPerLauncher,
   shellSlots,
   shellStates,
+  slotsPerLauncher,
   slotsPerRack,
   tubeSlots,
   tubeStates,
@@ -43,7 +50,14 @@ const counts = (launchers: number, tubesPer: number, racks: number, capacity: nu
 
 /** Every reachable mount combination: launchers × tubes per launcher × racks × capacity. */
 const COMBOS: MountCounts[] = [];
-for (const l of [0, 1, 2]) for (const t of [1, 2]) for (const r of [0, 1, 2]) for (const c of [1, 2, 3, 4]) COMBOS.push(counts(l, t, r, c));
+const TUBES_PER = Array.from({ length: MAX_TUBES_PER_LAUNCHER }, (_, i) => i + 1);
+for (const l of [0, 1, 2]) for (const t of TUBES_PER) for (const r of [0, 1, 2]) for (const c of [1, 2, 3, 4]) COMBOS.push(counts(l, t, r, c));
+/** The three torpedo kinds, and the empty torpedo slot. */
+const TORPEDO_KINDS = familyMembers('torpedo');
+const TORPEDO_TILES = [...TORPEDO_KINDS, null] as const;
+/** A hull's folded stats holding `cards` (the default hull). */
+const fold = (cards: string[]) => effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], cards, CATALOG);
+const lineOf = (id: (typeof TORPEDO_KINDS)[number]): string => lineForEquipment(id, CATALOG)!.id;
 
 describe('fixed positions — NO icon ever moves (AC 30)', () => {
   it('MAIN BATTERY: one shell per turret of every hull, in the body, never overlapping', () => {
@@ -57,15 +71,11 @@ describe('fixed positions — NO icon ever moves (AC 30)', () => {
   });
 
   it('the slot positions are identical across every unlock / reload / preview state (the state functions never move a slot)', () => {
-    const tubes = tubeSlots(body('torpedo'));
     for (const id of MINE_EQUIPMENT_IDS) {
       const racks = rackSlots(body('mines'), slotsPerRack(id));
       for (const now of COMBOS) {
         for (const next of [now, COMBOS[COMBOS.length - 1]]) {
-          // the geometry takes no state at all: recomputing it under any state is the same object shape and numbers
-          expect(tubeSlots(body('torpedo'))).toEqual(tubes);
-          expect(rackSlots(body('mines'), slotsPerRack(id))).toEqual(racks);
-          expect(tubeStates([], now, next)).toHaveLength(tubes.length);
+          // the geometry takes no state at all; the state model must cover exactly the drawn slots
           const rs = rackStates([], [], slotsPerRack(id), now, next);
           expect(rs).toHaveLength(racks.rings.length);
           for (const r of rs) expect(r.slots).toHaveLength(slotsPerRack(id));
@@ -74,13 +84,54 @@ describe('fixed positions — NO icon ever moves (AC 30)', () => {
     }
   });
 
-  it('TORPEDO: always four tubes in two pairs, the pairs apart by more than the tubes inside one', () => {
-    const t = tubeSlots(body('torpedo'));
-    expect(t).toHaveLength(B.tubePairs * B.tubesPerPair);
-    const inPair = t[1].x - (t[0].x + t[0].w);
-    const between = t[2].x - (t[1].x + t[1].w);
-    expect(between).toBeGreaterThan(inPair);
-    expect(t.map((s) => s.group)).toEqual([0, 0, 1, 1]);
+  it('TORPEDO: a kind`s tube slots are fixed across every tube state — ready, reloading, locked, open (the row box and its icons never move)', () => {
+    const b = body('torpedo');
+    for (const id of TORPEDO_TILES) {
+      const per = slotsPerLauncher(id);
+      const tubes = tubeSlots(b, per);
+      const ready = TUBES_PER.flatMap(() => [mountClock(0, 10_000, 0), mountClock(0, 10_000, 1)]);
+      const reloading = ready.map((c) => mountClock(4000, 10_000, c.group));
+      for (const clocks of [[], ready, reloading]) {
+        for (const now of COMBOS) {
+          for (const next of [now, COMBOS[COMBOS.length - 1]]) {
+            expect(tubeStates(clocks, per, now, next)).toHaveLength(tubes.length);
+          }
+        }
+      }
+    }
+  });
+
+  it('TORPEDO: each launcher group draws EXACTLY the held kind`s tubes per launcher — the folded count, fore and aft', () => {
+    for (const id of TORPEDO_KINDS) {
+      const per = slotsPerLauncher(id);
+      for (const cards of [[lineOf(id)], [lineOf(id), 'aftTorpedoLauncher']]) {
+        const stats = fold(cards);
+        expect(per, `${id} ${cards.join('+')}`).toBe(stats.tubesPerLauncher);
+        expect(stats.torpedoLaunchers).toBeLessThanOrEqual(B.launchers);
+      }
+      const t = tubeSlots(body('torpedo'), per);
+      for (let g = 0; g < B.launchers; g++) expect(t.filter((s) => s.group === g).map((s) => s.index)).toEqual(Array.from({ length: per }, (_, i) => i));
+    }
+    expect(slotsPerLauncher(null)).toBe(slotsPerLauncher('heavyTorpedo')); // an empty torpedo tile lays out as the heavy
+  });
+
+  it('TORPEDO: packed left — the fore group from the body`s left edge, `iconGap` between tubes, the aft group one GROUP_SPACER after the fore group`s last tube, all inside the row body', () => {
+    const b = body('torpedo');
+    for (const id of TORPEDO_TILES) {
+      const t = tubeSlots(b, slotsPerLauncher(id));
+      expect(t[0].x).toBe(b.x);
+      const fore = t.filter((s) => s.group === 0);
+      const aft = t.filter((s) => s.group === 1);
+      for (const grp of [fore, aft]) for (let i = 1; i < grp.length; i++) expect(grp[i].x).toBeCloseTo(grp[i - 1].x + grp[i - 1].w + B.iconGap, 9);
+      const last = fore[fore.length - 1];
+      expect(aft[0].x).toBeCloseTo(last.x + last.w + GROUP_SPACER, 9);
+      for (const s of t) {
+        expect(s.x).toBeGreaterThanOrEqual(b.x);
+        expect(s.x + s.w).toBeLessThanOrEqual(b.x + b.w + 1e-9);
+        expect(s.y).toBeGreaterThanOrEqual(b.y - 1e-9);
+        expect(s.y + s.h).toBeLessThanOrEqual(b.y + b.h + 1e-9);
+      }
+    }
   });
 
   it('MINES: always two racks, each a ring then its fixed slots, all inside the tile body', () => {
@@ -123,15 +174,53 @@ describe('per-slot state — locked in place, open under a card, live otherwise'
 
   it('TORPEDO: tube (g, t) is mounted only under g launchers × t tubes; the rest locked, OPEN where a card mounts them', () => {
     const one = counts(1, 1, 0, 0);
-    const s = tubeStates(clocks, one);
+    const s = tubeStates(clocks, 2, one);
     expect(s.map((x) => x.locked)).toEqual([false, true, true, true]);
     expect(s[0].clock).toBe(clocks[0]);
-    // AFT LAUNCHER: the aft pair's first tube opens
-    expect(tubeStates(clocks, one, counts(2, 1, 0, 0)).map((x) => x.open)).toEqual([false, false, true, false]);
-    // SECOND LAUNCHER TUBE: the fore pair's second tube opens
-    expect(tubeStates(clocks, one, counts(1, 2, 0, 0)).map((x) => x.open)).toEqual([false, true, false, false]);
+    // AFT LAUNCHER: the aft group's first tube opens
+    expect(tubeStates(clocks, 2, one, counts(2, 1, 0, 0)).map((x) => x.open)).toEqual([false, false, true, false]);
+    // a second tube per launcher: the fore group's second tube opens
+    expect(tubeStates(clocks, 2, one, counts(1, 2, 0, 0)).map((x) => x.open)).toEqual([false, true, false, false]);
     // no torpedo: everything locked
-    expect(tubeStates([], counts(0, 1, 0, 0)).every((x) => x.locked && !x.open)).toBe(true);
+    expect(tubeStates([], 2, counts(0, 1, 0, 0)).every((x) => x.locked && !x.open)).toBe(true);
+  });
+
+  it('TORPEDO by kind: the fore launcher mounts every one of the kind`s slots; the AFT card opens exactly the aft group, in place', () => {
+    for (const id of TORPEDO_KINDS) {
+      const per = slotsPerLauncher(id);
+      const fore = fold([lineOf(id)]);
+      const both = fold([lineOf(id), 'aftTorpedoLauncher']);
+      const now = counts(fore.torpedoLaunchers, fore.tubesPerLauncher, 0, 0);
+      const next = counts(both.torpedoLaunchers, both.tubesPerLauncher, 0, 0);
+      const groupOf = tubeSlots(body('torpedo'), per).map((sl) => sl.group);
+      const s = tubeStates([], per, now, next);
+      expect(s.map((x) => x.locked), id).toEqual(groupOf.map((g) => g !== 0));
+      expect(s.map((x) => x.open), id).toEqual(groupOf.map((g) => g === 1));
+      expect(tubeStates([], per, next).every((x) => !x.locked), id).toBe(true);
+    }
+  });
+
+  it('TORPEDO, EMPTY row under a hovered torpedo card: it re-lays as the HOVERED kind and the fore group opens (Eric 2026-11-26)', () => {
+    const you: ReadoutShip = { cls: DEFAULT_CLASS_ID, cards: [], ib: {}, shift: DEFAULT_SHIFT };
+    const now = mountCounts(shipReadouts(you)!);
+    for (const id of TORPEDO_KINDS) {
+      const next = previewCounts(now, hoverPreview(you, lineOf(id)));
+      const per = rowTubesPerLauncher(null, next);
+      expect(per, id).toBe(fold([lineOf(id)]).tubesPerLauncher);
+      const groupOf = tubeSlots(body('torpedo'), per).map((sl) => sl.group);
+      const s = tubeStates([], per, now, next);
+      expect(s.map((x) => x.open), id).toEqual(groupOf.map((g) => g === 0));
+      expect(s.every((x) => x.locked), id).toBe(true);
+    }
+    // No hover, or a hovered card that fits no torpedo: the empty layout (the heavy's).
+    expect(rowTubesPerLauncher(null, now)).toBe(slotsPerLauncher(null));
+    expect(rowTubesPerLauncher(null, previewCounts(now, hoverPreview(you, 'armor')))).toBe(slotsPerLauncher(null));
+    // A fitted row keeps its own kind's layout whatever is hovered.
+    for (const id of TORPEDO_KINDS) {
+      const held = fold([lineOf(id)]);
+      const hovered = counts(1, fold([lineOf(TORPEDO_KINDS.find((k) => k !== id)!)]).tubesPerLauncher, 0, 0);
+      expect(rowTubesPerLauncher(id, hovered), id).toBe(held.tubesPerLauncher);
+    }
   });
 
   it('MINES: a rack past the count is locked, a slot past the capacity locked; held mines fill from the first slot', () => {
