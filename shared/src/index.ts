@@ -9,7 +9,8 @@
  *  reads: each torpedo block gains `tubesPerLauncher` (light 3 / heavy 2 /
  *  supercav 1, the derived `stats.tubesPerLauncher` — sim/mountStats.ts) and
  *  `torpedo.damage` 200 → 150, `lightTorpedo.damage` 150 → 100,
- *  `supercavTorpedo.damage` 200 → 300; `captiveMines.triggerRadius` 180 →
+ *  `supercavTorpedo.damage` 200 → 300; `phosphorShells.damage` 20 → 0 (all
+ *  burn, 2026-11-26); `captiveMines.triggerRadius` 180 →
  *  250; `MAX_TUBES_PER_LAUNCHER` 2 → 3. Perception exception count stays SIX.
  *  115 — 2026-11-24 TORPEDO AND PHOSPHOR DAMAGE CUT (Eric; epic-12
  *  amendment 21): no wire shape changes. CONFIG the client reads (the card

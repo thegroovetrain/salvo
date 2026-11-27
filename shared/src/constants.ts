@@ -2329,7 +2329,7 @@ export const CONFIG = {
     // "PHOSPHOR 50 burst + 20/s burn → 100 + 40/s", the +12/+13/+12/+13 split
     // the implementer's; was 10 / 12 / 15 / 17 / 20 — swapped 2026-10-01,
     // Eric, epic-8 amendment 208).
-    damage: 20, // 50 → 20, Eric 2026-11-24 (30 first, then 20 after the 198-match sims still read it the strongest special shell)
+    damage: 0, // NO BURST — all burn (Eric 2026-11-26, after the 100-match all-burn arm: 10.7 % → 7.6 % win rate); 50 → 20, Eric 2026-11-24 (30 first). A settled 0 is NO blow (World burstDamage): no `dmg`, no aggro; the burn still credits kills
     zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
     zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
     dps: 10, // 20 → 10, Eric 2026-11-24 (12 first, then 10). hp/s — tier-I burn on every non-owner afloat hull inside; +5 a rung → 40 at V (Story 10.3, ruling 9; was 5 → 10)

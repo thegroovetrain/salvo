@@ -143,7 +143,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       { name: 'CAPTIVE MINES', lineId: 'captiveMines', table: 'tier', description: 'Drops like a Naval Mine. Instead of exploding, it fires a torpedo at the first enemy to come in range.' },
       { name: 'FOULING MINES', lineId: 'foulingMines', table: 'tier', description: 'Drops like a Naval Mine. Hurts less, but slows any enemy caught in the blast.' },
       { name: 'STAR SHELLS', lineId: 'starShells', table: 'tier', description: 'Fires a flare to where you click. Grants you vision on anything in the circle, and damages every ship under it when it bursts. You can always fire your Main Battery anywhere into the region lit up by your Star Shells no matter where it is on the map.' },
-      { name: 'PHOSPHOR SHELLS', lineId: 'phosphorShells', table: 'tier', description: 'Explodes into a patch of burning water. Damages on burst, then keeps burning anyone who sits in it.' },
+      { name: 'PHOSPHOR SHELLS', lineId: 'phosphorShells', table: 'tier', description: 'Explodes into a patch of burning water that keeps burning anyone who sits in it.' },
       { name: 'FOULING SHELL', lineId: 'foulingShell', table: 'tier', description: 'Leaves a patch of fouled water where it lands. Any enemy inside is slowed, and stays slow for a moment after leaving.' },
       { name: 'FLASH SHELLS', lineId: 'dazzleShells', table: 'tier', description: 'Every enemy caught in the flash is blinded for a while. Radar unaffected. No damage.' },
       { name: 'AFT LAUNCHER', lineId: 'aftTorpedoLauncher', table: 'none', description: 'Adds a torpedo launcher at your stern.' },

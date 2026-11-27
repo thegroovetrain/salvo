@@ -1,5 +1,5 @@
 ---
-title: 'Torpedo tubes by kind (light 3 / heavy 2 / supercav 1; SECOND TUBE card deleted); captive mine trip ring 250'
+title: 'Torpedo tubes by kind (light 3 / heavy 2 / supercav 1; SECOND TUBE card deleted); captive mine trip ring 250; phosphor all burn'
 type: 'feature'
 created: '2026-11-25'
 status: 'done'
@@ -88,6 +88,8 @@ context: []
 - Render the own-hull launcher with 3 tubes on all four hulls; the tubes sit on the mount
 
 ## Spec Change Log
+
+- 2026-11-26 — Phosphor all burn added (Eric 2026-11-26, after the 100-match all-burn arm (`batch-sim-evidence-2026-11-26.md`), verbatim: *"Okay, lets go ahead and make that change too."* — and *"The burn damage counts towards kill credit"*): `phosphorShells.damage` 20 → 0; the damage row hidden from every client stat display; How-to-Play line no longer claims a burst; PV 116 note lists it. The hit mark still shows when the zone catches a hull (Eric: "Hit mark if zone catches"; World `burnCatches`).
 
 - 2026-11-26 — Eric withdrew the 3 s mine drop wait (Eric 2026-11-26, verbatim: *"Take out the 3s wait on mines. I changed my mind."*). Every wait file was restored to its pre-wait state (commit 18160be2): `sim/racks.ts`, `types.ts`, `equipment/mines.ts`, `frames.ts`, `console/readouts.ts`, `main.ts` and their tests; `CONFIG.mine.rackDropGapMs` removed; the golden snapshot back to the tubes-only re-record; the PV 116 note says no wire shape changes. KEEP: the captive ring 250 (and its `mineHp.test.ts` fix), the HUD torpedo row (layout B + hover re-lay), the smokes' aft-launcher fits.
 

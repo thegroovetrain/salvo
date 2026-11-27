@@ -823,7 +823,7 @@ function ladderRows(
   const rows: CardStatRow[] = [];
   const range: CardStatRow[] = [];
   for (const e of line.tiers[k] ?? []) {
-    if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path)) continue;
+    if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path) || isHiddenStatPath(e.path)) continue;
     const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
     if (row !== null) (isReachPath(e.path) ? range : rows).push(row);
   }
@@ -881,6 +881,39 @@ function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats):
 }
 
 /**
+ * THE STAT FIELDS NO PLAYER-FACING TABLE PRINTS, per equipment — though the
+ * field stays in `EQUIPMENT_STAT_FIELDS`, which is also the catalog's
+ * stat-path whitelist (so the sim, the fold and the tier paths are untouched).
+ * A PRESENTATION rule only, and the ONE rule: the fit card face
+ * (`faceFields`), the stat tables (`printedStatFields` → `equipmentStatRows`:
+ * the slot tooltip, the refit hover, the How-to-Play tables), the tier-step
+ * rows (`ladderRows`) and the battle console's field list
+ * (render/console/readouts.ts `statRowFields`) all read it, so they stay
+ * aligned row for row.
+ */
+const HIDDEN_STAT_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
+  // Eric 2026-11-26: phosphor is all burn, no burst (its `damage` is 0).
+  phosphorShells: ['damage'],
+};
+
+/** Pure: does no player-facing table print this equipment field? */
+export function isHiddenStatField(target: EquipmentId, field: string): boolean {
+  return HIDDEN_STAT_FIELDS[target]?.includes(field) ?? false;
+}
+
+/** Pure: an equipment's `EQUIPMENT_STAT_FIELDS`, in table order, less its
+ *  `HIDDEN_STAT_FIELDS` — the fields its stat tables print. */
+export function printedStatFields(target: EquipmentId): readonly string[] {
+  return (EQUIPMENT_STAT_FIELDS[target] as readonly string[]).filter((f) => !isHiddenStatField(target, f));
+}
+
+/** Pure: is an authored stat path (`equipment.<id>.<field>`) a hidden field? */
+function isHiddenStatPath(path: string): boolean {
+  const [root, id, field] = path.split('.');
+  return root === 'equipment' && Object.hasOwn(HIDDEN_STAT_FIELDS, id) && isHiddenStatField(id as EquipmentId, field);
+}
+
+/**
  * THE FIELDS A WEAPON'S FIT CARD PRINTS, where that is NOT simply its whole
  * `EQUIPMENT_STAT_FIELDS` table (Story 8.13).
  *
@@ -918,9 +951,9 @@ const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
  *  (Eric 2026-10-13) prints it on every gun's fit face, LAST — the grammar of
  *  the tier cards (`ladderRows`) and the stat tables (amendment 185). */
 function faceFields(target: EquipmentId): readonly string[] {
-  const table = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
+  const table = printedStatFields(target);
   const reach: readonly string[] = REACH_FIELDS;
-  const fields = (FACE_FIELDS[target] ?? table).filter((f) => !reach.includes(f));
+  const fields = (FACE_FIELDS[target] ?? table).filter((f) => !reach.includes(f) && !isHiddenStatField(target, f));
   return [...fields, ...REACH_FIELDS.filter((f) => table.includes(f))];
 }
 
@@ -1255,7 +1288,7 @@ function shiftRows(target: EquipmentId, fields: readonly string[], stats: Effect
 export function equipmentStatRows(target: EquipmentId, stats: EffectiveStats): CardStatRow[] {
   const shift = SHIFT_FIELDS[target];
   if (shift !== undefined) return shiftRows(target, shift, stats);
-  const fields = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
+  const fields = printedStatFields(target);
   // The ROW OBJECT, not `readStatPath`, decides what is derived (see weaponRows).
   const row = stats.equipment[target] as unknown as Record<string, unknown>;
   const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');

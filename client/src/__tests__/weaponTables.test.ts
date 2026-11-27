@@ -70,8 +70,10 @@ describe('tier tables', () => {
     expect(match.length).toBeGreaterThan(0);
   });
 
-  it('STAR SHELLS and PHOSPHOR SHELLS burst damage reads the HUD-shown damage at every tier', () => {
-    for (const id of ['starShells', 'phosphorShells'] as const) {
+  // PHOSPHOR SHELLS has no burst since Eric 2026-11-26 (all burn) and prints
+  // no DAMAGE row — hiddenStatFields.test.ts.
+  it('STAR SHELLS burst damage reads the HUD-shown damage at every tier', () => {
+    for (const id of ['starShells'] as const) {
       const want = tierCopies(id).map((k) => String(shownWeaponDamage(fold(id, k), id)));
       expect(cells(tierTable(id)), id).toContainEqual(want);
     }

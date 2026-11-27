@@ -93,4 +93,4 @@ The Iowa drop cannot be attributed to phosphor: the mine wait also left between 
 
 **Reading:** with no burst, phosphor's interval covers the fair rate for the first time in any campaign, and the four special shells sit within about 2.6 pp of one another. The hull readings moved too: Yamato up and Iowa down, with Iowa's drop significant. That hull shift is confounded and needs a clean baseline before anyone believes it.
 
-**Ruling:** none yet.
+**Ruling (Eric 2026-11-26):** *"Okay, lets go ahead and make that change too."* — burst 0 ACCEPTED into PR #392 (epic-13 amendment 5(h)).

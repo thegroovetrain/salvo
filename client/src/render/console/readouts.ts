@@ -29,7 +29,6 @@
 import {
   CATALOG,
   CONFIG,
-  EQUIPMENT_STAT_FIELDS,
   INDEX_IDS,
   abilityCooldownFraction,
   abilityCooldownMs,
@@ -59,7 +58,7 @@ import {
 } from '@salvo/shared';
 import { hmText, hmWithUnit, isDistanceField } from '../../util/hmText.js';
 import { CLIENT_CONFIG } from '../../config.js';
-import { abilityName, boonName, equipmentStatRows, indexWord } from '../../ui/boonCopy.js';
+import { abilityName, boonName, equipmentStatRows, indexWord, printedStatFields } from '../../ui/boonCopy.js';
 import { romanTier } from '../../ui/tierRamp.js';
 import { EQUIPMENT_NAME, hasTierLadder, lineTier, slotTier } from '../equipmentInfo.js';
 import { rowSlot, WEAPON_ROW_KINDS, ABILITY_KINDS, type AbilityKind, type WeaponRowKind } from './layout.js';
@@ -172,7 +171,9 @@ function fieldText(field: string, v: number): string {
  * table (the alignment is pinned by console.readouts.test.ts).
  */
 export function statRowFields(target: EquipmentId, stats: EffectiveStats): string[] {
-  const fields = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
+  // The printed fields — the table less boonCopy's `HIDDEN_STAT_FIELDS` (Eric
+  // 2026-11-26: phosphor is all burn, no burst), the same cut the rows take.
+  const fields = printedStatFields(target);
   const row = stats.equipment[target] as unknown as Record<string, unknown>;
   const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');
   const after = fields.includes('blastRadius') ? 'blastRadius' : 'damage';
