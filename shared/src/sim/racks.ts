@@ -19,14 +19,6 @@
 //   - a full rack's clock is pinned at 0.
 // Two racks' clocks run at once, independently.
 //
-// THE DROP WAIT (Eric 2026-11-25: "add a 3s cooldown before any single mine
-// rack is able to drop another mine"). Beside its reload clock each rack keeps
-// `gapMsLeft`: a drop sets it to the wait (`CONFIG.mine.rackDropGapMs`, passed
-// in), `tickRacks` runs it down, and a WAITING rack cannot drop — the turn
-// skips it exactly as it skips an empty one, so a stocked second rack still
-// drops at once. INSTANT RELOAD clears it (Eric). Absent = 0 (no wait), so the
-// wire omits it while idle.
-//
 // THE TURN (R17 "They alternate per drop"; R18 "Next rack in line with an
 // available mine would drop"). `RackBank.next` is the rack whose turn it is.
 // A drop comes from the first rack AT OR AFTER the turn (wrapping) that holds
@@ -53,13 +45,6 @@ export type RackStats = Pick<EffectiveStats, 'equipment' | 'mineRacks'>;
 export interface RackState {
   n: number;
   reloadMsLeft: number;
-  /** ms until this rack may drop again after its last drop (the drop wait); absent / 0 = may drop. */
-  gapMsLeft?: number;
-}
-
-/** Pure: may rack `r` drop right now — holds a mine and is not waiting. */
-export function rackCanDrop(r: RackState): boolean {
-  return r.n > 0 && !((r.gapMsLeft ?? 0) > 0);
 }
 
 /** A ship's racks and whose turn it is to drop. */
@@ -133,27 +118,17 @@ export function copyRacks(into: RackState[], from: readonly RackState[]): RackSt
     const dst = into[i] ?? (into[i] = { n: 0, reloadMsLeft: 0 });
     dst.n = from[i].n;
     dst.reloadMsLeft = from[i].reloadMsLeft;
-    const gap = from[i].gapMsLeft ?? 0;
-    if (gap > 0 || dst.gapMsLeft !== undefined) dst.gapMsLeft = gap; // the wire omits an idle wait
   }
   return into;
-}
-
-/** One step of a rack's DROP WAIT, IN PLACE: runs it down to 0 (an idle wait is untouched). */
-function tickDropWait(r: RackState, dtMs: number): void {
-  const gap = r.gapMsLeft ?? 0;
-  if (gap > 0) r.gapMsLeft = Math.max(0, gap - dtMs);
 }
 
 /**
  * ONE STEP of every rack's clock, IN PLACE (see the header): a full rack's
  * clock is pinned to 0; a short rack's counts down, and on crossing zero the
  * rack gains ONE mine and — if still short — restarts carrying the overshoot.
- * Each rack's drop wait runs down beside it.
  */
 export function tickRacks(bank: RackBank, capacity: number, reloadMs: number, dtMs: number): void {
   for (const r of bank.racks) {
-    tickDropWait(r, dtMs);
     if (r.n >= capacity) {
       r.reloadMsLeft = 0;
       continue;
@@ -169,31 +144,27 @@ export function tickRacks(bank: RackBank, capacity: number, reloadMs: number, dt
   }
 }
 
-/** The rack a drop would come from right now (R17 / R18), or −1 when no rack holds a mine outside its drop wait. Pure. */
+/** The rack a drop would come from right now (R17 / R18), or −1 when no rack holds a mine. Pure. */
 export function nextDropRack(bank: RackBank): number {
   const count = bank.racks.length;
   for (let k = 0; k < count; k += 1) {
     const i = (bank.next + k) % count;
-    if (rackCanDrop(bank.racks[i])) return i;
+    if (bank.racks[i].n > 0) return i;
   }
   return -1;
 }
 
 /**
  * DROP ONE MINE (R17 / R18): the first rack at or after the turn that holds a
- * mine and is not waiting gives it up, its clock starts if it was idle
- * (`reloadMs` = the held mine's FOLDED reload), its drop wait starts
- * (`gapMs`, `CONFIG.mine.rackDropGapMs`), and the turn passes to the rack
- * after it. Returns the rack that dropped, or `null` — nothing changed — when
- * no rack can drop.
+ * mine gives it up, its clock starts if it was idle (`reloadMs` = the held
+ * mine's FOLDED reload), and the turn passes to the rack after it. Returns the
+ * rack that dropped, or `null` — nothing changed — when no rack holds a mine.
  */
-export function dropMine(bank: RackBank, reloadMs: number, gapMs: number): number | null {
+export function dropMine(bank: RackBank, reloadMs: number): number | null {
   const i = nextDropRack(bank);
   if (i < 0) return null;
   const r = bank.racks[i];
   r.n -= 1;
-  const gap = Number.isFinite(gapMs) && gapMs > 0 ? gapMs : 0;
-  if (gap > 0 || r.gapMsLeft !== undefined) r.gapMsLeft = gap;
   if (r.reloadMsLeft <= 0) r.reloadMsLeft = reloadMs;
   bank.next = (i + 1) % bank.racks.length;
   return i;
@@ -219,11 +190,10 @@ export function rescaleRackReloads(bank: RackBank, ratio: number): void {
  * cycle that was running is the one that was just finished, exactly what
  * `tickRacks` does after a natural restore (a zero clock on a short rack would
  * hand out a second free mine on the next tick). A full rack is untouched;
- * the turn is untouched. Every rack's DROP WAIT clears (Eric 2026-11-25).
+ * the turn is untouched.
  */
 export function instantReloadRacks(bank: RackBank, capacity: number, reloadMs: number): void {
   for (const r of bank.racks) {
-    if (r.gapMsLeft !== undefined) r.gapMsLeft = 0;
     if (r.n >= capacity) continue;
     r.n += 1;
     r.reloadMsLeft = r.n < capacity ? reloadMs : 0;
@@ -232,35 +202,16 @@ export function instantReloadRacks(bank: RackBank, capacity: number, reloadMs: n
 
 /**
  * THE HOTBAR SUMMARY — the `{ n, reloadMsLeft }` pair the mine slot's
- * `EquipmentState` / `OwnShip.ammo[slot]` carries, read as READY TO DROP
- * (the `launcherSummary` "tubes loaded" sense): `n` = mines held in the racks
- * that can drop NOW (`rackCanDrop` — a waiting rack's mines are not counted),
- * `reloadMsLeft` = the SOONEST running clock that could make a mine droppable
- * — a stocked waiting rack's drop wait, a short rack's reload clock (an empty
- * waiting rack: the later of the two; see `rackSoonest`) — 0 when none runs.
- * Every reader of the slot pair (the bots' `slotReady`, the client's click
- * gate, the TOGGLE stock) therefore sees a waiting rack as not ready; the
- * mines HELD are the racks' own `n` (`OwnShip.racks`).
+ * `EquipmentState` / `OwnShip.ammo[slot]` carries: `n` = mines held across
+ * every rack, `reloadMsLeft` = the SOONEST running rack clock (0 when none
+ * runs).
  */
 export function rackSummary(bank: RackBank): { n: number; reloadMsLeft: number } {
   let n = 0;
   let soonest = Infinity;
   for (const r of bank.racks) {
-    if (rackCanDrop(r)) n += r.n;
-    soonest = Math.min(soonest, rackSoonest(r));
+    n += r.n;
+    if (r.reloadMsLeft > 0 && r.reloadMsLeft < soonest) soonest = r.reloadMsLeft;
   }
   return { n, reloadMsLeft: Number.isFinite(soonest) ? soonest : 0 };
-}
-
-/**
- * When one rack could next drop, as a running clock (Infinity when none
- * runs): a rack outside its wait reads its reload clock (the pre-wait
- * summary); a STOCKED waiting rack reads its wait; an EMPTY waiting rack
- * needs both its reload and its wait, so it reads the later of the two.
- */
-function rackSoonest(r: RackState): number {
-  const gap = r.gapMsLeft ?? 0;
-  const reload = r.reloadMsLeft > 0 ? r.reloadMsLeft : Infinity;
-  if (!(gap > 0)) return reload;
-  return r.n > 0 ? gap : Math.max(gap, reload);
 }

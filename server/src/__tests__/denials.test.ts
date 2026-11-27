@@ -247,9 +247,6 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_MINE, aim: 0, aimDist: 40 })); // bow click
     w.step();
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    // Ride out the rack's DROP WAIT (Eric 2026-11-25) so the second click
-    // tests only the arc, never the wait.
-    for (let t = 0; t < Math.ceil(CONFIG.mine.rackDropGapMs / CONFIG.tick.simDtMs); t += 1) w.step();
     w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_MINE, aim: 1, aimDist: 5000 })); // far click
     w.step();
     expect('denied' in buildFrame(w, 'a')).toBe(false);

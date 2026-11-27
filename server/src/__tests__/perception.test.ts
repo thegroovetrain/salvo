@@ -231,7 +231,6 @@ import {
   type MineView,
   type OwnShip,
   type PointEvent,
-  type RackState,
   type SpawnEvent,
   type SplashEvent,
   type SunkEvent,
@@ -691,8 +690,6 @@ const TU_SEEN = { n: 0 };
  *  angles, and own frames carrying `launchers` / `racks`. */
 const LU_SEEN = { n: 0 };
 const OWN_MOUNTS_SEEN = { n: 0 };
-/** Own frames whose racks carried a running drop wait (`gapMsLeft`, 2026-11-25). */
-const OWN_GAP_SEEN = { n: 0 };
 /** Story 12.3 non-vacuity: the distinct hull health steps (`hb`) the fuzz saw
  *  on contact rows. */
 const HB_SEEN = new Set<number>();
@@ -705,12 +702,6 @@ const LANDING_GUARDED = { n: 0 };
 /** Own gun-shell terminal booms delivered by the OWNER ARM alone (outside the
  *  observer's splash reach and zones) — the arm ran, not only the eye. */
 const OWN_END_BY_ARM = { n: 0 };
-/** The own-frame form of one server rack: `gapMsLeft` present only while > 0. */
-function ownRackOnWire(r: RackState): RackState {
-  const gap = r.gapMsLeft ?? 0;
-  return gap > 0 ? { n: r.n, reloadMsLeft: r.reloadMsLeft, gapMsLeft: gap } : { n: r.n, reloadMsLeft: r.reloadMsLeft };
-}
-
 /** Story 11.1 review fix: pairs of one salvo's shell reveals checked parallel (verifyParallelSalvoTracks). */
 const PARALLEL_PAIRS = { n: 0 };
 const CLOUD_DELIVERED_BY_RADAR = { n: 0 };
@@ -3133,8 +3124,7 @@ function scrambleTurrets(rec: ShipRecord, side: { next(): number }): void {
 
 /** Story 10.6 fuzz helper: about half the hulls mount torpedo LAUNCHERS (one
  *  or two, 1..MAX_TUBES_PER_LAUNCHER tubes each — angles scrambled inside each arc, tube
- *  clocks random) and about half carry mine RACKS (each rack's drop wait
- *  absent, idle 0 or running) — raw state writes off the
+ *  clocks random) and about half carry mine RACKS — raw state writes off the
  *  SIDE stream (the scrambleTurrets posture), so `lu` and the self-private
  *  `launchers` / `racks` pins see varied, non-rest state. */
 function scrambleMounts(rec: ShipRecord, side: { next(): number }): void {
@@ -3148,18 +3138,8 @@ function scrambleMounts(rec: ShipRecord, side: { next(): number }): void {
   }
   if (side.next() < 0.5) {
     const n = side.next() < 0.5 ? 1 : 2;
-    rec.racks = { racks: Array.from({ length: n }, () => scrambledRack(side)), next: 0 };
+    rec.racks = { racks: Array.from({ length: n }, () => ({ n: Math.floor(side.next() * 4), reloadMsLeft: side.next() * 10_000 })), next: 0 };
   }
-}
-
-/** One fuzzed rack: mines, a reload clock, and its DROP WAIT (2026-11-25) a
- *  third each absent, idle (0 — the wire omits it) or running. */
-function scrambledRack(side: { next(): number }): RackState {
-  const r: RackState = { n: Math.floor(side.next() * 4), reloadMsLeft: side.next() * 10_000 };
-  const wait = side.next();
-  if (wait < 1 / 3) return r;
-  r.gapMsLeft = wait < 2 / 3 ? 0 : side.next() * CONFIG.mine.rackDropGapMs;
-  return r;
 }
 
 /** One random level drives BOTH held inputs (Story 10.4) — no extra draw. */
@@ -3237,7 +3217,7 @@ function verifyBatteryPrivacy(w: World, me: ShipRecord, f: FrameMsg, withoutYou:
   expect(hasForbiddenKey(withoutContacts, ['tu', 'lu', 'hb'])).toBe(false);
   expect(f.you === undefined || !('hb' in f.you)).toBe(true);
   // Tube and rack clocks (Story 10.6) ride `you` and nothing else.
-  expect(hasForbiddenKey(withoutYou, ['turrets', 'heat', 'untilRoundMs', 'shift', 'launchers', 'tubes', 'racks', 'gapMsLeft'])).toBe(false);
+  expect(hasForbiddenKey(withoutYou, ['turrets', 'heat', 'untilRoundMs', 'shift', 'launchers', 'tubes', 'racks'])).toBe(false);
   expect(JSON.stringify(f)).not.toContain('untilRoundMs');
   if (f.you === undefined) return;
   expect(f.you.turrets).toEqual(me.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })));
@@ -3246,10 +3226,8 @@ function verifyBatteryPrivacy(w: World, me: ShipRecord, f: FrameMsg, withoutYou:
   expect('launchers' in f.you).toBe(me.launchers.length > 0);
   if (me.launchers.length > 0) expect(f.you.launchers).toEqual(me.launchers);
   expect('racks' in f.you).toBe(me.racks.racks.length > 0);
-  // A rack's drop wait rides only while it runs (an idle 0 is omitted).
-  if (me.racks.racks.length > 0) expect(f.you.racks).toStrictEqual(me.racks.racks.map(ownRackOnWire));
+  if (me.racks.racks.length > 0) expect(f.you.racks).toEqual(me.racks.racks);
   if ('launchers' in f.you || 'racks' in f.you) OWN_MOUNTS_SEEN.n += 1;
-  if (f.you.racks?.some((r) => 'gapMsLeft' in r)) OWN_GAP_SEEN.n += 1;
 }
 
 /** True iff some object nested in `value` carries numeric `x`, `y` equal to `p`. */
@@ -5118,7 +5096,6 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     HB_SEEN.clear();
     HB_WITHHELD.n = 0;
     OWN_MOUNTS_SEEN.n = 0;
-    OWN_GAP_SEEN.n = 0;
     LANDING_GUARDED.n = 0;
     OWN_END_BY_ARM.n = 0;
     PARALLEL_PAIRS.n = 0;
@@ -5708,7 +5685,6 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(TU_SEEN.n).toBeGreaterThan(0); // Story 10.4: the `tu` pin was exercised
     expect(LU_SEEN.n).toBeGreaterThan(0); // Story 10.6: the `lu` pin was exercised
     expect(OWN_MOUNTS_SEEN.n).toBeGreaterThan(0); // ...and the own launchers / racks pin
-    expect(OWN_GAP_SEEN.n).toBeGreaterThan(0); // ...with a running rack drop wait on the wire
     expect(HB_SEEN.size).toBeGreaterThan(1); // Story 12.3: the `hb` pin met hulls at more than one health step
     expect(HB_WITHHELD.n).toBeGreaterThan(0); // ...and sent hulls beyond the name-tag reach, proved to carry none
     expect(LANDING_GUARDED.n).toBeGreaterThan(0); // Story 11.1: in-flight dispersed landings were checked absent

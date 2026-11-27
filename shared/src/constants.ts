@@ -1804,12 +1804,6 @@ export const CONFIG = {
    */
   mine: {
     armDelay: 3000, // ms — before it can trigger
-    // ms — THE DROP WAIT (Eric 2026-11-25: "add a 3s cooldown before any single
-    // mine rack is able to drop another mine. so i can't just make a huge death
-    // stack"). After a rack drops, THAT rack cannot drop again until this has
-    // passed (a stocked second rack still can); every mine kind, fixed — no tier
-    // or RELOAD scales it. INSTANT RELOAD clears it (Eric). sim/racks.ts.
-    rackDropGapMs: 3000,
     // u — detonation proximity (enemy pass-over trips it). THE BASE-STATS RUNG:
     // at runtime this is DERIVED from the effective blast radius via
     // `triggerFactor` below (Eric ruling 2026-08-16), never read directly, so a

@@ -737,10 +737,8 @@ export interface OwnShip {
   /**
    * THE OWN MINE RACKS (Story 10.6, R7): one entry per rack — mines held
    * (`n`) and the rack's ONE clock (`reloadMsLeft`, ms until it restores a
-   * mine; 0 = idle), plus its drop wait (`gapMsLeft`, present only while
-   * > 0). The mine slot's `ammo` entry is only the hotbar SUMMARY
-   * (`rackSummary`: the mines droppable now + the soonest clock that could
-   * make one droppable). Which rack
+   * mine; 0 = idle). The mine slot's `ammo` entry is only the hotbar SUMMARY
+   * (`rackSummary`: every mine held + the soonest running clock). Which rack
    * drops next is the server's cursor and does not travel.
    *
    * PRESENT ONLY WHILE THE MINE SLOT IS FILLED; omitted otherwise.

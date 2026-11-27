@@ -34,7 +34,6 @@ import {
   launcherRest,
   launcherStationWorld,
   launcherSummary,
-  nextDropRack,
   rackCapacity,
   reloadCooldownScale,
   smokeSizeScale,
@@ -97,12 +96,11 @@ function clickTorpedo(w: World, rec: ShipRecord, aim: number): number {
   return fireSeq;
 }
 
-/** One mine click (the mine drops at the stern whatever the aim); returns the fireSeq used. */
-function clickMine(w: World, rec: ShipRecord): number {
+/** One mine click (the mine drops at the stern whatever the aim). */
+function clickMine(w: World, rec: ShipRecord): void {
   const fireSeq = rec.lastFireSeq + 1;
   submit(w, rec, { aim: rec.state.heading + Math.PI, aimDist: 0, slot: SLOT_MINE, fireSeq });
   w.step();
-  return fireSeq;
 }
 
 const torpsOf = (w: World, owner: string) => [...w.shells.values()].filter((s) => s.ownerId === owner && s.kind === 'torp');
@@ -119,15 +117,6 @@ const KINDS = [
   ['supercavTorpedo', CONFIG.supercavTorpedo],
 ] as const;
 const minesOf = (w: World, owner: string) => [...w.mines.values()].filter((m) => m.ownerId === owner);
-/** A rack's mines and reload clock (its drop wait is asserted on its own). */
-const rackClock = (r: { n: number; reloadMsLeft: number }) => ({ n: r.n, reloadMsLeft: r.reloadMsLeft });
-/** Ticks that outlast one rack's DROP WAIT (Eric 2026-11-25). */
-const GAP_TICKS = Math.ceil(CONFIG.mine.rackDropGapMs / DT);
-/** Step until SOME rack may drop (every stocked rack is inside its drop wait
- *  until then); bounded by one wait. */
-function untilARackCanDrop(w: World, rec: ShipRecord): void {
-  for (let i = 0; i <= GAP_TICKS && nextDropRack(rec.racks) < 0; i += 1) w.step();
-}
 
 describe('launchers on the world — the R16 pick through the click channel', () => {
   it('FORE ONLY, aim astern: refused out-of-arc, nothing spent, the launcher rests (no traverse, Story 11.1)', () => {
@@ -330,9 +319,9 @@ describe('racks on the world — restock, alternation, the empty-turn rack (R7 /
     clickMine(w, a);
     expect(minesOf(w, 'a')).toHaveLength(1);
     const reload = a.stats.equipment.navalMines.reloadMs;
-    expect(rackClock(a.racks.racks[0])).toEqual({ n: cap - 1, reloadMsLeft: reload });
+    expect(a.racks.racks[0]).toEqual({ n: cap - 1, reloadMsLeft: reload });
     for (let i = 0; i < reload / DT; i += 1) w.step();
-    expect(rackClock(a.racks.racks[0])).toEqual({ n: cap, reloadMsLeft: 0 });
+    expect(a.racks.racks[0]).toEqual({ n: cap, reloadMsLeft: 0 });
     expect(a.loadout[SLOT_MINE].state).toEqual({ n: cap, reloadMsLeft: 0 });
   });
 
@@ -345,55 +334,12 @@ describe('racks on the world — restock, alternation, the empty-turn rack (R7 /
     expect(a.racks.racks.map((r) => r.n)).toEqual([cap, cap]);
     const order: number[] = [];
     for (let k = 0; k < 4; k += 1) {
-      untilARackCanDrop(w, a); // both racks inside their drop wait → the first to clear
       const before = a.racks.racks.map((r) => r.n);
       clickMine(w, a);
       order.push(a.racks.racks.findIndex((r, i) => r.n < before[i]));
     }
     expect(order).toEqual([0, 1, 0, 1]);
     expect(a.racks.racks.every((r) => r.reloadMsLeft > 0)).toBe(true);
-  });
-
-  it('THE DROP WAIT: one stocked rack drops, a drop inside the wait is refused and drops nothing, and after it the rack drops', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    w.applyCard(a, 'navalMines');
-    expect(a.racks.racks).toHaveLength(1);
-    clickMine(w, a);
-    expect(minesOf(w, 'a')).toHaveLength(1);
-    expect(a.racks.racks[0].n).toBeGreaterThan(0); // still stocked: only the wait can refuse
-    // The own frame carries the wait while it runs.
-    const waiting = buildFrame(w, 'a').you!.racks![0];
-    expect(waiting.gapMsLeft).toBeGreaterThan(0);
-    expect(waiting.gapMsLeft).toBeLessThanOrEqual(CONFIG.mine.rackDropGapMs);
-    // A second click inside the wait: refused with the mine denial, nothing dropped.
-    const held = a.racks.racks[0].n;
-    const seq = clickMine(w, a);
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_MINE, reason: 'cooling', seq }]);
-    expect(minesOf(w, 'a')).toHaveLength(1);
-    expect(a.racks.racks[0].n).toBe(held);
-    // Past the wait: the wire field is gone and the rack drops.
-    for (let i = 0; i < GAP_TICKS; i += 1) w.step();
-    expect('gapMsLeft' in buildFrame(w, 'a').you!.racks![0]).toBe(false);
-    const before = a.racks.racks[0].n;
-    clickMine(w, a);
-    expect('denied' in buildFrame(w, 'a')).toBe(false);
-    expect(minesOf(w, 'a')).toHaveLength(2);
-    expect(a.racks.racks[0].n).toBe(before - 1);
-  });
-
-  it('THE DROP WAIT on the slot pair: a lone waiting rack reads NOT READY (n 0) until the wait runs, then every mine it holds', () => {
-    // The pair the bots' `slotReady` and the client's click gate read (`n > 0`).
-    const w = bareWorld();
-    const a = place(w, 'a');
-    w.applyCard(a, 'navalMines');
-    clickMine(w, a);
-    expect(a.racks.racks[0].n).toBeGreaterThan(0); // stocked, but waiting
-    expect(a.loadout[SLOT_MINE].state!.n).toBe(0);
-    expect(buildFrame(w, 'a').you!.ammo[SLOT_MINE]!.n).toBe(0);
-    expect(a.loadout[SLOT_MINE].state!.reloadMsLeft).toBeGreaterThan(0);
-    for (let i = 0; i < GAP_TICKS; i += 1) w.step();
-    expect(a.loadout[SLOT_MINE].state!.n).toBe(a.racks.racks[0].n);
   });
 
   it('THE EMPTY-TURN RACK: A empty on its turn, B drops, and the next turn is A\'s (R18)', () => {

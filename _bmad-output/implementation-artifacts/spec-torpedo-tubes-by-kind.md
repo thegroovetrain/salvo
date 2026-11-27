@@ -1,5 +1,5 @@
 ---
-title: 'Torpedo tubes by kind (light 3 / heavy 2 / supercav 1; SECOND TUBE card deleted); 3 s per-rack mine drop wait; captive mine trip ring 250'
+title: 'Torpedo tubes by kind (light 3 / heavy 2 / supercav 1; SECOND TUBE card deleted); captive mine trip ring 250'
 type: 'feature'
 created: '2026-11-25'
 status: 'done'
@@ -21,7 +21,7 @@ context: []
 
 **Ask First:** if a 3-tube launcher renders visibly wrong on any hull (tubes overrun the mount or the deck).
 
-**Added by Eric mid-implementation (2026-11-25, renegotiated), verbatim:** *"add a 3s cooldown before any single mine rack is able to drop another mine. so i can't just make a huge death stack. And give the Captive Mine a 250u base range."* His answers in chat: during the wait the mine box shows its existing not-ready look ("Show it as not ready"), and INSTANT RELOAD clears the wait ("Clears the wait"). The wait is per rack, so a stocked second rack can drop at once; it is a fixed CONFIG value on the shared mine chassis (`CONFIG.mine`), applied to all three mine kinds. "Base range" is the captive mine's Tier I trip ring, `triggerRadius` 180 → 250 (×1.1 per tier, unchanged). **HUD torpedo row** (Eric picked from rendered options, 2026-11-25: "B: slots match torpedo"): each launcher group draws exactly the held kind's tubes, packed left (light 3 + 3, heavy 2 + 2, supercav 1 + 1); the row box never changes size. With no torpedo fitted, hovering a torpedo card re-lays the empty row as the hovered kind (Eric at review, 2026-11-26: "Re-lay as hovered kind").
+**THE DROP WAIT WAS WITHDRAWN** (Eric 2026-11-26, verbatim: *"Take out the 3s wait on mines. I changed my mind."*) — the wait sentence below and its three matrix rows are history; only the captive ring and the HUD rulings stand. **Added by Eric mid-implementation (2026-11-25, renegotiated), verbatim:** *"add a 3s cooldown before any single mine rack is able to drop another mine. so i can't just make a huge death stack. And give the Captive Mine a 250u base range."* His answers in chat: during the wait the mine box shows its existing not-ready look ("Show it as not ready"), and INSTANT RELOAD clears the wait ("Clears the wait"). The wait is per rack, so a stocked second rack can drop at once; it is a fixed CONFIG value on the shared mine chassis (`CONFIG.mine`), applied to all three mine kinds. "Base range" is the captive mine's Tier I trip ring, `triggerRadius` 180 → 250 (×1.1 per tier, unchanged). **HUD torpedo row** (Eric picked from rendered options, 2026-11-25: "B: slots match torpedo"): each launcher group draws exactly the held kind's tubes, packed left (light 3 + 3, heavy 2 + 2, supercav 1 + 1); the row box never changes size. With no torpedo fitted, hovering a torpedo card re-lays the empty row as the hovered kind (Eric at review, 2026-11-26: "Re-lay as hovered kind").
 
 **Never:** change reloads, speeds, homing, runs, arcs, tiers, other mine values or the aft card. Never add new player copy (the console's existing TUBES readout already shows the count). Never pin the ruled numbers in a test. Never merge the experiment branch's hack (`worktree-balance-sim-torpedo-tubes`).
 
@@ -34,9 +34,9 @@ context: []
 | Supercav + aft | `[supercavTorpedo, aftTorpedoLauncher]` | 2 × 1, pool 2 | N/A |
 | Old card id | a fold or pick that names `secondLauncherTube` | refused or ignored like any unknown line id | existing unknown-id path |
 | Malformed tubes | an injected tube count of 0, 9 or NaN | clamped to [1, MAX_TUBES_PER_LAUNCHER = 3] | clamp |
-| One rack, two drops | a rack with 2 mines drops, then a drop is asked 1 s later | refused (the existing `cooling` denial); allowed once 3 s have passed since that rack dropped | N/A |
-| Two racks | rack A drops; a drop is asked at once | rack B drops; then both wait out their own 3 s | N/A |
-| Instant Reload | a rack inside its 3 s wait | the racks refill and the wait clears | N/A |
+| ~~WITHDRAWN~~ One rack, two drops | a rack with 2 mines drops, then a drop is asked 1 s later | refused (the existing `cooling` denial); allowed once 3 s have passed since that rack dropped | N/A |
+| ~~WITHDRAWN~~ Two racks | rack A drops; a drop is asked at once | rack B drops; then both wait out their own 3 s | N/A |
+| ~~WITHDRAWN~~ Instant Reload | a rack inside its 3 s wait | the racks refill and the wait clears | N/A |
 
 </frozen-after-approval>
 
@@ -66,9 +66,9 @@ context: []
 - [x] client copy, icon and How-to-Play -- delete the card's entries
 - [x] smokes -- precondition the pool = the kind's tubes; both fit the AFT launcher too (the kind alone never out-damages passive regen at the new damage — the kill plans need both launchers)
 - [x] tests -- update the card-naming tests to the new contract (pool = launchers × kind tubes; the aft card adds a full launcher; `secondLauncherTube` is not a line); re-record golden frames only if the wire changed
-- [x] `shared/src/constants.ts` `mine` + `captiveMines` -- the per-rack drop wait (3000 ms) and `triggerRadius` 250 -- Eric's mine additions
-- [x] `shared/src/sim/racks.ts` -- a per-rack wait clock: a drop starts it, `tickRacks` runs it down, `nextDropRack` skips a waiting rack, `instantReloadRacks` clears it, `rackSummary` reads not ready while the turn's rack can't drop; the client reads the summary as it does today -- one shared machine for both sides
-- [x] rack tests + the perception `you`-only check if the wire shape grows -- the matrix rows above
+- [x] `shared/src/constants.ts` `captiveMines` -- `triggerRadius` 250 (the per-rack drop wait was built, then withdrawn by Eric 2026-11-26) -- Eric's mine additions
+- [x] WITHDRAWN 2026-11-26 — `shared/src/sim/racks.ts` -- a per-rack wait clock: a drop starts it, `tickRacks` runs it down, `nextDropRack` skips a waiting rack, `instantReloadRacks` clears it, `rackSummary` reads not ready while the turn's rack can't drop; the client reads the summary as it does today -- one shared machine for both sides
+- [x] WITHDRAWN 2026-11-26 — rack tests + the perception `you`-only check if the wire shape grows -- the matrix rows above
 - [x] GDD catalog-v3 line 283 -- minimal edit: three one-off cards
 - [ ] records at PR time -- `VERSION` / `package.json` / lock, `epic-13-context-amendments.md` (append), both trackers (one-line stamps), CHANGELOG
 
@@ -86,6 +86,10 @@ context: []
 
 **Manual checks:**
 - Render the own-hull launcher with 3 tubes on all four hulls; the tubes sit on the mount
+
+## Spec Change Log
+
+- 2026-11-26 — Eric withdrew the 3 s mine drop wait (Eric 2026-11-26, verbatim: *"Take out the 3s wait on mines. I changed my mind."*). Every wait file was restored to its pre-wait state (commit 18160be2): `sim/racks.ts`, `types.ts`, `equipment/mines.ts`, `frames.ts`, `console/readouts.ts`, `main.ts` and their tests; `CONFIG.mine.rackDropGapMs` removed; the golden snapshot back to the tubes-only re-record; the PV 116 note says no wire shape changes. KEEP: the captive ring 250 (and its `mineHp.test.ts` fix), the HUD torpedo row (layout B + hover re-lay), the smokes' aft-launcher fits.
 
 ## Suggested Review Order
 
@@ -106,38 +110,12 @@ context: []
 - SECOND LAUNCHER TUBE deleted; its seat closes (Story 11.2 precedent).
   [`catalog.ts:171`](../../shared/src/sim/catalog.ts#L171)
 
-**The 3 s drop wait per mine rack**
-
-- A rack may drop only when stocked and not waiting — the one predicate.
-  [`racks.ts:61`](../../shared/src/sim/racks.ts#L61)
-
-- A drop starts that rack's wait; a malformed wait is no wait.
-  [`racks.ts:190`](../../shared/src/sim/racks.ts#L190)
-
-- The slot summary counts droppable mines, so bots and the click gate see the wait.
-  [`racks.ts:245`](../../shared/src/sim/racks.ts#L245)
-
-- INSTANT RELOAD clears every wait (Eric's call).
-  [`racks.ts:224`](../../shared/src/sim/racks.ts#L224)
-
-- The wait dial on the shared mine chassis, all kinds, fixed.
-  [`constants.ts:1812`](../../shared/src/constants.ts#L1812)
-
-- The server passes the wait into the drop.
-  [`mines.ts:445`](../../server/src/game/equipment/mines.ts#L445)
-
-- Own frame only; the field is omitted while idle.
-  [`frames.ts:50`](../../server/src/game/frames.ts#L50)
-
 **Captive trip ring**
 
 - Tier I trip ring 180 → 250; the ×1.1 tier step is unchanged.
-  [`constants.ts:1946`](../../shared/src/constants.ts#L1946)
+  [`constants.ts:1940`](../../shared/src/constants.ts#L1940)
 
 **HUD**
-
-- A stocked rack's ring runs the wait; an empty one shows its reload.
-  [`readouts.ts:640`](../../client/src/render/console/readouts.ts#L640)
 
 - Torpedo row: the kind's tubes per launcher; an empty row re-lays as the hovered kind.
   [`slots.ts:142`](../../client/src/render/console/slots.ts#L142)
@@ -145,25 +123,13 @@ context: []
 - Slot geometry packs both launcher groups left; the row box never moves.
   [`slots.ts:78`](../../client/src/render/console/slots.ts#L78)
 
-- TOGGLE keeps counting held mines, so the selection survives the wait.
-  [`main.ts:4299`](../../client/src/main.ts#L4299)
-
 **Wire and peripherals**
 
-- PV 116: catalog line gone, `racks[].gapMsLeft`, client-read CONFIG listed.
+- PV 116: catalog line gone, client-read CONFIG listed; no wire shape change.
   [`index.ts:6`](../../shared/src/index.ts#L6)
 
 - Smokes fit the aft launcher: one launcher can't outpace passive regen now.
   [`weaponsSmoke.mjs:536`](../../server/scripts/weaponsSmoke.mjs#L536)
 
-- Shared wait contracts: refusal, two racks, reload untouched, Instant Reload, malformed.
-  [`racks.test.ts:243`](../../shared/src/__tests__/racks.test.ts#L243)
-
-- World-level wait: denied as `cooling`, frame field present then absent.
-  [`launchersRacks.test.ts:357`](../../server/src/__tests__/launchersRacks.test.ts#L357)
-
 - HUD tube layout per kind, fixed rects, hover re-lay.
   [`hudBarSlots.test.ts:26`](../../client/src/__tests__/hudBarSlots.test.ts#L26)
-
-- Anti-cheat fuzz now scrambles the wait through the `you`-only invariant.
-  [`perception.test.ts:3151`](../../server/src/__tests__/perception.test.ts#L3151)

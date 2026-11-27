@@ -59,3 +59,5 @@ Eric 2026-11-26: *"Run a balance Sim on these settings and get me some numbers. 
 None measured; all are unmeasured candidates for Eric's ruling.
 
 **Ruling:** none yet.
+
+**After this campaign (Eric 2026-11-26):** *"Take out the 3s wait on mines. I changed my mind."* The drop wait was removed from PR #392 before landing, so this arm measured a mine rule that does not ship. Its mine readings (mine kills 5.7 %; captive / fouling / naval 7.3 / 6.4 / 6.3 %) include the wait.
