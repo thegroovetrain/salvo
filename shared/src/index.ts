@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  117 — 2026-11-27 HULL REPAIR COOLDOWN 75 → 60 s (Eric; cycle 257,
+ *  0.20.15, epic-13 amendment 6). No wire shape changes. CONFIG the client
+ *  reads: `hullRepair.cooldownMs` 75000 → 60000 (the ability's cooldown
+ *  readouts and the card's haste law). Perception exception count stays SIX.
  *  116 — 2026-11-25 TORPEDO TUBES BY KIND (Eric; cycle 256, 0.20.14,
  *  epic-13 amendment 5). Boon catalog content: the `secondLauncherTube` line
  *  is DELETED (26 → 25 lines). No wire shape changes. CONFIG the client
@@ -1181,7 +1185,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 116;
+export const PROTOCOL_VERSION = 117;
 
 // Tunables
 export * from './constants.js';

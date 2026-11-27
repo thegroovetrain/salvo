@@ -2889,11 +2889,11 @@ export const CONFIG = {
     // THE HULL REPAIR LADDER (Story 10.6, Eric 2026-11-05, R8 — a SHIP card,
     // five copies): each card +`hpPerCard` at once AND +`hpPerCard` over time
     // (100 + 100 with no card → 200 + 200 at five), and +`reloadPerCard` to a
-    // FIXED score of 100 run through the one haste law: cooldown = 75 s × 100
-    // ÷ (100 + 5 × cards) → 71.4 / 68.2 / 65.2 / 62.5 / 60 s. The ship's
+    // FIXED score of 100 run through the one haste law: cooldown = 60 s × 100
+    // ÷ (100 + 5 × cards) → 57.1 / 54.5 / 52.2 / 50 / 48 s. The ship's
     // RELOAD index is NEVER applied. Derived per ship in the fold
     // (`EffectiveStats.repair`, sim/abilityStats.ts).
-    cooldownMs: 75000, // ms — with no card (R8: 90 → 75 s; Story 10.5's 90 s superseded)
+    cooldownMs: 60000, // ms — with no card: 75 → 60 s, Eric 2026-11-27; (R8: 90 → 75 s; Story 10.5's 90 s superseded)
     hpPerCard: 20, // hp added to BOTH instantHp and regenHp per HULL REPAIR card (R8)
     reloadPerCard: 5, // points per card on the ability's fixed score of 100 (R8)
   },
