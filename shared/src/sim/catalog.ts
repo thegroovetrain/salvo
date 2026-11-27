@@ -2,11 +2,15 @@
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments) and RE-AUTHORED by Story
 // 10.6 (Eric 2026-11-05, R1–R18).
-// 26 card LINES / 111 physical cards: 11 equipment lines (55), 7 SHIP ladders
+// 25 card LINES / 110 physical cards: 11 equipment lines (55), 7 SHIP ladders
 // (35), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each — authored,
-// never dealt to a captain), 4 one-off WEAPON add-ons (4) and the one STUB
+// never dealt to a captain), 3 one-off WEAPON add-ons (3) and the one STUB
 // line (DEPTH CHARGE, 5). (Pinned by catalog.test.ts as Σ cap — computed,
 // never typed.)
+//
+// THE COUNT MOVED 26/111 -> 25/110 ON 2026-11-25 (Eric): SECOND LAUNCHER TUBE
+// is DELETED — every torpedo kind comes with its own full tube count
+// (`CONFIG.<kind>.tubesPerLauncher`, sim/mountStats.ts). Its seat closes.
 //
 // THE COUNT MOVED 27/116 -> 26/111 IN STORY 11.2 (Eric 2026-11-12, epic-11
 // amendment 4, R9): the RANGE ship ladder is
@@ -159,10 +163,13 @@ import {
 } from './effects.js';
 
 /**
- * THE 26 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 25 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * 2026-11-25 DELETED ONE (26 -> 25; Eric): `secondLauncherTube` is GONE —
+ * tubes come from the torpedo kind. No alias; its seat closes.
  *
  * STORY 11.2 DELETED ONE (27 -> 26; Eric 2026-11-12, R9): `range` is GONE —
  * no alias, its seat closes and every line after it moves up one.
@@ -171,8 +178,9 @@ import {
  * `rudder` is GONE (R2) — no alias, its seat closes and every line after it
  * moves up one. APPENDED, in this order and never inserted: the three new
  * SHIP ladders `range`, `hullRepair`, `smokeScreen` (R1 / R8 / R9), then the
- * four one-off WEAPON cards `aftTorpedoLauncher`, `secondLauncherTube`,
- * `secondMineRack`, `expandedMineRacks` (R6 / R7). `hullRepair` and
+ * four one-off WEAPON cards `aftTorpedoLauncher`, `secondLauncherTube`
+ * (deleted 2026-11-25, above), `secondMineRack`, `expandedMineRacks`
+ * (R6 / R7). `hullRepair` and
  * `smokeScreen` REUSE ids retired in Stories 10.5 and 9.3 (both then named
  * consumables of the same abilities); neither collides with an
  * `EquipmentId`, an `AbilityId` or a stat path.
@@ -293,14 +301,15 @@ export const LINE_IDS = [
   // 2026-11-12, R9: RANGE leaves the index).
   'hullRepair', // R8: the `C` ability's card (was a consumable id until Story 10.5)
   'smokeScreen', // R9: the `V` ability's card (was SMOKE SCREEN's consumable id until Story 9.3)
-  // --- Story 10.6: the four one-off WEAPON cards (cap 1, `addon` kind) -------
+  // --- Story 10.6: the one-off WEAPON cards (cap 1, `addon` kind) ------------
   'aftTorpedoLauncher', // R6: a second launcher, centered dead astern
-  'secondLauncherTube', // R6: +1 tube on EVERY launcher held
+  // `secondLauncherTube` (R6: +1 tube on EVERY launcher) sat here until
+  // 2026-11-25 (Eric): tubes come from the torpedo kind.
   'secondMineRack', // R7: a whole second rack, its own mines and reload
   'expandedMineRacks', // R7: +1 capacity on EACH rack
 ] as const;
 
-/** One of the 26 authored card lines. */
+/** One of the 25 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -311,7 +320,7 @@ export type LineId = (typeof LINE_IDS)[number];
  * (2026-11-05, Story 10.5, epic-10 amendment 11).
  *
  * THE ADD-ON KIND IS LIVE AGAIN (Story 10.6, Eric 2026-11-05, R6 / R7 / R10):
- * the four one-off WEAPON cards are cap-1 add-ons whose `appliesTo` names
+ * the one-off WEAPON cards (three since 2026-11-25) are cap-1 add-ons whose `appliesTo` names
  * every weapon of their FAMILY (the three torpedoes, the three mines) — they
  * are dealt and pickable only while that family's slot holds one of them
  * (sim/boons.ts `addonHosted`), advance no tier, and carry a stat effect on a
@@ -546,7 +555,8 @@ function machineGunTier(magStep: number): BoonEffect[] {
 /** One upgrade tier of a TORPEDO line: the tier's whole-number damage step,
  *  +2.5 u/s and +0.125 rad/s of homing on every rung. NO TUBE STEP since
  *  Story 10.6 (Eric 2026-11-05, R4 — it was +0.5 tubes on the rungs to II
- *  and III): extra tubes are the one-off cards' (R6). Damage since Story 10.3
+ *  and III): a launcher's tubes are the kind's CONFIG count (Eric
+ *  2026-11-25), the second launcher the AFT one-off's (R6). Damage since Story 10.3
  *  (Eric 2026-11-04, epic-10 amendment 8, ruling 5): light +50 ×4
  *  (200 → 400), heavy +75 ×4 (300 → 600). (Eric 2026-10-16, Story 9.12:
  *  light +10 ×4, 80 → 120; heavy +11 / +11 / +11 / +12, 90 → 135.) And the
@@ -626,7 +636,7 @@ function shellRadiusTier(line: 'dazzleShells' | 'foulingShell', step: number): B
  * `add: 1` on a family-wide MOUNT count (sim/mountStats.ts). It advances no
  * tier and is dealt / pickable only while the family's slot is filled.
  */
-function oneOff(id: LineId, family: SlotFamily, mount: 'torpedoLaunchers' | 'tubesPerLauncher' | 'mineRacks' | 'rackBonus'): CatalogLine {
+function oneOff(id: LineId, family: SlotFamily, mount: 'torpedoLaunchers' | 'mineRacks' | 'rackBonus'): CatalogLine {
   return { id, kind: 'addon', cap: 1, tiers: [[statEffect(mount, { add: 1 })]], appliesTo: familyMembers(family) };
 }
 
@@ -997,11 +1007,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   // score of 100 (60 s → 48 s at five), +1 s of cloud life (15 → 20 s) and
   // one size rung (×1.1 — today's 150 → 300 u is the two-card size).
   smokeScreen: ladder('smokeScreen', 5, SMOKE_SCREEN_CARD),
-  // --- Story 10.6: the four one-off WEAPON cards (R6 / R7 / R10) -------------
+  // --- Story 10.6: the one-off WEAPON cards (R6 / R7 / R10) ------------------
   // Cap 1 each, dealt only once their family slot is filled, applying to
   // whichever torpedo or mine is held, in either order.
   aftTorpedoLauncher: oneOff('aftTorpedoLauncher', 'torpedo', 'torpedoLaunchers'), // the fore launcher's twin, dead astern
-  secondLauncherTube: oneOff('secondLauncherTube', 'torpedo', 'tubesPerLauncher'), // +1 tube on EVERY launcher (max four tubes)
   secondMineRack: oneOff('secondMineRack', 'mine', 'mineRacks'), // a whole second rack, its own mines and reload
   expandedMineRacks: oneOff('expandedMineRacks', 'mine', 'rackBonus'), // +1 capacity on EACH rack (max 8 naval / fouling, 4 captive)
 });

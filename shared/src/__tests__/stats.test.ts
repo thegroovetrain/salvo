@@ -1383,9 +1383,15 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // byte-identical — the fit shows up in the LOADOUT (sim/boons.ts), not here.
     // TRUE OF THE LADDERED LINES TOO: the steps live on tiers II–V, so a hull
     // holding exactly one LIGHT TORPEDO card sails the tier-I fish.
-    for (const id of ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
-      'broadside', 'starShells', 'phosphorShells', 'supercavTorpedo', 'dazzleShells', 'foulingShell'] as const) {
+    for (const id of ['navalMines', 'captiveMines', 'foulingMines',
+      'broadside', 'starShells', 'phosphorShells', 'dazzleShells', 'foulingShell'] as const) {
       expect(effectiveStats(BASE, [id]), id).toEqual(effectiveStats(BASE));
+    }
+    // A TORPEDO brings its kind's tubes (Eric 2026-11-25): copy 1 moves the
+    // tube count and the torpedo pools it multiplies — nothing else.
+    const mounts = new Set(['tubesPerLauncher', 'equipment.lightTorpedo.maxAmmo', 'equipment.heavyTorpedo.maxAmmo', 'equipment.supercavTorpedo.maxAmmo']);
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
+      for (const path of changed(effectiveStats(BASE), effectiveStats(BASE, [id]))) expect(mounts.has(path), `${id}: ${path}`).toBe(true);
     }
   });
 

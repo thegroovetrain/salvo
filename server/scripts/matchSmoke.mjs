@@ -37,9 +37,10 @@
 // THE TORPEDO IS PRE-FITTED by the DEV-ONLY `fitOverride` join option (Story
 // 8.10, EPIC-8 amendment 65): every hull spawns with only its main battery
 // (Story 10.4) and the seat's Shift, so A asks for `heavyTorpedo` explicitly; it lands in its
-// FAMILY slot, the torpedo slot Q (Story 10.5). TWO tubes (Eric ruling 2026-10-22, Story
-// 9.15 question 4 — a salvo lands inside the regen wait) come from the SECOND
-// LAUNCHER TUBE one-off since Story 10.6 (R4 / R6: capacity left the tiers); the R8 passive regen is back since Story 10.5 and the plan
+// FAMILY slot, the torpedo slot Q (Story 10.5). A MULTI-TUBE salvo (Eric ruling 2026-10-22, Story
+// 9.15 question 4 — a salvo lands inside the regen wait) comes with the heavy
+// itself since 2026-11-25 (Eric: each kind brings `CONFIG.<kind>.tubesPerLauncher`;
+// the SECOND LAUNCHER TUBE one-off is deleted); the R8 passive regen is back since Story 10.5 and the plan
 // replays it).
 // The fit survives the activation redeploy (redeployEconomy re-applies it).
 //
@@ -93,13 +94,21 @@ const TORP_SLOT = familySlotFor(TORP); // the torpedo FAMILY slot, Q (Story 10.5
 const CENTER_FRACTION = 0.15;
 
 /**
- * THE FIT: the torpedo, then the SECOND LAUNCHER TUBE one-off (Story 10.6, R6:
- * the fore launcher then holds TWO tubes, each on its own reload clock). The
- * tube count is read back from the same effectiveStats fold the server runs.
+ * THE FIT: the torpedo and the AFT TORPEDO LAUNCHER — each launcher holds the
+ * kind's own tubes (Eric 2026-11-25: `CONFIG.torpedo.tubesPerLauncher` for the
+ * heavy), each on its own reload clock, and both launchers bear on B's beam.
+ * The kind alone (one launcher) never out-damages B's passive regen at the
+ * 2026-11-25 damage, so the kill plan needs both. The tube count is read back
+ * from the same effectiveStats fold the server runs, and must be a salvo.
  */
-const FIT = [TORP, 'secondLauncherTube'];
-if (equipmentMaxAmmo(effectiveStats(TB, FIT), TORP) !== 2) throw new Error(`PRECONDITION: ${JSON.stringify(FIT)} does not fold to two tubes`);
+const FIT = [TORP, 'aftTorpedoLauncher'];
 const SHOOTER = effectiveStats(TB, FIT);
+{
+  const pool = equipmentMaxAmmo(SHOOTER, TORP);
+  const want = SHOOTER.torpedoLaunchers * CONFIG.torpedo.tubesPerLauncher * CONFIG.torpedo.maxAmmo;
+  if (pool !== want) throw new Error(`PRECONDITION: ${JSON.stringify(FIT)} folds to ${pool} tubes, not the kind's ${want}`);
+  if (pool < 2) throw new Error(`PRECONDITION: ${JSON.stringify(FIT)} folds to ${pool} tube — the kill plan needs a salvo`);
+}
 const TARGET = effectiveStats(TB, []); // B carries no fit: it only has to float
 const FISH = {
   damage: SHOOTER.equipment[TORP].damage,

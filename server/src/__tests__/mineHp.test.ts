@@ -209,18 +209,23 @@ describe('the CANNON — one click on the mine pops it (the twin volley sums pas
 
   it('a captive destroyed by gunfire deals NO blast to a hull beside it', () => {
     const w = bareWorld();
-    captain(w, 'a', 0, 0);
     const b = captain(w, 'b', 300, 40, { hull: 'yamato' });
     // The hull's nearest point sits inside the captive's 32 u burst and
     // outside the cannon's 15 u one — a blast here would show.
     const edge = pointPolygonDistance({ x: 300, y: 0 }, hullFor(b).poly);
     expect(edge).toBeGreaterThan(CONFIG.gun.burstRadius);
     expect(edge).toBeLessThan(CONFIG.captiveMines.blastRadius);
-    // An enemy hull this close would TRIP the captive (144 u ring) — make the
-    // bystander the LAYER, so it can never trip its own mine.
+    // An enemy hull this close would TRIP the captive (its trip ring) — make
+    // the bystander the LAYER, so it can never trip its own mine.
     lay(w, 'cap', 'b', 300, 0, 'captive');
+    // The GUNNER sits outside the layer's trip ring (a hull length past it),
+    // so the gunfire — not a trip — is what ends the captive.
+    const ring = b.stats.equipment.captiveMines.triggerRadius;
+    const standoff = ring + CONFIG.shipClasses.bismarck.hull.length;
+    const a = captain(w, 'a', 300 - standoff, 0);
+    expect(pointPolygonDistance({ x: 300, y: 0 }, hullFor(a).poly)).toBeGreaterThan(ring);
     const hp0 = b.hp;
-    const log = click(w, 'a', 300);
+    const log = click(w, 'a', standoff);
     expect(w.mines.has('cap')).toBe(false);
     expect(mineBooms(log, 'cap')).toEqual([{ k: 'boom', id: 'cap', x: 300, y: 0 }]);
     expect(b.hp).toBe(hp0);

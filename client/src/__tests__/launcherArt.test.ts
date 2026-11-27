@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONFIG,
+  MAX_TUBES_PER_LAUNCHER,
   SHIP_CLASS_IDS,
   decodeLauncherAngle,
   encodeLauncherAngles,
@@ -21,8 +22,8 @@ import { hullLineColor, relationStyle } from '../render/relationColor.js';
 import { ContactStore } from '../net/snapshots.js';
 
 describe('launcherArt — tubes for the own hull, one housing for an observed one', () => {
-  it('draws the pivot plus one barrel-skinned tube per tube (1 or 2), side by side', () => {
-    for (const n of [1, 2]) {
+  it('draws the pivot plus one barrel-skinned tube per tube (1..MAX_TUBES_PER_LAUNCHER), side by side', () => {
+    for (let n = 1; n <= MAX_TUBES_PER_LAUNCHER; n += 1) {
       const prims = launcherArt(n);
       const tubes = prims.filter((p) => p.fill === 'barrel');
       expect(tubes, `tubes ${n}`).toHaveLength(n);
@@ -39,7 +40,7 @@ describe('launcherArt — tubes for the own hull, one housing for an observed on
   });
 
   it('every launcher line is an inner relation line — never the bold hull line', () => {
-    for (const t of [1, 2, null]) for (const p of launcherArt(t)) expect(p.line).toBe('inner');
+    for (const t of [1, 2, MAX_TUBES_PER_LAUNCHER, null]) for (const p of launcherArt(t)) expect(p.line).toBe('inner');
   });
 
   it('caches one shared context per (hull, tubes, line)', () => {

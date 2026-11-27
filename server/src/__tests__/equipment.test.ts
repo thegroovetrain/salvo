@@ -290,8 +290,10 @@ describe('denial reasons — derived through the gate without changing effects',
     setInput(ship, { aim: Math.PI, aimDist: 300, slot: SLOT_TORPEDO }); // dead astern — outside the fore launcher's arc
     const res = w.sinkingActivationGate(ship, SLOT_TORPEDO);
     expect(res).toEqual({ ok: false, reason: 'out-of-arc' });
-    expect(ship.launchers.flatMap((l) => l.tubes)).toEqual([0]);
-    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    const tubes = ship.launchers.flatMap((l) => l.tubes);
+    expect(ship.launchers).toHaveLength(1); // fore only
+    expect(tubes.every((t) => t === 0)).toBe(true); // nothing spent
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: tubes.length, reloadMsLeft: 0 });
   });
 
   it('torpedo with every tube reloading denies no-ammo (`cooling` on the wire)', () => {

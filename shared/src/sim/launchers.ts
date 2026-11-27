@@ -8,8 +8,9 @@
 //     index 0  FORE — rests dead ahead   (rest 0)
 //     index 1  AFT  — rests dead astern  (rest π; AFT TORPEDO LAUNCHER)
 //
-// each with `stats.tubesPerLauncher` tubes (SECOND LAUNCHER TUBE: +1 on every
-// launcher held). Stations are per hull, on the centerline
+// each with `stats.tubesPerLauncher` tubes — the held kind's own count
+// (`CONFIG.<kind>.tubesPerLauncher`, Eric 2026-11-25; the SECOND LAUNCHER
+// TUBE card is deleted). Stations are per hull, on the centerline
 // (`CONFIG.shipClasses.<id>.launchers`); a hull with none mounts
 // ZERO launchers and every function degrades to the empty answer.
 //
@@ -87,7 +88,7 @@ const RAD_PER_DEG = Math.PI / 180;
 export const MAX_LAUNCHERS = 2;
 
 /** The most tubes one launcher can hold (a count above it is clamped, never looped to). */
-export const MAX_TUBES_PER_LAUNCHER = 2;
+export const MAX_TUBES_PER_LAUNCHER = 3; // 2 → 3, Eric 2026-11-25 (the light torpedo's three)
 
 /** One launcher's runtime state (also the `OwnShip.launchers` wire entry). */
 export interface LauncherState {
@@ -101,7 +102,7 @@ export interface LauncherState {
 export interface LauncherCounts {
   /** 1 (fore) | 2 (+ aft). */
   torpedoLaunchers: number;
-  /** 1 | 2, on every launcher. */
+  /** 1..MAX_TUBES_PER_LAUNCHER, on every launcher (the held kind's). */
   tubesPerLauncher: number;
 }
 

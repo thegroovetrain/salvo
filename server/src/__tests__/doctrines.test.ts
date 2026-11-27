@@ -1055,11 +1055,14 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     const hp = { A: A.hp, B: B.hp, C: C.hp };
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
     expect(kinds(seen)).toContain('burst');
+    // THE HIT CALL keys off the zone catching a hull, not off a burst blow
+    // (Eric 2026-11-26: phosphor is all burn, "Hit mark if zone catches").
     expect(kinds(seen)).toContain('hc');
-    // The burst's 10 landed on A and B at once (the burn's first bite is a
-    // fraction on top; the exact burst amount is the first `dmg` each got).
-    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: row.damage });
-    expect(dmgFor(seen, 'B')[0]).toMatchObject({ amount: row.damage });
+    expect(kinds(seen)).not.toContain('sp');
+    // Whatever the burst deals (the CONFIG row; 0 since 2026-11-26) lands on A
+    // and B — a 0 burst is no blow, so the first `dmg` each got is never a
+    // 0 burst event.
+    for (const id of ['A', 'B']) for (const d of dmgFor(seen, id)) expect((d as { amount: number }).amount).toBeGreaterThan(0);
     expect(hp.A - A.hp).toBeGreaterThanOrEqual(row.damage);
     expect(hp.B - B.hp).toBeGreaterThanOrEqual(row.damage);
     expect(C.hp).toBe(hp.C);
@@ -1067,6 +1070,13 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     expect(w.burnZones.size).toBe(1);
     const zone = [...w.burnZones.values()][0];
     expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 400, y: 0, r: row.zoneRadius, until: at + row.zoneDurationMs, dps: row.dps });
+  });
+
+  it('a zone that catches no hull is fall of shot — `sp`, never `hc`', () => {
+    const { w, a, slot } = board();
+    const { seen } = fireUntilStop(w, a, slot, Math.PI, 400); // astern: open water, nobody inside
+    expect(kinds(seen)).toContain('sp');
+    expect(kinds(seen)).not.toContain('hc');
   });
 
   it('the burst NEVER touches a mine — not inside the zone, not dead under the burst point (amendment 200, superseding 135(c)) — and a flare never does either', () => {

@@ -241,10 +241,12 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   // PHOSPHOR's FIT card: six stat fields against what was a five-row grid, so
   // it drops ROUNDS (a one-shell pool no tier moves) and keeps BURN — the
   // positional slice would have dropped the one number that makes it a burning
-  // weapon. Since Story 9.8 its RANGE prints in the sixth row, LAST.
-  it('PHOSPHOR SHELLS fit card keeps BURN on the full six-row face', () => {
+  // weapon. Since Story 9.8 its RANGE prints LAST. Since Eric 2026-11-26
+  // (phosphor is all burn, no burst) it prints no DAMAGE row at all
+  // (hiddenStatFields.test.ts), so the face fits the grid with room to spare.
+  it('PHOSPHOR SHELLS fit card keeps BURN on the six-row face', () => {
     const rows = cardStatRows(CATALOG.phosphorShells, 0, TB);
-    expect(rows).toHaveLength(CARD_STAT_ROWS);
+    expect(rows.length).toBeLessThanOrEqual(CARD_STAT_ROWS);
     expect(rows.map((r) => r.next)).toContain(`${foldOf('phosphorShells', 1).equipment.phosphorShells.dps} hp/s`);
   });
 

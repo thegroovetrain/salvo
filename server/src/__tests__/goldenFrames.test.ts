@@ -1843,6 +1843,14 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // exactly one token moved — Bismarck `b`'s sighted `hb` at tick 72 reads
     // 4, not 3 (a 200 hp heavy torpedo leaves it one hull block healthier
     // than the old 300). No pose, contact, event or denial changed.
+    // RE-RECORDED 2026-11-25 (torpedo tubes by kind), diffed token by token
+    // against the pre-change baseline (21e27305): every own frame of a
+    // heavy-torpedo hull holds the heavy's two tubes on its fore launcher —
+    // `launchers[0].tubes` `[0]` → `[0, 0]` and the torpedo slot's `ammo` n
+    // 1 → 2 (0 → 1 after a shot); the two tick-1 offers redraw over the
+    // catalog without the deleted `secondLauncherTube` line. The torpedo
+    // damage and the captive ring moved no token. No pose, contact, event or
+    // denial changed.
     expect(runBattery()).toMatchSnapshot();
   });
 });

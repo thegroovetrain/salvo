@@ -1,6 +1,9 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
+// 2026-11-25 (Eric): 26/111 -> 25/110 — SECOND LAUNCHER TUBE is DELETED; each
+// torpedo kind brings its own tubes (sim/mountStats.ts).
+//
 // STORY 10.6 (Eric 2026-11-05, R1–R10): 21/102 -> 27/116 — RUDDER is DELETED;
 // RANGE, HULL REPAIR and SMOKE SCREEN are appended as SHIP ladders; four
 // cap-1 one-off WEAPON add-ons (AFT TORPEDO LAUNCHER, SECOND LAUNCHER TUBE,
@@ -140,9 +143,9 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   // Story 11.2, R9).
   hullRepair: { cap: 5, kind: 'ladder', stub: false },
   smokeScreen: { cap: 5, kind: 'ladder', stub: false },
-  // Story 10.6 (R6 / R7): the four one-off WEAPON cards — cap-1 add-ons.
+  // Story 10.6 (R6 / R7): the one-off WEAPON cards — cap-1 add-ons
+  // (`secondLauncherTube` DELETED 2026-11-25).
   aftTorpedoLauncher: { cap: 1, kind: 'addon', stub: false },
-  secondLauncherTube: { cap: 1, kind: 'addon', stub: false },
   secondMineRack: { cap: 1, kind: 'addon', stub: false },
   expandedMineRacks: { cap: 1, kind: 'addon', stub: false },
 };
@@ -481,10 +484,18 @@ describe('catalog v3 identity', () => {
     expect(LINE_IDS.slice(0, 5)).toEqual(['armor', 'power', 'engines', 'intel', 'reload']);
   });
 
-  it('APPENDS Story 10.6\'s surviving six lines at the foot, in order — never inserted (the fold order is contract; `range` left with Story 11.2)', () => {
-    expect(LINE_IDS.slice(-6)).toEqual([
-      'hullRepair', 'smokeScreen', 'aftTorpedoLauncher', 'secondLauncherTube', 'secondMineRack', 'expandedMineRacks',
+  it('APPENDS Story 10.6\'s surviving five lines at the foot, in order — never inserted (the fold order is contract; `range` left with Story 11.2, `secondLauncherTube` on 2026-11-25)', () => {
+    expect(LINE_IDS.slice(-5)).toEqual([
+      'hullRepair', 'smokeScreen', 'aftTorpedoLauncher', 'secondMineRack', 'expandedMineRacks',
     ]);
+  });
+
+  it('SECOND LAUNCHER TUBE is gone (Eric 2026-11-25): no line, and a hand naming it folds as if it were absent', () => {
+    expect((LINE_IDS as readonly string[]).includes('secondLauncherTube')).toBe(false);
+    expect(Object.hasOwn(CATALOG, 'secondLauncherTube')).toBe(false);
+    expect(resolveCards(['secondLauncherTube'])).toEqual([]);
+    const cls = CONFIG.shipClasses.iowa;
+    expect(effectiveStats(cls, ['heavyTorpedo', 'secondLauncherTube'])).toEqual(effectiveStats(cls, ['heavyTorpedo']));
   });
 
   it('RANGE is gone end to end (Story 11.2, R9): no line, no stat path, no index', () => {
