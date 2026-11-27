@@ -69,6 +69,7 @@ function makeIcon(): HTMLElement {
   const icon = document.createElement('span');
   icon.className = SERVER_ICON_CLASS;
   icon.tabIndex = 0;
+  icon.setAttribute('role', 'img');
   icon.setAttribute('aria-label', 'Server status');
   icon.setAttribute('aria-describedby', TOOLTIP_ID);
   icon.style.cssText = 'display:inline-flex;align-items:center;cursor:default';
@@ -111,13 +112,16 @@ export function makeServerStatus(): ServerStatusEls {
   root.style.cssText = 'position:relative;display:inline-flex;align-items:center';
   const icon = makeIcon();
   const tip = makeTooltip();
-  const open = (on: boolean) => (): void => {
-    tip.style.display = on ? 'grid' : 'none';
+  // Hover and focus are tracked apart: the tooltip stays open while EITHER holds.
+  let hover = false;
+  let focus = false;
+  const sync = (): void => {
+    tip.style.display = hover || focus ? 'grid' : 'none';
   };
-  icon.addEventListener('mouseenter', open(true));
-  icon.addEventListener('focus', open(true));
-  icon.addEventListener('mouseleave', open(false));
-  icon.addEventListener('blur', open(false));
+  icon.addEventListener('mouseenter', () => ((hover = true), sync()));
+  icon.addEventListener('mouseleave', () => ((hover = false), sync()));
+  icon.addEventListener('focus', () => ((focus = true), sync()));
+  icon.addEventListener('blur', () => ((focus = false), sync()));
   root.append(icon, tip);
   const setProbe = (state: ProbeState): void => {
     icon.style.color = probeColor(state);

@@ -144,8 +144,6 @@ export const SHIFT_KEY = 'hullcracker.shift';
 // 2026-11-05, epic-10 amendment 11: a saved value is simply ignored.)
 const MODE_KEY = 'hullcracker.mode';
 
-const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect
-
 // --- pure name / class persistence (tested) ----------------------------------
 
 /**
@@ -858,9 +856,13 @@ function setClass(h: Home, cls: ShipClassId): void {
  *  actions share this body — the class, the callsign and the never-silence rule
  *  are identical; only the door differs. */
 function deploy(h: Home, go: DeployFn): void {
-  // Never-silence: a press mid-connect re-shows the LAST message in the notice
-  // (restarting its hold), or CONNECTING… when none is left, rather than dying.
-  if (h.busy) return paintStatus(h, ...statusTuple(h.lastStatus ?? { text: NOTE_CONNECTING, tone: 'info' }));
+  // A press mid-connect re-shows the LAST message of THIS attempt in the notice
+  // (restarting its hold). After `clearStatus()` there is none, and the notice
+  // invents nothing: it says nothing about the queue or lobby wait.
+  if (h.busy) {
+    if (h.lastStatus) paintStatus(h, ...statusTuple(h.lastStatus));
+    return;
+  }
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
@@ -1092,6 +1094,8 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
     // Independent of the notice: a late probe only retints the icon + tooltip.
     setServerProbe: (state) => h.server.setProbe(state),
     setBusy: (busy) => {
+      // A new attempt starts clean: a previous attempt's failure is never re-shown.
+      if (busy && !h.busy) h.lastStatus = null;
       h.busy = busy;
       // BOTH doors dim: a join in flight blocks either deploy (see `deploy`), so
       // leaving SOLO VS AI lit would promise an action the home will refuse.

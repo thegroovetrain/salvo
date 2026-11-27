@@ -922,6 +922,30 @@ describe('showHome — the server icon and the notice via the handle (Eric 2026-
     expect(statusText()).toBe('LIVE-LINE');
   });
 
+  it('a busy press after clearStatus() paints nothing', () => {
+    localStorage.setItem('hullcracker.class', RETURNING);
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setBusy(true);
+    handle.setStatus('LIVE-LINE', 'info');
+    handle.clearStatus();
+    playButton().click();
+    expect(statusText()).toBe('');
+  });
+
+  it('a new busy cycle never re-shows a prior attempt\'s failure', () => {
+    vi.useFakeTimers();
+    localStorage.setItem('hullcracker.class', RETURNING);
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setBusy(true);
+    handle.setStatus('OLD-FAILURE', 'denied');
+    handle.setBusy(false);
+    vi.advanceTimersByTime(CLIENT_CONFIG.homeNoticeHoldMs + CLIENT_CONFIG.homeNoticeFadeMs);
+    expect(statusText()).toBe('');
+    handle.setBusy(true);
+    playButton().click();
+    expect(statusText()).toBe('');
+  });
+
   it('a PLAY press mid-join RE-SHOWS the last message rather than stamping a connecting line', () => {
     // Never-silence: a press while busy re-shows the last message (restarting
     // its hold), never a different fixed line.

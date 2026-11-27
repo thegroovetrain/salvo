@@ -15,6 +15,14 @@ describe('makeHomeNotice', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it('show() after dispose() schedules no timer and paints nothing', () => {
+    const n = makeHomeNotice();
+    n.dispose();
+    n.show('LATE', 'info');
+    expect(n.root.textContent).toBe('');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('starts blank', () => {
     expect(makeHomeNotice().root.textContent).toBe('');
   });

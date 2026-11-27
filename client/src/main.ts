@@ -5966,7 +5966,10 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   analytics.home();
   // Client-side server-health probe → the top-left server icon + its tooltip
   // (probing → ready/unreachable). It never touches the notice.
-  void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
+  // A late boot probe must not overwrite a reachability a live socket proved.
+  void probeServer().then((ok) => {
+    if (!serverProven) home.setServerProbe(ok ? 'ready' : 'unreachable');
+  });
   // Story 6.6: the population register + the SOLO door's queue count. Started
   // only on THIS branch — the autoQueue path above returns straight into a
   // deploy, which would stop the poll on its first line anyway.
@@ -5994,6 +5997,9 @@ async function claimPortForDeploy(home: HomeHandle): Promise<boolean> {
   return false;
 }
 
+/** True once a live socket proved the server reachable (see handStatusBackToServer). */
+let serverProven = false;
+
 /**
  * Hand the home back to a live port (Eric 2026-11-27): the server icon reads
  * READY and the notice under CREATE | JOIN is cleared.
@@ -6005,8 +6011,24 @@ async function claimPortForDeploy(home: HomeHandle): Promise<boolean> {
  * written anywhere; the probe and the notice are independent surfaces.
  */
 function handStatusBackToServer(home: HomeHandle): void {
+  serverProven = true;
   home.setServerProbe('ready');
   home.clearStatus();
+}
+
+/** Re-probe after a failed connect: the earlier proof no longer stands. A hidden
+ *  home's icon is a detached element, so a late answer is harmless. */
+function reprobeServer(home: HomeHandle): void {
+  serverProven = false;
+  home.setServerProbe('probing');
+  void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
+}
+
+/** A genuine connect failure: the reason goes to the notice, and the server icon
+ *  is re-probed so it never reads ONLINE beside a failure it can't vouch for. */
+function reportConnectFailure(home: HomeHandle, err: unknown): void {
+  home.setStatus(connectErrorStatus(err), 'denied');
+  reprobeServer(home);
 }
 
 async function startGame(
@@ -6090,7 +6112,7 @@ async function startGame(
     // (Eric 2026-11-27): EXPERIENCE.md requires a failed connection to surface
     // on the home rather than a dead screen.
     if (cancelled) handStatusBackToServer(home);
-    else home.setStatus(connectErrorStatus(err), 'denied');
+    else reportConnectFailure(home, err);
     home.setBusy(false);
     startHomeLiveness(home); // back at a live port — resume the population read
     return; // the ambient keeps breathing behind the still-live home

@@ -65,9 +65,9 @@ function makeSlot(): HTMLElement {
   const el = document.createElement('div');
   el.style.cssText = BAR_TEXT_CSS;
   el.style.display = 'block';
-  // Content-wide and centered on the column, capped at the console row's inner
-  // width: the longest refusal is a little wider than the 540px column at the
-  // 15px bar register, and may spill past its edges rather than ellipsize.
+  // Content-wide and centered on the column: the longest refusal is a little
+  // wider than the 540px column at the 15px bar register, so the text may extend
+  // past the column's edges and only ellipsizes at the window edge.
   el.style.width = 'max-content';
   el.style.maxWidth = 'calc(100vw - 52px)';
   el.style.height = 'var(--hc-home-notice)';
@@ -83,6 +83,7 @@ function makeSlot(): HTMLElement {
 export function makeHomeNotice(sched: NoticeScheduler = WINDOW_SCHEDULER): HomeNotice {
   const root = makeSlot();
   let timers: unknown[] = [];
+  let dead = false;
   const cancel = (): void => {
     for (const id of timers) sched.clear(id);
     timers = [];
@@ -101,12 +102,16 @@ export function makeHomeNotice(sched: NoticeScheduler = WINDOW_SCHEDULER): HomeN
   return {
     root,
     show: (text, tone) => {
+      if (dead) return;
       blank();
       root.textContent = text;
       root.style.color = toneColor(tone);
       timers = [sched.set(fade, CLIENT_CONFIG.homeNoticeHoldMs)];
     },
     clear: blank,
-    dispose: cancel,
+    dispose: () => {
+      dead = true;
+      cancel();
+    },
   };
 }

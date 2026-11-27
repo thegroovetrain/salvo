@@ -91,6 +91,16 @@ describe('makeServerStatus', () => {
     expect(tip.style.display).toBe('none');
   });
 
+  it('focus then mouseleave keeps it open; blur then closes it', () => {
+    const { icon, tip } = parts(makeServerStatus().root);
+    icon.dispatchEvent(new Event('focus'));
+    icon.dispatchEvent(new Event('mouseenter'));
+    icon.dispatchEvent(new Event('mouseleave'));
+    expect(tip.style.display).not.toBe('none');
+    icon.dispatchEvent(new Event('blur'));
+    expect(tip.style.display).toBe('none');
+  });
+
   it('re-renders its rows while open', () => {
     const s = makeServerStatus();
     const { icon, tip } = parts(s.root);
