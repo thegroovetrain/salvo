@@ -1000,7 +1000,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // ratio is `battery.reachFrac`.
   // HULL REPAIR (R8, R15): the `C` ability's card. Each +20 hp at once and +20
   // over the FIXED 5 s window (100 + 100 → 200 + 200 at five), and +5 to the
-  // ability's own score of 100 — cooldown 75 × 100 ÷ (100 + 5 × cards), 60 s
+  // ability's own score of 100 — cooldown 60 × 100 ÷ (100 + 5 × cards), 48 s
   // at five. The ship's RELOAD is never applied (sim/abilityStats.ts).
   hullRepair: ladder('hullRepair', 5, HULL_REPAIR_CARD),
   // SMOKE SCREEN (R9): the `V` ability's card. Each +5 to the ability's own
